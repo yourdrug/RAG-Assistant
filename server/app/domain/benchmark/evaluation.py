@@ -50,38 +50,41 @@ def source_name(source: str) -> str:
     return PurePosixPath(source.replace("\\", "/")).name.casefold()
 
 
+def fragment_identity_matches(fragment: dict[str, Any], metadata: dict[str, Any]) -> bool:
+    return all(
+        field not in fragment or str(fragment[field]) == str(metadata.get(field))
+        for field in ("document_id", "act_version_id")
+    )
+
+
+def fragment_pages_match(expected: list[Any], metadata: dict[str, Any]) -> bool:
+    pages = list(metadata.get("pages") or [])
+
+    if metadata.get("page") is not None:
+        pages.append(metadata["page"])
+
+    if metadata.get("page_start") is not None:
+        end = metadata.get("page_end")
+        pages.extend(range(metadata["page_start"], (end if end is not None else metadata["page_start"]) + 1))
+
+    return set(expected).issubset(pages)
+
+
 def matches_fragment(fragment: dict[str, Any], document: dict[str, Any]) -> bool:
+    if "alternatives" in fragment:
+        return any(matches_fragment(item, document) for item in fragment["alternatives"])
+
     metadata = document["metadata"]
-
-    if source_name(fragment["source"]) != source_name(metadata.get("source", "")):
-        return False
-
-    if fragment.get("section") and normalize_text(fragment["section"]) != normalize_text(
-        metadata.get("section", "")
-    ):
-        return False
-
-    if fragment.get("pages"):
-        pages = metadata.get("pages") or []
-
-        if metadata.get("page") is not None:
-            pages = [*pages, metadata["page"]]
-
-        if metadata.get("page_start") is not None:
-            page_end = metadata.get("page_end")
-
-            if page_end is None:
-                page_end = metadata["page_start"]
-
-            pages = [
-                *pages,
-                *range(metadata["page_start"], page_end + 1),
-            ]
-
-        if not set(fragment["pages"]).issubset(pages):
-            return False
-
-    return normalize_text(fragment["text"]) in normalize_text(document["content"])
+    return (
+        fragment_identity_matches(fragment, metadata)
+        and source_name(fragment["source"]) == source_name(metadata.get("source", ""))
+        and (
+            not fragment.get("section")
+            or normalize_text(fragment["section"]) == normalize_text(metadata.get("section", ""))
+        )
+        and (not fragment.get("pages") or fragment_pages_match(fragment["pages"], metadata))
+        and normalize_text(fragment["text"]) in normalize_text(document["content"])
+    )
 
 
 def requirement_coverage(requirements: list[Any], text: str) -> tuple[float | None, list[Any]]:
@@ -153,8 +156,11 @@ def evaluate_evidence(
         missing = [
             f
             for f in fragments
-            if not any(matches_fragment(f, doc) for doc in selected)
-            or normalize_text(f["text"]) not in normalize_text(context)
+            if not any(
+                matches_fragment(option, doc) and normalize_text(option["text"]) in normalize_text(context)
+                for option in f.get("alternatives", [f])
+                for doc in selected
+            )
         ]
         metrics["context_fragment_recall"] = 1 - len(missing) / len(fragments)
         diagnostics["missing_context_fragments"] = missing
@@ -311,3 +317,206 @@ def summarize_evidence(results: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     summary["avg_context_chars"] = round(sum(sizes) / len(sizes), 1) if sizes else None
     return summary
+
+
+STAGE_NAMES = ("candidates", "reranked", "retained", "enriched", "prompt")
+
+
+def stage_fragment_present(
+    fragment: dict[str, Any], document: dict[str, Any], context: str | None = None
+) -> bool:
+    alternatives = fragment.get("alternatives", [fragment])
+    return any(
+        matches_fragment(option, {**document, "content": document.get("scoped_content", document["content"])})
+        and (context is None or normalize_text(option["text"]) in normalize_text(context))
+        for option in alternatives
+    )
+
+
+def score_evidence_stage(
+    annotations: dict[str, Any] | None, stage: dict[str, Any], name: str
+) -> tuple[dict[str, Any], set[int]]:
+    annotations = annotations or {}
+    fragments = annotations.get("expected_fragments") or []
+    documents = stage["documents"]
+    context = stage.get("context") if name == "prompt" else None
+    found = {
+        i
+        for i, fragment in enumerate(fragments)
+        if any(stage_fragment_present(fragment, document, context) for document in documents)
+    }
+    scored = {
+        "status": stage["status"],
+        "found": sorted(found) if fragments else None,
+        "required_count": len(fragments) if fragments else None,
+        "coverage": len(found) / len(fragments) if fragments else None,
+        "all_evidence_present": len(found) == len(fragments) if fragments else None,
+        "lost_evidence": [],
+        "recovered_evidence": [],
+        "mrr": None,
+        "ndcg": None,
+    }
+
+    if fragments and stage.get("ordered"):
+        ranked_metrics: dict[str, Any] = {}
+        evaluate_fragment_ranks(fragments, documents, ranked_metrics, {})
+        scored["mrr"] = ranked_metrics["fragment_mrr"]
+        scored["ndcg"] = ranked_metrics["fragment_ndcg_at_k"]
+
+    text = (
+        context
+        if context is not None
+        else "\n".join(doc.get("scoped_content", doc["content"]) for doc in documents)
+    )
+
+    for kind in ("fact", "condition"):
+        scored[f"lexical_{kind}_coverage"] = requirement_coverage(
+            annotations.get(f"required_{kind}s") or [], text
+        )[0]
+
+    return scored, found
+
+
+def evidence_transition_issues(
+    fragments: list[Any], scored: dict[str, Any], attempt: dict[str, Any], transition: dict[str, Any]
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    decision_stages = {
+        "reranked": {"reranker"},
+        "retained": {"reranker", "retrieval", "temporal"},
+        "enriched": {"context"},
+        "prompt": {"context"},
+    }.get(transition["to"], set())
+
+    for index in scored["lost_evidence"]:
+        decisions = [
+            item
+            for item in attempt.get("exclusions", [])
+            if item["stage"] in decision_stages and stage_fragment_present(fragments[index], item)
+        ]
+        issues.append({"kind": "evidence_lost", "fragment": index, **transition, "decisions": decisions})
+
+    issues.extend(
+        {"kind": "evidence_recovered", "fragment": index, **transition}
+        for index in scored["recovered_evidence"]
+    )
+    return issues
+
+
+def lexical_answer_omissions(
+    annotations: dict[str, Any] | None, context: str | None, answer: str
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+
+    if context is None:
+        return issues
+
+    for kind in ("fact", "condition"):
+        requirements = (annotations or {}).get(f"required_{kind}s") or []
+        _, missing = requirement_coverage(requirements, answer)
+        issues.extend(
+            {
+                "kind": "lexical_answer_omission",
+                "requirement_kind": kind,
+                "requirement": requirement,
+                "semantic_review_required": True,
+            }
+            for requirement in missing
+            if requirement_coverage([requirement], context)[0] == 1
+        )
+
+    return issues
+
+
+def evaluate_attempt(
+    annotations: dict[str, Any] | None, attempt: dict[str, Any], index: int, previous: dict[str, Any]
+) -> tuple[dict[str, Any], list[Any]]:
+    evaluated: dict[str, Any] = {"attempt": index + 1, "stages": {}}
+    issues: list[dict[str, Any]] = []
+    fragments = (annotations or {}).get("expected_fragments") or []
+
+    for name in STAGE_NAMES:
+        stage = attempt.get("stages", {}).get(name)
+
+        if stage is None or stage.get("status") != "executed":
+            evaluated["stages"][name] = {
+                "status": stage["status"] if stage else "not_executed",
+                "coverage": None,
+            }
+            continue
+
+        scored, found = score_evidence_stage(annotations, stage, name)
+
+        if fragments:
+            if previous.get("found") is not None:
+                scored["lost_evidence"] = sorted(previous["found"] - found)
+                scored["recovered_evidence"] = sorted(found - previous["found"])
+
+            issues.extend(
+                evidence_transition_issues(
+                    fragments,
+                    scored,
+                    attempt,
+                    {"attempt": index + 1, "from": previous.get("stage"), "to": name},
+                )
+            )
+
+            if name == "candidates":
+                issues.extend(
+                    {"kind": "not_found_before_reranking", "fragment": i, "attempt": index + 1, "stage": name}
+                    for i in sorted(set(range(len(fragments))) - found)
+                )
+
+            previous.update(found=found, stage=f"{index + 1}:{name}")
+
+        evaluated["stages"][name] = scored
+
+    return evaluated, issues
+
+
+def evaluate_stage_evidence(
+    annotations: dict[str, Any] | None, evidence: dict[str, Any] | None, answer: str
+) -> dict[str, Any]:
+    """Pure replay of observed stages. Missing stages are never reconstructed."""
+    evidence = evidence or {}
+    result: dict[str, Any] = {
+        "schema_version": evidence.get("schema_version", 1),
+        "coverage_method": "lexical",
+        "annotation_status": evidence.get("annotation_validation", {}).get("status", "unvalidated"),
+        "attempts": [],
+        "issues": [],
+    }
+    valid_annotations = None if result["annotation_status"] == "invalid_annotation" else annotations
+    previous: dict[str, Any] = {}
+
+    for index, attempt in enumerate(evidence.get("attempts") or []):
+        evaluated, issues = evaluate_attempt(valid_annotations, attempt, index, previous)
+        result["attempts"].append(evaluated)
+        result["issues"].extend(issues)
+
+    result["issues"].extend(lexical_answer_omissions(valid_annotations, evidence.get("context"), answer))
+    result["answer_requirements"] = {}
+
+    for kind in ("fact", "condition"):
+        requirements = (valid_annotations or {}).get(f"required_{kind}s") or []
+        coverage, missing = requirement_coverage(requirements, answer)
+        result["answer_requirements"][kind] = {
+            "method": "lexical",
+            "coverage": coverage,
+            "found_count": len(requirements) - len(missing) if requirements else None,
+            "required_count": len(requirements) if requirements else None,
+        }
+
+    fragments = (valid_annotations or {}).get("expected_fragments") or []
+    result["evidence_labels"] = fragments
+    result["last_observed_stage"] = previous.get("stage")
+    result["last_observed_missing"] = (
+        sorted(set(range(len(fragments))) - previous["found"]) if previous.get("found") is not None else None
+    )
+    result["first_observed_loss"] = {}
+
+    for issue in result["issues"]:
+        if issue["kind"] in {"not_found_before_reranking", "evidence_lost"}:
+            result["first_observed_loss"].setdefault(str(issue["fragment"]), issue)
+
+    return result

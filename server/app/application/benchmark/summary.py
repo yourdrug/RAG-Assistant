@@ -4,6 +4,7 @@ from typing import Any
 
 from domain.benchmark.evaluation import summarize_evidence, summarize_retrieval
 from domain.benchmark.judge import judge_coverage
+from domain.benchmark.stage_reporting import summarize_stage_tags
 from domain.benchmark.stats import percentile
 
 
@@ -56,6 +57,7 @@ def summarize_benchmark_results(results: list[dict[str, Any]]) -> dict[str, Any]
 
     return {
         **summarize_evidence(results),
+        "stage_quality": summarize_stage_tags(results),
         "total_questions": len(results),
         **judge_coverage(results),
         "pct_with_expected_answer": round(total_with_expected / len(results) * 100, 1) if results else 0,

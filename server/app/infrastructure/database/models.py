@@ -518,6 +518,11 @@ class BenchmarkQuestionModel(BaseModel):
         JSONB(none_as_null=True),  # type: ignore[no-untyped-call]
         nullable=True,
     )
+    history: Mapped[list[dict[str, str]] | None] = mapped_column(
+        JSONB(none_as_null=True),  # type: ignore[no-untyped-call]
+        nullable=True,
+    )
+    as_of_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")

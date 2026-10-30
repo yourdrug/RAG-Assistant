@@ -25,6 +25,7 @@ class ExclusionReason(StrEnum):
     RERANK_TOP_N = "reranker_top_n"
     FINAL_TOP_K = "final_top_k"
     SCOPE_MISMATCH = "scope_mismatch"
+    TEMPORAL_CONFLICT = "temporal_conflict"
 
 
 # At most 15% of the relevance score range can be traded for new query coverage.

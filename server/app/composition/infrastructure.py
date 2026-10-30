@@ -9,6 +9,9 @@ Organized into sub-containers for Single Responsibility:
 
 from __future__ import annotations
 
+from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
+from infrastructure.benchmark.evaluation.annotation_validation import AnnotationValidator
+
 import logging
 from dataclasses import dataclass, field
 from functools import partial
@@ -171,7 +174,12 @@ class MLContainer:
         )
         self.metrics_registry = PrometheusMetricsRegistry()
         self.benchmark_service = BenchmarkService(
-            rag_service=None, runner=BenchmarkExecutor(self.ml_clients, budget_runtime=budget_runtime)
+            rag_service=None,
+            runner=BenchmarkExecutor(
+                self.ml_clients,
+                budget_runtime=budget_runtime,
+                annotation_validator=AnnotationValidator(ChunkSearchAdapter(uow_factory)),
+            ),
         )
         self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
         self.content_extractor = MLContentExtractor()

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS, validate_objective_weights
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from domain.benchmark.question import DEFAULT_DATASET
-from domain.benchmark.question import validate_annotations
+from domain.benchmark.question import validate_annotations, validate_history
 from domain.benchmark.sweep import BenchmarkStrategy
 from domain.benchmark.sweep import SweepEvaluationMode, validate_sweep_mode
 
@@ -73,6 +73,9 @@ class BenchmarkQuestionCreate(BaseModel):
     annotations: dict | None = None
 
     _validate_annotations = field_validator("annotations")(validate_annotations)
+    history: list[dict[str, str]] | None = None
+    as_of_date: date | None = None
+    _validate_history = field_validator("history")(validate_history)
     tags: list[str] | None = None
     dataset: str = DEFAULT_DATASET
     is_active: bool = True
@@ -88,6 +91,9 @@ class BenchmarkQuestionUpdate(BaseModel):
     annotations: dict | None = None
 
     _validate_annotations = field_validator("annotations")(validate_annotations)
+    history: list[dict[str, str]] | None = None
+    as_of_date: date | None = None
+    _validate_history = field_validator("history")(validate_history)
     tags: list[str] | None = None
     dataset: str | None = None
     is_active: bool | None = None
@@ -102,6 +108,9 @@ class BenchmarkQuestionResponse(BaseModel):
     annotations: dict | None = None
 
     _validate_annotations = field_validator("annotations")(validate_annotations)
+    history: list[dict[str, str]] | None = None
+    as_of_date: date | None = None
+    _validate_history = field_validator("history")(validate_history)
     tags: list[str] | None = None
     dataset: str
     is_active: bool

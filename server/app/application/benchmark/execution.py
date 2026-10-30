@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from application.benchmark.identity import fingerprint
 from domain.benchmark.judge import result_judge_errors
-from domain.benchmark.question import validate_annotations
+from domain.benchmark.question import validate_annotations, validate_history
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.rag.context import RagContext
@@ -68,6 +68,7 @@ def validate_questions(questions: object) -> None:
             raise ValueError(message)  # noqa: TRY004 — preserve benchmark validation contract
 
         validate_annotations(question.get("annotations"))
+        validate_history(question.get("history"))
 
 
 async def prepare_checkpoint_corpus(

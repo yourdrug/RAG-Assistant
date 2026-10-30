@@ -26,6 +26,9 @@ async def load_benchmark_questions(uow_factory: UnitOfWorkFactory, dataset: str)
             "source_hint": q.source_hint,
             "annotations": q.annotations,
             "tags": q.tags or [],
+            "dataset": q.dataset,
+            "history": q.history,
+            "as_of_date": q.as_of_date.isoformat() if q.as_of_date else None,
         }
         for q in questions
     ]

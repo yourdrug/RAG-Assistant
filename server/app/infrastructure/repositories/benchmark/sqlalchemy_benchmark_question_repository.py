@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.benchmark.question import BenchmarkQuestion, validate_annotations
+from domain.benchmark.question import BenchmarkQuestion, validate_annotations, validate_history
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,6 +63,8 @@ class SQLAlchemyBenchmarkQuestionRepository:
             expected_answer=question.expected_answer,
             source_hint=question.source_hint,
             annotations=validate_annotations(question.annotations),
+            history=validate_history(question.history),
+            as_of_date=question.as_of_date,
             tags=question.tags,
             dataset=question.dataset,
             is_active=question.is_active,
@@ -77,6 +79,9 @@ class SQLAlchemyBenchmarkQuestionRepository:
     async def update(self, question_id: int, **fields) -> BenchmarkQuestion | None:
         if "annotations" in fields:
             fields["annotations"] = validate_annotations(fields["annotations"])
+
+        if "history" in fields:
+            fields["history"] = validate_history(fields["history"])
 
         stmt = select(BenchmarkQuestionModel).where(BenchmarkQuestionModel.id == question_id)
         result = await self._db.execute(stmt)
@@ -111,6 +116,8 @@ class SQLAlchemyBenchmarkQuestionRepository:
                 expected_answer=q.expected_answer,
                 source_hint=q.source_hint,
                 annotations=validate_annotations(q.annotations),
+                history=validate_history(q.history),
+                as_of_date=q.as_of_date,
                 tags=q.tags,
                 dataset=q.dataset,
                 is_active=q.is_active,
@@ -166,6 +173,8 @@ class SQLAlchemyBenchmarkQuestionRepository:
             expected_answer=orm.expected_answer,
             source_hint=orm.source_hint,
             annotations=orm.annotations,
+            history=orm.history,
+            as_of_date=orm.as_of_date,
             tags=orm.tags or [],
             dataset=orm.dataset,
             is_active=orm.is_active,

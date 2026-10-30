@@ -11,7 +11,7 @@ from domain.benchmark.sweep import SweepEvaluationMode
 
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from datetime import date, datetime
 
     from application.benchmark.ports import BenchmarkCheckpoints
     from application.chat import ChatRAGPort
@@ -26,6 +26,8 @@ class BenchmarkQuestionCreateDTO:
     expected_answer: str | None = None
     source_hint: str | None = None
     annotations: dict[str, Any] | None = None
+    history: list[dict[str, str]] | None = None
+    as_of_date: date | None = None
     tags: list[str] | None = None
     dataset: str = "main"
     notes: str | None = None

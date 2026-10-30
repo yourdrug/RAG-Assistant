@@ -61,7 +61,13 @@ from infrastructure.ml.evidence_profiles.profiles import (
 )
 from infrastructure.ml.guardrails.input_scanner import InputScanner
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
-from infrastructure.ml.rag.benchmark_evidence import capture_prompt
+from infrastructure.ml.rag.benchmark_evidence import (
+    active_evidence,
+    capture_completion,
+    capture_prepared_query,
+    capture_prompt,
+    capture_prompt_delivery,
+)
 from infrastructure.ml.rag.document_access import cache_is_accessible
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.langchain_mapping import (
@@ -100,6 +106,7 @@ if TYPE_CHECKING:
     from langchain_core.runnables import Runnable
 
     from application.documents import DocumentAccessPort
+    from application.ports.ml_clients import LLMMessagePort
     from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 
@@ -189,6 +196,7 @@ class RagOperations:
                 ml_clients=self.ml,
             )
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
+        capture_prepared_query(query)
         return PreparedQuery(request, query)
 
     async def scan(self, query: PreparedQuery) -> TerminalResponse | None:
@@ -203,6 +211,7 @@ class RagOperations:
                 break
         if verdict.blocked:
             log.warning("Input injection blocked [request_id=%s]: %s", request.request_id, verdict.reason)
+            capture_completion("input_safety")
             return self.empty_response(request)
         if verdict.flagged:
             log.info(
@@ -217,7 +226,7 @@ class RagOperations:
 
     async def lookup(self, query: PreparedQuery) -> PreparedQuery | TerminalResponse:
         request = query.request
-        if not request.settings.features.cache_enabled:
+        if active_evidence.get() is not None or not request.settings.features.cache_enabled:
             return query
         revision = await get_corpus_revision()
         if revision is None:
@@ -337,6 +346,7 @@ class RagOperations:
         if not result.documents and is_out_of_domain(result.prepared.query):
             log.info("Out-of-domain question rejected: query_chars=%d", len(result.prepared.query))
             RAG_RELEVANCE_GATE_TOTAL.labels(result="out_of_domain").inc()
+            capture_completion("out_of_domain")
             return self.empty_response(result.prepared.request)
         return None
 
@@ -362,6 +372,7 @@ class RagOperations:
         RAG_SELF_RAG_RETRIES.inc()
 
     async def reject(self, result: RetrievalResult) -> TerminalResponse:
+        capture_completion("relevance_refusal")
         return TerminalResponse(
             tuple(
                 [
@@ -455,7 +466,7 @@ class RagOperations:
                     history = history[2:]
                     continue
 
-                capture_prompt(state.docs, [], context, exclusions=exclusions)
+                capture_prompt(state.docs, [], context, exclusions=exclusions, status="prepared")
                 raise ContextBudgetExceededError()
 
             messages = format_generation_messages(
@@ -476,6 +487,8 @@ class RagOperations:
             selected,
             context,
             exclusions=exclusions,
+            status="prepared",
+            messages=[{"role": message.type, "content": message.content} for message in messages],
             budget={
                 "num_ctx": num_ctx,
                 "num_predict": num_predict,
@@ -509,9 +522,12 @@ class RagOperations:
         breaker = get_breaker("llm_generate")
 
         if context.grounded_answer is not None:
+            capture_prompt_delivery(sent=False)
+            capture_completion("grounded_response")
             answer_parts.append(context.grounded_answer)
         else:
             breaker.check_open()
+            capture_prompt_delivery(sent=True)
             async with self.ml.generation_semaphore:
                 try:
                     async for chunk in self.ml.llm_for_breadth(effective_breadth).astream(messages):
@@ -530,9 +546,11 @@ class RagOperations:
 
         RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
+        capture_generation_finish(last_chunk)
         full_answer, output_verdict = OutputScanner().sanitize_output("".join(answer_parts))
 
         if not output_verdict.safe:
+            capture_completion("output_safety")
             log.warning(
                 "Output security issue [request_id=%s]: %s",
                 request_id_ctx.get(""),
@@ -598,7 +616,11 @@ class RagOperations:
     async def store(self, completed: CompletedAnswer) -> None:
         result = completed.answer.context.retrieval
         query = result.prepared
-        if query.request.settings.features.cache_enabled and query.cache_revision is not None:
+        if (
+            active_evidence.get() is None
+            and query.request.settings.features.cache_enabled
+            and query.cache_revision is not None
+        ):
             await store_answer_cache(
                 lc_documents(result.documents),
                 query.query,
@@ -608,3 +630,10 @@ class RagOperations:
                 [dict(source) for source in completed.sources],
                 expected_revision=query.cache_revision,
             )
+
+
+def capture_generation_finish(last_chunk: LLMMessagePort | None) -> None:
+    if last_chunk is not None:
+        metadata = getattr(last_chunk, "response_metadata", None)
+        reason = metadata.get("finish_reason") if isinstance(metadata, dict) else None
+        capture_prompt_delivery(sent=True, finish_reason=reason if isinstance(reason, str) else None)

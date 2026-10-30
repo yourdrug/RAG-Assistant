@@ -1,5 +1,7 @@
 """Real PostgreSQL contracts for optional benchmark annotations."""
 
+from datetime import date
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -22,7 +24,14 @@ async def test_annotations_crud_round_trip(pg_engine):
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
         repo = SQLAlchemyBenchmarkQuestionRepository(session)
-        created = await repo.create(BenchmarkQuestion(question="Q", annotations=annotations))
+        created = await repo.create(
+            BenchmarkQuestion(
+                question="Q",
+                annotations=annotations,
+                history=[{"role": "user", "content": "Earlier question"}],
+                as_of_date=date(2020, 1, 1),
+            )
+        )
         assert created.annotations == annotations
         assert (
             await repo.bulk_create(
@@ -35,7 +44,11 @@ async def test_annotations_crud_round_trip(pg_engine):
         )
     async with sessions.begin() as session:
         repo = SQLAlchemyBenchmarkQuestionRepository(session)
-        assert (await repo.get_by_id(created.id)).annotations == annotations
+        restored = await repo.get_by_id(created.id)
+        assert restored.annotations == annotations
+        assert restored.history == [{"role": "user", "content": "Earlier question"}]
+        assert restored.as_of_date == date(2020, 1, 1)
+        assert (await repo.update(created.id, history=None, as_of_date=None)).history is None
         assert len(await repo.list_items()) == 3
         assert (await repo.update(created.id, annotations=None)).annotations is None
 

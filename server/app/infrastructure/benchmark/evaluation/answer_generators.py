@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Protocol
+from datetime import date
 
 from application.chat import ChatRAGPort
 from config import _settings_overrides
 from domain.rag.context import RagContext
+from domain.rag.exceptions import ContextBudgetExceededError
 
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
@@ -56,7 +58,19 @@ class RagBenchmarkGenerator:
         if self._fetch_k is not None:
             overrides["retriever_fetch_k"] = self._fetch_k
 
-        evidence = BenchmarkEvidence()
+        if question.get("as_of_date"):
+            ctx = replace(ctx, as_of_date=date.fromisoformat(question["as_of_date"]))
+        history = question.get("history") or []
+        evidence = BenchmarkEvidence(
+            schema_version=2,
+            request={
+                "question": question["question"],
+                "history": history,
+                "as_of_date": ctx.as_of_date.isoformat() if ctx.as_of_date else None,
+                "user": asdict(ctx.user),
+                "summary": ctx.summary,
+            },
+        )
         evidence_token = active_evidence.set(evidence)
         token = _settings_overrides.set(overrides)
         records = active_llm_usage.get()
@@ -67,8 +81,17 @@ class RagBenchmarkGenerator:
         usage_token = active_llm_usage.set(records)
         started = time.monotonic()
         try:
-            result = await self._rag.invoke(question=question["question"], history=[], ctx=ctx)
+            result = await self._rag.invoke(question=question["question"], history=history, ctx=ctx)
             elapsed = time.monotonic() - started
+            evidence.completion = evidence.completion or "completed"
+            evidence.answer = {
+                "text": result.answer,
+                "sources": result.sources,
+                "completion": evidence.completion,
+            }
+        except BaseException as error:
+            capture_failure(evidence, error)
+            raise
         finally:
             active_llm_usage.reset(usage_token)
             _settings_overrides.reset(token)
@@ -93,3 +116,16 @@ class RagBenchmarkGenerator:
             rag_latency_sec=elapsed,
             llm_usage=records,
         )
+
+
+def capture_failure(evidence: BenchmarkEvidence, error: BaseException) -> None:
+    evidence.completion = "error" if isinstance(error, Exception) else "cancelled"
+    if isinstance(error, ContextBudgetExceededError):
+        evidence.completion = "prompt_budget"
+    evidence.answer = {
+        "text": None,
+        "sources": [],
+        "completion": evidence.completion,
+        "error_type": type(error).__name__,
+    }
+    error.benchmark_evidence = evidence

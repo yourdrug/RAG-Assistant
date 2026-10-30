@@ -2,6 +2,7 @@
 
 from infrastructure.worker import runtime
 
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -48,6 +49,8 @@ async def test_dataset_preserves_all_ids_and_annotations_without_1000_question_l
     cases[0].source_hint = "rules.pdf"
     cases[0].annotations = {"expected_refusal": True}
     cases[0].tags = ["regression"]
+    cases[0].as_of_date = date(2020, 1, 1)
+    cases[0].history = [{"role": "user", "content": "Previous question"}]
     factory, repo, uow = dataset_factory(cases)
     loaded = await load_benchmark_questions(factory, "custom")
     repo.list_active.assert_awaited_once_with(dataset="custom")
@@ -59,6 +62,9 @@ async def test_dataset_preserves_all_ids_and_annotations_without_1000_question_l
         "source_hint": "rules.pdf",
         "annotations": {"expected_refusal": True},
         "tags": ["regression"],
+        "dataset": "custom",
+        "as_of_date": "2020-01-01",
+        "history": [{"role": "user", "content": "Previous question"}],
     }
     assert loaded[-1]["id"] == 1001
     uow.__aexit__.assert_awaited_once()

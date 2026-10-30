@@ -7,6 +7,7 @@ from typing import Any, TYPE_CHECKING
 
 from contextlib import asynccontextmanager
 
+from application.benchmark.identity import fingerprint
 from application.benchmark.execution import (
     BenchmarkExecutionScope,
     execute_benchmark,
@@ -16,11 +17,14 @@ from config import settings
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.evaluation import answer_generators
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
+from infrastructure.benchmark.evaluation.run_manifest import build_run_manifest
+import asyncio
 from infrastructure.benchmark.judging.judge_rubric import JUDGE_RUBRIC_VERSION
 from infrastructure.benchmark.reporting import progress
 from infrastructure.benchmark.sweep.settings import settings_fingerprint
 
 if TYPE_CHECKING:
+    from infrastructure.benchmark.evaluation.annotation_validation import AnnotationValidator
     from application.benchmark import BenchmarkCheckpoints
     from infrastructure.budget.runtime import BudgetRuntime
     from application.ports.ml_clients import MLClientPort
@@ -42,6 +46,7 @@ async def run_benchmark_async(
     resume: bool = False,
     checkpoints: BenchmarkCheckpoints | None = None,
     checkpoint_prefix: str | None = None,
+    annotation_validator: AnnotationValidator | None = None,
 ) -> list[dict[str, Any]]:
     if rag_service is None:
         raise ValueError("rag_service is required for benchmark evaluation")
@@ -49,12 +54,26 @@ async def run_benchmark_async(
     @asynccontextmanager
     async def scope() -> AsyncIterator[BenchmarkExecutionScope]:
         async with benchmark_corpus(corpus_resource) as corpus:
+            manifest = await asyncio.to_thread(
+                build_run_manifest, questions, corpus_metadata(corpus), judge_model
+            )
+            manifest["execution"] = {
+                "top_k": top_k,
+                "fetch_k": fetch_k,
+                "n_runs": n_runs,
+                "seed_requested": seed,
+            }
+            manifest["configuration_version"] = fingerprint(
+                {"settings": settings_fingerprint(), "execution": manifest["execution"]}
+            )
             yield BenchmarkExecutionScope(
                 BenchmarkCaseEvaluator(
                     answer_generators.RagBenchmarkGenerator(rag_service, top_k, fetch_k),
                     judge_model,
                     checkpoints=checkpoints,
                     budget_runtime=budget_runtime,
+                    annotation_validator=annotation_validator,
+                    run_manifest=manifest,
                 ),
                 corpus_metadata(corpus),
             )
@@ -72,6 +91,6 @@ async def run_benchmark_async(
         checkpoint_prefix=checkpoint_prefix,
         scope=scope,
         reporter=progress,
-        settings_identity=settings_fingerprint(),
+        settings_identity=fingerprint({"settings": settings_fingerprint(), "evidence_schema": 2}),
         rubric_version=JUDGE_RUBRIC_VERSION,
     )

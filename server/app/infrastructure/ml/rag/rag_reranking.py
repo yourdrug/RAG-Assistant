@@ -7,7 +7,7 @@ from application.search import HybridRetriever
 from domain.shared.hashing import content_hash
 from domain.rag.ranking import RetrievalDocument, prioritize_distinct_provisions
 from domain.rag.evidence.context import content_with_parent_scope
-from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions
+from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions, capture_stage
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 
 
@@ -58,6 +58,7 @@ async def rerank_documents(
     docs = filter_scope_candidates(docs, question)
 
     if not docs:
+        capture_stage("reranked", [], score_kind="reranker")
         return []
 
     pairs = []
@@ -90,6 +91,7 @@ async def rerank_documents(
             [exclusion_record(item, ExclusionReason.RERANK_TOP_N, "reranker") for item in ranked[top_n:]]
         )
 
+    capture_stage("reranked", ranked, score_kind="reranker")
     ranked = ranked[:top_n]
 
     selected = ranked

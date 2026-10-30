@@ -16,7 +16,15 @@ from domain.shared.hashing import content_hash
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.metrics.metrics import RAG_DECOMPOSED_TOTAL, RAG_STAGE_DURATION
 from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
-from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions, capture_retrieval
+from infrastructure.ml.rag.benchmark_evidence import (
+    active_evidence,
+    authorize_capture,
+    begin_attempt,
+    capture_exclusions,
+    capture_retrieval,
+    capture_stage,
+    record_origins,
+)
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 from infrastructure.ml.rag.document_access import filter_documents, filter_scored_documents
@@ -56,6 +64,8 @@ async def run_retrieval(query_for_search: str, state: RetrievalWork, ml_clients)
             user_id=state.user.user_id,
             user_group_ids=list(state.ctx.user_group_ids),
         )
+
+        record_origins(candidates, "search", query_for_search)
 
         if candidates:
             return candidates
@@ -99,6 +109,7 @@ async def apply_exact_search(
                             metadata=chunk_result_metadata(r),
                         )
                     )
+                    record_origins([candidates[-1]], "exact_search", query_for_search)
                     existing_hashes.add(h)
 
             log.info("Exact-search added %d additional candidates", len(exact_results))
@@ -139,6 +150,15 @@ async def apply_legal_rerank_fallback(
     if document_access is not None:
         fallback_candidates = await filter_documents(fallback_candidates, document_access, user)
 
+    evidence = active_evidence.get()
+
+    if evidence is not None and evidence.attempts:
+        begin_attempt(evidence.attempts[-1]["question"], query_for_search)
+        evidence.attempts[-1]["kind"] = "legal_fallback"
+
+    authorize_capture(fallback_candidates)
+    record_origins(fallback_candidates, "fallback_search", query_for_search)
+    capture_stage("candidates", fallback_candidates, ordered=False)
     async with ml_clients.reranker_semaphore:
         return await rerank_documents(
             query_for_search,
@@ -227,6 +247,9 @@ async def rerank_and_enrich(
     if document_access is not None:
         candidates = await filter_documents(candidates, document_access, state.ctx.to_user_context())
 
+    authorize_capture(candidates)
+    record_origins(candidates, "candidate_augmentation", query)
+    capture_stage("candidates", candidates, ordered=False)
     t0 = time.monotonic()
     async with ml_clients.reranker_semaphore:
         docs = await rerank_documents(
@@ -240,7 +263,16 @@ async def rerank_and_enrich(
     RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
     if state.ctx.as_of_date is not None:
+        before_temporal = docs
         docs = resolve_temporal_conflicts(docs)
+        selected_ids = {id(doc) for doc, _ in docs}
+        capture_exclusions(
+            [
+                exclusion_record(item, ExclusionReason.TEMPORAL_CONFLICT, "temporal")
+                for item in before_temporal
+                if id(item[0]) not in selected_ids
+            ]
+        )
 
     if policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus:
         docs = await apply_legal_rerank_fallback(
@@ -267,6 +299,7 @@ async def rerank_and_enrich(
         )
 
     docs = docs[:final_top_k]
+    capture_stage("retained", docs, score_kind="reranker")
     capture_retrieval(docs)
     avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
 
@@ -282,6 +315,7 @@ async def rerank_and_enrich(
             num_predict_broad=state.rag.llm_num_predict_broad,
         ),
     )
+    retained_ids = {id(doc) for doc, _ in docs}
     docs = await enrich_with_neighbors(
         docs,
         state.enumerate_cases,
@@ -295,14 +329,23 @@ async def rerank_and_enrich(
         docs = await filter_scored_documents(docs, document_access, state.ctx.to_user_context())
         avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
 
+    authorize_capture(docs)
+    record_origins([item for item in docs if id(item[0]) not in retained_ids], "neighbor")
     docs = filter_scope_candidates(docs, query, "context")
+    before_links = {id(doc) for doc, _ in docs}
     docs = await active_evidence_profile.get().enrich_links(
         docs, query, chunk_search, state.ctx.to_user_context()
     )
+    record_origins([item for item in docs if id(item[0]) not in before_links], "linked_fragment")
+    before_scope = {id(doc) for doc, _ in docs}
     docs = await active_evidence_profile.get().enrich_scope(
         docs, query, chunk_search, state.ctx.to_user_context()
     )
     avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
+    record_origins([item for item in docs if id(item[0]) not in before_scope], "scope_context")
+    # Link/scope enrichers enforce access internally; capture only their authorized output.
+    authorize_capture(docs)
+    capture_stage("enriched", docs, ordered=False, score_kind="reranker")
     docs_only: list[LCDocument] = [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else []
     return docs, docs_only, avg_sim
 
@@ -319,7 +362,13 @@ class RetrievalPipeline:
         self.document_access = document_access
 
     async def run(self, query: str, state: RetrievalWork) -> RetrievalWork:
+        begin_attempt(state.question, query)
         candidates, state.sub_queries = await retrieve_with_decomposition(query, state, self.ml_clients)
+
+        evidence = active_evidence.get()
+
+        if evidence is not None:
+            evidence.attempts[-1]["sub_queries"] = list(state.sub_queries)
 
         if state.use_exact_ref_boost:
             await apply_exact_search(query, candidates, state.user, state.ctx, self.chunk_search)
