@@ -15,7 +15,7 @@ from config import settings
 from infrastructure.ml.ingestion.ocr_vl import recognize_page
 
 if TYPE_CHECKING:
-    from domain.runtime.config import ConfigParameterChanged
+    from application.runtime.config import ConfigParameterChanged
 
 log = logging.getLogger("detailed")
 

@@ -8,6 +8,7 @@ Usage::
 
     from tests.fakes import FakeUnitOfWorkFactory, FakeChatRAGPort
 
+
     async def test_stream_chat():
         service = ChatService(
             uow_factory=FakeUnitOfWorkFactory(),
@@ -17,6 +18,10 @@ Usage::
 """
 
 from __future__ import annotations
+from domain.knowledge.repositories.chunk import ChunkInsertOptions, DEFAULT_CHUNK_INSERT_OPTIONS
+from domain.knowledge.access_control import can_view_document
+
+from dataclasses import replace
 
 from copy import deepcopy
 
@@ -30,7 +35,7 @@ from domain.chat.message import Message
 from domain.knowledge.index_sync import OutboxStatus, VectorOutboxEntry
 from domain.shared.exceptions import EntityNotFoundError
 from domain.ingestion.repositories import IngestionRegistryEntry
-from domain.rag.stream_events import SourcesEvent, TextChunk
+from application.rag.stream_events import SourcesEvent, TextChunk
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 
 # ---------------------------------------------------------------------------
@@ -169,16 +174,16 @@ class FakeChunkRepository:
         filename: str,
         visibility: str,
         chunks: list[ChunkInsert],
-        owner_id: int | None = None,
-        group_id: int | None = None,
-        doc_domain: str = "general",
-        domain_metadata: dict | None = None,
-        act_version_id: int | None = None,
-        effective_from=None,
-        effective_to=None,
-        is_current: bool = True,
+        options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
     ) -> list[int]:
-        # Remove existing chunks for this document
+        owner_id = options.owner_id
+        group_id = options.group_id
+        doc_domain = options.doc_domain
+        domain_metadata = options.domain_metadata
+        act_version_id = options.act_version_id
+        effective_from = options.effective_from
+        effective_to = options.effective_to
+        is_current = options.is_current
         self._chunks = [c for c in self._chunks if c["document_id"] != document_id]
         ids = []
         for i, chunk in enumerate(chunks):
@@ -232,7 +237,6 @@ class FakeChunkRepository:
     async def search_substring_page(self, **kwargs):
         return [], 0
 
-
     async def list_for_document(
         self,
         document_id: int,
@@ -252,7 +256,7 @@ class FakeChunkRepository:
                 filename=c.get("filename", ""),
                 content=c.get("content", ""),
                 chunk_index=c.get("chunk_index", 0),
-                visibility=c.get("visibility", ""),
+                visibility=c.get("visibility"),
                 doc_domain=c.get("doc_domain", "general"),
                 owner_id=c.get("owner_id"),
                 group_id=c.get("group_id"),
@@ -279,7 +283,7 @@ class FakeChunkRepository:
         direction: str = "next",
         content_hashes: list[str] | None = None,
     ):
-        from domain.knowledge.chunk import encode_cursor
+        from domain.shared.pagination import encode_cursor
         from domain.shared.pagination import CursorPage
 
         rows = [c for c in self._chunks if c["document_id"] == document_id]
@@ -321,7 +325,7 @@ class FakeChunkRepository:
                 filename=c.get("filename", ""),
                 content=c.get("content", ""),
                 chunk_index=c.get("chunk_index", 0),
-                visibility=c.get("visibility", ""),
+                visibility=c.get("visibility"),
                 owner_id=c.get("owner_id"),
                 group_id=c.get("group_id"),
                 content_hash=c.get("content_hash"),
@@ -346,34 +350,10 @@ class FakeDocumentRepository:
     async def list_all(self, limit: int = 200, offset: int = 0):
         return list(self._documents.values())[offset : offset + limit]
 
-    async def list_visible(
-        self,
-        *,
-        user_kind: str = "internal",
-        user_id: int = 0,
-        group_ids: list[int] | None = None,
-        user_role: str = "user",
-        limit: int = 200,
-        offset: int = 0,
-        managed_client_ids: list[int] | None = None,
-        managed_internal_ids: list[int] | None = None,
-        managed_group_ids: list[int] | None = None,
-    ):
-        from domain.knowledge.access_control import is_in_search_scope
-
-        class _FakeCtx:
-            def __init__(self):
-                self.user_id = user_id
-                self.user_kind = user_kind
-                self.user_role = user_role
-                self.group_ids = group_ids or []
-                self.managed_client_ids = managed_client_ids or []
-                self.managed_internal_ids = managed_internal_ids or []
-                self.managed_group_ids = managed_group_ids or []
-
-        ctx = _FakeCtx()
-        visible = [d for d in self._documents.values() if is_in_search_scope(d, ctx)]
-        return visible[offset : offset + limit]
+    async def list_visible(self, filters):
+        visible = [d for d in self._documents.values() if can_view_document(d, filters.user)]
+        page = filters.pagination
+        return visible[page.offset : page.offset + page.limit]
 
     async def save(self, doc):
         doc.id = self._next_id
@@ -386,13 +366,15 @@ class FakeDocumentRepository:
 
     async def list_ingestion_documents(self, prefix):
         return [
-            d for d in self._documents.values()
+            d
+            for d in self._documents.values()
             if d.ingestion_key is not None and d.ingestion_key.startswith(prefix)
         ]
 
     async def find_active_slots_by_filenames(self, filenames: list[str], *, owner_id=None, group_id=None):
         return [
-            d for d in self._documents.values()
+            d
+            for d in self._documents.values()
             if getattr(d, "filename", None) in filenames
             and getattr(d, "owner_id", None) == owner_id
             and getattr(d, "group_id", None) == group_id
@@ -823,7 +805,7 @@ class FakeActVersionRepository:
         self._next_id = 1
 
     async def create(self, version):
-        version.id = self._next_id
+        version = replace(version, id=self._next_id)
         self._next_id += 1
         self._versions[version.id] = version
         return version
@@ -840,7 +822,7 @@ class FakeActVersionRepository:
     async def unset_current(self, act_id: int) -> None:
         for v in self._versions.values():
             if v.act_id == act_id and v.is_current:
-                v.is_current = False
+                self._versions[v.id] = replace(v, is_current=False)
 
     async def list_by_act(self, act_id: int, *, for_update: bool = False):
         return [v for v in self._versions.values() if v.act_id == act_id]

@@ -8,7 +8,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from application.health.ports import HealthCheckResult
-from domain.runtime.enums import HealthStatus, MLProvider
+from application.runtime.enums import HealthStatus, MLProvider
 
 
 if TYPE_CHECKING:

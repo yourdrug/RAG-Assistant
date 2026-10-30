@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from test_postgres_listener import connection, database_manager
 
-from domain.runtime.config import ConfigParameterChanged
+from application.runtime.config import ConfigParameterChanged
 from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 

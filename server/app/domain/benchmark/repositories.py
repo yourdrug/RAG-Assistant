@@ -1,4 +1,4 @@
-"""Benchmark repositories: domain models and rules."""
+"""Persistence contracts for benchmark datasets, completed runs and sweeps."""
 
 from __future__ import annotations
 

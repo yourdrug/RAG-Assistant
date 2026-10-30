@@ -1,7 +1,5 @@
 """API and CLI use the same registry classification and explicit fallback."""
 
-# ruff: noqa: RUF001 — Russian document fixtures.
-
 import logging
 
 import pytest

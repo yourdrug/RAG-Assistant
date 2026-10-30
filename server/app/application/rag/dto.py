@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Literal, TypedDict
 
 
 if TYPE_CHECKING:
+    from application.rag.stream_events import StreamEvent, UsageReport
     from domain.knowledge.chunk import Chunk
     from domain.rag.breadth import Breadth
     from domain.rag.context import RagContext
     from domain.rag.evidence.assessment import EvidenceAssessment
     from domain.rag.settings import RagSettings
-    from domain.rag.stream_events import StreamEvent, UsageReport
 
 
 @dataclass(frozen=True)

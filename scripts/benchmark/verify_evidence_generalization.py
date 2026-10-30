@@ -13,8 +13,8 @@ from typing import Any
 
 from langchain_core.documents import Document
 
-from domain.rag.evidence.focus import evidence_reading_map
-from domain.rag.evidence.grounded_response import (
+from infrastructure.ml.evidence_profiles.belarus.focus import evidence_reading_map
+from infrastructure.ml.evidence_profiles.belarus.grounded_response import (
     extractive_procedure_response,
     extractive_table_comparison_response,
     extractive_timing_response,

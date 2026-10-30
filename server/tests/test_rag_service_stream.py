@@ -23,8 +23,9 @@ pytestmark = pytest.mark.slow
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.rag.context import RagContext  # noqa: E402
+from domain.identity.user_context import UserContext  # noqa: E402
 from domain.rag.breadth import Breadth  # noqa: E402
-from domain.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, TextChunk  # noqa: E402
+from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, TextChunk  # noqa: E402
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter  # noqa: E402
 from composition.service_providers import create_rag_service  # noqa: E402
 
@@ -45,7 +46,13 @@ def _make_context(**overrides) -> RagContext:
         "as_of_date": None,
     }
     defaults.update(overrides)
-    return RagContext(**defaults)
+    user = UserContext(
+        defaults.pop("user_id"),
+        defaults.pop("user_kind"),
+        defaults.pop("user_role"),
+        tuple(defaults.pop("user_group_ids")),
+    ).with_curator_scope(defaults.pop("curator_scope", None))
+    return RagContext(user=user, **defaults)
 
 
 async def _async_iter(items):

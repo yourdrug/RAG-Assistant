@@ -46,7 +46,7 @@ async def process_document(
             document_id=document_id,
             storage_key=storage_key,
             original_filename=filename,
-            visibility=DocumentVisibility.validate(visibility),
+            visibility=DocumentVisibility.parse(visibility),
             owner_id=owner_id,
             group_id=group_id,
             replace_id=replace_id,
@@ -75,7 +75,7 @@ async def ingest_document_scope(
 ) -> None:
     """Dispatch ingestion with the same service and validated visibility scope."""
     service = ctx["ingestion_service"]
-    vis = DocumentVisibility.validate(visibility)
+    vis = DocumentVisibility.parse(visibility)
 
     if single:
         await service.run_single(

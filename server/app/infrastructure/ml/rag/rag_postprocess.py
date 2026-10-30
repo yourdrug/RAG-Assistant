@@ -13,9 +13,9 @@ from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from domain.knowledge.enums import PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.evidence.table_context import requests_table_overview
-from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS
+from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
 from domain.rag.settings import RagSettings
-from domain.rag.stream_events import SourcesEvent, StreamEvent, TextChunk
+from application.rag.stream_events import SourcesEvent, StreamEvent, TextChunk
 
 from infrastructure.metrics.metrics import (
     RAG_RELEVANCE_GATE_TOTAL,

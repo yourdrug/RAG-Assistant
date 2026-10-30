@@ -267,7 +267,7 @@ async def create_manual_document(
     """Create a virtual document container for manual chunks."""
     result = await document_service.create_manual_document(
         title=request.title,
-        visibility=DocumentVisibility.validate(request.visibility),
+        visibility=DocumentVisibility.parse(request.visibility),
         user_id=current_user.id,
         user_kind=UserKind(current_user.kind),
         user_role=UserRole(current_user.role),

@@ -7,6 +7,7 @@ from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, 
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
+from domain.knowledge.repositories.document import DocumentFilter
 from infrastructure.database.models import ChunkModel, DocumentModel
 from infrastructure.repositories.chunk.chunk_search import build_acl_clauses
 from infrastructure.repositories.document.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
@@ -46,15 +47,7 @@ async def test_sql_consumers_preserve_scope(
         session = MagicMock()
         session.execute = AsyncMock(return_value=MagicMock())
         session.execute.return_value.scalars.return_value.all.return_value = []
-        await SQLAlchemyDocumentRepository(session).list_visible(
-            kind,
-            10,
-            [10],
-            user_role=role,
-            managed_client_ids=scope.get("managed_client_ids"),
-            managed_internal_ids=scope.get("managed_internal_ids"),
-            managed_group_ids=scope.get("managed_group_ids"),
-        )
+        await SQLAlchemyDocumentRepository(session).list_visible(DocumentFilter(user))
         predicate = session.execute.call_args.args[0].whereclause
         model = DocumentModel
     else:

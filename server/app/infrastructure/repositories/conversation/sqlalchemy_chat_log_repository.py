@@ -5,10 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 
 from domain.chat.chat_log import ChatLog
+from domain.chat.repositories import DEFAULT_CHAT_LOG_FILTER
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ChatLogModel
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from domain.chat.repositories import ChatLogFilter
 
 
 class SQLAlchemyChatLogRepository:
@@ -34,18 +39,15 @@ class SQLAlchemyChatLogRepository:
         self._db.add(orm)
         await self._db.flush()
 
-    async def list_logs(
-        self,
-        *,
-        user_id: int | None = None,
-        user_ids: list[int] | None = None,
-        domain: str | None = None,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
-        search: str | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> list[ChatLog]:
+    async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]:
+        user_id = filters.user_id
+        user_ids = filters.user_ids
+        domain = filters.domain
+        date_from = filters.date_from
+        date_to = filters.date_to
+        search = filters.search
+        limit = filters.limit
+        offset = filters.offset
         stmt = select(ChatLogModel).order_by(ChatLogModel.creation_date.desc())
         stmt = self._apply_filters(
             stmt,
@@ -60,16 +62,13 @@ class SQLAlchemyChatLogRepository:
         result = await self._db.execute(stmt)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    async def count_logs(
-        self,
-        *,
-        user_id: int | None = None,
-        user_ids: list[int] | None = None,
-        domain: str | None = None,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
-        search: str | None = None,
-    ) -> int:
+    async def count_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> int:
+        user_id = filters.user_id
+        user_ids = filters.user_ids
+        domain = filters.domain
+        date_from = filters.date_from
+        date_to = filters.date_to
+        search = filters.search
         stmt = select(func.count()).select_from(ChatLogModel)
         stmt = self._apply_filters(
             stmt,

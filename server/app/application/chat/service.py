@@ -15,16 +15,15 @@ from typing import TYPE_CHECKING, Any
 
 from application.chat.dto import ChatResult, CreateChatLogCommand, PersistChatCommand
 from application.identity import UserContextFactory
-from domain.chat.message import Message, MessageRole
-from domain.identity.user_context import CuratorScope
-from domain.rag.context import RagContext
-from domain.rag.retrieval import compute_reranker_score
-from domain.rag.stream_events import (
+from application.rag.stream_events import (
     MetaEvent,
     SourcesEvent,
     StatusEvent,
     TextChunk,
 )
+from domain.chat.message import Message, MessageRole
+from domain.rag.context import RagContext
+from domain.rag.ranking import compute_reranker_score
 from domain.shared.exceptions import BusinessRuleViolationError
 
 
@@ -35,11 +34,11 @@ if TYPE_CHECKING:
     from application.chat.conversations import ConversationService
     from application.chat.logs import ChatLogService
     from application.chat.ports import ChatRAGPort, ChatSettingsPort, PIIRedactorPort
-    from application.uow import UnitOfWorkFactory
-    from domain.chat.conversation import Conversation
-    from domain.rag.stream_events import (
+    from application.rag.stream_events import (
         StreamEvent,
     )
+    from application.uow import UnitOfWorkFactory
+    from domain.chat.conversation import Conversation
 
 
 log = logging.getLogger(__name__)
@@ -102,19 +101,7 @@ class ChatService:
                 history = history[:-1]
 
         ctx = RagContext(
-            user_id=user_id,
-            user_kind=user_kind,
-            user_role=user_role,
-            user_group_ids=list(user_ctx.group_ids),
-            curator_scope=(
-                CuratorScope(
-                    managed_client_ids=tuple(user_ctx.managed_client_ids),
-                    managed_internal_ids=tuple(user_ctx.managed_internal_ids),
-                    managed_group_ids=tuple(user_ctx.managed_group_ids),
-                )
-                if user_ctx.is_curator
-                else None
-            ),
+            user=user_ctx,
             depth=depth,
             summary=conv.summary,
             as_of_date=as_of_date,

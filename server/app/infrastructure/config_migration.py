@@ -9,7 +9,7 @@ import logging
 import math
 import os
 import tempfile
-from domain.runtime.enums import MLProvider
+from application.runtime.enums import MLProvider
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,17 +19,17 @@ from dotenv import dotenv_values
 from dotenv.parser import parse_stream
 from pydantic import TypeAdapter
 
-from domain.runtime.config import ConfigParameter
+from application.runtime.config import ConfigParameter
 from domain.shared.exceptions import ValidationError as DomainValidationError
-from domain.runtime.config import ConfigValueType
-from domain.runtime.dynamic_params import (
+from application.runtime.config import ConfigValueType
+from application.runtime.dynamic_params import (
     DYNAMIC_PARAMS,
 )
-from domain.runtime.setting_keys import (
+from application.runtime.setting_keys import (
     SECRET_SETTING_KEYS,
     TARGET_DYNAMIC_SETTING_KEYS,
 )
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 
 # Legacy names are recognized only by the offline migration parser.
 LEGACY_POOL_SETTING_KEYS: frozenset[str] = frozenset({"http_pool_max_connections", "http_pool_max_keepalive"})

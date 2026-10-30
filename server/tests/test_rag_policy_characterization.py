@@ -13,14 +13,15 @@ from domain.rag.classification import (
 from domain.rag.guardrails.sanitization import (
     sanitize_for_prompt,
 )
-from domain.rag.prompts import (
-    build_context_message,
-    build_system_prompt,
-)
 from domain.rag.retrieval import (
+    ContextBudgetOptions,
     compute_context_budget,
     compute_retrieval_params,
     select_final_top_k,
+)
+from infrastructure.ml.rag.prompts import (
+    build_context_message,
+    build_system_prompt,
 )
 
 
@@ -121,11 +122,13 @@ def test_context_budget_custom_limits():
             question_chars=1000,
             num_ctx_narrow=8000,
             num_ctx_broad=16000,
-            chars_per_token=2,
-            reserved_overhead=1000,
-            min_context_tokens=500,
-            num_predict_narrow=1000,
-            num_predict_broad=3000,
+            options=ContextBudgetOptions(
+                chars_per_token=2,
+                reserved_overhead=1000,
+                min_context_tokens=500,
+                num_predict_narrow=1000,
+                num_predict_broad=3000,
+            ),
         )
         == 4000
     )
@@ -135,10 +138,11 @@ def test_context_budget_custom_limits():
 @pytest.mark.parametrize("query,boosted", [("обычный вопрос", False), ("СТ. 15", True)])
 def test_retrieval_params_preserve_weights_and_settings(breadth, query, boosted):
     settings = SimpleNamespace(
+        exact_ref_sparse_boost=3.0,
         retriever=SimpleNamespace(fetch_k=25, fetch_k_broad=40, top_k=4, top_k_broad=10),
         hybrid_search=SimpleNamespace(dense_weight=1.5, sparse_weight=0.5),
     )
-    assert compute_retrieval_params(breadth, settings, query, exact_ref_sparse_boost=3.0) == {
+    assert compute_retrieval_params(breadth, settings, query) == {
         "fetch_k": 40 if breadth == Breadth.BROAD else 25,
         "rerank_top_n": 10,
         "effective_dense_weight": 1.5,

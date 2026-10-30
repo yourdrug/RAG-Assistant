@@ -19,7 +19,7 @@ from domain.knowledge.enums import DocumentVisibility
         ((DocumentVisibility.INTERNAL_PRIVATE, 10, None), {"managed_internal_ids": [10]}, True, False),
         ((DocumentVisibility.INTERNAL_PRIVATE, 20, None), {"managed_internal_ids": [10]}, False, False),
         ((DocumentVisibility.INTERNAL_GROUP, None, 5), {"managed_group_ids": [5]}, True, False),
-        ((DocumentVisibility.INTERNAL_GROUP, None, 5), {"user_group_ids": [5]}, True, True),
+        ((DocumentVisibility.INTERNAL_GROUP, None, 5), {"user_group_ids": [5]}, True, False),
         ((DocumentVisibility.INTERNAL_GROUP, None, 6), {"managed_group_ids": [5]}, False, False),
         ((DocumentVisibility.INTERNAL_GROUP, None, None), {"managed_group_ids": [5]}, False, False),
         ((DocumentVisibility.INTERNAL_PRIVATE, 20, 5), {"managed_group_ids": [5]}, False, False),

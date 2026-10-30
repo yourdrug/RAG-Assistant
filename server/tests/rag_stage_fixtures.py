@@ -14,8 +14,8 @@ from application.rag.dto import (
     RetrievalResult,
     TerminalResponse,
 )
+from application.rag.stream_events import TextChunk
 from domain.rag.breadth import Breadth
-from domain.rag.stream_events import TextChunk
 from infrastructure.ml.rag.langchain_mapping import lc_documents, lc_messages, message_values, scored_values
 from infrastructure.ml.rag.rag_steps import RagOperations
 
@@ -23,7 +23,7 @@ from infrastructure.ml.rag.rag_steps import RagOperations
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from domain.rag.stream_events import StreamEvent
+    from application.rag.stream_events import StreamEvent
 
 
 def stage_fixture(**values: Any) -> SimpleNamespace:

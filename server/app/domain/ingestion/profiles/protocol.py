@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
@@ -12,6 +12,7 @@ if TYPE_CHECKING:
         EffectiveDateCandidate,
         ReferenceMatch,
     )
+    from domain.shared.profile_policy import AnswerPolicy
 
 
 @runtime_checkable
@@ -21,6 +22,13 @@ class DocumentProfile(Protocol):
     Profiles are stateless strategy objects (no DB access).
     They receive DomainSettingsPort for reading dynamic config.
     """
+
+    answer_policy: AnswerPolicy
+    query_patterns: tuple[str, ...]
+    query_priority: int
+
+    @property
+    def resolution_strategy(self) -> Literal["version", "replace"]: ...
 
     key: str
     display_name: str
@@ -38,7 +46,7 @@ class DocumentProfile(Protocol):
         """Deterministic format detection — bypasses density scoring.
 
         True = this document is definitely this domain. Example: a decree
-        decree header + marker "ПОСТАНОВЛЯЮ" — unmistakable format.
+        header + marker "ПОСТАНОВЛЯЮ" — unmistakable format.
         """
         ...
 

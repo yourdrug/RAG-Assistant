@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, TypedDict, Unpack, runtime_checkable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
@@ -13,15 +14,23 @@ if TYPE_CHECKING:
     from domain.chat.message import Message
 
 
-class ChatLogListOptions(TypedDict, total=False):
-    user_id: int | None
-    user_ids: list[int] | None
-    domain: str | None
-    date_from: datetime | None
-    date_to: datetime | None
-    search: str | None
-    limit: int
-    offset: int
+@dataclass(frozen=True)
+class ChatLogFilter:
+    user_id: int | None = None
+    user_ids: tuple[int, ...] | None = None
+    domain: str | None = None
+    date_from: datetime | None = None
+    date_to: datetime | None = None
+    search: str | None = None
+    limit: int = 50
+    offset: int = 0
+
+    def __post_init__(self) -> None:
+        if self.user_ids is not None:
+            object.__setattr__(self, "user_ids", tuple(self.user_ids))
+
+
+DEFAULT_CHAT_LOG_FILTER = ChatLogFilter()
 
 
 @runtime_checkable
@@ -56,18 +65,6 @@ class MessageRepository(Protocol):
 class ChatLogRepository(Protocol):
     async def save(self, log: ChatLog) -> None: ...
 
-    async def list_logs(
-        self,
-        **options: Unpack[ChatLogListOptions],
-    ) -> list[ChatLog]: ...
+    async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]: ...
 
-    async def count_logs(
-        self,
-        *,
-        user_id: int | None = None,
-        user_ids: list[int] | None = None,
-        domain: str | None = None,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
-        search: str | None = None,
-    ) -> int: ...
+    async def count_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> int: ...

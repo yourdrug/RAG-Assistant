@@ -39,7 +39,7 @@ class ManualDocumentService:
         user_role: UserRole,
         group_id: int | None = None,
     ) -> DocumentDTO:
-        vis = DocumentVisibility.validate(visibility)
+        vis = DocumentVisibility.parse(visibility)
 
         async with self._uow_factory.create(master=True) as uow:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)

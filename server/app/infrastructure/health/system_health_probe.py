@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 from application.health.ports import HealthCheckResult
 from config import settings
-from domain.runtime.enums import HealthStatus
+from application.runtime.enums import HealthStatus
 from infrastructure.database.database import database
 from infrastructure.redis.redis_client import redis_client
 from qdrant_client import QdrantClient

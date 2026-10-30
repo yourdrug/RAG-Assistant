@@ -11,8 +11,8 @@ import fakeredis.aioredis
 import pytest
 
 from application.budget import billing_principal
+from application.runtime.enums import LLMProvider
 from config import settings
-from domain.runtime.enums import LLMProvider
 from infrastructure.budget.job_context import job_operations, next_operation_id
 from infrastructure.metrics import metrics
 from infrastructure.redis.redis_client import redis_client

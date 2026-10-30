@@ -3,7 +3,7 @@
 import re
 
 from domain.knowledge.enums import PageContentType
-from domain.rag.retrieval import RetrievalDocument
+from domain.rag.ranking import RetrievalDocument
 
 
 STAGE_RE = re.compile(r"^При\s+(?:передаче|отгрузке|реализации)\b", re.IGNORECASE)

@@ -7,8 +7,8 @@ import pytest
 
 from composition.infrastructure import InfrastructureContainer
 from domain.ingestion.profiles.registry import DomainProfileRegistry
-from domain.runtime.config import ConfigParameterChanged
-from domain.runtime.config import ConfigValueType
+from application.runtime.config import ConfigParameterChanged
+from application.runtime.config import ConfigValueType
 from infrastructure.database.database import database
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.domain_profile import register_all_profiles
@@ -51,7 +51,7 @@ def build_infrastructure(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cli_loads_global_and_domain_settings_before_auto_classification(monkeypatch):
-    from domain.runtime.config import ConfigParameter
+    from application.runtime.config import ConfigParameter
 
     infra, bus = build_infrastructure(monkeypatch)
     infra.init = lambda database: setattr(infra, "_initialized", True)

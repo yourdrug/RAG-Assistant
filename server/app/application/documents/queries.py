@@ -11,7 +11,9 @@ from application.identity import UserContextFactory
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import check_document_access, is_in_search_scope
 from domain.knowledge.enums import DocumentStatus
+from domain.knowledge.repositories.document import DocumentFilter
 from domain.shared.exceptions import EntityNotFoundError
+from domain.shared.pagination import Pagination
 
 
 if TYPE_CHECKING:
@@ -60,42 +62,8 @@ class DocumentQueryService:
         async with self._uow_factory.create() as uow:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
 
-            if ctx.is_admin:
-                docs = await uow.documents.list_all(limit=limit, offset=offset)
-                dtos = [DocumentDTO.from_entity(d, in_search_scope=is_in_search_scope(d, ctx)) for d in docs]
-            elif ctx.is_curator:
-                docs = await uow.documents.list_visible(
-                    user_kind=user_kind,
-                    user_id=user_id,
-                    group_ids=list(ctx.group_ids) or [],
-                    user_role=user_role,
-                    limit=limit,
-                    offset=offset,
-                    managed_client_ids=list(ctx.managed_client_ids),
-                    managed_internal_ids=list(ctx.managed_internal_ids),
-                    managed_group_ids=list(ctx.managed_group_ids),
-                )
-                dtos = [DocumentDTO.from_entity(d) for d in docs]
-            elif ctx.is_client:
-                docs = await uow.documents.list_visible(
-                    user_kind=user_kind,
-                    user_id=user_id,
-                    group_ids=[],
-                    user_role=user_role,
-                    limit=limit,
-                    offset=offset,
-                )
-                dtos = [DocumentDTO.from_entity(d) for d in docs]
-            else:
-                docs = await uow.documents.list_visible(
-                    user_kind=user_kind,
-                    user_id=user_id,
-                    group_ids=list(ctx.group_ids) or [],
-                    user_role=user_role,
-                    limit=limit,
-                    offset=offset,
-                )
-                dtos = [DocumentDTO.from_entity(d) for d in docs]
+            docs = await uow.documents.list_visible(DocumentFilter(ctx, Pagination(limit, offset)))
+            dtos = [DocumentDTO.from_entity(d, in_search_scope=is_in_search_scope(d, ctx)) for d in docs]
 
             indexing_ids = [dto.id for dto in dtos if dto.status == DocumentStatus.INDEXING.value]
 

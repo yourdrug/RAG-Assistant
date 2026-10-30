@@ -9,19 +9,17 @@ from typing import TYPE_CHECKING
 
 from langchain.schema import Document as LCDocument
 
-from domain.knowledge.enums import DocDomain, SearchMode
+from domain.knowledge.enums import SearchMode
 from domain.rag.classification import should_enumerate_cases
-from domain.rag.evidence.queries import evidence_search_queries
-from domain.rag.retrieval import compute_context_budget, select_final_top_k
+from domain.rag.retrieval import ContextBudgetOptions, compute_context_budget, select_final_top_k
 from domain.shared.hashing import content_hash
+from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.metrics.metrics import RAG_DECOMPOSED_TOTAL, RAG_STAGE_DURATION
-from infrastructure.ml.rag.applicable_context import enrich_applicable_context
+from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions, capture_retrieval
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 from infrastructure.ml.rag.document_access import filter_documents, filter_scored_documents
-from infrastructure.ml.rag.field_evidence import augment_field_candidates
-from infrastructure.ml.rag.linked_context import enrich_linked_context
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors, resolve_temporal_conflicts
 from infrastructure.ml.rag.rag_prompts import decompose_question
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, filter_scope_candidates, rerank_documents
@@ -42,8 +40,8 @@ async def run_retrieval(query_for_search: str, state: RetrievalWork, ml_clients)
     """Search the legal domain first, falling back within the same access scope."""
     filters = [state.retrieval_filter]
 
-    if state.query_domain == DocDomain.LEGAL.value:
-        filters.insert(0, with_domain_filter(state.retrieval_filter, DocDomain.LEGAL.value))
+    if policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus:
+        filters.insert(0, with_domain_filter(state.retrieval_filter, state.query_domain))
 
     for access_filter in filters:
         candidates = await run_hybrid_search(
@@ -56,7 +54,7 @@ async def run_retrieval(query_for_search: str, state: RetrievalWork, ml_clients)
             sparse_weight=state.effective_sparse_weight,
             visibility_conditions=state.visibility_conditions,
             user_id=state.user.user_id,
-            user_group_ids=state.ctx.user_group_ids,
+            user_group_ids=list(state.ctx.user_group_ids),
         )
 
         if candidates:
@@ -194,7 +192,7 @@ async def retrieve_with_decomposition(
         candidates = await run_retrieval(query, state, ml_clients)
         sub_queries = [query]
 
-    for probe in evidence_search_queries(query)[1:]:
+    for probe in active_evidence_profile.get().search_queries(query)[1:]:
         if probe in sub_queries:
             continue
 
@@ -222,7 +220,9 @@ async def rerank_and_enrich(
         message = "state.breadth must be set before reranking"
         raise ValueError(message)
 
-    candidates = await augment_field_candidates(query, candidates, chunk_search, state.ctx)
+    candidates = await active_evidence_profile.get().augment_fields(
+        query, candidates, chunk_search, state.ctx
+    )
 
     if document_access is not None:
         candidates = await filter_documents(candidates, document_access, state.ctx.to_user_context())
@@ -242,7 +242,7 @@ async def rerank_and_enrich(
     if state.ctx.as_of_date is not None:
         docs = resolve_temporal_conflicts(docs)
 
-    if state.query_domain == DocDomain.LEGAL.value:
+    if policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus:
         docs = await apply_legal_rerank_fallback(
             query,
             state.retrieval_filter,
@@ -252,7 +252,7 @@ async def rerank_and_enrich(
             ml_clients,
             visibility_conditions=state.visibility_conditions,
             user_id=state.user.user_id,
-            user_group_ids=state.ctx.user_group_ids,
+            user_group_ids=list(state.ctx.user_group_ids),
             document_access=document_access,
             user=state.ctx.to_user_context(),
         )
@@ -277,8 +277,10 @@ async def rerank_and_enrich(
         question_chars=len(state.question),
         num_ctx_narrow=state.rag.llm_num_ctx_narrow,
         num_ctx_broad=state.rag.llm_num_ctx_broad,
-        num_predict_narrow=state.rag.llm_num_predict_narrow,
-        num_predict_broad=state.rag.llm_num_predict_broad,
+        options=ContextBudgetOptions(
+            num_predict_narrow=state.rag.llm_num_predict_narrow,
+            num_predict_broad=state.rag.llm_num_predict_broad,
+        ),
     )
     docs = await enrich_with_neighbors(
         docs,
@@ -294,8 +296,12 @@ async def rerank_and_enrich(
         avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
 
     docs = filter_scope_candidates(docs, query, "context")
-    docs = await enrich_linked_context(docs, query, chunk_search, state.ctx.to_user_context())
-    docs = await enrich_applicable_context(docs, query, chunk_search, state.ctx.to_user_context())
+    docs = await active_evidence_profile.get().enrich_links(
+        docs, query, chunk_search, state.ctx.to_user_context()
+    )
+    docs = await active_evidence_profile.get().enrich_scope(
+        docs, query, chunk_search, state.ctx.to_user_context()
+    )
     avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
     docs_only: list[LCDocument] = [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else []
     return docs, docs_only, avg_sim

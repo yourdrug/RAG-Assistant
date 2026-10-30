@@ -28,7 +28,7 @@ from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.corpus.resources import CorpusResources
 from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
 from domain.shared.exceptions import SemaphoreTimeoutError
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 
 from infrastructure.utils.async_tasks import finish_owned_task
 from infrastructure.ml.clients import factories

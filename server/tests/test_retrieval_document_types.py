@@ -5,7 +5,7 @@ from typing import assert_type
 from langchain_core.documents import Document
 
 from domain.ingestion.raw_document import RawDocument
-from domain.rag.retrieval import deduplicate_docs, prioritize_distinct_provisions
+from domain.rag.ranking import deduplicate_docs, prioritize_distinct_provisions
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs as deduplicate_candidates
 
 

@@ -18,7 +18,7 @@ import infrastructure.ml.rag.rag_reranking as rag_rr  # noqa: E402
 import infrastructure.ml.rag.rag_relevance as rag_rel  # noqa: E402
 import infrastructure.ml.rag.rag_sources as rag_src  # noqa: E402
 from domain.rag.classification import classify_question_breadth  # noqa: E402
-from domain.runtime.enums import LLMProvider  # noqa: E402
+from application.runtime.enums import LLMProvider  # noqa: E402
 from infrastructure.ml.rag.rag_prompts import decompose_question  # noqa: E402
 from langchain_core.language_models import FakeListChatModel  # noqa: E402
 
@@ -617,7 +617,7 @@ class TestAssessSufficiency:
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
         with patch("config.settings") as mock_settings:
-            from domain.runtime.enums import LLMProvider
+            from application.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OLLAMA
             mock_settings.llm_model = "qwen2.5"
@@ -652,7 +652,7 @@ class TestAssessSufficiency:
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
         with patch("config.settings") as mock_settings:
-            from domain.runtime.enums import LLMProvider
+            from application.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OPENROUTER
             mock_settings.openrouter_model = "qwen/qwen-2.5-7b-instruct"
@@ -911,16 +911,16 @@ class TestPromptMetricsSync:
     def test_not_found_phrase_covered_by_metrics_patterns(self):
         import re
 
-        from domain.rag.prompt_blocks import _CRITICAL_RULES_BLOCK
-        from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS
+        from infrastructure.ml.rag.prompt_blocks import CRITICAL_RULES_BLOCK
+        from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
 
-        match = re.search(r'ответь ровно:\s*\n\s*"(.+?)"', _CRITICAL_RULES_BLOCK)
-        assert match, "_CRITICAL_RULES_BLOCK must contain the quoted not-found phrase"
+        match = re.search(r'ответь ровно:\s*\n\s*"(.+?)"', CRITICAL_RULES_BLOCK)
+        assert match, "CRITICAL_RULES_BLOCK must contain the quoted not-found phrase"
         phrase = match.group(1)
         lower_phrase = phrase.lower()
         covered = any(p in lower_phrase for p in NOT_FOUND_PATTERNS)
         assert covered, (
-            f"The canonical not-found phrase '{phrase}' from _CRITICAL_RULES_BLOCK "
+            f"The canonical not-found phrase '{phrase}' from CRITICAL_RULES_BLOCK "
             f"is not matched by any substring in NOT_FOUND_PATTERNS: {NOT_FOUND_PATTERNS}. "
             "Add a matching substring to NOT_FOUND_PATTERNS in domain/rag/prompt_blocks.py."
         )

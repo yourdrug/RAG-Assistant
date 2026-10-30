@@ -8,18 +8,23 @@ from datetime import UTC, datetime, timedelta
 
 from config import settings
 from domain.knowledge.enums import SourceType
-from domain.knowledge.document import Document
+from domain.knowledge.enums import DomainKey
+from domain.knowledge.document import Document, DocumentProcessingUpdate
 from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.enums import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocumentVisibility
-from sqlalchemy import and_, distinct, func, or_, select, update
+from sqlalchemy import and_, distinct, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import DocumentModel
 from infrastructure.repositories.sql_acl import render_visibility_conditions
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from domain.knowledge.repositories.document import DocumentFilter
 
 
 class SQLAlchemyDocumentRepository:
@@ -95,43 +100,36 @@ class SQLAlchemyDocumentRepository:
         version matches, preventing lost updates from concurrent workers.
         Returns True if the row was updated, False on version conflict.
         """
+        statement = (
+            select(DocumentModel)
+            .where(DocumentModel.id == document_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if expected_version is not None:
-            result = await self._db.execute(
-                select(DocumentModel).where(
-                    DocumentModel.id == document_id,
-                    DocumentModel.version == expected_version,
-                )
-            )
-        else:
-            result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
-
-        orm = result.scalar_one_or_none()
-
+            statement = statement.where(DocumentModel.version == expected_version)
+        orm = (await self._db.execute(statement)).scalar_one_or_none()
         if orm is None:
             return False
-
-        if status is not None:
-            orm.status = status
-
-        orm.error_message = error
-
-        if warning is not None:
-            orm.warning_message = warning
-
-        if quality_score is not None:
-            orm.quality_score = quality_score
-
-        if chunks is not None:
-            orm.chunks = chunks
-
-        if chars is not None:
-            orm.chars = chars
-
-        if status == DocumentStatus.DONE.value:
-            orm.indexed_at = datetime.now(tz=UTC)
-
-        if expected_version is not None:
-            orm.version = expected_version + 1
+        entity = self._to_entity(orm)
+        entity.apply_processing_update(
+            DocumentProcessingUpdate(
+                status=DocumentStatus(status) if status is not None else None,
+                error=error,
+                chunks=chunks,
+                chars=chars,
+                warning=warning,
+                quality_score=quality_score,
+            )
+        )
+        orm.status = entity.status.value
+        orm.error_message = entity.error_message
+        orm.warning_message = entity.warning_message
+        orm.quality_score = entity.quality_score
+        orm.chunks = entity.chunks
+        orm.chars = entity.chars
+        orm.indexed_at = entity.indexed_at
+        orm.version += 1
 
         await self._db.flush()
         return True
@@ -160,7 +158,10 @@ class SQLAlchemyDocumentRepository:
         group_id: int | None,
     ) -> None:
         result = await self._db.execute(
-            select(DocumentModel).where(DocumentModel.id == document_id).with_for_update()
+            select(DocumentModel)
+            .where(DocumentModel.id == document_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         orm = result.scalar_one_or_none()
 
@@ -219,7 +220,7 @@ class SQLAlchemyDocumentRepository:
         stmt = select(DocumentModel).where(*conditions).order_by(DocumentModel.creation_date.desc()).limit(1)
 
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
 
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
@@ -251,18 +252,14 @@ class SQLAlchemyDocumentRepository:
         result = await self._db.execute(stmt)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    async def list_visible(
-        self,
-        user_kind: str,
-        user_id: int,
-        group_ids: list[int],
-        user_role: str | None = None,
-        limit: int = 200,
-        offset: int = 0,
-        managed_client_ids: list[int] | None = None,
-        managed_internal_ids: list[int] | None = None,
-        managed_group_ids: list[int] | None = None,
-    ) -> list[Document]:
+    async def list_visible(self, filters: DocumentFilter) -> list[Document]:
+        ctx = filters.user
+        user_kind, user_id, user_role = ctx.user_kind, ctx.user_id, ctx.user_role
+        group_ids = list(ctx.group_ids)
+        managed_client_ids = list(ctx.managed_client_ids)
+        managed_internal_ids = list(ctx.managed_internal_ids)
+        managed_group_ids = list(ctx.managed_group_ids)
+        limit, offset = filters.pagination.limit, filters.pagination.offset
         conditions = get_visibility_conditions(
             UserKind(user_kind),
             group_ids,
@@ -383,12 +380,17 @@ class SQLAlchemyDocumentRepository:
                 DocumentModel.status == DocumentStatus.INDEXING.value,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         orm = result.scalar_one_or_none()
 
         if orm is not None and not await self._db.scalar(select(unfinished_document_work(document_id))):
-            orm.status = DocumentStatus.DONE.value
-            orm.indexed_at = datetime.now(tz=UTC)
+            entity = self._to_entity(orm)
+            entity.mark_done(
+                entity.chunks or 0, entity.chars or 0, entity.warning_message, entity.quality_score
+            )
+            orm.status = entity.status.value
+            orm.indexed_at = entity.indexed_at
             orm.version = orm.version + 1
             await self._db.flush()
             return True
@@ -399,16 +401,21 @@ class SQLAlchemyDocumentRepository:
         """Mark documents stuck in PROCESSING for too long as FAILED."""
         cutoff = datetime.now(tz=UTC) - timedelta(minutes=settings.stuck_job_timeout_minutes)
         result = await self._db.execute(
-            select(DocumentModel).where(
+            select(DocumentModel)
+            .where(
                 DocumentModel.status == DocumentStatus.PROCESSING.value,
                 DocumentModel.creation_date < cutoff,
             )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         orms = result.scalars().all()
         ids = []
 
         for orm in orms:
-            orm.status = DocumentStatus.FAILED.value
+            entity = self._to_entity(orm)
+            entity.mark_failed("Processing timed out")
+            orm.status = entity.status.value
             orm.error_message = "Processing timed out"
             ids.append(orm.id)
 
@@ -420,27 +427,34 @@ class SQLAlchemyDocumentRepository:
         # Lock before checking outbox in a fresh statement: concurrent document
         # mutations must commit first, and another reconciler skips owned rows.
         candidates = await self._db.scalars(
-            select(DocumentModel.id)
-            .where(DocumentModel.status == DocumentStatus.INDEXING.value)
+            select(DocumentModel)
+            .where(DocumentModel.status == DocumentStatus.INDEXING)
             .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
         )
-        ids = list(candidates.all())
-
-        if not ids:
+        rows = list(candidates.all())
+        if not rows:
             return []
-
-        unfinished = unfinished_document_work(DocumentModel.id)
-        result = await self._db.scalars(
-            update(DocumentModel)
-            .where(DocumentModel.id.in_(ids), ~unfinished)
-            .values(
-                status=DocumentStatus.DONE.value,
-                indexed_at=datetime.now(UTC),
-                version=DocumentModel.version + 1,
+        eligible = set(
+            await self._db.scalars(
+                select(DocumentModel.id).where(
+                    DocumentModel.id.in_([row.id for row in rows]),
+                    ~unfinished_document_work(DocumentModel.id),
+                )
             )
-            .returning(DocumentModel.id)
         )
-        return list(result.all())
+        for orm in rows:
+            if orm.id not in eligible:
+                continue
+            entity = self._to_entity(orm)
+            entity.mark_done(
+                entity.chunks or 0, entity.chars or 0, entity.warning_message, entity.quality_score
+            )
+            orm.status = entity.status.value
+            orm.indexed_at = entity.indexed_at
+            orm.version += 1
+        await self._db.flush()
+        return [orm.id for orm in rows if orm.id in eligible]
 
     @staticmethod
     def _to_entity(orm: DocumentModel) -> Document:
@@ -453,7 +467,7 @@ class SQLAlchemyDocumentRepository:
             owner_id=orm.owner_id,
             group_id=orm.group_id,
             status=DocumentStatus(orm.status),
-            doc_domain=orm.doc_domain,
+            doc_domain=DomainKey(orm.doc_domain),
             source_type=orm.source_type,
             version_group_id=orm.version_group_id,
             has_manual_edits=orm.has_manual_edits,

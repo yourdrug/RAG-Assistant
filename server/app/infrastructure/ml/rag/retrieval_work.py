@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
     from langchain_core.documents import Document
     from langchain_core.messages import BaseMessage
 
@@ -29,6 +30,7 @@ class RetrievalWork:
     user: UserContext
     access_filter: object
     retrieval_filter: object
+    domain_registry: DomainProfileRegistry | None = None
     req_id: str = ""
     visibility_conditions: list[VisibilityCondition] = field(default_factory=list)
 

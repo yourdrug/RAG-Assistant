@@ -1,5 +1,6 @@
 """Interpretation context survives persistence, exact search, neighbors and edits."""
 
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -177,10 +178,9 @@ async def test_bulk_chunk_records_keep_fields_defaults_and_isolate_context():
         "rules.pdf",
         DocumentVisibility.INTERNAL_PRIVATE.value,
         [chunk, ChunkInsert("second")],
-        owner_id=12,
-        act_version_id=9,
-        effective_from=date(2025, 1, 1),
-        is_current=False,
+        options=ChunkInsertOptions(
+            owner_id=12, act_version_id=9, effective_from=date(2025, 1, 1), is_current=False
+        ),
     )
     assert ids == [1, 2]
     saved, default = models
@@ -255,7 +255,7 @@ async def test_manual_chunk_persists_page_and_section_context():
         page=5,
         section="Manual additions",
     )
-    assert uow.chunks.insert_one.call_args.kwargs["context_metadata"] == {
+    assert uow.chunks.insert_one.call_args.kwargs["options"].context_metadata == {
         "page": 5,
         "section": "Manual additions",
     }

@@ -1,5 +1,6 @@
 """Benchmark timing and cost must describe the real calls, not just generation."""
 
+from domain.identity.user_context import UserContext
 import asyncio
 from types import SimpleNamespace
 
@@ -63,7 +64,7 @@ async def test_rag_elapsed_includes_retrieval_and_usage_without_judge():
             domain=None,
         )
 
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     result = await RagBenchmarkGenerator(SimpleNamespace(invoke=invoke), 8, 30).generate(
         {'question': 'q'}, ctx
     )

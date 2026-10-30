@@ -2,15 +2,15 @@
 
 import pytest
 
+import application.runtime.dynamic_params
+from application.runtime.enums import LLMProvider
+import application.runtime.setting_keys
 from config import Settings, settings
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.enums import DocDomain
-import domain.runtime.dynamic_params
-from domain.runtime.enums import LLMProvider
-import domain.runtime.setting_keys
 from fakes import FakeUnitOfWorkFactory
 from infrastructure import initialization
 from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS
@@ -18,10 +18,10 @@ from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS
 
 def test_every_setting_has_exactly_one_owner():
     groups = (
-        domain.runtime.setting_keys.STATIC_SETTING_KEYS,
-        domain.runtime.setting_keys.SECRET_SETTING_KEYS,
-        domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS,
-        domain.runtime.setting_keys.METADATA_SETTING_KEYS,
+        application.runtime.setting_keys.STATIC_SETTING_KEYS,
+        application.runtime.setting_keys.SECRET_SETTING_KEYS,
+        application.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS,
+        application.runtime.setting_keys.METADATA_SETTING_KEYS,
     )
     assert set().union(*groups) == set(Settings.model_fields)
     assert sum(map(len, groups)) == len(Settings.model_fields)
@@ -29,32 +29,32 @@ def test_every_setting_has_exactly_one_owner():
 
 def test_only_database_owned_settings_are_seeded():
     seeded = {row.key for row in initialization.build_defaults()}
-    assert seeded == domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
+    assert seeded == application.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
     assert not seeded & (
-        domain.runtime.setting_keys.SECRET_SETTING_KEYS
-        | domain.runtime.setting_keys.STATIC_SETTING_KEYS
-        | domain.runtime.setting_keys.METADATA_SETTING_KEYS
+        application.runtime.setting_keys.SECRET_SETTING_KEYS
+        | application.runtime.setting_keys.STATIC_SETTING_KEYS
+        | application.runtime.setting_keys.METADATA_SETTING_KEYS
     )
 
 
 def test_future_dynamic_registry_excludes_secrets_and_static_s3():
     assert (
-        not domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
-        & domain.runtime.setting_keys.SECRET_SETTING_KEYS
+        not application.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
+        & application.runtime.setting_keys.SECRET_SETTING_KEYS
     )
-    assert {"s3_endpoint", "s3_bucket", "s3_region"} <= domain.runtime.setting_keys.STATIC_SETTING_KEYS
-    assert {"s3_access_key", "s3_secret_key"} <= domain.runtime.setting_keys.SECRET_SETTING_KEYS
-    assert "curator_scope_max_ids" in domain.runtime.setting_keys.STATIC_SETTING_KEYS
+    assert {"s3_endpoint", "s3_bucket", "s3_region"} <= application.runtime.setting_keys.STATIC_SETTING_KEYS
+    assert {"s3_access_key", "s3_secret_key"} <= application.runtime.setting_keys.SECRET_SETTING_KEYS
+    assert "curator_scope_max_ids" in application.runtime.setting_keys.STATIC_SETTING_KEYS
 
 
 def test_secret_masking_uses_complete_canonical_list():
-    assert SENSITIVE_KEYS is domain.runtime.setting_keys.SECRET_SETTING_KEYS
+    assert SENSITIVE_KEYS is application.runtime.setting_keys.SECRET_SETTING_KEYS
     assert {"admin_password", "qdrant_api_key"} <= SENSITIVE_KEYS
 
 
 def test_dynamic_registry_keys_match_target_ownership():
-    active = {param.key for param in domain.runtime.dynamic_params.DYNAMIC_PARAMS}
-    assert active == domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
+    active = {param.key for param in application.runtime.dynamic_params.DYNAMIC_PARAMS}
+    assert active == application.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
 
 
 def test_domain_parameters_keep_scope_and_stay_out_of_global_map():
@@ -64,10 +64,10 @@ def test_domain_parameters_keep_scope_and_stay_out_of_global_map():
         "decree_chunk_size": DocDomain.DECREE,
         "decree_chunk_overlap": DocDomain.DECREE,
     }
-    scoped = {p.key: p.domain_key for p in domain.runtime.dynamic_params.DYNAMIC_PARAMS if p.domain_key}
+    scoped = {p.key: p.domain_key for p in application.runtime.dynamic_params.DYNAMIC_PARAMS if p.domain_key}
     assert scoped == expected
-    assert not scoped.keys() & domain.runtime.dynamic_params.DYNAMIC_FIELDS_MAP.keys()
-    pairs = [(p.key, p.domain_key) for p in domain.runtime.dynamic_params.DYNAMIC_PARAMS]
+    assert not scoped.keys() & application.runtime.dynamic_params.DYNAMIC_FIELDS_MAP.keys()
+    pairs = [(p.key, p.domain_key) for p in application.runtime.dynamic_params.DYNAMIC_PARAMS]
     assert len(pairs) == len(set(pairs))
 
 

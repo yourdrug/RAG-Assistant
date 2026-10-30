@@ -1,22 +1,31 @@
 """Bounded row lookup for explicitly named fields missing from vector search."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 import logging
 
 from langchain_core.documents import Document
 
+from domain.knowledge.enums import PageContentType, SearchMode
 from domain.shared.hashing import content_hash
-from domain.rag.evidence.queries import table_message_matches
-from domain.knowledge.enums import PageContentType
-from domain.knowledge.enums import SearchMode
+from infrastructure.ml.evidence_profiles.belarus.focus import matching_field_rows, requested_fields
+from infrastructure.ml.evidence_profiles.belarus.predicates import table_message_matches
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from domain.rag.evidence.focus import matching_field_rows, requested_fields
+
+
+if TYPE_CHECKING:
+    from domain.rag.context import RagContext
+    from domain.rag.ports import ChunkRetrievalRepository
 
 log = logging.getLogger("default")
 MAX_FIELD_DOCUMENTS = 3
 MAX_FIELD_MATCHES = 32
 
 
-async def augment_field_candidates(question, candidates, chunk_search, ctx):
+async def augment_field_candidates(
+    question: str, candidates: list[Document], chunk_search: ChunkRetrievalRepository | None, ctx: RagContext
+) -> list[Document]:
     """Search only already-retrieved documents through ACL/temporal SQL search.
 
     Results are candidates, still subject to authoritative document access,

@@ -7,12 +7,19 @@ depend only on the maintenance subset.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, TypedDict, Unpack, runtime_checkable
+
+from domain.shared.pagination import Pagination
 
 
 if TYPE_CHECKING:
+    from domain.identity.user_context import UserContext
     from domain.knowledge.document import Document
     from domain.knowledge.enums import DocumentVisibility
+
+
+DEFAULT_DOCUMENT_PAGINATION = Pagination(limit=200)
 
 
 class DocumentStatusUpdate(TypedDict, total=False):
@@ -25,13 +32,10 @@ class DocumentStatusUpdate(TypedDict, total=False):
     expected_version: int | None
 
 
-class DocumentListOptions(TypedDict, total=False):
-    user_role: str | None
-    limit: int
-    offset: int
-    managed_client_ids: list[int] | None
-    managed_internal_ids: list[int] | None
-    managed_group_ids: list[int] | None
+@dataclass(frozen=True)
+class DocumentFilter:
+    user: UserContext
+    pagination: Pagination = DEFAULT_DOCUMENT_PAGINATION
 
 
 @runtime_checkable
@@ -72,13 +76,7 @@ class DocumentCrudRepository(Protocol):
     async def find_active_slots_by_filenames(
         self, filenames: list[str], *, owner_id: int | None = None, group_id: int | None = None
     ) -> list[Document]: ...
-    async def list_visible(
-        self,
-        user_kind: str,
-        user_id: int,
-        group_ids: list[int],
-        **options: Unpack[DocumentListOptions],
-    ) -> list[Document]: ...
+    async def list_visible(self, filters: DocumentFilter) -> list[Document]: ...
     async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]: ...
     async def list_warned(self, quality_threshold: float = 0.3) -> list[Document]: ...
     async def set_has_manual_edits(self, document_id: int, *, value: bool) -> None: ...

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+
 
 from langchain_core.messages import HumanMessage
 
-from domain.rag.evidence.focus import MAX_FOCUS_CHARS, evidence_reading_map, reading_anchors
+from infrastructure.ml.evidence_profiles.belarus.focus import MAX_FOCUS_CHARS
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -22,7 +24,7 @@ def format_generation_messages(
     counting and the final model call use this same assembly function.
     """
     messages = prompt.format_messages(context=context, history=history, question=question)
-    anchors = evidence_reading_map(context, question) + reading_anchors(context, question)
+    anchors = active_evidence_profile.get().anchors(context, question)
     selected = []
     size = 0
 

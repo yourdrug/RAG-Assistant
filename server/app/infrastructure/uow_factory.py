@@ -11,7 +11,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from application.uow import UnitOfWork, UnitOfWorkRepositories
-from domain.runtime.config import ConfigParameterChanged
+from application.runtime.config import ConfigParameterChanged
 from sqlalchemy import text
 
 from infrastructure.database.database import DatabaseManager

@@ -51,9 +51,7 @@ RU_OGRN_RE = re.compile(r"(?<!\d)" r"(?:ОГРН[:\s]?)?\d{13}(?:\d{2})?" r"(?!\
 BY_UNP_RE = re.compile(r"(?<!\d)" r"(?:УНП[:\s]?)?\d{9}" r"(?!\d)")
 
 # Belarusian passport: 2 letters + 7 digits (e.g. AB1234567)
-BY_PASSPORT_RE = re.compile(
-    r"(?<![A-Za-z\u0410-Яа-яЁё])" r"[A-Z\u0410-ЯЁ]{2}\d{7}" r"(?![A-Za-z\u0410-Яа-яЁё\d])"
-)
+BY_PASSPORT_RE = re.compile(r"(?<![A-Za-zА-Яа-яЁё])" r"[A-ZА-ЯЁ]{2}\d{7}" r"(?![A-Za-zА-Яа-яЁё\d])")
 
 # Belarusian ID card number (14 digits)
 BY_ID_CARD_RE = re.compile(r"(?<!\d)" r"(?:ID[-\s]?карт[ауы]?[:\s]?)?\d{14}" r"(?!\d)")

@@ -8,6 +8,8 @@ rejected neighbors; exact legacy context matches are reported explicitly.
 
 from __future__ import annotations
 
+from infrastructure.domain_profile.answer_policy import classify_query_domain
+from domain.identity.user_context import UserContext
 import argparse
 import json
 from pathlib import Path
@@ -21,7 +23,6 @@ from domain.benchmark.evaluation import evaluate_evidence
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
-from domain.rag.classification import classify_query_domain
 from domain.rag.context import RagContext
 from domain.shared.hashing import content_hash
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence, active_evidence, snapshot_documents
@@ -139,7 +140,7 @@ def replay_question(
 ) -> dict[str, Any]:
     evidence = question["evidence"]
     candidates = reconstruct_candidates(evidence)
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     # Old snapshots did not save the flag. True reproduces all four target contexts.
     enumerate_cases = (evidence.get("prompt_budget") or {}).get("enumerate_cases", True)
     breadth = Breadth.BROAD if enumerate_cases else Breadth(question["breadth"])

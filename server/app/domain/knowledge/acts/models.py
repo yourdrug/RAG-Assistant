@@ -1,4 +1,4 @@
-"""Knowledge domain: models."""
+"""Regulatory-act identity and immutable edition intervals."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class RegulatoryAct:
     visibility_scope: str = "internal_public"
 
 
-@dataclass
+@dataclass(frozen=True)
 class ActVersion:
     id: int | None
     act_id: int | None  # FK to RegulatoryAct (NULL = pending manual linkage)

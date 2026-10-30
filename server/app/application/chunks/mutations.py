@@ -12,6 +12,7 @@ from application.indexing import build_outbox_metadata
 from domain.knowledge.chunk import extract_chunk_context
 from domain.knowledge.enums import SourceType
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
+from domain.knowledge.repositories.chunk import ManualChunkInsertOptions
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 from domain.shared.hashing import content_hash
 
@@ -234,15 +235,17 @@ class ChunkMutationService:
                 filename=doc.filename,
                 visibility=doc.visibility.value,
                 doc_domain=doc.doc_domain,
-                owner_id=doc.owner_id,
-                group_id=doc.group_id,
-                manual=True,
-                content_hash=new_hash,
-                context_metadata=context_metadata,
-                act_version_id=act_version_id,
-                effective_from=effective_from,
-                effective_to=effective_to,
-                is_current=is_current,
+                options=ManualChunkInsertOptions(
+                    owner_id=doc.owner_id,
+                    group_id=doc.group_id,
+                    manual=True,
+                    content_hash=new_hash,
+                    context_metadata=context_metadata,
+                    act_version_id=act_version_id,
+                    effective_from=effective_from,
+                    effective_to=effective_to,
+                    is_current=is_current,
+                ),
             )
             metadata = build_outbox_metadata(
                 document_id=document_id,

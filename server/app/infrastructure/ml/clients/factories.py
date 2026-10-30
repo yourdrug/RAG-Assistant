@@ -13,7 +13,7 @@ from enum import StrEnum
 
 
 import httpx
-from domain.runtime.enums import MLProvider
+from application.runtime.enums import MLProvider
 from functools import partial
 from infrastructure.corpus.locks import corpus_write_guard
 from infrastructure.corpus.clients import raw_corpus_client
@@ -23,7 +23,7 @@ from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTransport
 from config import Settings, settings
 from domain.rag.breadth import Breadth
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr

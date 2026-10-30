@@ -50,7 +50,7 @@ class DatabaseError(AppServerError):
 
     def __init__(self, detail: str | None = None) -> None:
         super().__init__(
-            message="Ошибка взаимодействия \u0441 БД",
+            message="Database operation failed",
             errors={"detail": detail} if detail else None,
         )
 
@@ -69,19 +69,19 @@ class AppClientError(AppError):
     """Client-side error (4xx)."""
 
 
-class ValidationError(AppClientError):
+class ValidationError(AppClientError, ValueError):
     """Business rule or invariant violated (422)."""
 
     def __init__(
         self,
-        message: str = "Ошибка валидации",
+        message: str = "Validation failed",
         errors: dict[str, Any] | None = None,
         *,
         field: str | None = None,
     ) -> None:
         if field is not None and errors is None:
             errors = {field: message}
-            message = "Ошибка валидации"
+            message = "Validation failed"
 
         super().__init__(message=message, errors=errors)
 
@@ -104,7 +104,7 @@ class BusinessRuleViolationError(AppClientError):
 class AuthenticationError(AppClientError):
     """Authentication failed — invalid/expired token (401)."""
 
-    def __init__(self, detail: str = "\u041d\u0435 авторизован") -> None:
+    def __init__(self, detail: str = "Not authenticated") -> None:
         super().__init__(
             message=detail,
             errors={"detail": detail},
@@ -122,17 +122,16 @@ class PermissionDeniedError(AppClientError):
         elif isinstance(required, list):
             errors["required_any_of"] = required
 
-        super().__init__(message="Недостаточно прав", errors=errors or None)
+        super().__init__(message="Insufficient permissions", errors=errors or None)
 
 
 class LLMUnavailableError(AppServerError):
     """LLM provider temporarily unavailable (circuit breaker OPEN or timeout).
 
-    Used by infrastructure/resilience/circuit_breaker.py and caught by
-    the SSE layer to present a user-friendly error message.
+    Signals that a generation request cannot be served at this time.
     """
 
-    def __init__(self, detail: str = "LLM временно недоступен, попробуйте позже") -> None:
+    def __init__(self, detail: str = "LLM temporarily unavailable; try again later") -> None:
         super().__init__(
             message=detail,
             errors={"code": "llm_unavailable"},
@@ -146,7 +145,7 @@ class SemaphoreTimeoutError(AppClientError):
     and the caller cannot acquire a permit within the configured timeout.
     """
 
-    def __init__(self, detail: str = "Сервер перегружен, повторите позже") -> None:
+    def __init__(self, detail: str = "Server overloaded; try again later") -> None:
         super().__init__(
             message=detail,
             errors={"code": "semaphore_timeout"},
@@ -162,7 +161,7 @@ class RateLimitExceededError(AppClientError):
 
     def __init__(self, retry_after_sec: int, limit: int) -> None:
         super().__init__(
-            message="Слишком много запросов, попробуйте позже",
+            message="Too many requests; try again later",
             errors={"code": "rate_limit_exceeded"},
         )
         self.retry_after_sec = retry_after_sec

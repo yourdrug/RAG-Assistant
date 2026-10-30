@@ -5,7 +5,7 @@ import logging
 
 from config import settings
 from infrastructure.budget.runtime import BudgetRuntime
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 
 from infrastructure.benchmark.judging.judge import get_judge_client, judge_with_structured_output
 

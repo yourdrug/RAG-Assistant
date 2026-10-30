@@ -10,10 +10,12 @@ from typing import TYPE_CHECKING
 
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
-from domain.shared.dates import parse_date_guess
+from domain.shared.dates import RU_MONTHS, parse_date_guess
+from domain.shared.exceptions import ValidationError
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import date
 
 
@@ -22,10 +24,10 @@ MIN_CONDITIONAL_CHUNKS = 2
 
 _QUANTITATIVE_CONDITIONAL_PATTERNS = [
     r"сколько\s+(нужно|необходимо|следует|требуется|должно)",
-    r"сколько\s+.+\b\u0435\u0441ли\b",
-    r"какое\s+количество\s+.+\b\u0435\u0441ли\b",
+    r"сколько\s+.+\bесли\b",
+    r"какое\s+количество\s+.+\bесли\b",
     r"в\s+каком\s+размере",
-    r"какой\s+процент\s+.+\b\u0435\u0441ли\b",
+    r"какой\s+процент\s+.+\bесли\b",
 ]
 
 
@@ -34,9 +36,9 @@ _NARROW_OVERRIDE_PATTERNS = [
     r"где\s+(найти|скачать|посмотреть|открыть)",
     r"что\s+(такое|означает|является)",
     r"какой\s+(пароль|срок|размер|номер|формат|статус)",
-    r"каки[\u0435\u0445]\s+исключени",
-    r"каки[\u0435\u0445]\s+особы",
-    r"каки[\u0435\u0445]\s+альтернатив",
+    r"каки[ех]\s+исключени",
+    r"каки[ех]\s+особы",
+    r"каки[ех]\s+альтернатив",
     r"почему\s+",
     r"можно\s+ли\s+",
 ]
@@ -53,7 +55,7 @@ _BROAD_PATTERNS = [
     r"полностью",
     r"детальн",
     r"максимальн",
-    r"каки[\u0435\u0445]\s+(условия|требования|правила|нормы|критерии)",
+    r"каки[ех]\s+(условия|требования|правила|нормы|критерии)",
     r"перечисл\w*",
     r"что\s+входит",
     r"что\s+включ\w+",
@@ -69,7 +71,7 @@ COMPOUND_PATTERNS = [
     r"как\w*\s+.*\s+и\s+",
     r"что\s+.*\s+и\s+что\s+",
     r"какие\s+.*\s+и\s+какие\s+",
-    r"опиши\s+.*\s+\u0430\s+также\s+",
+    r"опиши\s+.*\s+а\s+также\s+",
     r"объясни\s+.*\s+и\s+",
 ]
 
@@ -85,19 +87,6 @@ _CONDITIONAL_MARKERS = [
     r"\d+%",
     r"не\s+менее\s+\d+",
     r"не\s+более\s+\d+",
-]
-
-
-_LEGAL_PATTERNS = [
-    r"вправе\s+ли",
-    r"обязан\s+ли",
-    r"подлежит\s+ли",
-    r"несёт\s+ли\s+ответственность",
-    r"стать[юяе]\s+\d+",
-    r"пункт[\u0430\u0435]?\s+\d+",
-    r"в\s+соответствии\s+\u0441",
-    r"согласно\s+(закону|договору|статье)",
-    r"нарушени[ея]\s+(условий|закона)",
 ]
 
 
@@ -130,13 +119,13 @@ def classify_question_breadth(question: str) -> Breadth:
     q = question.lower()
 
     # Conditional quantity rules take priority over narrow overrides.
-    if any(re.search(p, q) for p in _QUANTITATIVE_CONDITIONAL_PATTERNS):
+    if any(re.search(r"\b(?:" + p + ")", q) for p in _QUANTITATIVE_CONDITIONAL_PATTERNS):
         return Breadth.BROAD
 
-    if any(re.search(p, q) for p in _NARROW_OVERRIDE_PATTERNS):
+    if any(re.search(r"\b(?:" + p + ")", q) for p in _NARROW_OVERRIDE_PATTERNS):
         return Breadth.NARROW
 
-    return Breadth.BROAD if any(re.search(p, q) for p in _BROAD_PATTERNS) else Breadth.NARROW
+    return Breadth.BROAD if any(re.search(r"\b(?:" + p + ")", q) for p in _BROAD_PATTERNS) else Breadth.NARROW
 
 
 def needs_decomposition(question: str) -> bool:
@@ -147,7 +136,7 @@ def needs_decomposition(question: str) -> bool:
     separate retrieval queries.
     """
     q = question.lower()
-    return any(re.search(p, q) for p in COMPOUND_PATTERNS)
+    return any(re.search(r"\b(?:" + p + ")", q) for p in COMPOUND_PATTERNS)
 
 
 def should_enumerate_cases(
@@ -171,10 +160,16 @@ def should_enumerate_cases(
     return chunks_with_conditions >= MIN_CONDITIONAL_CHUNKS
 
 
-def classify_query_domain(question: str) -> DocDomain:
-    """Classify query as 'legal' or 'general' based on question patterns."""
-    q = question.lower()
-    return DocDomain.LEGAL if any(re.search(p, q) for p in _LEGAL_PATTERNS) else DocDomain.GENERAL
+def classify_query_domain(question: str, patterns: Mapping[str, tuple[str, ...]]) -> str:
+    """Select the first matching registered profile; fall back to general."""
+    return next(
+        (
+            key
+            for key, rules in patterns.items()
+            if any(re.search(r"\b(?:" + rule + ")", question, re.IGNORECASE) for rule in rules)
+        ),
+        DocDomain.GENERAL,
+    )
 
 
 def has_exact_reference(question: str) -> bool:
@@ -193,9 +188,12 @@ def is_out_of_domain(question: str) -> bool:
     return bool(_OUT_OF_DOMAIN_RE.search(question))
 
 
+QUESTION_DATE_PATTERN = (
+    r"\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4}|"
+    r"\d{1,2}\s+(?:" + "|".join(RU_MONTHS) + r")\s+\d{4}"
+)
 _QUESTION_AS_OF_RE = re.compile(
-    r"(?:по состоянию на|на дату|на)\s+"
-    r"(?P<date>\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{1,2}\s+[\u0430-яё]+\s+\d{4})",
+    r"\b(?:по состоянию на|на дату|на)\s+(?P<date>" + QUESTION_DATE_PATTERN + r")(?!\w)",
     re.IGNORECASE,
 )
 
@@ -211,6 +209,6 @@ def explicit_question_date(text: str) -> date | None:
 
     if parsed is None:
         msg = "Invalid date in question"
-        raise ValueError(msg)
+        raise ValidationError(msg)
 
     return parsed

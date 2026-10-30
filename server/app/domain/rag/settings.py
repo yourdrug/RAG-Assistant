@@ -11,6 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+DEFAULT_NUM_CTX_NARROW = 8192
+DEFAULT_NUM_CTX_BROAD = 16384
+DEFAULT_NUM_PREDICT_NARROW = 400
+DEFAULT_NUM_PREDICT_BROAD = 2048
+
+
 @dataclass(frozen=True)
 class RetrieverConfig:
     fetch_k: int
@@ -52,8 +58,8 @@ class RagSettings:
     features: FeatureToggles
     source_min_score: float
     exact_ref_sparse_boost: float = 1.0
-    llm_num_ctx_narrow: int = 4096
-    llm_num_ctx_broad: int = 8192
-    llm_num_predict_narrow: int = 400
-    llm_num_predict_broad: int = 2048
+    llm_num_ctx_narrow: int = DEFAULT_NUM_CTX_NARROW
+    llm_num_ctx_broad: int = DEFAULT_NUM_CTX_BROAD
+    llm_num_predict_narrow: int = DEFAULT_NUM_PREDICT_NARROW
+    llm_num_predict_broad: int = DEFAULT_NUM_PREDICT_BROAD
     pii_redaction_enabled: bool = False

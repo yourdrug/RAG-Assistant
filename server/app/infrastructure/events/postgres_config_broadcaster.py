@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from domain.runtime.config import ConfigParameterChanged
+from application.runtime.config import ConfigParameterChanged
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 

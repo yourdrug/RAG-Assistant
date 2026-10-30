@@ -24,7 +24,7 @@ from sqlalchemy import text
 from application.budget import billing_principal
 from config import settings
 from domain.runtime.cost import BudgetError, usd_units
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 from infrastructure.benchmark.judging.clients import (
     close_judge_clients,
     create_async_judge_client,

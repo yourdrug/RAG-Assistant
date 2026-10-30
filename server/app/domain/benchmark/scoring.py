@@ -3,6 +3,8 @@
 import math
 from typing import Any
 
+from domain.shared.exceptions import ValidationError
+
 
 METRIC_SCALES = {
     "hit_rate": 1.0,
@@ -39,7 +41,7 @@ def validate_objective_weights(
     """Omitted metrics have zero weight; never introduce hidden objectives."""
     if set(weights) - METRIC_SCALES.keys():
         msg = "Unknown objective metric"
-        raise ValueError(msg)
+        raise ValidationError(msg)
 
     resolved = dict[str, Any].fromkeys(METRIC_SCALES, 0.0)
 
@@ -48,17 +50,17 @@ def validate_objective_weights(
 
         if not math.isfinite(weight) or weight < 0:
             msg = "Objective weights must be finite and non-negative"
-            raise ValueError(msg)
+            raise ValidationError(msg)
 
         resolved[metric] = weight
 
     if not any(resolved.values()):
         msg = "At least one objective weight must be positive"
-        raise ValueError(msg)
+        raise ValidationError(msg)
 
     if require_retrieval and not any(resolved[key] > 0 for key in RETRIEVAL_OBJECTIVES):
         msg = "At least one retrieval objective weight must be positive"
-        raise ValueError(msg)
+        raise ValidationError(msg)
 
     return resolved
 

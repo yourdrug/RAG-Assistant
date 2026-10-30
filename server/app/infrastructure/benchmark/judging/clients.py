@@ -12,7 +12,7 @@ from infrastructure.budget.transport import PaidSyncTransport
 from openai import OpenAI
 from typing import Any
 from config import settings
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
 from infrastructure.benchmark.judging.token_usage import record_judge_usage

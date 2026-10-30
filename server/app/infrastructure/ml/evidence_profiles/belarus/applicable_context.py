@@ -1,28 +1,39 @@
 """Recover source-bound scope without inferring it from retrieval relevance."""
 
-import logging
-from copy import copy
+from __future__ import annotations
 
-from domain.rag.evidence.applicability import act_numbers, normalize_act_number
-from domain.rag.evidence.scope import (
-    table_heading_scope,
-    amendment_targets,
-    timing_reference,
-    timing_definitions,
-    timing_appendices,
-    timing_clauses,
-    needs_timing_scope,
-    amendment_requested,
-    TIMING_DEFINITIONS_QUERY,
+from copy import copy
+from typing import TYPE_CHECKING
+import logging
+
+from domain.knowledge.enums import PageContentType, SearchMode
+from domain.rag.evidence.context import content_with_parent_scope
+from infrastructure.ml.evidence_profiles.belarus.applicability import act_numbers, normalize_act_number
+from infrastructure.ml.evidence_profiles.belarus.focus import matching_field_rows, requested_fields
+from infrastructure.ml.evidence_profiles.belarus.predicates import (
+    listed_goods_polarities,
+    table_scope_confirmed,
+)
+from infrastructure.ml.evidence_profiles.belarus.scope import (
+    AMENDMENT_ROOT_QUERY,
     TIMING_APPENDICES_QUERY,
     TIMING_CLAUSES_QUERY,
-    AMENDMENT_ROOT_QUERY,
+    TIMING_DEFINITIONS_QUERY,
+    amendment_requested,
+    amendment_targets,
+    needs_timing_scope,
+    table_heading_scope,
+    timing_appendices,
+    timing_clauses,
+    timing_definitions,
+    timing_reference,
 )
-from domain.rag.evidence.queries import listed_goods_polarities, table_scope_confirmed
-from domain.knowledge.enums import PageContentType
-from domain.knowledge.enums import SearchMode
-from domain.rag.evidence.focus import matching_field_rows, requested_fields
-from domain.rag.evidence.context import content_with_parent_scope
+
+
+if TYPE_CHECKING:
+    from domain.rag.ports import ChunkRetrievalRepository
+    from domain.identity.user_context import UserContext
+    from langchain_core.documents import Document
 
 log = logging.getLogger("default")
 SCOPE_WINDOW = 32
@@ -72,7 +83,12 @@ async def timing_reference_scope(doc, question, chunk_search, user) -> str | Non
     return "\n".join(c.content for c in (definitions[0], appendices[0], clauses[0]))
 
 
-async def enrich_applicable_context(docs, question, chunk_search, user):
+async def enrich_applicable_context(
+    docs: list[tuple[Document, float]],
+    question: str,
+    chunk_search: ChunkRetrievalRepository | None,
+    user: UserContext,
+) -> list[tuple[Document, float]]:
     """Attach exact table headings or explicit point -> appendix -> category links.
 
     Every lookup is ACL-scoped. No missing neighbor, version mismatch, or lookup

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from domain.knowledge.repositories.chunk import (
+    ChunkInsertOptions,
+    ManualChunkInsertOptions,
+    DEFAULT_CHUNK_INSERT_OPTIONS,
+    DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
+)
+from datetime import datetime
 
 from domain.knowledge.chunk import (
     ChunkInsert,
@@ -10,7 +16,6 @@ from domain.knowledge.chunk import (
     ChunkStats,
     extract_chunk_context,
 )
-from domain.knowledge.enums import DocDomain
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 from domain.shared.pagination import CursorPage
 from sqlalchemy import delete, func, select, update
@@ -58,16 +63,17 @@ class SQLAlchemyChunkCrudRepository:
         filename: str,
         visibility: str,
         chunks: list[ChunkInsert],
-        owner_id: int | None = None,
-        group_id: int | None = None,
-        doc_domain: str = DocDomain.GENERAL.value,
-        domain_metadata: dict | None = None,
-        act_version_id: int | None = None,
-        effective_from: date | None = None,
-        effective_to: date | None = None,
-        is_current: bool = True,
+        options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
     ) -> list[int]:
         """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
+        owner_id = options.owner_id
+        group_id = options.group_id
+        doc_domain = options.doc_domain
+        domain_metadata = options.domain_metadata
+        act_version_id = options.act_version_id
+        effective_from = options.effective_from
+        effective_to = options.effective_to
+        is_current = options.is_current
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
 
         if not chunks:
@@ -148,16 +154,17 @@ class SQLAlchemyChunkCrudRepository:
         filename: str,
         visibility: str,
         doc_domain: str,
-        owner_id: int | None = None,
-        group_id: int | None = None,
-        manual: bool = False,
-        content_hash: str | None = None,
-        context_metadata: dict | None = None,
-        act_version_id: int | None = None,
-        effective_from: date | None = None,
-        effective_to: date | None = None,
-        is_current: bool = True,
+        options: ManualChunkInsertOptions = DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
     ) -> int:
+        owner_id = options.owner_id
+        group_id = options.group_id
+        manual = options.manual
+        content_hash = options.content_hash
+        context_metadata = options.context_metadata
+        act_version_id = options.act_version_id
+        effective_from = options.effective_from
+        effective_to = options.effective_to
+        is_current = options.is_current
         orm = ChunkModel(
             document_id=document_id,
             chunk_index=chunk_index,

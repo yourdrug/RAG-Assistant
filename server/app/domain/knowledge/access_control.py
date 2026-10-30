@@ -1,4 +1,4 @@
-"""Knowledge domain: access control."""
+"""Canonical document visibility clauses and mutation authorization checks."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from domain.identity.capabilities import Capability, get_role_capabilities
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocumentVisibility
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
@@ -27,6 +28,11 @@ ALLOWED_VISIBILITY_FOR_KIND: dict[UserKind, set[DocumentVisibility]] = {
 }
 
 
+class OwnerMatch(StrEnum):
+    SELF = "self"
+    ASSIGNED = "assigned"
+
+
 @dataclass(frozen=True)
 class VisibilityCondition:
     """A single AND-clause of a visibility filter.
@@ -37,7 +43,7 @@ class VisibilityCondition:
     """
 
     visibility: DocumentVisibility
-    owner_match: str | None = None  # OwnerMatch.SELF = user_id
+    owner_match: OwnerMatch | None = None  # OwnerMatch.SELF = user_id
     owner_ids: list[int] | None = None  # OwnerMatch.ASSIGNED = owner_id in this list
     group_match: bool = False  # True = group_id IN user_group_ids
     group_ids: list[int] | None = None  # explicit group id list for group_match
@@ -176,13 +182,17 @@ def validate_document_visibility(
     """Validate that a user can use the given visibility."""
     user_kind = ctx.user_kind
     user_role = ctx.user_role
+    capabilities = get_role_capabilities(user_role)
     allowed = ALLOWED_VISIBILITY_FOR_KIND.get(user_kind)
 
     if allowed is None or visibility not in allowed:
         msg = f"visibility='{visibility}' not available for kind='{user_kind}'"
         raise ValidationError(msg)
 
-    if visibility == DocumentVisibility.INTERNAL_PUBLIC and user_role != UserRole.ADMIN:
+    if (
+        visibility == DocumentVisibility.INTERNAL_PUBLIC
+        and Capability.DOCUMENTS_PUBLISH_PUBLIC not in capabilities
+    ):
         msg = "Only admin can publish to internal_public"
         raise BusinessRuleViolationError(msg)
 
@@ -190,7 +200,7 @@ def validate_document_visibility(
     if (
         visibility == DocumentVisibility.CLIENT_PRIVATE
         and user_kind == UserKind.INTERNAL
-        and user_role not in (UserRole.ADMIN, UserRole.CURATOR)
+        and Capability.DOCUMENTS_UPLOAD_FOR_CLIENTS not in capabilities
     ):
         msg = "Only admin can upload documents for clients"
         raise BusinessRuleViolationError(msg)
@@ -202,7 +212,7 @@ def validate_document_visibility(
 
         all_group_ids = set(ctx.group_ids) | set(ctx.managed_group_ids or [])
 
-        if user_role != UserRole.ADMIN and group_id not in all_group_ids:
+        if Capability.DOCUMENTS_ACCESS_ALL_INTERNAL not in capabilities and group_id not in all_group_ids:
             msg = "You are not a member of this group"
             raise BusinessRuleViolationError(msg)
 
@@ -229,7 +239,7 @@ def can_view_document(doc: Document, ctx: UserContext) -> bool:
     source of truth used by ``is_in_search_scope`` (for_list=False) and
     ``build_qdrant_filter``.
     """
-    DocumentVisibility.validate(doc.visibility)
+    DocumentVisibility.parse(doc.visibility)
     conditions = get_visibility_conditions(
         ctx.user_kind,
         list(ctx.group_ids),
@@ -305,10 +315,5 @@ def check_ownership(doc: Document, ctx: UserContext, action: str = "modify") -> 
         managed_internal_ids=list(ctx.managed_internal_ids),
         managed_group_ids=list(ctx.managed_group_ids),
     ):
-        msg = f"Can only {action} your own documents"
+        msg = f"No permission to {action} this document"
         raise BusinessRuleViolationError(msg)
-
-
-class OwnerMatch(StrEnum):
-    SELF = "self"
-    ASSIGNED = "assigned"

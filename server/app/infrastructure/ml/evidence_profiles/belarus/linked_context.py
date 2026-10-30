@@ -1,20 +1,38 @@
 """Recover local interpretation links from authorized, contiguous source chunks."""
 
-import logging
+from __future__ import annotations
+
 from copy import copy
+from typing import TYPE_CHECKING
+import logging
 
 from langchain_core.documents import Document
 
 from domain.knowledge.enums import PageContentType
+from infrastructure.ml.evidence_profiles.belarus.links import (
+    link_modes,
+    link_seed_priority,
+    procedure_scopes,
+    replacement_scopes,
+)
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from domain.rag.evidence.links import link_modes, link_seed_priority, replacement_scopes, procedure_scopes
+
+
+if TYPE_CHECKING:
+    from domain.rag.ports import ChunkRetrievalRepository
+    from domain.identity.user_context import UserContext
 
 log = logging.getLogger("default")
 LINK_WINDOW = 3
 MAX_LINK_LOOKUPS = 8
 
 
-async def enrich_linked_context(docs, question, chunk_search, user):
+async def enrich_linked_context(
+    docs: list[tuple[Document, float]],
+    question: str,
+    chunk_search: ChunkRetrievalRepository | None,
+    user: UserContext,
+) -> list[tuple[Document, float]]:
     """Attach exact atomic scopes; final prompt selection counts their full size.
 
     The repository enforces ACL. Only the seed's document and act version are

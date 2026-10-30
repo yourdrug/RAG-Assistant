@@ -18,12 +18,12 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
 
-from domain.rag.prompts import (
+from infrastructure.domain_profile.answer_policy import classify_query_domain
+from infrastructure.ml.rag.prompts import (
     build_system_prompt,
 )
 from domain.rag.classification import (
     classify_question_breadth,
-    classify_query_domain,
     has_exact_reference,
     is_out_of_domain,
     needs_decomposition,

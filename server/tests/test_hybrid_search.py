@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.shared.hashing import content_hash
 from domain.knowledge.enums import DocumentVisibility
-from domain.rag.retrieval import rrf_merge  # noqa: E402
+from domain.rag.ranking import rrf_merge
 from infrastructure.bm25.bm25_index import BM25Index  # noqa: E402
 from infrastructure.bm25.persistence import BM25_S3_KEY, load_bm25_index_from_s3, save_bm25_index_to_s3  # noqa: E402
 from infrastructure.bm25.tokenizer import tokenize, tokenize_raw  # noqa: E402

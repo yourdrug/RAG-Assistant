@@ -71,7 +71,7 @@ class DocumentSyncService:
         """
         del source_chars  # Chunk persistence computes document statistics.
         full_text_by_source = full_text_by_source or {}
-        visibility = DocumentVisibility.validate(visibility)
+        visibility = DocumentVisibility.parse(visibility)
 
         owner_id = client_id if visibility == DocumentVisibility.CLIENT_PRIVATE else None
         group_id = group_id if visibility == DocumentVisibility.INTERNAL_GROUP else None

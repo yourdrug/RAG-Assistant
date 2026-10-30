@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from application.admin.dto import ModelsInfo, OpenRouterModelsInfo, VectorDBCollectionInfo, VectorDBInfo
-from domain.runtime.enums import HealthStatus, LLMProvider, MLProvider
+from application.runtime.enums import HealthStatus, LLMProvider, MLProvider
 
 
 if TYPE_CHECKING:

@@ -1,7 +1,5 @@
 """Local OCR contract, scan routing, preview parity and bounded table retries."""
 
-# ruff: noqa: RUF001 -- Cyrillic OCR fixtures intentionally contain Russian words.
-
 from collections.abc import Callable
 import io
 from pathlib import Path

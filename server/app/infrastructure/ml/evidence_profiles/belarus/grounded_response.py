@@ -2,8 +2,9 @@
 
 import re
 
-from domain.rag.evidence.queries import table_scope_confirmed
-from domain.rag.evidence.applicability import (
+from domain.rag.evidence.assessment import EvidenceAssessment, EvidenceFragment, EvidenceStatus
+from domain.rag.evidence.context import content_with_parent_scope
+from infrastructure.ml.evidence_profiles.belarus.applicability import (
     act_numbers,
     evidence_conflicts,
     procedure_assessment,
@@ -11,9 +12,12 @@ from domain.rag.evidence.applicability import (
     timing_assessment,
     timing_question,
 )
-from domain.rag.evidence.assessment import EvidenceAssessment, EvidenceFragment, EvidenceStatus
-from domain.rag.evidence.focus import evidence_reading_map, requested_fields, matching_field_rows
-from domain.rag.evidence.context import content_with_parent_scope
+from infrastructure.ml.evidence_profiles.belarus.focus import (
+    evidence_reading_map,
+    matching_field_rows,
+    requested_fields,
+)
+from infrastructure.ml.evidence_profiles.belarus.predicates import table_scope_confirmed
 
 
 def missing_field_response(context: str, question: str) -> str | None:

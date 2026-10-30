@@ -9,13 +9,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from domain.ingestion.profiles.decree import DecreeDomainProfile
-from domain.ingestion.profiles.general import GeneralDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
+from domain.ingestion.profiles.catalog import PROFILE_TYPES, SETTINGS_PROFILE_TYPES
 
 if TYPE_CHECKING:
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.registry import DomainProfileRegistry
+
 
 log = logging.getLogger("default")
 
@@ -27,9 +26,9 @@ def register_all_profiles(registry: DomainProfileRegistry, settings: DomainSetti
     settings-backed profiles so configuration errors are caught at startup,
     not on the first document processing request.
     """
-    registry.register(GeneralDomainProfile())
+    registry.register(PROFILE_TYPES[0]())
 
-    for cls in (LegalDomainProfile, DecreeDomainProfile):
+    for cls in SETTINGS_PROFILE_TYPES:
         profile = cls(settings=settings)
         try:
             profile.get_setting("max_unit_chars")

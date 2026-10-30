@@ -1,5 +1,6 @@
 """Regression scenarios for mixed PDF pages, instruction scope and prompt budgets."""
 
+from domain.identity.user_context import UserContext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -11,14 +12,13 @@ from langchain.schema import Document
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
-from domain.rag.retrieval import ContextBudgetExceededError
+from domain.rag.exceptions import ContextBudgetExceededError
 from domain.knowledge.enums import DocDomain
 from domain.rag.context import RagContext
 from domain.rag.breadth import Breadth
 from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
-from domain.rag.stream_events import StatusEvent
-from domain.identity.user_context import UserContext
+from application.rag.stream_events import StatusEvent
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.pdf import parse_pdf, pymupdf_table_to_markdown
 from infrastructure.ml.ingestion.splitting import split_documents
@@ -178,7 +178,9 @@ def test_no_usable_context_stops_before_generation():
         t_pipeline_start=0,
         question="Explain the eligibility rules.",
         ctx=RagContext(
-            user_id=12, user_kind=UserKind.INTERNAL.value, user_role=UserRole.USER.value, user_group_ids=[]
+            user=UserContext(
+                user_id=12, user_kind=UserKind.INTERNAL.value, user_role=UserRole.USER.value, group_ids=[]
+            )
         ),
         user=UserContext(12, UserKind.INTERNAL, UserRole.USER),
         access_filter=None,

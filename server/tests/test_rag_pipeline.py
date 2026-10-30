@@ -10,6 +10,7 @@ Covers:
 - _resolve_fetch_top_k
 """
 
+from domain.identity.user_context import UserContext
 from infrastructure.ml.rag.rag_steps import RagOperations
 
 import sys
@@ -27,7 +28,7 @@ from domain.rag.settings import (  # noqa: E402
     RerankConfig,
     RetrieverConfig,
 )
-from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS  # noqa: E402
+from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS  # noqa: E402
 from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings  # noqa: E402
 from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer  # noqa: E402
 from composition.service_providers import create_rag_service  # noqa: E402
@@ -78,7 +79,15 @@ def test_request_and_stage_results_are_frozen():
     from application.rag.dto import RagRequest, PreparedQuery
     import pytest
 
-    request = RagRequest("question", (), RagContext(1, "internal"), _make_rag(), 0, "req", "model")
+    request = RagRequest(
+        "question",
+        (),
+        RagContext(user=UserContext(user_id=1, user_kind="internal")),
+        _make_rag(),
+        0,
+        "req",
+        "model",
+    )
     prepared = PreparedQuery(request, "query")
     with pytest.raises(FrozenInstanceError):
         prepared.query = "changed"
@@ -212,8 +221,8 @@ class TestComputeEffectiveWeights:
     def test_default_weights(self):
         from domain.rag.retrieval import compute_retrieval_params
 
-        rag = _make_rag()
-        params = compute_retrieval_params(Breadth.NARROW, rag, "обычный вопрос", exact_ref_sparse_boost=2.0)
+        rag = _make_rag(exact_ref_sparse_boost=2.0)
+        params = compute_retrieval_params(Breadth.NARROW, rag, "обычный вопрос")
         assert params["effective_dense_weight"] == 1.5
         assert params["effective_sparse_weight"] == 0.5
         assert params["use_exact_ref_boost"] is False
@@ -221,10 +230,8 @@ class TestComputeEffectiveWeights:
     def test_exact_ref_boost(self):
         from domain.rag.retrieval import compute_retrieval_params
 
-        rag = _make_rag()
-        params = compute_retrieval_params(
-            Breadth.NARROW, rag, "статья 14 пункт 3", exact_ref_sparse_boost=2.0
-        )
+        rag = _make_rag(exact_ref_sparse_boost=2.0)
+        params = compute_retrieval_params(Breadth.NARROW, rag, "статья 14 пункт 3")
         assert params["use_exact_ref_boost"] is True
         assert params["effective_sparse_weight"] > 0.5
 
@@ -238,13 +245,13 @@ class TestResolveFetchTopK:
     def test_narrow_params(self):
         from domain.rag.retrieval import compute_retrieval_params
 
-        rag = _make_rag()
+        rag = _make_rag(exact_ref_sparse_boost=2.0)
         params = compute_retrieval_params(Breadth.NARROW, rag, "обычный вопрос")
         assert params["fetch_k"] == 25
 
     def test_broad_params(self):
         from domain.rag.retrieval import compute_retrieval_params
 
-        rag = _make_rag()
+        rag = _make_rag(exact_ref_sparse_boost=2.0)
         params = compute_retrieval_params(Breadth.BROAD, rag, "широкий вопрос")
         assert params["fetch_k"] == 40

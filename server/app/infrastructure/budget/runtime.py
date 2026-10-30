@@ -2,7 +2,7 @@
 
 from sqlalchemy import text
 from infrastructure.database.database import database
-from domain.runtime.config import parse_bool
+from application.runtime.config import parse_bool
 
 from application.budget import BudgetPolicy, CostBudgetService
 from config import settings

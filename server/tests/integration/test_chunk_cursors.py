@@ -3,8 +3,8 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from domain.knowledge.chunk import decode_cursor
 from domain.knowledge.enums import DocumentVisibility
+from domain.shared.pagination import decode_cursor
 from infrastructure.database.models import ChunkModel, DocumentModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 

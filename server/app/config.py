@@ -2,25 +2,31 @@
 
 Types, defaults and validation live here; deployment values currently come from
 env and supported dynamic values are applied from the database at bootstrap.
-Target ownership is declared in domain.runtime.setting_keys.
+Target ownership is declared in application.runtime.setting_keys.
 """
 
 from __future__ import annotations
 
 import sys
-from domain.runtime.enums import MLProvider
+from application.runtime.enums import MLProvider
+from domain.rag.settings import (
+    DEFAULT_NUM_CTX_NARROW,
+    DEFAULT_NUM_CTX_BROAD,
+    DEFAULT_NUM_PREDICT_NARROW,
+    DEFAULT_NUM_PREDICT_BROAD,
+)
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from domain.runtime.dynamic_params import MAX_UPLOAD_FILE_MB, DYNAMIC_PARAMS
-from domain.runtime.enums import AppStage
-from domain.runtime.enums import LLMProvider
+from application.runtime.dynamic_params import MAX_UPLOAD_FILE_MB, DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
+from application.runtime.enums import AppStage
+from application.runtime.enums import LLMProvider
 
 if TYPE_CHECKING:
     from pydantic_settings import PydanticBaseSettingsSource
@@ -58,6 +64,8 @@ def read_version() -> str:
 
 
 class Settings(BaseSettings):
+    evidence_profile: Literal["generic", "belarus"] = "belarus"
+
     # ── PostgreSQL ──────────────────────────────────────────────────────────
     db_host: str
     db_port: str
@@ -98,10 +106,10 @@ class Settings(BaseSettings):
     llm_model: str = "qwen2.5:7b"
     llm_temperature: float = 0.1
     llm_top_p: float = 0.9
-    llm_num_ctx_narrow: int = 8192
-    llm_num_ctx_broad: int = 16384
-    llm_num_predict_narrow: int = 400
-    llm_num_predict_broad: int = 2048
+    llm_num_ctx_narrow: int = DEFAULT_NUM_CTX_NARROW
+    llm_num_ctx_broad: int = DEFAULT_NUM_CTX_BROAD
+    llm_num_predict_narrow: int = DEFAULT_NUM_PREDICT_NARROW
+    llm_num_predict_broad: int = DEFAULT_NUM_PREDICT_BROAD
     llm_max_concurrent: int = 16
     llm_generation_max_concurrent: int = 12
     llm_auxiliary_max_concurrent: int = 4
@@ -177,10 +185,10 @@ class Settings(BaseSettings):
     # ── RAG: chunking ───────────────────────────────────────────────────────
     chunk_size: int = 550
     chunk_overlap: int = 200
-    legal_chunk_size: int = 1000
-    legal_chunk_overlap: int = 250
-    decree_chunk_size: int = 1200
-    decree_chunk_overlap: int = 200
+    legal_chunk_size: int = int(PROFILE_CONFIG_DEFAULTS[("legal_chunk_size", "legal")].value)
+    legal_chunk_overlap: int = int(PROFILE_CONFIG_DEFAULTS[("legal_chunk_overlap", "legal")].value)
+    decree_chunk_size: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_size", "decree")].value)
+    decree_chunk_overlap: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_overlap", "decree")].value)
     embed_batch_size: int = 32
     embed_dim: int = 1024
 

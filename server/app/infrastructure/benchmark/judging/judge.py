@@ -14,7 +14,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 
 from config import settings
 from infrastructure.budget.runtime import BudgetRuntime
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 from infrastructure.ml.clients.client_lease import sync_client_operation

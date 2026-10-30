@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from domain.runtime.enums import MLProvider
+from application.runtime.enums import MLProvider
 
 
 @dataclass(frozen=True)

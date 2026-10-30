@@ -1,5 +1,6 @@
 """Sweep modes, shortlist diversity and shared A/B evidence scoring."""
 
+from domain.identity.user_context import UserContext
 from infrastructure.benchmark.sweep.settings import settings_snapshot
 
 from infrastructure.benchmark.judging import context_judge
@@ -263,7 +264,9 @@ async def test_a_and_b_share_fragment_scoring_even_when_legacy_source_is_a_hit(
     answer = BenchmarkAnswer(text, text, {"hit_rate": 1, "mrr": 1}, 1, 1, evidence=evidence)
     evaluated = await BenchmarkCaseEvaluator(
         SimpleNamespace(generate=AsyncMock(return_value=answer)), "judge"
-    ).evaluate(1, case, 1, RagContext(user_id=1, user_kind=UserKind.INTERNAL))
+    ).evaluate(
+        1, case, 1, RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user"))
+    )
     summary = compute_summary_from_results([evaluated])
     assert cheap["avg_hit_rate"] == summary["hit_rate"] == expected
     assert cheap["avg_mrr"] == summary["avg_mrr"] == expected
@@ -307,7 +310,9 @@ async def test_prompt_loss_lowers_context_objectives_and_final_score(mock_judges
         answer = BenchmarkAnswer("a", context, {"hit_rate": 1, "mrr": 1}, 1, 1, evidence=evidence)
         return await BenchmarkCaseEvaluator(
             SimpleNamespace(generate=AsyncMock(return_value=answer)), "judge"
-        ).evaluate(1, case, 1, RagContext(user_id=1, user_kind=UserKind.INTERNAL))
+        ).evaluate(
+            1, case, 1, RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user"))
+        )
 
     lost, complete = await evaluate([], "other article"), await evaluate(docs, "article 17 30 days")
     assert lost["retriever_metrics"]["mrr"] == 1

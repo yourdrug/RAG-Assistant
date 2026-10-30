@@ -1,7 +1,7 @@
 """Compute the configured model binding without importing vector implementations."""
 
+from application.runtime.enums import MLProvider
 from config import Settings, settings
-from domain.runtime.enums import MLProvider
 
 
 def configured_embedding_identity(model: Settings | None = None) -> str:

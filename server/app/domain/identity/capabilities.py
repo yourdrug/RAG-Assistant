@@ -2,8 +2,7 @@
 
 No database tables required.  ``_ROLE_CAPABILITIES`` is the single source
 of truth for which capabilities each role possesses.  Additional kind-level
-overrides (e.g. CLIENT gets ``API_KEYS_MANAGE_OWN``) are checked in
-``presentation/api/auth_dependencies.py``.
+overrides (e.g. CLIENT gets ``API_KEYS_MANAGE_OWN``) are applied by callers.
 """
 
 from __future__ import annotations
@@ -21,6 +20,9 @@ class Capability(StrEnum):
     GROUPS_MANAGE = "groups.manage"
     GROUPS_VIEW = "groups.view"
     CURATOR_ASSIGNMENTS_MANAGE = "curator_assignments.manage"
+    DOCUMENTS_PUBLISH_PUBLIC = "documents.publish_public"
+    DOCUMENTS_ACCESS_ALL_INTERNAL = "documents.access_all_internal"
+    DOCUMENTS_UPLOAD_FOR_CLIENTS = "documents.upload_for_clients"
     DOCUMENTS_MANAGE = "documents.manage"
     CHUNKS_MANAGE = "chunks.manage"
     DOCUMENTS_VIEW = "documents.view"
@@ -35,6 +37,7 @@ _ROLE_CAPABILITIES: dict[UserRole, frozenset[Capability]] = {
         {
             Capability.SYSTEM_OBSERVE,
             Capability.DOCUMENTS_MANAGE,
+            Capability.DOCUMENTS_UPLOAD_FOR_CLIENTS,
             Capability.CHUNKS_MANAGE,
             Capability.DOCUMENTS_VIEW,
             Capability.GROUPS_VIEW,

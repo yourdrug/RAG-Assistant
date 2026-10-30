@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
 from composition.infrastructure import InfrastructureContainer
 from config import settings
-from domain.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener

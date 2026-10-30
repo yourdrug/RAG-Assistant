@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from datetime import date, datetime
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,8 +56,7 @@ class SQLAlchemyActVersionRepository:
         )
         self._session.add(m)
         await self._session.flush()
-        version.id = m.id
-        return version
+        return replace(version, id=m.id)
 
     async def get_by_id(self, version_id: int) -> ActVersion | None:
         m = await self._session.get(ActVersionModel, version_id)

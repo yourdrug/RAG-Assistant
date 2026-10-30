@@ -11,7 +11,7 @@ from datetime import date
 import re
 
 
-_RU_MONTHS: dict[str, int] = {
+RU_MONTHS: dict[str, int] = {
     "января": 1,
     "январь": 1,
     "февраля": 2,
@@ -38,7 +38,7 @@ _RU_MONTHS: dict[str, int] = {
     "декабрь": 12,
 }
 
-_RU_DATE_RE = re.compile(r"(\d{1,2})\s+([\u0430-яё]+)\s+(\d{4})", re.IGNORECASE)
+_RU_DATE_RE = re.compile(r"(\d{1,2})\s+([а-яё]+)\s+(\d{4})", re.IGNORECASE)
 _ISO_DATE_RE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
 _NUMERIC_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})[./](\d{1,2})[./](\d{4})(?!\d)")
 
@@ -50,7 +50,7 @@ def date_parts(text: str) -> tuple[int, int, int] | None:
     if m := _NUMERIC_DATE_RE.search(text):
         return int(m[3]), int(m[2]), int(m[1])
 
-    if (m := _RU_DATE_RE.search(text)) and (month := _RU_MONTHS.get(m[2].lower())) is not None:
+    if (m := _RU_DATE_RE.search(text)) and (month := RU_MONTHS.get(m[2].lower())) is not None:
         return int(m[3]), month, int(m[1])
 
     return None

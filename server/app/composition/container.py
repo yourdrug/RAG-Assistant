@@ -17,7 +17,7 @@ from composition.application import ApplicationContainer
 from composition.infrastructure import InfrastructureContainer
 from composition.worker import worker_dependencies
 from config import settings
-from domain.runtime.enums import AppStage
+from application.runtime.enums import AppStage
 
 if TYPE_CHECKING:
     from infrastructure.database.database import DatabaseManager

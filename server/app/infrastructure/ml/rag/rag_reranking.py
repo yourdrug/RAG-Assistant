@@ -1,11 +1,11 @@
 """RAG reranking — cross-encoder reranking, deduplication, and section grouping."""
 
+from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
 from pathlib import Path
 
 from application.search import HybridRetriever
 from domain.shared.hashing import content_hash
-from domain.rag.retrieval import RetrievalDocument, prioritize_distinct_provisions
-from domain.rag.evidence.queries import contradicts_requested_scope
+from domain.rag.ranking import RetrievalDocument, prioritize_distinct_provisions
 from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
@@ -37,7 +37,7 @@ def filter_scope_candidates(docs: list, question: str, stage: str = "reranker") 
     for item in docs:
         doc = item[0] if isinstance(item, tuple) else item
 
-        if contradicts_requested_scope(question, content_with_parent_scope(doc)):
+        if active_evidence_profile.get().contradicts_scope(question, content_with_parent_scope(doc)):
             if active_evidence.get() is not None:
                 capture_exclusions([exclusion_record(item, ExclusionReason.SCOPE_MISMATCH, stage)])
         else:

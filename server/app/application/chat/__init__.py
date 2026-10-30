@@ -5,11 +5,11 @@ from application.chat.dto import ChatResult, CreateChatLogCommand
 from application.chat.logs import ChatLogService
 from application.chat.ports import ChatRAGPort, ChatSettingsPort, PIIRedactorPort, RollingSummaryUpdaterPort
 from application.chat.service import ChatService, ChatSetup
-from domain.chat.repositories import ChatLogListOptions
+from domain.chat.repositories import ChatLogFilter
 
 
 __all__ = [
-    "ChatLogListOptions",
+    "ChatLogFilter",
     "ChatLogService",
     "ChatRAGPort",
     "ChatResult",

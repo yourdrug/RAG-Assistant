@@ -1,17 +1,35 @@
-"""Knowledge domain: enums."""
+"""Document lifecycle, visibility and validated profile identifiers."""
 
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+import re
+from typing import Literal, Self
 
 from domain.shared.enums import LifecycleStatus, ValidatedStrEnum
+from domain.shared.exceptions import ValidationError
+
+
+class DomainKey(str):
+    """Validated profile identifier, including profiles added by extensions."""
+
+    __slots__ = ()
+
+    def __new__(cls, value: str) -> Self:
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", value):
+            message = f"Invalid document profile key: {value!r}"
+            raise ValidationError(message)
+
+        return super().__new__(cls, value)
 
 
 class DocDomain(StrEnum):
     GENERAL = "general"
     LEGAL = "legal"
     DECREE = "decree"
+
+
+GENERAL_DOMAIN_KEY = DomainKey(DocDomain.GENERAL)
 
 
 class DomainDetectionMode(StrEnum):

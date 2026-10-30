@@ -1,8 +1,8 @@
 """Source links, missing evidence and negation survive production assembly."""
 
+from domain.identity.user_context import UserContext
 from rag_stage_fixtures import stage_fixture
 from domain.rag.context import RagContext
-from domain.identity.user_context import UserContext
 from domain.identity.roles import UserKind, UserRole
 
 import json
@@ -15,23 +15,23 @@ import pytest
 from langchain_core.documents import Document
 
 from domain.knowledge.chunk import ChunkRecord
-from domain.rag.evidence.queries import evidence_search_queries
-from domain.rag.evidence.queries import contradicts_requested_scope
-from domain.rag.evidence.reading import evidence_reading_rules
+from infrastructure.ml.evidence_profiles.belarus.queries import evidence_search_queries
+from infrastructure.ml.evidence_profiles.belarus.predicates import contradicts_requested_scope
+from infrastructure.ml.evidence_profiles.belarus.reading import evidence_reading_rules
 from domain.rag.breadth import Breadth
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from domain.rag.evidence.focus import evidence_reading_map
+from infrastructure.ml.evidence_profiles.belarus.focus import evidence_reading_map
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.retrieval_pipeline import retrieve_with_decomposition
-from domain.rag.evidence.grounded_response import (
+from infrastructure.ml.evidence_profiles.belarus.grounded_response import (
     missing_field_response,
     extractive_procedure_response,
     extractive_timing_response,
     extractive_table_comparison_response,
 )
-from infrastructure.ml.rag.field_evidence import augment_field_candidates
-from infrastructure.ml.rag.linked_context import enrich_linked_context
+from infrastructure.ml.evidence_profiles.belarus.field_evidence import augment_field_candidates
+from infrastructure.ml.evidence_profiles.belarus.linked_context import enrich_linked_context
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_prompts import build_prompt
 from infrastructure.ml.rag import rag_steps
@@ -42,7 +42,9 @@ from infrastructure.ml.rag.rag_config import build_rag_settings
 FIELD = "Дополнительный четырёхзначный код по классификатору дополнительной таможенной информации"
 AMENDMENT_QUESTION = f"Как изменился статус поля «{FIELD}» (позиция 57 таблицы 4.1)?"
 PROCEDURE_QUESTION = "Опишите порядок: передача товара на хранение и последующая отгрузка."
-USER = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
+USER = RagContext(
+    user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
+).to_user_context()
 
 
 def chunk(index, text, *, table=False, section=None, document_id=27, version=2):
@@ -181,7 +183,9 @@ async def test_supplemental_retrieval_preserves_acl_temporal_filter_and_original
             t_pipeline_start=0,
             question=question,
             access_filter=acl,
-            ctx=RagContext(user_kind=UserKind.INTERNAL, user_id=1, user_group_ids=[7]),
+            ctx=RagContext(
+                user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, group_ids=[7], user_role="user")
+            ),
             user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
         ),
         object(),
@@ -190,7 +194,7 @@ async def test_supplemental_retrieval_preserves_acl_temporal_filter_and_original
     for call in search.await_args_list:
         assert call.args[1].retrieval_filter is acl
         assert call.args[1].visibility_conditions is conditions
-        assert call.args[1].ctx.user_group_ids == [7]
+        assert call.args[1].ctx.user_group_ids == (7,)
     rules = "\n".join(evidence_reading_rules(question))
     assert "НЕ включённые" in rules and "нужного подпункта нет" in rules
 
@@ -211,7 +215,7 @@ def test_table_comparison_probes_both_fields_without_answer_values():
 
 @pytest.mark.asyncio
 async def test_missing_field_lookup_uses_authorized_document_and_requested_date():
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     question = "Формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2)?"
     seed = hit(chunk(616, "| 23 | УНП грузополучателя an..19 |", table=True))[0]
     valid = chunk(614, "| 18 | УНП грузоотправителя an..15 |", table=True)
@@ -227,7 +231,7 @@ async def test_missing_field_lookup_uses_authorized_document_and_requested_date(
 
 @pytest.mark.asyncio
 async def test_missing_field_lookup_does_not_invent_evidence_on_empty_authorized_results():
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     question = "Формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2)?"
     seed = hit(chunk(616, "| 23 | УНП грузополучателя an..19 |", table=True))[0]
     search = SimpleNamespace(search_substring=AsyncMock(return_value=[]))
@@ -249,7 +253,7 @@ def test_category_negation_filters_only_explicitly_opposite_scope(negative):
 
 @pytest.mark.asyncio
 async def test_field_lookup_rejects_same_number_and_name_from_wrong_message_table():
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     question = "Формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2, BLRDLN)?"
     wrong = chunk(430, "Теги ЭТТН:\n| 18 | УНП грузоотправителя an..15 |", table=True)
     right = chunk(614, "Таблица 4.2\nТеги ЭТН:\n| 18 | УНП грузоотправителя an..15 |", table=True)
@@ -280,7 +284,7 @@ def test_extractive_procedure_keeps_complete_stage_links_in_source_order():
 
 @pytest.mark.asyncio
 async def test_missing_row_response_cannot_be_overridden_by_model_and_cache_changes_with_policy(monkeypatch):
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     question = "Формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2, BLRDLN)?"
     state = stage_fixture(
         rag=build_rag_settings(),
@@ -302,7 +306,9 @@ async def test_missing_row_response_cannot_be_overridden_by_model_and_cache_chan
     monkeypatch.setattr(rag_steps, "check_cache", AsyncMock(return_value=None))
     await step_check_cache(state)
     original = state.q_hash
-    monkeypatch.setattr("infrastructure.ml.cache.keys.EVIDENCE_POLICY_VERSION", "previous-policy")
+    monkeypatch.setattr(
+        "infrastructure.ml.evidence_profiles.belarus.focus.EVIDENCE_POLICY_VERSION", "previous-policy"
+    )
     await step_check_cache(state)
     assert state.q_hash != original
 

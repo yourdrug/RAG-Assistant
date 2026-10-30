@@ -4,13 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date
-from typing import TYPE_CHECKING
 
+from domain.knowledge.acts.models import ActVersion
 from domain.shared.exceptions import EntityNotFoundError
-
-
-if TYPE_CHECKING:
-    from domain.knowledge.acts.models import ActVersion
 
 
 @dataclass(frozen=True)
@@ -18,29 +14,43 @@ class ActVersionTimeline:
     versions: tuple[ActVersion, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "versions", tuple(replace(version) for version in self.versions))
+        object.__setattr__(self, "versions", tuple(self.versions))
 
     def get_version(self, version_id: int | None) -> ActVersion:
         for version in self.versions:
             if version.id == version_id:
-                return replace(version)
+                return version
 
         msg = "ActVersion"
         raise EntityNotFoundError(msg, str(version_id))
 
-    def is_latest(self, effective_date: date | None, *, today: date) -> bool:
-        if effective_date is None:
-            return not any(version.is_current for version in self.versions)
+    def is_latest(
+        self, effective_date: date | None, *, today: date, effective_to: date | None = None
+    ) -> bool:
+        return self.inserting(effective_date, today=today, effective_to=effective_to)[1].is_current
 
-        if effective_date > today:
-            return False
+    def inserting(
+        self,
+        effective_date: date | None,
+        *,
+        today: date,
+        effective_to: date | None = None,
+        candidate_id: int | None = None,
+    ) -> tuple[ActVersionTimeline, ActVersion]:
+        """Resolve uploads and transfers using the same ordering as corrections.
 
-        current_dates = [
-            version.effective_from
-            for version in self.versions
-            if version.effective_from is not None and version.effective_from <= today
-        ]
-        return not current_dates or effective_date >= max(current_dates)
+        Transfers retain their persisted ID; uploads sort after existing IDs.
+        """
+        if candidate_id is None:
+            candidate_id = max((version.id or 0 for version in self.versions), default=0) + 1
+
+        candidate = ActVersion(candidate_id, None, 0, effective_date, effective_to)
+        ends = self.explicit_ends()
+        ends[candidate_id] = effective_to
+        rebuilt = self.rebuild((*self.versions, candidate), ends, today=today)
+        inserted = rebuilt.get_version(candidate_id)
+        previous = tuple(version for version in rebuilt.versions if version.id != candidate_id)
+        return ActVersionTimeline(previous), inserted
 
     def successor_date(self, effective_date: date | None) -> date | None:
         if effective_date is None:
@@ -53,25 +63,11 @@ class ActVersionTimeline:
         ]
         return min(later_dates) if later_dates else None
 
-    def insert_boundary(self, new_date: date | None, *, today: date) -> ActVersionTimeline:
-        """Close preceding editions when inserting an upload or relinked edition."""
-        versions = [replace(version) for version in self.versions]
-
-        if new_date is None:
-            return ActVersionTimeline(tuple(versions))
-
-        new_is_current = self.is_latest(new_date, today=today)
-
-        for version in versions:
-            if (version.effective_from is None or version.effective_from <= new_date) and (
-                version.effective_to is None or version.effective_to > new_date
-            ):
-                version.effective_to = new_date
-
-            if new_is_current and version.is_current:
-                version.is_current = False
-
-        return ActVersionTimeline(tuple(versions))
+    def insert_boundary(
+        self, new_date: date | None, *, today: date, effective_to: date | None = None
+    ) -> ActVersionTimeline:
+        """Apply the same interval and current-edition rules used by correction."""
+        return self.inserting(new_date, today=today, effective_to=effective_to)[0]
 
     def changed_versions(
         self, candidates: tuple[ActVersion, ...], *, edited_id: int | None = None
@@ -124,7 +120,9 @@ class ActVersionTimeline:
 
     def remove(self, version_id: int, *, today: date) -> ActVersionTimeline:
         """Reconnect remaining editions after unlinking, preserving explicit expiry."""
-        self.get_version(version_id)
+        if not any(version.id == version_id for version in self.versions):
+            return self
+
         remaining = tuple(version for version in self.versions if version.id != version_id)
         return self.rebuild(remaining, self.explicit_ends(), today=today)
 
@@ -135,15 +133,20 @@ class ActVersionTimeline:
         *,
         today: date,
     ) -> ActVersionTimeline:
-        ordered = sorted((replace(version) for version in versions), key=self.order_key)
+        ordered = sorted(versions, key=self.order_key)
 
-        for index, version in enumerate(ordered):
+        for index, original in enumerate(ordered):
+            version = original
             successor = ordered[index + 1] if index + 1 < len(ordered) else None
             boundary = successor.effective_from if successor is not None else None
             expiry = explicit_ends[version.id]
-            version.effective_to = min(expiry, boundary) if expiry and boundary else expiry or boundary
+            version = replace(
+                version,
+                effective_to=min(expiry, boundary) if expiry and boundary else expiry or boundary,
+                is_current=False,
+            )
             version.validate_dates()
-            version.is_current = False
+            ordered[index] = version
 
         eligible = [
             version
@@ -153,6 +156,9 @@ class ActVersionTimeline:
         ]
 
         if eligible:
-            eligible[-1].is_current = True
+            current = eligible[-1]
+            ordered = [
+                replace(version, is_current=True) if version is current else version for version in ordered
+            ]
 
         return ActVersionTimeline(tuple(ordered))

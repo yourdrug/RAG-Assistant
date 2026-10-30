@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from domain.runtime.enums import MLProvider
+from application.runtime.enums import MLProvider
 from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, Field
@@ -24,8 +24,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEYS
-from domain.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
-from domain.runtime.setting_keys import SECRET_SETTING_KEYS
+from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
+from application.runtime.setting_keys import SECRET_SETTING_KEYS
 from presentation.api.dependencies import (
     create_action_logger,
     create_budget_admin_service,

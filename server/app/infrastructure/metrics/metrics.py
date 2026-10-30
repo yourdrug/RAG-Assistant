@@ -17,8 +17,8 @@ from typing import cast
 import httpx
 from application.ports.ml_clients import MLClientPort
 from config import settings
-from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS
-from domain.runtime.enums import LLMProvider
+from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
+from application.runtime.enums import LLMProvider
 from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy.pool import QueuePool
 

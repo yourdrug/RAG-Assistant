@@ -1,6 +1,8 @@
 """Map stored chunk rows to the repository DTO."""
 
+from domain.knowledge.enums import DomainKey
 from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.enums import DocumentVisibility
 
 from infrastructure.database.models import ChunkModel
 
@@ -12,8 +14,8 @@ def to_chunk_search_result(orm: ChunkModel) -> ChunkRecord:
         filename=orm.filename,
         content=orm.content,
         chunk_index=orm.chunk_index,
-        visibility=orm.visibility,
-        doc_domain=orm.doc_domain,
+        visibility=DocumentVisibility.parse(orm.visibility),
+        doc_domain=DomainKey(orm.doc_domain),
         owner_id=orm.owner_id,
         group_id=orm.group_id,
         edited_at=orm.edited_at,

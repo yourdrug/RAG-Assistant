@@ -1,4 +1,4 @@
-"""Knowledge domain: policy."""
+"""Scope identity for linking editions of the same act; this does not authorize users."""
 
 from __future__ import annotations
 

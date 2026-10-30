@@ -11,8 +11,24 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from domain.identity.roles import UserRole
-from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility, SourceType
+from domain.knowledge.enums import (
+    GENERAL_DOMAIN_KEY,
+    DocumentStatus,
+    DocumentVisibility,
+    DomainKey,
+    SourceType,
+)
 from domain.shared.exceptions import BusinessRuleViolationError
+
+
+@dataclass(frozen=True)
+class DocumentProcessingUpdate:
+    status: DocumentStatus | None = None
+    error: str | None = None
+    chunks: int | None = None
+    chars: int | None = None
+    warning: str | None = None
+    quality_score: float | None = None
 
 
 @dataclass
@@ -25,7 +41,7 @@ class Document:
     owner_id: int | None = None
     group_id: int | None = None
     status: DocumentStatus = DocumentStatus.PENDING
-    doc_domain: str = DocDomain.GENERAL.value
+    doc_domain: DomainKey = GENERAL_DOMAIN_KEY
     source_type: str = SourceType.FILE.value
     has_manual_edits: bool = False
     version_group_id: int | None = None  # anchor document of the version chain
@@ -39,11 +55,44 @@ class Document:
     indexed_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        self.doc_domain = DomainKey(self.doc_domain)
+
         if isinstance(self.visibility, str):
-            self.visibility = DocumentVisibility.validate(self.visibility)
+            self.visibility = DocumentVisibility.parse(self.visibility)
 
         if isinstance(self.status, str):
             self.status = DocumentStatus(self.status)
+
+    def apply_processing_update(self, change: DocumentProcessingUpdate) -> None:
+        if change.status == DocumentStatus.DONE:
+            self.mark_done(
+                change.chunks if change.chunks is not None else self.chunks or 0,
+                change.chars if change.chars is not None else self.chars or 0,
+                change.warning,
+                change.quality_score,
+            )
+        elif change.status == DocumentStatus.FAILED:
+            self.mark_failed(change.error or "Document processing failed")
+        elif change.status is not None:
+            self.status = change.status
+
+        self.apply_processing_metadata(change)
+
+    def apply_processing_metadata(self, change: DocumentProcessingUpdate) -> None:
+        if change.status != DocumentStatus.FAILED or change.error is not None:
+            self.error_message = change.error
+
+        if change.warning is not None:
+            self.warning_message = change.warning
+
+        if change.quality_score is not None:
+            self.quality_score = change.quality_score
+
+        if change.chunks is not None:
+            self.chunks = change.chunks
+
+        if change.chars is not None:
+            self.chars = change.chars
 
     def mark_done(
         self, chunks: int, chars: int, warning_message: str | None = None, quality_score: float | None = None
@@ -99,25 +148,14 @@ class Document:
         managed_internal_ids: list[int] | None = None,
         managed_group_ids: list[int] | None = None,
     ) -> bool:
-        if user_role == UserRole.ADMIN:
-            return True
-
-        if self.owner_id == user_id:
-            return True
-
-        if user_role == UserRole.CURATOR:
-            return self.in_curator_scope(
-                user_group_ids,
-                managed_client_ids=managed_client_ids,
-                managed_internal_ids=managed_internal_ids,
-                managed_group_ids=managed_group_ids,
-            )
-
-        return bool(
-            self.visibility == DocumentVisibility.INTERNAL_GROUP
-            and self.group_id is not None
-            and user_group_ids is not None
-            and self.group_id in user_group_ids
+        """Deleting a document requires the same mutation scope as editing its chunks."""
+        return self.can_edit_chunks(
+            user_id,
+            user_role,
+            user_group_ids,
+            managed_client_ids=managed_client_ids,
+            managed_internal_ids=managed_internal_ids,
+            managed_group_ids=managed_group_ids,
         )
 
     def can_edit_chunks(
@@ -151,4 +189,4 @@ class Document:
                 managed_group_ids=managed_group_ids,
             )
 
-        return self.visibility != DocumentVisibility.INTERNAL_GROUP and self.owner_id == user_id
+        return False

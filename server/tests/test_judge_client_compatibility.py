@@ -10,7 +10,7 @@ import instructor
 import pytest
 from openai import OpenAI
 
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.benchmark.judging import judge
 from infrastructure.benchmark.judging.token_usage import judge_usage

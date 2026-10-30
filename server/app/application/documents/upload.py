@@ -17,7 +17,7 @@ from domain.knowledge.access_control import (
 )
 from domain.knowledge.acts.policy import same_document_scope
 from domain.knowledge.document import Document
-from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility
+from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility, DomainKey
 from domain.shared.exceptions import (
     BusinessRuleViolationError,
     EntityNotFoundError,
@@ -144,7 +144,7 @@ class DocumentUploadCommand:
             msg = f"Unsupported file format: {ext}"
             raise ValidationError(msg)
 
-        vis = DocumentVisibility.validate(visibility)
+        vis = DocumentVisibility.parse(visibility)
         rename_on_conflict = options.get("rename_on_conflict", False)
         replaces_document_id = options.get("replaces_document_id")
 
@@ -170,7 +170,7 @@ class DocumentUploadCommand:
                 visibility=vis,
                 owner_id=owner_id,
                 group_id=effective_group_id,
-                doc_domain=doc_domain or DocDomain.GENERAL.value,
+                doc_domain=DomainKey(doc_domain or DocDomain.GENERAL),
             )
             pending_replace_id = await self.prepare_upload_target(
                 uow,

@@ -14,7 +14,7 @@ import pytest
 from instructor.core.exceptions import InstructorRetryException
 from infrastructure.ml.clients import factories, managed_http, deepinfra_clients
 from infrastructure.ml.clients.managed_llm import ManagedLLM
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 from infrastructure.benchmark.judging import judge
 
 from application.budget import BudgetPolicy, CostBudgetService, billing_principal

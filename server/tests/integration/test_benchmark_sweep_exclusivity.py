@@ -51,6 +51,7 @@ async def test_concurrent_service_create_has_one_winner(pg_engine):
         assert (await session.scalar(select(func.count()).select_from(BenchmarkSweepModel))) == 1
         repo = SQLAlchemyBenchmarkSweepRepository(session)
         winner = next(result for result in results if isinstance(result, BenchmarkSweep))
+        await repo.update_status(winner.id, BenchmarkSweepStatus.RUNNING.value)
         await repo.update_status(winner.id, BenchmarkSweepStatus.DONE.value)
         # Terminal history does not occupy the singleton slot.
         await repo.create(BenchmarkSweep())
@@ -66,7 +67,7 @@ async def test_unique_index_also_guards_status_updates(pg_engine):
         repo = SQLAlchemyBenchmarkSweepRepository(session)
         with pytest.raises(IntegrityError):
             async with session.begin_nested():
-                await repo.update_status(terminal.id, BenchmarkSweepStatus.RUNNING.value)
+                await repo.update_status(terminal.id, BenchmarkSweepStatus.PENDING.value)
 
 
 async def test_concurrent_resume_has_one_winner(pg_engine):

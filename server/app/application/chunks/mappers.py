@@ -19,7 +19,7 @@ def to_chunk_dto(c: ChunkRecord) -> ChunkItemDTO:
         chunk_index=c.chunk_index,
         content=c.content,
         filename=c.filename,
-        visibility=c.visibility,
+        visibility=c.visibility.value if c.visibility is not None else "",
         doc_domain=c.doc_domain,
         owner_id=c.owner_id,
         group_id=c.group_id,

@@ -5,9 +5,9 @@ are correctly passed to qdrant_dense_search and resolve_hashes_batch,
 rather than being silently dropped.
 """
 
+from domain.identity.user_context import UserContext
 from infrastructure.ml.rag.retrieval_work import RetrievalWork
 from domain.rag.context import RagContext
-from domain.identity.user_context import UserContext
 from domain.identity.roles import UserKind, UserRole
 
 import asyncio
@@ -190,7 +190,11 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
                 t_pipeline_start=0,
                 question="query",
                 access_filter=af,
-                ctx=RagContext(user_kind=UserKind.INTERNAL, user_id=5, user_group_ids=[1, 2]),
+                ctx=RagContext(
+                    user=UserContext(
+                        user_id=5, user_kind=UserKind.INTERNAL, group_ids=[1, 2], user_role="user"
+                    )
+                ),
                 user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
             ),
             ml,
@@ -223,11 +227,8 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
     conditions = get_visibility_conditions("internal", [1, 2], for_list=False)
     ctx = RagContext(
+        user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, user_role=UserRole.USER, group_ids=[1, 2]),
         as_of_date=None,
-        user_id=5,
-        user_kind=UserKind.INTERNAL,
-        user_role=UserRole.USER,
-        user_group_ids=[1, 2],
     )
     rag = MagicMock()
     ml = _make_ml_clients()
@@ -291,7 +292,9 @@ async def test_retrieval_domain_fallback_only_on_empty_legal_search(domain, firs
     from infrastructure.ml.rag.retrieval_pipeline import run_retrieval
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
-    ctx = RagContext(user_kind=UserKind.INTERNAL, user_id=5, user_group_ids=[1, 2])
+    ctx = RagContext(
+        user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, group_ids=[1, 2], user_role="user")
+    )
     work = RetrievalWork(
         rag=MagicMock(),
         t_pipeline_start=0,

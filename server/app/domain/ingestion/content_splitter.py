@@ -1,9 +1,8 @@
 """Content-based text splitting — recursive descent by structural boundaries.
 
 Replaces RecursiveCharacterTextSplitter for structured domains.
-Splitting is always by content (regex boundaries), never by char count.
-max_unit_chars is a safety-net: triggers descent to finer boundary levels,
-not a splitting criterion.
+Text is cut at semantic boundaries. max_unit_chars decides when to descend
+to a finer level; it never cuts through a structural unit at an arbitrary character.
 """
 
 from __future__ import annotations

@@ -6,11 +6,11 @@ import json
 import logging
 
 from config import Settings, settings
-from domain.runtime.config import ConfigParameter
+from application.runtime.config import ConfigParameter
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from domain.runtime.dynamic_params import DYNAMIC_PARAMS
+from application.runtime.dynamic_params import DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
@@ -28,7 +28,12 @@ def build_defaults() -> list[ConfigParameter]:
         if raw is None:
             raw = declaration.min_val if declaration.min_val is not None else 0.0
 
-        value = json.dumps(raw) if declaration.type in (bool, list) else str(raw)
+        scoped_default = PROFILE_CONFIG_DEFAULTS.get((declaration.key, declaration.domain_key))
+        value = (
+            scoped_default.value
+            if scoped_default is not None
+            else (json.dumps(raw) if declaration.type in (bool, list) else str(raw))
+        )
         result.append(
             ConfigParameter(
                 declaration.key,

@@ -19,8 +19,8 @@ from composition.container import (
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.database.database import DatabaseManager
 from config import settings
-from domain.runtime.config import ConfigParameter, ConfigParameterChanged
-from domain.runtime.config import ConfigValueType
+from application.runtime.config import ConfigParameter, ConfigParameterChanged
+from application.runtime.config import ConfigValueType
 from domain.shared.exceptions import ValidationError
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
@@ -101,7 +101,7 @@ class TestApplicationContainer:
         assert chat_redactor.redact(text) == text
         assert rag_redactor.scan_and_redact(text) == (text, [])
 
-        from domain.runtime.config import ConfigParameter
+        from application.runtime.config import ConfigParameter
 
         row = ConfigParameter("pii_redaction_enabled", "true", ConfigValueType.BOOL.value, "toggles")
         if update_source == "hot_reload":

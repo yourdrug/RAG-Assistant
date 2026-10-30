@@ -1,5 +1,6 @@
 """Scope failures must not become confident answers, including through generation."""
 
+from domain.identity.user_context import UserContext
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from domain.rag.context import RagContext
 from domain.rag.breadth import Breadth
 from domain.identity.roles import UserKind, UserRole
 from domain.rag.evidence.assessment import EvidenceStatus
-from domain.rag.evidence.grounded_response import (
+from infrastructure.ml.evidence_profiles.belarus.grounded_response import (
     extractive_procedure_response,
     extractive_table_comparison_response,
     extractive_timing_response,
@@ -52,7 +53,7 @@ async def test_incomplete_evidence_cannot_escape_to_a_guessing_llm(case):
     docs = [(Document(**item), 0.95) for item in case.get('docs', [])]
     if not docs:
         docs = [(Document(page_content=case['context'], metadata={'source': 'table.docx'}), 0.95)]
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     state = stage_fixture(
         rag=build_rag_settings(),
         t_pipeline_start=0,

@@ -151,6 +151,7 @@ class ApplicationContainer:
             ),
             pii_redactor=pii_redactor,
             document_access=DocumentAccessService(uow),
+            domain_registry=infra.domain_registry,
         )
 
         self.ingestion_service = _require(

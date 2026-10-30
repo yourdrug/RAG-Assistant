@@ -1,5 +1,6 @@
 """Real SQL table boundaries and request ACL, including backward row continuations."""
 
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -69,7 +70,7 @@ async def test_two_tables_text_limit_row_range_and_denied_document(pg_engine):
                     )
                     for n, (content, context) in enumerate(zip(contents, contexts, strict=True))
                 ],
-                owner_id=doc.owner_id,
+                options=ChunkInsertOptions(owner_id=doc.owner_id),
             )
     allowed = UserContext(users[0].id, UserKind.INTERNAL, UserRole.USER)
     denied = UserContext(users[1].id, UserKind.INTERNAL, UserRole.USER)

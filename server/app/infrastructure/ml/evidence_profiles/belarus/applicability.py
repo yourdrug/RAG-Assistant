@@ -9,7 +9,7 @@ from domain.rag.evidence.assessment import (
     EvidenceFragment,
     EvidenceStatus,
 )
-from domain.rag.evidence.queries import listed_goods_polarities
+from infrastructure.ml.evidence_profiles.belarus.predicates import listed_goods_polarities
 
 
 ACT_NUMBER_RE = re.compile(r"(?:\bN|№)\s*(\d+(?:[/\-]\d+)*)", re.IGNORECASE)
@@ -19,7 +19,7 @@ STAGE_PATTERNS = {
     "реализация": re.compile(r"реализац", re.IGNORECASE),
 }
 STAGE_START_RE = re.compile(r"^При\s+(?:передаче|отгрузке|реализации)\b", re.IGNORECASE)
-TIMING_RE = re.compile(r"в режиме|раз[\u0430]? в сут|ежесуточ|ежеднев", re.IGNORECASE)
+TIMING_RE = re.compile(r"в режиме|раз[а]? в сут|ежесуточ|ежеднев", re.IGNORECASE)
 
 
 def normalize_act_number(number: str) -> str:
@@ -67,9 +67,7 @@ def procedure_stage(line: str) -> str | None:
     if re.match(r"При отгрузке\b", line, re.IGNORECASE):
         return "отгрузка"
 
-    condition = re.split(
-        r"оформля|составля|содерж|получатель|\u0422\u0422\u041d|\u0422\u041d-", line, maxsplit=1
-    )[0]
+    condition = re.split(r"оформля|составля|содерж|получатель|ТТН|ТН-", line, maxsplit=1)[0]
     stages = [name for name, pattern in STAGE_PATTERNS.items() if pattern.search(condition)]
     return stages[0] if len(stages) == 1 else None
 
@@ -81,7 +79,7 @@ def procedure_quotes(fragment: EvidenceFragment, terms: set[str]) -> Iterator[tu
         if not STAGE_START_RE.match(line):
             continue
 
-        if terms and not terms <= {word[:7] for word in re.findall(r"[\u0430-яё]{5,}", line.casefold())}:
+        if terms and not terms <= {word[:7] for word in re.findall(r"[а-яё]{5,}", line.casefold())}:
             continue
 
         # Classify the conditional clause, not a later reference to a different stage.
@@ -92,7 +90,7 @@ def procedure_quotes(fragment: EvidenceFragment, terms: set[str]) -> Iterator[tu
 
         quote = line
 
-        if index + 1 < len(lines) and lines[index + 1].startswith("\u0412 накладной "):
+        if index + 1 < len(lines) and lines[index + 1].startswith("В накладной "):
             quote += "\n" + lines[index + 1]
 
         yield stage, line, quote
@@ -100,11 +98,9 @@ def procedure_quotes(fragment: EvidenceFragment, terms: set[str]) -> Iterator[tu
 
 def procedure_assessment(question: str, fragments: list[EvidenceFragment]) -> EvidenceAssessment:
     required = requested_procedure_stages(question)
-    participant = re.search(r"\b\u0441\s+(.+?)\s+согласно\b", question, re.IGNORECASE)
+    participant = re.search(r"\bс\s+(.+?)\s+согласно\b", question, re.IGNORECASE)
     terms = (
-        {word[:7] for word in re.findall(r"[\u0430-яё]{5,}", participant[1].casefold())}
-        if participant
-        else set()
+        {word[:7] for word in re.findall(r"[а-яё]{5,}", participant[1].casefold())} if participant else set()
     )
     candidates = []
     claims: dict[tuple[str, str], EvidenceClaim] = {}
@@ -173,7 +169,7 @@ def transmission_participants_match(question: str, scope: str) -> bool:
     ):
         return False
 
-    recipient = r"\bв\s+(?:\u041c\u041d\u0421\b|Министерство по налогам и сборам)"
+    recipient = r"\bв\s+(?:МНС\b|Министерство по налогам и сборам)"
 
     return not (
         re.search(recipient, question, re.IGNORECASE) and not re.search(recipient, scope, re.IGNORECASE)

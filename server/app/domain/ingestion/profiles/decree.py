@@ -19,6 +19,7 @@ from domain.ingestion.profiles.types import (
     ConfigDefault,
     ReferenceMatch,
 )
+from domain.shared.profile_policy import AnswerPolicy
 
 
 if TYPE_CHECKING:
@@ -27,15 +28,15 @@ if TYPE_CHECKING:
     )
 
 
-_DECREE_TITLE_RE = re.compile(r"^\s*\u0423\u041a\u0410\u0417\b", re.MULTILINE)
+_DECREE_TITLE_RE = re.compile(r"^\s*УКАЗ\b", re.MULTILINE)
 _POSTANOVLYAYU_RE = re.compile(r"ПОСТАНОВЛЯ[ЮЕ]\s*:?", re.IGNORECASE)
 _DECREE_NUMBER_RE = re.compile(r"№\s*(\d+)")
 _DECREE_DATE_RE = re.compile(
-    r"((?:\d{1,2}\s+[\u0430-яё]+\s+\d{4}\s*\u0433?\.?|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2}))",
+    r"((?:\d{1,2}\s+[а-яё]+\s+\d{4}\s*г?\.?|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2}))",
     re.IGNORECASE,
 )
 _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)
-_SUBPOINT_RE = re.compile(r"^\s*([\u0430-я])\)\s+", re.MULTILINE)
+_SUBPOINT_RE = re.compile(r"^\s*([а-я])\)\s+", re.MULTILINE)
 _SUBPOINT_NUM_RE = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)*)\.\s+", re.MULTILINE)
 
 # Sentence boundary — matches ". " / "! " / "? " (all periods, including abbreviations).
@@ -46,22 +47,35 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _EFFECTIVE_PATTERNS = [
     (
         re.compile(
-            r"вступает в силу\s+(?:\u0441\u043e дня|\u0441)\s+([^\n,]+)",
+            r"вступает в силу\s+(?:со дня|с)\s+([^\n,]+)",
             re.IGNORECASE,
         ),
         0.9,
     ),
-    (re.compile(r"\u0441\s+даты\s+([^\n,]+)", re.IGNORECASE), 0.5),
+    (re.compile(r"с\s+даты\s+([^\n,]+)", re.IGNORECASE), 0.5),
 ]
 
 
 class DecreeDomainProfile(SettingsBackedProfile):
+    answer_policy = AnswerPolicy(
+        "- Каждый указ идентифицируй по номеру и дате.\n- Ссылайся на конкретный пункт "
+        "постановляющей части, не пересказывай указ целиком.\n",
+        fallback_to_full_corpus=True,
+    )
+    query_patterns: tuple[str, ...] = ("\\bуказ\\w*\\b", "\\bпостановлен\\w*\\b")
+    query_priority = 2
     key = "decree"
     display_name = "Указы и постановления"
     is_versioned = True
+    chunk_size = 1200
+    chunk_overlap = 200
 
     def config_defaults(self) -> list[ConfigDefault]:
         return [
+            ConfigDefault(f"{self.key}_chunk_size", str(self.chunk_size), "int", "Chunk size", 100, 10000),
+            ConfigDefault(
+                f"{self.key}_chunk_overlap", str(self.chunk_overlap), "int", "Chunk overlap", 0, 5000
+            ),
             ConfigDefault(
                 "max_unit_chars",
                 "1200",

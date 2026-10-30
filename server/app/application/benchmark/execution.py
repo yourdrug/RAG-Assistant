@@ -14,6 +14,7 @@ from application.benchmark.identity import fingerprint
 from domain.benchmark.judge import result_judge_errors
 from domain.benchmark.question import validate_annotations
 from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.rag.context import RagContext
 
 
@@ -121,7 +122,7 @@ async def execute_benchmark(  # noqa: C901, PLR0913, PLR0915, PLR0917 — preser
 
     semaphore = asyncio.Semaphore(max_concurrent)
     completed = 0
-    ctx = RagContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
+    ctx = RagContext(user=UserContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     stack = AsyncExitStack()
     try:
         execution = await stack.enter_async_context(scope())

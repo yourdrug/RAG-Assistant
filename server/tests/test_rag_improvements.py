@@ -1,5 +1,6 @@
 """Document citations and regressions from the RAG pipeline review."""
 
+from domain.identity.user_context import UserContext
 import asyncio
 from dataclasses import replace
 from datetime import date
@@ -14,7 +15,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 
 from application.chat import ConversationService
-from domain.rag.retrieval import ContextBudgetExceededError
+from domain.rag.exceptions import ContextBudgetExceededError
 from domain.rag.context import RagContext
 from domain.identity.user_context import CuratorScope
 from domain.rag.breadth import Breadth
@@ -22,7 +23,7 @@ from domain.chat.message import MessageRole
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.ml.cache import answers as answer_cache
 from infrastructure.ml.cache import keys as cache_keys
-from domain.rag.answer_policy import policy_for
+from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.clients.tei_clients import TEIRerankerClient
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
@@ -46,7 +47,9 @@ def doc(text, document_id, source="same.pdf"):
 
 
 def state_for(docs, **kwargs):
-    ctx = kwargs.pop("ctx", RagContext(1, UserKind.INTERNAL, UserRole.USER))
+    ctx = kwargs.pop(
+        "ctx", RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER))
+    )
     return stage_fixture(
         rag=kwargs.pop("rag", _make_rag()),
         t_pipeline_start=0,
@@ -125,7 +128,10 @@ def test_tei_malformed_response_fails_instead_of_misranking(response):
 
 
 def test_complete_prompt_budget_trims_old_history_and_keeps_summary():
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.USER, summary="Заказчик — организация.")
+    ctx = RagContext(
+        user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
+        summary="Заказчик — организация.",
+    )
     state = state_for(
         [(doc("Документ подтверждает условия.", 1), 0.9)],
         ctx=ctx,
@@ -158,7 +164,11 @@ def test_exact_token_counter_is_applied_to_the_complete_formatted_prompt():
 
 def test_all_search_paths_can_receive_the_full_curator_snapshot():
     scope = CuratorScope(managed_internal_ids=(10,), managed_group_ids=(20,), managed_client_ids=(30,))
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.CURATOR, [2], scope)
+    ctx = RagContext(
+        user=UserContext(
+            user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.CURATOR, group_ids=[2]
+        ).with_curator_scope(scope)
+    )
     service = create_rag_service(MagicMock(), document_access=MagicMock())
     state = service.preparation.retrieval_work(PreparedQuery(service.preparation.request("Q", [], ctx), "Q"))
     assert state.user.group_ids == (2,)

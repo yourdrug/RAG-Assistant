@@ -1,5 +1,6 @@
 """Evidence-based benchmark regressions independent of external models and indexes."""
 
+from domain.identity.user_context import UserContext
 from infrastructure.benchmark.judging import context_judge
 import asyncio
 from types import SimpleNamespace
@@ -179,7 +180,8 @@ async def test_full_generator_uses_actual_prompt_not_source_listing():
             )
 
     result = await RagBenchmarkGenerator(Rag(), 4, None).generate(
-        {"question": "Q"}, RagContext(user_id=1, user_kind=UserKind.INTERNAL)
+        {"question": "Q"},
+        RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user")),
     )
     assert result.context == "Фактический контекст с родительскими условиями"
     assert result.evidence.retrieved[0]["content"] == "Полный текст"
@@ -194,7 +196,8 @@ async def test_capture_resets_on_generation_failure():
 
     with pytest.raises(RuntimeError):
         await RagBenchmarkGenerator(Rag(), 4, None).generate(
-            {"question": "Q"}, RagContext(user_id=1, user_kind=UserKind.INTERNAL)
+            {"question": "Q"},
+            RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user")),
         )
     assert active_evidence.get() is None
 
@@ -232,7 +235,7 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
         1,
         {"question": "Q", "annotations": {"expected_fragments": [FRAGMENT]}},
         1,
-        RagContext(user_id=1, user_kind=UserKind.INTERNAL),
+        RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user")),
     )
     assert result["evidence_metrics"]["fragment_recall_at_k"] == 1
     assert result["evidence_metrics"]["context_fragment_recall"] == 0
@@ -277,7 +280,6 @@ def test_annotation_copy_does_not_mutate_dataset():
 def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
     from domain.rag.breadth import Breadth
     from domain.identity.roles import UserRole
-    from domain.identity.user_context import UserContext
     from rag_stage_fixtures import build_context as step_build_context
     from rag_stage_fixtures import stage_fixture
     from test_rag_pipeline import _make_rag
@@ -299,7 +301,7 @@ def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
         rag=_make_rag(),
         t_pipeline_start=0,
         question="Q",
-        ctx=RagContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
+        ctx=RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)),
         user=UserContext(1, UserKind.INTERNAL, UserRole.USER),
         access_filter=None,
         retrieval_filter=None,

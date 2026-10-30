@@ -11,12 +11,12 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from application.admin.dto import ConfigurationStatus
-from domain.runtime.config import ConfigParameterChanged
-from domain.runtime.dynamic_params import (
+from application.runtime.config import ConfigParameterChanged
+from application.runtime.dynamic_params import (
     DYNAMIC_FIELDS_MAP,
     DYNAMIC_PARAMS,
 )
-from domain.runtime.setting_keys import (
+from application.runtime.setting_keys import (
     METADATA_SETTING_KEYS,
     SECRET_SETTING_KEYS,
     STATIC_SETTING_KEYS,
@@ -28,8 +28,8 @@ if TYPE_CHECKING:
     from application.admin.dto import EffectiveParameter
     from application.admin.ports import ProviderConfigurationPort
     from application.ports.event_bus import EventBus
+    from application.runtime.config import ConfigParameter
     from application.uow import UnitOfWorkFactory
-    from domain.runtime.config import ConfigParameter
 
 
 class ConfigService:

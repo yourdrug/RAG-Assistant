@@ -9,9 +9,8 @@ from application.chunks.dto import ChunkCursorQuery
 from application.chunks.mappers import to_chunk_dto
 from application.identity import UserContextFactory
 from domain.knowledge.access_control import check_document_access
-from domain.knowledge.chunk import decode_cursor
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
-from domain.shared.pagination import CursorPage
+from domain.shared.pagination import CursorPage, decode_cursor
 
 
 if TYPE_CHECKING:

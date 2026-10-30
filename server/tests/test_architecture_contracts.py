@@ -58,6 +58,8 @@ def test_every_application_package_has_a_dependency_contract() -> None:
 @pytest.mark.parametrize(
     "importer, imported, allowed",
     [
+        ("runtime.config", "uow.factory", False),
+        ("runtime.config", "admin", False),
         ("health.service", "admin", True),
         ("health.service", "uow.factory", True),
         ("health.service", "jobs.service", False),
@@ -121,7 +123,7 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
     [
         ("runtime", "domain.knowledge.enums", True),
         ("runtime", "domain.shared.exceptions", True),
-        ("runtime", "domain.runtime.config", True),
+        ("runtime", "application.runtime.config", True),
         ("benchmark", "domain.benchmark.stats", True),
         ("benchmark", "domain.benchmark.question", True),
         ("chat", "domain.rag.context", True),

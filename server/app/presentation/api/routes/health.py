@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from application.health.service import HealthService
 from fastapi import APIRouter, Depends, Response, status
-from domain.runtime.enums import HealthStatus
+from application.runtime.enums import HealthStatus
 
 from presentation.api.dependencies import create_health_service
 from presentation.api.schemas import HealthCheck, HealthResponse

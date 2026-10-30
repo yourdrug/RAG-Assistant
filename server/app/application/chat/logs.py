@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Unpack
+from typing import TYPE_CHECKING
 
 from domain.chat.chat_log import ChatLog
+from domain.chat.repositories import DEFAULT_CHAT_LOG_FILTER
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
 
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from application.chat.dto import CreateChatLogCommand
     from application.uow import UnitOfWork, UnitOfWorkFactory
-    from domain.chat.repositories import ChatLogListOptions
+    from domain.chat.repositories import ChatLogFilter
 
 
 class ChatLogService:
@@ -44,35 +43,19 @@ class ChatLogService:
             async with self._uow_factory.create(master=True) as new_uow:
                 await new_uow.chat_logs.save(chat_log)
 
-    async def list_logs(self, **options: Unpack[ChatLogListOptions]) -> list[ChatLog]:
+    async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]:
         async with self._uow_factory.create() as uow:
-            return await uow.chat_logs.list_logs(**options)
+            return await uow.chat_logs.list_logs(filters)
 
-    async def count_logs(
-        self,
-        *,
-        user_id: int | None = None,
-        user_ids: list[int] | None = None,
-        domain: str | None = None,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
-        search: str | None = None,
-    ) -> int:
+    async def count_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> int:
         async with self._uow_factory.create() as uow:
-            return await uow.chat_logs.count_logs(
-                user_id=user_id,
-                user_ids=user_ids,
-                domain=domain,
-                date_from=date_from,
-                date_to=date_to,
-                search=search,
-            )
+            return await uow.chat_logs.count_logs(filters)
 
     async def list_logs_with_emails(
-        self, **options: Unpack[ChatLogListOptions]
+        self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER
     ) -> tuple[list[ChatLog], dict[int, str]]:
         async with self._uow_factory.create() as uow:
-            logs = await uow.chat_logs.list_logs(**options)
+            logs = await uow.chat_logs.list_logs(filters)
             unique_ids = list({log.user_id for log in logs if log.user_id is not None})
 
             if unique_ids:

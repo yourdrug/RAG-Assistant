@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from domain.runtime.dynamic_params import DYNAMIC_PARAMS, DynamicParam, DynamicParamCategory
+from application.runtime.dynamic_params import DYNAMIC_PARAMS, DynamicParam, DynamicParamCategory
 from infrastructure.initialization import build_defaults
 from presentation.api.schemas.admin_config import ConfigParamResponse
 

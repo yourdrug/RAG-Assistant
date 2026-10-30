@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from application.admin import ConfigService
+from application.runtime.config import ConfigParameter, ConfigValueType
+from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from config import Settings
-from domain.runtime.config import ConfigParameter, ConfigValueType
-from domain.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from domain.shared.exceptions import ValidationError
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration

@@ -17,12 +17,12 @@ from application.rag.ports import (
     RequestPreparation,
     Retrieval,
 )
-from domain.knowledge.enums import DocDomain
+from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, StreamEvent, TextChunk
+from domain.knowledge.enums import DocDomain, DomainKey
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
+from domain.rag.ranking import compute_reranker_score
 from domain.rag.result import RagResult
-from domain.rag.retrieval import compute_reranker_score
-from domain.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, StreamEvent, TextChunk
 
 
 class RagService:
@@ -171,8 +171,8 @@ class RagService:
         return RagResult(
             answer="".join(answer_parts),
             sources=sources,
-            breadth=breadth,
-            domain=domain,
+            breadth=Breadth(breadth),
+            domain=DomainKey(domain),
             retrieval_count=retrieval_count,
             reranker_score=reranker_score,
             confidence=confidence,

@@ -1,4 +1,4 @@
-"""Pure rules for regulatory-act identity, visibility and version intervals."""
+"""Extract an act identifier from profile-produced structural references."""
 
 from __future__ import annotations
 

@@ -15,7 +15,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "domain_imports.py"
 REWRITE = runpy.run_path(str(SCRIPT))["rewrite"]
 MOVES = {
     "domain.utils.content_hash": "domain.shared.hashing.content_hash",
-    "domain.utils.parse_bool": "domain.runtime.config.parse_bool",
+    "domain.utils.parse_bool": "application.runtime.config.parse_bool",
     "domain.value_objects.chat_context.ChatContext": "domain.rag.context.RagContext",
     "domain.value_objects.ChatContext": "domain.rag.context.RagContext",
 }
@@ -32,7 +32,7 @@ MOVES = {
             'from domain.utils import content_hash, parse_bool\nx = content_hash("x")\n',
             (
                 "from domain.shared.hashing import content_hash\n"
-                "from domain.runtime.config import parse_bool\n"
+                "from application.runtime.config import parse_bool\n"
                 'x = content_hash("x")\n'
             ),
         ),
@@ -146,9 +146,9 @@ def test_unsupported_star_import_prevents_all_writes(tmp_path: Path) -> None:
 def test_table_splits_modules_and_resolves_barrels() -> None:
     moves = json.loads(SCRIPT.with_name("domain_moves.json").read_text())
     assert moves["domain.utils.content_hash"] == "domain.shared.hashing.content_hash"
-    assert moves["domain.utils.parse_bool"] == "domain.runtime.config.parse_bool"
+    assert moves["domain.utils.parse_bool"] == "application.runtime.config.parse_bool"
     assert moves["domain.value_objects.llm_provider.Breadth"] == "domain.rag.breadth.Breadth"
-    assert moves["domain.value_objects.llm_provider.LLMProvider"] == "domain.runtime.enums.LLMProvider"
+    assert moves["domain.value_objects.llm_provider.LLMProvider"] == "application.runtime.enums.LLMProvider"
     assert moves["domain.exceptions.ValidationError"] == "domain.shared.exceptions.ValidationError"
     assert moves["domain.repositories.chunk_repository.ChunkRepository"] == (
         "application.uow.chunks.ChunkRepository"
@@ -163,7 +163,7 @@ def test_table_resolves_rag_barrel_and_vector_read_port() -> None:
         "port: VectorStoreRepository\n"
     )
     result = REWRITE(source, moves)
-    assert "from domain.rag.prompts import build_system_prompt" in result
+    assert "from infrastructure.ml.rag.prompts import build_system_prompt" in result
     assert "from domain.rag.retrieval import compute_context_budget" in result
     assert "from domain.rag.ports import VectorSearch" in result
     assert "port: VectorSearch" in result
@@ -178,7 +178,7 @@ def test_table_resolves_runtime_repository_model_imports() -> None:
     )
     result = REWRITE(source, moves)
     assert "from domain.runtime.jobs import BackgroundJob" in result
-    assert "from domain.runtime.config import ConfigParameter" in result
+    assert "from application.runtime.config import ConfigParameter" in result
     assert REWRITE(result, moves) == result
 
 

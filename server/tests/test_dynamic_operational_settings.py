@@ -10,8 +10,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from config import Settings, settings
-from domain.runtime.config import ConfigParameter
-from domain.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
+from application.runtime.config import ConfigParameter
+from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
 from domain.runtime.jobs import BackgroundJobStatus
 from infrastructure.database.models import BackgroundJobModel
 from infrastructure.events.in_process_event_bus import InProcessEventBus

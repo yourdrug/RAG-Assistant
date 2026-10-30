@@ -95,6 +95,7 @@ testing = [
     "pytest-asyncio==0.24.0",
     "fakeredis[lua]>=2.26.0",
     "pytest-cov>=6,<8",
+    "hypothesis>=6,<7",
 ]
 
 development = [
@@ -164,6 +165,8 @@ docstring-code-format = true
 docstring-code-line-length = "dynamic"
 
 [tool.ruff.lint]
+# Russian prose and patterns intentionally use Cyrillic letters.
+allowed-confusables = ["а", "А", "В", "с", "С", "е", "Е", "Н", "К", "М", "о", "О", "р", "Р", "Т", "х", "Х", "у", "У", "З", "г", "б"]
 # Включаем ВСЕ правила и точечно отключаем только то, что конфликтует или бессмысленно.
 select = ["ALL"]
 ignore = [
@@ -416,17 +419,17 @@ module = [
     "infrastructure.ml.pdf_diag",
     "infrastructure.ml.preview.docx_preview_strategy",
     "infrastructure.ml.preview.factory",
-    "infrastructure.ml.rag.applicable_context",
+    "infrastructure.ml.evidence_profiles.belarus.applicable_context",
     "infrastructure.ml.rag.benchmark_evidence",
     "infrastructure.ml.rag.chunk_metadata",
     "infrastructure.ml.rag.context_selection",
     "infrastructure.ml.rag.document_access",
     "infrastructure.ml.rag.document_sources",
     "infrastructure.ml.rag.evidence_focus",
-    "infrastructure.ml.rag.field_evidence",
-    "domain.rag.evidence.grounded_response",
+    "infrastructure.ml.evidence_profiles.belarus.field_evidence",
+    "infrastructure.ml.evidence_profiles.belarus.grounded_response",
     "infrastructure.ml.rag.retrieval_pipeline",
-    "infrastructure.ml.rag.linked_context",
+    "infrastructure.ml.evidence_profiles.belarus.linked_context",
     "infrastructure.ml.rag.prompt_budget",
     "infrastructure.ml.cache.pipeline",
     "infrastructure.ml.rag.rag_formatting",
@@ -1078,7 +1081,7 @@ addopts = [
 ]
 
 minversion = "8.3.3"
-norecursedirs = ".venv .mypy_cache .pytest_cache data docs"
+norecursedirs = ".venv .mypy_cache .pytest_cache .hypothesis data docs"
 testpaths = ["tests"]
 
 asyncio_default_fixture_loop_scope = "function"
@@ -1170,4 +1173,17 @@ forbidden_modules = [
     "application.documents", "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.uow", "application.ports",
     "langchain", "langchain_core", "langchain_ollama", "langchain_openai",
+]
+
+
+[[tool.importlinter.contracts]]
+name = "Runtime: declared application dependencies"
+type = "forbidden"
+source_modules = ["application.runtime"]
+allow_indirect_imports = true
+forbidden_modules = [
+    "application.budget", "application.admin", "application.benchmark", "application.act_versioning",
+    "application.identity", "application.chat", "application.search", "application.indexing",
+    "application.documents", "application.chunks", "application.ingestion", "application.health",
+    "application.jobs", "application.uow", "application.ports", "application.rag",
 ]

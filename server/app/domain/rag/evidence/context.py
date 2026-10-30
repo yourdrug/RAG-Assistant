@@ -1,7 +1,7 @@
 """Reconstruct structural conditions without framework-specific documents."""
 
 from domain.knowledge.enums import PageContentType
-from domain.rag.retrieval import RetrievalDocument
+from domain.rag.ranking import RetrievalDocument
 
 
 def content_with_parent_scope(doc: RetrievalDocument) -> str:

@@ -80,7 +80,7 @@ def ingest_run(
     ),
 ) -> None:
     """Full indexing of documents from S3 bucket."""
-    vis = DocumentVisibility.validate(visibility)
+    vis = DocumentVisibility.parse(visibility)
     try:
 
         async def run_action(infra) -> None:
@@ -121,7 +121,7 @@ def ingest_file(
     ),
 ) -> None:
     """Add a single file from S3 to existing collection."""
-    vis = DocumentVisibility.validate(visibility)
+    vis = DocumentVisibility.parse(visibility)
     try:
 
         async def run_action(infra):

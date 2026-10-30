@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 
-from domain.runtime.config import ConfigParameterChanged
+from application.runtime.config import ConfigParameterChanged
 
 
-from domain.runtime.setting_keys import STATIC_SETTING_KEYS
-from domain.runtime.setting_keys import SECRET_SETTING_KEYS as SENSITIVE_KEYS
+from application.runtime.setting_keys import STATIC_SETTING_KEYS
+from application.runtime.setting_keys import SECRET_SETTING_KEYS as SENSITIVE_KEYS
 
 log = logging.getLogger("default")
 

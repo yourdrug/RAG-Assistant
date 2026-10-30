@@ -165,7 +165,7 @@ class TestToggleActive:
         user = User(id=5, email="u@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
         uow.users.get_by_id.return_value = user
 
-        result = await service.toggle_active(user_id=5, is_active=False, admin_id=1)
+        result = await service.set_active(user_id=5, is_active=False, admin_id=1)
         assert result.is_active is False
 
     @pytest.mark.asyncio
@@ -175,4 +175,4 @@ class TestToggleActive:
         uow.users.get_by_id.return_value = user
 
         with pytest.raises(BusinessRuleViolationError):
-            await service.toggle_active(user_id=1, is_active=False, admin_id=1)
+            await service.set_active(user_id=1, is_active=False, admin_id=1)

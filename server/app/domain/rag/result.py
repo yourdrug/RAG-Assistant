@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from domain.knowledge.enums import DocDomain
+from domain.knowledge.enums import GENERAL_DOMAIN_KEY, DomainKey
 from domain.rag.breadth import Breadth
 
 
@@ -15,8 +15,8 @@ class RagResult:
 
     answer: str
     sources: list[dict[str, Any]] = field(default_factory=list)
-    breadth: str = Breadth.NARROW.value
-    domain: str = DocDomain.GENERAL.value
+    breadth: Breadth = Breadth.NARROW
+    domain: DomainKey = GENERAL_DOMAIN_KEY
     retrieval_count: int = 0
     reranker_score: float | None = None
     confidence: float | None = None
@@ -24,3 +24,7 @@ class RagResult:
     input_tokens: int | None = None
     output_tokens: int | None = None
     ttft_sec: float | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "domain", DomainKey(self.domain))
+        object.__setattr__(self, "breadth", Breadth(self.breadth))

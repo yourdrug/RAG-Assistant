@@ -29,7 +29,7 @@ class SQLAlchemyBenchmarkSweepRepository:
         stmt = select(BenchmarkSweepModel).where(BenchmarkSweepModel.id == sweep_id)
 
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
 
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
@@ -70,12 +70,21 @@ class SQLAlchemyBenchmarkSweepRepository:
         return self.to_entity(orm)
 
     async def update_status(self, sweep_id: int, status: str) -> None:
-        stmt = (
-            update(BenchmarkSweepModel)
-            .where(BenchmarkSweepModel.id == sweep_id)
-            .values(status=status, version=BenchmarkSweepModel.version + 1)
-        )
-        await self._db.execute(stmt)
+        orm = (
+            await self._db.execute(
+                select(BenchmarkSweepModel)
+                .where(BenchmarkSweepModel.id == sweep_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if orm is None:
+            return
+        entity = self.to_entity(orm)
+        entity.transition_to(BenchmarkSweepStatus(status))
+        orm.status = entity.status.value
+        orm.version += 1
+        await self._db.flush()
 
     async def requeue(self, sweep_id: int) -> bool:
         # Compare-and-set plus the unique active-sweep index serialize resumes.
@@ -233,7 +242,10 @@ class SQLAlchemyBenchmarkSweepRepository:
 
     async def delete_checkpoints(self, sweep_id: int) -> None:
         await self._db.execute(
-            select(BenchmarkSweepModel.id).where(BenchmarkSweepModel.id == sweep_id).with_for_update()
+            select(BenchmarkSweepModel.id)
+            .where(BenchmarkSweepModel.id == sweep_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         await self._db.execute(
             delete(BenchmarkCheckpointModel).where(BenchmarkCheckpointModel.sweep_id == sweep_id)

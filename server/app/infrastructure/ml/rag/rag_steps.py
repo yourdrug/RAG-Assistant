@@ -24,27 +24,21 @@ from application.rag.dto import (
     Sufficiency,
     TerminalResponse,
 )
+from application.rag.stream_events import SourcesEvent, TextChunk, UsageReport
+from application.runtime.enums import LLMProvider
 from config import get_request_settings
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.rag.breadth import BREADTH_ALIASES, Breadth
 from domain.rag.classification import (
-    classify_query_domain,
     classify_question_breadth,
     is_out_of_domain,
 )
 from domain.rag.context import RagContext
-from domain.rag.evidence.grounded_response import (
-    scoped_evidence_response,
-)
+from domain.rag.exceptions import ContextBudgetExceededError
 from domain.rag.ports import ChunkRetrievalRepository
-from domain.rag.prompt_blocks import NOT_FOUND_ANSWER
-from domain.rag.retrieval import (
-    ContextBudgetExceededError,
-    compute_retrieval_params,
-)
-from domain.rag.stream_events import SourcesEvent, TextChunk, UsageReport
-from domain.runtime.enums import LLMProvider
+from domain.rag.retrieval import compute_retrieval_params
+from infrastructure.domain_profile.answer_policy import classify_query_domain
 from infrastructure.metrics.metrics import (
     RAG_BREADTH_TOTAL,
     RAG_CACHE_MISSES_TOTAL,
@@ -60,6 +54,11 @@ from infrastructure.ml.cache.answers import (
 from infrastructure.ml.cache.keys import CacheKeyBuilder, generation_identity
 from infrastructure.ml.cache.pipeline import check_cache, handle_cache_hit, store_answer_cache
 from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.ml.evidence_profiles.profiles import (
+    EVIDENCE_PROFILES,
+    active_evidence_profile,
+    evidence_profile_scope,
+)
 from infrastructure.ml.guardrails.input_scanner import InputScanner
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
 from infrastructure.ml.rag.benchmark_evidence import capture_prompt
@@ -72,6 +71,7 @@ from infrastructure.ml.rag.langchain_mapping import (
     message_values,
     scored_values,
 )
+from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection, history_to_messages
@@ -100,6 +100,7 @@ if TYPE_CHECKING:
     from langchain_core.runnables import Runnable
 
     from application.documents import DocumentAccessPort
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 
 MIN_HISTORY_CHARS = 3
@@ -115,16 +116,21 @@ class RagOperations:
         pii_redactor: PIIRedactorPort | None = None,
         *,
         document_access: DocumentAccessPort,
+        domain_registry: DomainProfileRegistry | None = None,
     ) -> None:
         self.ml = ml_clients
         self.chunk_search = chunk_search
         self.domain_keys = domain_keys
+        self.domain_registry = domain_registry
         self.pii_redactor = pii_redactor
         self.document_access = document_access
 
     @asynccontextmanager
     async def corpus(self) -> AsyncIterator[None]:
         async with AsyncExitStack() as stack:
+            stack.enter_context(
+                evidence_profile_scope(EVIDENCE_PROFILES[get_request_settings().evidence_profile])
+            )
             if isinstance(self.ml, MLClientRegistry):
                 await stack.enter_async_context(self.ml.corpus_operation())
             if isinstance(self.ml, MLClientRegistry):
@@ -218,7 +224,7 @@ class RagOperations:
             return query
         # Cache identity uses the same normalized history and request scope as retrieval.
         query = replace(query, cache_revision=revision)
-        q_hash, vis_hash = CacheKeyBuilder.build(query, self.domain_keys)
+        q_hash, vis_hash = CacheKeyBuilder.build(query, self.domain_keys, self.domain_registry)
         query = replace(query, q_hash=q_hash, vis_hash=vis_hash, cache_revision=revision)
         cached = await check_cache(request.settings, q_hash, vis_hash, revision)
         if cached is not None:
@@ -251,19 +257,20 @@ class RagOperations:
             "managed_internal_ids": list(scope.managed_internal_ids) if scope else None,
             "managed_group_ids": list(scope.managed_group_ids) if scope else None,
         }
-        access_filter = build_qdrant_filter(user, ctx.user_group_ids, **managed)
+        access_filter = build_qdrant_filter(user, list(ctx.user_group_ids), **managed)
         work = RetrievalWork(
+            domain_registry=self.domain_registry,
             rag=request.settings,
             t_pipeline_start=request.started,
             question=request.question,
             ctx=ctx,
             user=user,
             access_filter=access_filter,
-            retrieval_filter=build_search_filter(user, ctx.user_group_ids, ctx.as_of_date, **managed),
+            retrieval_filter=build_search_filter(user, list(ctx.user_group_ids), ctx.as_of_date, **managed),
             req_id=request.request_id,
             visibility_conditions=get_visibility_conditions(
                 UserKind(ctx.user_kind),
-                ctx.user_group_ids,
+                list(ctx.user_group_ids),
                 for_list=False,
                 user_role=UserRole(ctx.user_role) if ctx.user_role else None,
                 **managed,
@@ -296,15 +303,17 @@ class RagOperations:
             )
             work.breadth = BREADTH_ALIASES.get(raw) or Breadth(raw)
             RAG_BREADTH_TOTAL.labels(breadth=work.breadth).inc()
-            params = compute_retrieval_params(
-                work.breadth, work.rag, query.query, exact_ref_sparse_boost=work.rag.exact_ref_sparse_boost
-            )
+            params = compute_retrieval_params(work.breadth, work.rag, query.query)
             work.fetch_k = params["fetch_k"]
             work.rerank_top_n = params["rerank_top_n"]
             work.effective_dense_weight = params["effective_dense_weight"]
             work.effective_sparse_weight = params["effective_sparse_weight"]
             work.use_exact_ref_boost = params["use_exact_ref_boost"]
-            work.query_domain = classify_query_domain(query.query)
+            work.query_domain = (
+                classify_query_domain(query.query, self.domain_registry)
+                if self.domain_registry is not None
+                else classify_query_domain(query.query)
+            )
         await RetrievalPipeline(self.ml, self.chunk_search, self.document_access).run(query.query, work)
         if work.breadth is None:
             raise ValueError("Retrieval breadth is required")
@@ -383,6 +392,7 @@ class RagOperations:
             state.query_domain,
             ctx,
             domain_keys,
+            self.domain_registry,
         )
         prompt = build_prompt(
             effective_breadth,
@@ -455,7 +465,9 @@ class RagOperations:
             if count_tokens(messages) > input_budget:
                 raise ContextBudgetExceededError()
 
-            grounded_answer, evidence_assessment = scoped_evidence_response(selected, context, state.question)
+            grounded_answer, evidence_assessment = active_evidence_profile.get().scoped_response(
+                selected, context, state.question
+            )
             break
 
         budget = ContextBudget(num_ctx, num_predict, count_tokens(messages), count_context(""))

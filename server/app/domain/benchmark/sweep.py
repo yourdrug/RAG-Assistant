@@ -1,4 +1,4 @@
-"""Benchmark sweep: domain models and rules."""
+"""Sweep configuration, evaluation modes and execution lifecycle."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ from typing import Any
 
 from domain.benchmark.question import DEFAULT_DATASET
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
-from domain.shared.enums import LifecycleStatus
+from domain.shared.enums import LifecycleStatus, parse_enum
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 
 
 class BenchmarkStrategy(StrEnum):
@@ -36,11 +37,12 @@ class SweepEvaluationMode(StrEnum):
 
 
 def validate_sweep_mode(mode: str, strategy: str) -> SweepEvaluationMode:
-    resolved = SweepEvaluationMode(mode)
+    resolved = parse_enum(SweepEvaluationMode, mode)
+    strategy = parse_enum(BenchmarkStrategy, strategy)
 
     if resolved == SweepEvaluationMode.FULL and strategy != BenchmarkStrategy.GRID:
         msg = "Full evaluation requires grid search to evaluate every combination"
-        raise ValueError(msg)
+        raise ValidationError(msg)
 
     return resolved
 
@@ -64,6 +66,29 @@ class BenchmarkSweep:
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:
-        self.strategy = BenchmarkStrategy(self.strategy)
-        self.evaluation_mode = SweepEvaluationMode(self.evaluation_mode)
-        self.status = BenchmarkSweepStatus(self.status)
+        self.strategy = parse_enum(BenchmarkStrategy, self.strategy)
+        self.evaluation_mode = parse_enum(SweepEvaluationMode, self.evaluation_mode)
+        self.status = parse_enum(BenchmarkSweepStatus, self.status)
+
+    def transition_to(self, status: BenchmarkSweepStatus) -> None:
+        allowed = {
+            BenchmarkSweepStatus.PENDING: {
+                BenchmarkSweepStatus.RUNNING,
+                BenchmarkSweepStatus.FAILED,
+                BenchmarkSweepStatus.CANCELLED,
+            },
+            BenchmarkSweepStatus.RUNNING: {
+                BenchmarkSweepStatus.DONE,
+                BenchmarkSweepStatus.FAILED,
+                BenchmarkSweepStatus.CANCELLED,
+            },
+            BenchmarkSweepStatus.DONE: {BenchmarkSweepStatus.PENDING},
+            BenchmarkSweepStatus.FAILED: {BenchmarkSweepStatus.PENDING},
+            BenchmarkSweepStatus.CANCELLED: {BenchmarkSweepStatus.PENDING},
+        }
+
+        if status != self.status and status not in allowed[self.status]:
+            message = f"Cannot transition sweep from {self.status} to {status}"
+            raise BusinessRuleViolationError(message)
+
+        self.status = status

@@ -7,7 +7,7 @@ shared config defaults.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from domain.ingestion.profiles.types import ConfigDefault, EffectiveDateCandidate
 from domain.shared.dates import parse_date_guess
@@ -33,6 +33,11 @@ class SettingsBackedProfile:
     """Base mixin for profiles that read config via DomainSettingsPort."""
 
     key: str  # must be set by subclass
+    is_versioned: bool
+
+    @property
+    def resolution_strategy(self) -> Literal["version", "replace"]:
+        return "version" if self.is_versioned else "replace"
 
     def __init__(self, settings: DomainSettingsPort | None = None) -> None:
         self._settings = settings
@@ -57,15 +62,17 @@ def extract_effective_date_generic(
 ) -> EffectiveDateCandidate | None:
     """Extract effective date using a list of (pattern, confidence) pairs.
 
-    Tries each pattern in order; first match wins.  Falls back to
+    Tries each pattern in order; first parseable match wins.  Falls back to
     ``fallback_pattern`` applied to the first ``fallback_window`` chars
     (typically the document header / signing block).
     """
     for pattern, confidence in patterns:
-        if (m := pattern.search(text)) and (dt := parse_date_guess(m.group(1))):
-            return EffectiveDateCandidate(effective_from=dt, confidence=confidence)
+        for match in pattern.finditer(text):
+            if dt := parse_date_guess(match.group(1)):
+                return EffectiveDateCandidate(effective_from=dt, confidence=confidence)
 
-    if (m := fallback_pattern.search(text[:fallback_window])) and (dt := parse_date_guess(m.group(1))):
-        return EffectiveDateCandidate(signing_date=dt, confidence=fallback_confidence)
+    for match in fallback_pattern.finditer(text[:fallback_window]):
+        if dt := parse_date_guess(match.group(1)):
+            return EffectiveDateCandidate(signing_date=dt, confidence=fallback_confidence)
 
     return None

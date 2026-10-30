@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from application.admin.dto import ConfigurationStatus, EffectiveParameter
-    from domain.runtime.config import ConfigParameter
+    from application.runtime.config import ConfigParameter
 
 
 @runtime_checkable

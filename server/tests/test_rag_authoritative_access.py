@@ -1,8 +1,8 @@
 """Stale cache/index data must not bypass the primary database ACL."""
 
+from domain.identity.user_context import UserContext
 from rag_stage_fixtures import stage_fixture
 from domain.rag.context import RagContext
-from domain.identity.user_context import UserContext
 from domain.identity.roles import UserKind, UserRole
 
 from dataclasses import replace
@@ -162,7 +162,7 @@ async def test_neighbor_expansion_cannot_reintroduce_forbidden_evidence(database
         retrieval_pipeline, "enrich_with_neighbors", AsyncMock(return_value=[(visible, 0.9), (hidden, 0.9)])
     )
     ml = SimpleNamespace(reranker_semaphore=__import__("asyncio").Semaphore(1), reranker=lambda: None)
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.USER)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER))
     docs, _, _ = await retrieval_pipeline.rerank_and_enrich(
         "question",
         [visible, hidden],
@@ -191,7 +191,6 @@ async def test_neighbor_expansion_cannot_reintroduce_forbidden_evidence(database
 
 @pytest.mark.asyncio
 async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evidence(  # noqa: PLR0915
-
     database_access, monkeypatch
 ):
     from infrastructure.ml.rag import retrieval_pipeline, rag_steps
@@ -204,8 +203,13 @@ async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evid
     from rag_stage_fixtures import retrieval_result
     from datetime import date
     from domain.identity.user_context import CuratorScope
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.CURATOR, [10],
-        CuratorScope(managed_internal_ids=(88,)), as_of_date=date(2025, 1, 1))
+
+    ctx = RagContext(
+        user=UserContext(
+            user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.CURATOR, group_ids=[10]
+        ).with_curator_scope(CuratorScope(managed_internal_ids=(88,))),
+        as_of_date=date(2025, 1, 1),
+    )
     searches = []
 
     async def retrieve(query, request, clients):
@@ -224,8 +228,11 @@ async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evid
     monkeypatch.setattr(retrieval_pipeline, "rerank_and_enrich", rerank)
     monkeypatch.setattr(retrieval_pipeline, "apply_exact_search", exact)
     monkeypatch.setattr(rag_steps, "handle_relevance_gate", AsyncMock(side_effect=[False, True]))
-    monkeypatch.setattr(rag_steps, "assess_sufficiency",
-        AsyncMock(return_value=SimpleNamespace(is_sufficient=False, suggested_refinement="refined")))
+    monkeypatch.setattr(
+        rag_steps,
+        "assess_sufficiency",
+        AsyncMock(return_value=SimpleNamespace(is_sufficient=False, suggested_refinement="refined")),
+    )
     rag = replace(_make_rag(), features=replace(_make_rag().features, condense_enabled=False))
     monkeypatch.setattr(rag_steps, "build_rag_settings", lambda: rag)
     service = create_rag_service(None, document_access=access)
@@ -241,11 +248,14 @@ async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evid
         return result
 
     monkeypatch.setattr(service.retrieval, "retrieve", with_exact)
+
     def build(result):
         return PreparedContext(result, (), (), result.documents, ContextBudget(0, 0, 0, 0), "answer", None)
+
     monkeypatch.setattr(service.context, "build", build)
     monkeypatch.setattr(
-        service.generation, "generate",
+        service.generation,
+        "generate",
         AsyncMock(side_effect=lambda context: SanitizedAnswer(context, "answer", None, 0)),
     )
     monkeypatch.setattr(service.finalization, "finalize", lambda answer: CompletedAnswer(answer, (), 0.9))

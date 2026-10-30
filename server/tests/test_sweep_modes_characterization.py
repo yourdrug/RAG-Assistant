@@ -1,5 +1,6 @@
 """Public benchmark contracts captured before extending evaluation modes."""
 
+from domain.identity.user_context import UserContext
 from infrastructure.benchmark.judging import context_judge
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -53,7 +54,9 @@ async def test_case_evaluator_preserves_question_and_actual_context(monkeypatch)
     }
     result = await BenchmarkCaseEvaluator(
         SimpleNamespace(generate=AsyncMock(return_value=answer)), "judge"
-    ).evaluate(1, question, 2, RagContext(user_id=1, user_kind=UserKind.INTERNAL))
+    ).evaluate(
+        1, question, 2, RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user"))
+    )
     assert result["id"] == 17
     assert result["annotations"] == question["annotations"]
     assert result["evidence"]["retrieved"] == documents

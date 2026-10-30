@@ -6,7 +6,9 @@ Uses char-based splitting (existing RecursiveCharacterTextSplitter).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
+from domain.shared.profile_policy import AnswerPolicy
 
 
 if TYPE_CHECKING:
@@ -19,9 +21,13 @@ if TYPE_CHECKING:
 
 
 class GeneralDomainProfile:
+    answer_policy = AnswerPolicy(None, fallback_to_full_corpus=False)
+    query_patterns: tuple[str, ...] = ()
+    query_priority = 0
     key = "general"
     display_name = "Общие документы"
     is_versioned = False
+    resolution_strategy: Literal["version", "replace"] = "replace"
 
     def config_defaults(self) -> list[ConfigDefault]:
         return []

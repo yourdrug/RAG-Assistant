@@ -9,8 +9,8 @@ import asyncio
 import re
 
 from config import get_request_settings
-from domain.rag.prompts import SUFFICIENCY_ASSESSMENT_SYSTEM
-from domain.runtime.enums import LLMProvider
+from infrastructure.ml.rag.prompts import SUFFICIENCY_ASSESSMENT_SYSTEM
+from application.runtime.enums import LLMProvider
 from infrastructure.ml.clients.llm_schemas import create_structured_response
 
 from infrastructure.ml.clients.client_lease import client_operation

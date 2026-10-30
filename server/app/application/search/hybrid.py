@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from domain.rag.retrieval import deduplicate_docs, prioritize_distinct_provisions, rrf_merge
+from domain.rag.ranking import deduplicate_docs, prioritize_distinct_provisions, rrf_merge
 
 
 class HybridRetriever:

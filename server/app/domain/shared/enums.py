@@ -28,7 +28,7 @@ class ValidatedStrEnum(StrEnum):
         cls._label = label
 
     @classmethod
-    def validate(cls, value: str) -> Self:
+    def parse(cls, value: str) -> Self:
         try:
             return cls(value)
         except ValueError:
@@ -71,3 +71,12 @@ class LifecycleStatus(StrEnum):
     def is_active(self) -> bool:
         """True for PENDING, RUNNING, PROCESSING, INDEXING, IN_PROGRESS -- work is ongoing."""
         return self.value in self._active
+
+
+def parse_enum[EnumT: StrEnum](enum_type: type[EnumT], value: str) -> EnumT:
+    """Parse a business enum using the domain validation error contract."""
+    try:
+        return enum_type(value)
+    except (ValueError, TypeError) as exc:
+        message = f"Invalid {enum_type.__name__}: {value!r}"
+        raise ValidationError(message) from exc

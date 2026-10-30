@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from domain.identity.user_context import UserContext
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,7 +29,6 @@ from domain.rag.context import RagContext
 from domain.identity.user_context import CuratorScope
 from domain.knowledge.access_control import OwnerMatch
 from domain.identity.roles import UserKind, UserRole
-from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.repositories.vector.acl import build_qdrant_filter
 
@@ -476,12 +476,9 @@ class TestChatServiceCuratorScope:
 
         scope = CuratorScope(managed_client_ids=(100,), managed_internal_ids=(200,), managed_group_ids=(300,))
         ctx = RagContext(
-            user_id=1,
-            user_kind="internal",
-            user_role="curator",
-            curator_scope=scope,
+            user=UserContext(user_id=1, user_kind="internal", user_role="curator").with_curator_scope(scope)
         )
-        assert ctx.curator_scope is scope
+        assert ctx.curator_scope == scope
         assert ctx.curator_scope.managed_client_ids == (100,)
 
 
@@ -513,10 +510,7 @@ class TestRagServiceCuratorScope:
     def test_user_no_scope_passes_none_managed_args(self):
         """Non-curator with curator_scope=None → all managed_*_ids=None."""
         ctx = RagContext(
-            user_id=1,
-            user_kind="internal",
-            user_role="user",
-            curator_scope=None,
+            user=UserContext(user_id=1, user_kind="internal", user_role="user").with_curator_scope(None)
         )
         scope_val = ctx.curator_scope
         user = {"id": ctx.user_id, "kind": ctx.user_kind, "role": ctx.user_role}
@@ -557,10 +551,7 @@ class TestRagServiceCuratorScope:
 
         scope = CuratorScope(managed_client_ids=(100, 200), managed_internal_ids=(300,))
         ctx = RagContext(
-            user_id=1,
-            user_kind="internal",
-            user_role="curator",
-            curator_scope=scope,
+            user=UserContext(user_id=1, user_kind="internal", user_role="curator").with_curator_scope(scope)
         )
         with patch("infrastructure.ml.rag.rag_steps.build_qdrant_filter") as mock_filter:
             mock_filter.return_value = type("F", (), {"should": []})()

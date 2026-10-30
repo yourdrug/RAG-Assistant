@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from domain.knowledge.repositories.chunk import ChunkInsertOptions, ManualChunkInsertOptions
+from domain.knowledge.repositories.chunk import (
+    DEFAULT_CHUNK_INSERT_OPTIONS,
+    DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
+)
 from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from collections.abc import AsyncIterator
 from datetime import date, datetime
 from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
 from domain.shared.pagination import CursorPage
-from domain.knowledge.enums import DocDomain
 from domain.knowledge.enums import SearchMode
 from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.repositories.chunk.chunk_crud import SQLAlchemyChunkCrudRepository
@@ -34,28 +38,31 @@ class SQLAlchemyChunkRepository:
         filename: str,
         visibility: str,
         chunks: list[ChunkInsert],
-        owner_id: int | None = None,
-        group_id: int | None = None,
-        doc_domain: str = DocDomain.GENERAL.value,
-        domain_metadata: dict | None = None,
-        act_version_id: int | None = None,
-        effective_from: date | None = None,
-        effective_to: date | None = None,
-        is_current: bool = True,
+        options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
     ) -> list[int]:
+        owner_id = options.owner_id
+        group_id = options.group_id
+        doc_domain = options.doc_domain
+        domain_metadata = options.domain_metadata
+        act_version_id = options.act_version_id
+        effective_from = options.effective_from
+        effective_to = options.effective_to
+        is_current = options.is_current
         return await self._crud.bulk_insert(
             document_id=document_id,
             filename=filename,
             visibility=visibility,
             chunks=chunks,
-            owner_id=owner_id,
-            group_id=group_id,
-            doc_domain=doc_domain,
-            domain_metadata=domain_metadata,
-            act_version_id=act_version_id,
-            effective_from=effective_from,
-            effective_to=effective_to,
-            is_current=is_current,
+            options=ChunkInsertOptions(
+                owner_id=owner_id,
+                group_id=group_id,
+                doc_domain=doc_domain,
+                domain_metadata=domain_metadata,
+                act_version_id=act_version_id,
+                effective_from=effective_from,
+                effective_to=effective_to,
+                is_current=is_current,
+            ),
         )
 
     async def get_by_id(self, chunk_id: int) -> ChunkRecord | None:
@@ -75,7 +82,7 @@ class SQLAlchemyChunkRepository:
             content=content,
             content_hash=content_hash,
             edited_at=edited_at,
-            edited_by=edited_by
+            edited_by=edited_by,
         )
 
     async def insert_one(
@@ -86,16 +93,17 @@ class SQLAlchemyChunkRepository:
         filename: str,
         visibility: str,
         doc_domain: str,
-        owner_id: int | None = None,
-        group_id: int | None = None,
-        manual: bool = False,
-        content_hash: str | None = None,
-        context_metadata: dict | None = None,
-        act_version_id: int | None = None,
-        effective_from: date | None = None,
-        effective_to: date | None = None,
-        is_current: bool = True,
+        options: ManualChunkInsertOptions = DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
     ) -> int:
+        owner_id = options.owner_id
+        group_id = options.group_id
+        manual = options.manual
+        content_hash = options.content_hash
+        context_metadata = options.context_metadata
+        act_version_id = options.act_version_id
+        effective_from = options.effective_from
+        effective_to = options.effective_to
+        is_current = options.is_current
         return await self._crud.insert_one(
             document_id=document_id,
             chunk_index=chunk_index,
@@ -103,15 +111,17 @@ class SQLAlchemyChunkRepository:
             filename=filename,
             visibility=visibility,
             doc_domain=doc_domain,
-            owner_id=owner_id,
-            group_id=group_id,
-            manual=manual,
-            content_hash=content_hash,
-            context_metadata=context_metadata,
-            act_version_id=act_version_id,
-            effective_from=effective_from,
-            effective_to=effective_to,
-            is_current=is_current,
+            options=ManualChunkInsertOptions(
+                owner_id=owner_id,
+                group_id=group_id,
+                manual=manual,
+                content_hash=content_hash,
+                context_metadata=context_metadata,
+                act_version_id=act_version_id,
+                effective_from=effective_from,
+                effective_to=effective_to,
+                is_current=is_current,
+            ),
         )
 
     async def delete_one(self, chunk_id: int) -> None:
@@ -137,7 +147,7 @@ class SQLAlchemyChunkRepository:
         document_id: int,
         limit: int = 50,
         cursor: tuple[int, int] | None = None,
-        direction: str = 'next',
+        direction: str = "next",
         content_hashes: list[str] | None = None,
     ) -> CursorPage[ChunkRecord]:
         return await self._crud.list_for_document_cursor(
@@ -158,13 +168,10 @@ class SQLAlchemyChunkRepository:
     async def get_document_stats(self, document_id: int) -> ChunkStats:
         return await self._crud.get_document_stats(document_id=document_id)
 
-
-
     def iter_all_contents_with_acl(
         self, batch_size: int = 1000
     ) -> AsyncIterator[tuple[str, str, int | None, int | None]]:
         return self._corpus.iter_all_contents_with_acl(batch_size=batch_size)
-
 
     async def get_neighbors(
         self,
@@ -221,7 +228,7 @@ class SQLAlchemyChunkRepository:
         query: str,
         user,
         limit: int = 20,
-        mode: str = 'exact',
+        mode: str = "exact",
         document_id: int | None = None,
         as_of_date: date | None = None,
     ) -> list[ChunkRecord]:

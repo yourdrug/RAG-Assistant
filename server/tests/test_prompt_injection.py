@@ -19,7 +19,7 @@ from domain.rag.classification import (
 from domain.rag.guardrails.sanitization import (
     sanitize_for_prompt,
 )
-from domain.rag.prompts import (
+from infrastructure.ml.rag.prompts import (
     build_system_prompt,
 )
 
@@ -55,14 +55,14 @@ class TestSystemPromptStructure:
         assert "не инструкции" in prompt.lower() or "не команда" in prompt.lower()
 
     def test_prompt_includes_document_context_block(self):
-        from domain.rag.prompts import build_context_message
+        from infrastructure.ml.rag.prompts import build_context_message
 
         context_msg = build_context_message()
         assert "<<DOCUMENT_CONTEXT>>" in context_msg
         assert "<<END_DOCUMENT_CONTEXT>>" in context_msg
 
     def test_prompt_includes_reminder_after_context(self):
-        from domain.rag.prompts import build_context_message
+        from infrastructure.ml.rag.prompts import build_context_message
 
         context_msg = build_context_message()
         assert "Напоминание" in context_msg or "напоминание" in context_msg.lower()
@@ -123,7 +123,7 @@ class TestPromptInjectionDefense:
 
     def test_document_context_is_sandboxed(self):
         """Document context should be in a separate message, not in system prompt."""
-        from domain.rag.prompts import build_context_message
+        from infrastructure.ml.rag.prompts import build_context_message
 
         prompt = build_system_prompt()
         context_msg = build_context_message()

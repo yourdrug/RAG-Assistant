@@ -9,9 +9,9 @@ Verifies that:
 
 from __future__ import annotations
 
+from domain.identity.user_context import UserContext
 from infrastructure.ml.rag.retrieval_work import RetrievalWork
 from domain.rag.context import RagContext
-from domain.identity.user_context import UserContext
 from domain.identity.roles import UserKind, UserRole
 
 import sys
@@ -200,7 +200,11 @@ class TestDecomposeCallerIntegration:
                     t_pipeline_start=0,
                     question="complex question",
                     access_filter=None,
-                    ctx=RagContext(user_kind=UserKind.INTERNAL, user_id=0, user_group_ids=[]),
+                    ctx=RagContext(
+                        user=UserContext(
+                            user_id=0, user_kind=UserKind.INTERNAL, group_ids=[], user_role="user"
+                        )
+                    ),
                     user=UserContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
                 ),
                 mock_ml,

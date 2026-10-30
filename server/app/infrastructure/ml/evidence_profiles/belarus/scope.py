@@ -4,10 +4,14 @@ import re
 from typing import Any
 
 from domain.knowledge.chunk import ChunkRecord
-from domain.rag.evidence.applicability import act_numbers, normalize_act_number, timing_question
 from domain.rag.evidence.context import content_with_parent_scope
-from domain.rag.evidence.queries import listed_goods_polarities
-from domain.rag.retrieval import RetrievalDocument
+from domain.rag.ranking import RetrievalDocument
+from infrastructure.ml.evidence_profiles.belarus.applicability import (
+    act_numbers,
+    normalize_act_number,
+    timing_question,
+)
+from infrastructure.ml.evidence_profiles.belarus.predicates import listed_goods_polarities
 
 
 def same_version(chunk: ChunkRecord, metadata: dict[str, Any]) -> bool:

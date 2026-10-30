@@ -31,6 +31,7 @@ from infrastructure.ingestion.document_parser_adapter import (
 )
 
 if TYPE_CHECKING:
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
     from composition.infrastructure import InfrastructureContainer
     from application.chat import PIIRedactorPort
     from application.documents import DocumentAccessPort
@@ -204,9 +205,15 @@ def create_rag_service(
     pii_redactor: PIIRedactorPort | None = None,
     *,
     document_access: DocumentAccessPort,
+    domain_registry: DomainProfileRegistry | None = None,
 ) -> ApplicationRagService:
     operations = RagOperations(
-        ml_clients, chunk_search, domain_keys, pii_redactor, document_access=document_access
+        ml_clients,
+        chunk_search,
+        domain_keys,
+        pii_redactor,
+        document_access=document_access,
+        domain_registry=domain_registry,
     )
     return ApplicationRagService(
         preparation=operations,

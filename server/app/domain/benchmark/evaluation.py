@@ -1,4 +1,4 @@
-"""Benchmark evaluation: domain models and rules."""
+"""Source matching, labelled retrieval scores and evidence coverage summaries."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def matches_source_hints(filename: str, hints: tuple[str, ...]) -> bool:
     return any(hint in filename.lower() for hint in hints)
 
 
-EVIDENCE_METRICS = (
+DETERMINISTIC_EVIDENCE_METRICS = (
     "fragment_recall_at_k",
     "fragment_mrr",
     "fragment_ndcg_at_k",
@@ -30,10 +30,16 @@ EVIDENCE_METRICS = (
     "context_condition_coverage",
     "answer_fact_coverage",
     "answer_condition_coverage",
+)
+
+JUDGED_EVIDENCE_METRICS = (
     "refusal_score",
     "citation_support_score",
     "requirement_preservation_score",
 )
+
+
+EVIDENCE_METRICS = DETERMINISTIC_EVIDENCE_METRICS + JUDGED_EVIDENCE_METRICS
 
 
 def normalize_text(text: str) -> str:
@@ -62,9 +68,14 @@ def matches_fragment(fragment: dict[str, Any], document: dict[str, Any]) -> bool
             pages = [*pages, metadata["page"]]
 
         if metadata.get("page_start") is not None:
+            page_end = metadata.get("page_end")
+
+            if page_end is None:
+                page_end = metadata["page_start"]
+
             pages = [
                 *pages,
-                *range(metadata["page_start"], metadata.get("page_end", metadata["page_start"]) + 1),
+                *range(metadata["page_start"], page_end + 1),
             ]
 
         if not set(fragment["pages"]).issubset(pages):
@@ -120,8 +131,14 @@ def evaluate_evidence(
     selected: list[dict[str, Any]] | None,
     context: str | None,
     answer: str,
+    *,
+    judge_scores: dict[str, float | None] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     metrics = dict.fromkeys(EVIDENCE_METRICS)
+
+    if judge_scores is not None:
+        metrics.update({key: judge_scores.get(key) for key in JUDGED_EVIDENCE_METRICS})
+
     diagnostics: dict[str, Any] = {"missing_fragments": None, "missing_context_fragments": None}
 
     if annotations is None:
@@ -280,6 +297,7 @@ def summarize_evidence(results: list[dict[str, Any]]) -> dict[str, Any]:
         elif "condition" in metric:
             annotation = "required_conditions"
         else:
+            summary[f"{metric}_expected_count"] = sum(bool(r.get("annotations")) for r in results)
             continue
 
         summary[f"{metric}_expected_count"] = sum(

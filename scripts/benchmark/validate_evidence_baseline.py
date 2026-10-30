@@ -4,6 +4,7 @@ Input is an exported benchmark run. Historical results and database baselines ar
 never overwritten. Run from server with PYTHONPATH=app inside the service container.
 """
 
+from domain.identity.user_context import UserContext
 import argparse
 import asyncio
 from collections.abc import Awaitable, Iterable
@@ -21,8 +22,8 @@ from composition.container import Container
 from config import _settings_overrides, settings
 from domain.identity.roles import UserKind, UserRole
 from domain.rag.context import RagContext
-from domain.rag.evidence.focus import EVIDENCE_POLICY_VERSION
-from domain.runtime.config import ConfigParameterChanged
+from infrastructure.ml.evidence_profiles.belarus.focus import EVIDENCE_POLICY_VERSION
+from application.runtime.config import ConfigParameterChanged
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.judging.token_usage import judge_usage
@@ -166,7 +167,7 @@ async def generate_cases(
     args: argparse.Namespace,
     report: dict[str, Any],
 ) -> None:
-    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     semaphore = asyncio.Semaphore(args.concurrency)
 
     async def generate(case: dict[str, Any]) -> None:
@@ -231,7 +232,7 @@ async def evaluate_cases(
             usage_token = judge_usage.set(records)
             try:
                 result = await evaluator.evaluate(
-                    0, case, 1, RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+                    0, case, 1, RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
                 )
             except Exception as exc:
                 await resolve_costs(records)

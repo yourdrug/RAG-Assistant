@@ -721,7 +721,7 @@ class TestCheckOwnership:
             can_be_deleted_by=lambda uid, role, gids, **kw: False,
         )
         ctx = UserContext(user_id=1, user_kind="internal", user_role="user")
-        with pytest.raises(BusinessRuleViolationError, match="Can only"):
+        with pytest.raises(BusinessRuleViolationError, match="No permission"):
             check_ownership(doc, ctx)
 
     def test_ok_when_owner(self):

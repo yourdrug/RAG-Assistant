@@ -24,8 +24,8 @@ def normalize_unicode(text: str) -> str:
 
     1. Strips zero-width / invisible characters (U+200B..U+200F, U+2060,
        U+FEFF, U+00AD, U+180E).
-    2. Applies NFKC normalization to fold fullwidth/homoglyph characters
-       to their canonical ASCII forms where applicable.
+    2. Applies NFKC normalization to compatibility characters such as
+       fullwidth Latin letters. Cyrillic/Latin homoglyphs remain distinct.
     """
     text = _ZERO_WIDTH_RE.sub("", text)
     return unicodedata.normalize("NFKC", text)
@@ -94,7 +94,7 @@ INJECTION_PATTERNS: list[tuple[str, str, re.Pattern[str], str]] = [
             r"(?:developer\s+mode|dev\s+mode|jailbreak|DAN\s+mode|do\s+anything\s+now)",
             re.IGNORECASE,
         ),
-        "block",
+        "flag",
     ),
     (
         "d007",
@@ -174,6 +174,30 @@ INJECTION_PATTERNS: list[tuple[str, str, re.Pattern[str], str]] = [
             r"(?:sudo|rm\s+-rf|curl\s+|wget\s+|chmod\s+|/etc/passwd)",
             re.IGNORECASE,
         ),
+        "flag",
+    ),
+    (
+        "d016",
+        "role_hijack",
+        re.compile(
+            r"\b(?:enable|activate|switch\s+to|включи|активируй)\s+(?:the\s+)?"
+            r"(?:developer\s+mode|dev\s+mode|jailbreak|DAN\s+mode)\b",
+            re.IGNORECASE,
+        ),
+        "block",
+    ),
+    (
+        "d017",
+        "tool_injection",
+        re.compile(
+            r"^\s*(?:sudo\s+)?rm\s+-rf\s+/|^\s*(?:curl|wget)\s+[^\n]+\|\s*(?:bash|sh)\b", re.IGNORECASE
+        ),
+        "block",
+    ),
+    (
+        "d018",
+        "role_hijack",
+        re.compile(r"^\s*(?:developer\s+mode|dev\s+mode)\s+activated\s*[.!]?\s*$", re.IGNORECASE),
         "block",
     ),
     # -- Encoding / obfuscation (flag only — may be legitimate) --

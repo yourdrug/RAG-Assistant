@@ -8,7 +8,8 @@ import pytest
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
 
-from domain.runtime.config import ConfigParameter
+from infrastructure.domain_profile.answer_policy import classify_query_domain
+from application.runtime.config import ConfigParameter
 from domain.shared.exceptions import (
     AppError,
     AuthenticationError,
@@ -20,14 +21,13 @@ from domain.shared.exceptions import (
     AppServerError,
     ValidationError,
 )
-from domain.rag.prompts import (
+from infrastructure.ml.rag.prompts import (
     build_system_prompt,
 )
 from domain.rag.classification import (
-    classify_query_domain,
     has_exact_reference,
 )
-from domain.runtime.config import ConfigValueType
+from application.runtime.config import ConfigValueType
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
 
@@ -85,7 +85,7 @@ class TestServerException:
 class TestDatabaseError:
     def test_default_message(self):
         exc = DatabaseError()
-        assert exc.message == "Ошибка взаимодействия с БД"
+        assert exc.message == "Database operation failed"
         assert exc.errors is None
 
     def test_with_detail(self):
@@ -114,7 +114,7 @@ class TestClientException:
 class TestValidationError:
     def test_default_message(self):
         exc = ValidationError()
-        assert exc.message == "Ошибка валидации"
+        assert exc.message == "Validation failed"
         assert exc.errors is None
 
     def test_custom_message(self):
@@ -127,7 +127,7 @@ class TestValidationError:
 
     def test_with_field_param(self):
         exc = ValidationError("bad value", field="email")
-        assert exc.message == "Ошибка валидации"
+        assert exc.message == "Validation failed"
         assert exc.errors == {"email": "bad value"}
 
     def test_field_param_ignored_when_errors_given(self):
@@ -161,8 +161,8 @@ class TestEntityNotFound:
 class TestAuthenticationError:
     def test_default(self):
         exc = AuthenticationError()
-        assert exc.message == "Не авторизован"
-        assert exc.errors == {"detail": "Не авторизован"}
+        assert exc.message == "Not authenticated"
+        assert exc.errors == {"detail": "Not authenticated"}
 
     def test_custom_detail(self):
         exc = AuthenticationError("token expired")
@@ -178,7 +178,7 @@ class TestAuthenticationError:
 class TestPermissionDeniedError:
     def test_no_permission(self):
         exc = PermissionDeniedError()
-        assert exc.message == "Недостаточно прав"
+        assert exc.message == "Insufficient permissions"
         assert exc.errors is None
 
     def test_single_permission(self):

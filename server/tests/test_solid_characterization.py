@@ -1,5 +1,6 @@
 """Public workflow contracts captured before splitting the implementation."""
 
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -22,7 +23,7 @@ from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlc
 @pytest.fixture
 def benchmark_io(monkeypatch):
     # These characterize the individual judge path mocked below.
-    monkeypatch.setattr(settings, 'benchmark_judge_grouped_enabled', False)
+    monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
     questions = [{"id": "first", "question": "question", "source_hint": "report"}]
     monkeypatch.setattr(
         evidence_judge, "judge_evidence", lambda *args, **kwargs: {"scores": {}, "details": {}}
@@ -70,7 +71,7 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(be
     assert [r["id"] for r in results] == ["first", "first"]
     assert results[0]["retriever_metrics"]["hit_rate"] == 1
     assert results[0]["estimated_generation_cost_usd"] == 0.25
-    assert results[0]['cost_usd'] == 0  # The test double makes no model calls.
+    assert results[0]["cost_usd"] == 0  # The test double makes no model calls.
     assert results[0]["input_tokens"] == 20
     assert all(c.user_role == "admin" and c.user_kind == "internal" for c in contexts)
     assert score.call_args.kwargs["context"] == "context"
@@ -84,8 +85,6 @@ async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(benc
     with pytest.raises(RuntimeError, match="pipeline failed"):
         await run_benchmark_async(questions, 4, "judge", rag_service=rag)
     assert _settings_overrides.get() == previous
-
-
 
 
 @pytest.fixture
@@ -176,8 +175,7 @@ async def test_chunk_bulk_replacement_keeps_acl_and_metadata_in_shared_session()
             ChunkInsert(content="first", content_hash="hash1", section="A"),
             ChunkInsert(content="second", content_hash="hash2", section="B"),
         ],
-        group_id=3,
-        act_version_id=5,
+        options=ChunkInsertOptions(group_id=3, act_version_id=5),
     )
     assert ids == [10, 11]
     assert [(m.document_id, m.group_id, m.visibility, m.act_version_id) for m in added] == [
@@ -195,7 +193,7 @@ async def test_chunk_bulk_replacement_keeps_acl_and_metadata_in_shared_session()
 @pytest.mark.asyncio
 async def test_empty_chunk_replacement_still_removes_old_chunks():
     session = SimpleNamespace(execute=AsyncMock(), add_all=MagicMock(), flush=AsyncMock())
-    assert await SQLAlchemyChunkRepository(session).bulk_insert(7, 'report.pdf', 'internal_public', []) == []
+    assert await SQLAlchemyChunkRepository(session).bulk_insert(7, "report.pdf", "internal_public", []) == []
     session.execute.assert_awaited_once()
     session.add_all.assert_not_called()
     session.flush.assert_not_awaited()

@@ -1,5 +1,6 @@
 """Replacement must converge SQL, vector outbox and the sparse corpus."""
 
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
 import asyncio
 from types import SimpleNamespace
 from datetime import datetime
@@ -44,7 +45,7 @@ async def test_replacement_enqueues_old_ids_and_preserves_other_documents(replac
         "other.txt",
         DocumentVisibility.INTERNAL_PRIVATE.value,
         [ChunkInsert(content="other text")],
-        owner_id=9,
+        options=ChunkInsertOptions(owner_id=9),
     )
     await index(factory, replacement)
     entries = list(factory._uow.vector_outbox._entries.values())

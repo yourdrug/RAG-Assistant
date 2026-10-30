@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from domain.knowledge.enums import DocDomain
-from domain.runtime.enums import LLMProvider, MLProvider
+from application.runtime.enums import LLMProvider, MLProvider
+from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 
 
 class DynamicParamCategory(StrEnum):
@@ -49,6 +49,13 @@ class DynamicParam:
 # nginx allows 64 MiB per request; reserve 1 MiB for multipart metadata.
 UPLOAD_REQUEST_CEILING_MB = 64
 MAX_UPLOAD_FILE_MB = UPLOAD_REQUEST_CEILING_MB - 1
+
+PROFILE_CONFIG_DEFAULTS = {
+    (default.key, profile.key): default
+    for cls in SETTINGS_PROFILE_TYPES
+    for profile in (cls(),)
+    for default in profile.config_defaults()
+}
 
 DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam(
@@ -168,42 +175,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("history_window", int, DynamicParamCategory.RAG, "Chat history window", 0, 50),
     DynamicParam("chunk_size", int, DynamicParamCategory.RAG, "Document chunk size (chars)", 100, 5000),
     DynamicParam("chunk_overlap", int, DynamicParamCategory.RAG, "Chunk overlap (chars)", 0, 1000),
-    DynamicParam(
-        "legal_chunk_size",
-        int,
-        DynamicParamCategory.RAG,
-        "Legal doc chunk size (chars)",
-        100,
-        5000,
-        domain_key=DocDomain.LEGAL.value,
-    ),
-    DynamicParam(
-        "legal_chunk_overlap",
-        int,
-        DynamicParamCategory.RAG,
-        "Legal doc chunk overlap (chars)",
-        0,
-        1000,
-        domain_key=DocDomain.LEGAL.value,
-    ),
-    DynamicParam(
-        "decree_chunk_size",
-        int,
-        DynamicParamCategory.RAG,
-        "Decree doc chunk size (chars)",
-        100,
-        5000,
-        domain_key=DocDomain.DECREE.value,
-    ),
-    DynamicParam(
-        "decree_chunk_overlap",
-        int,
-        DynamicParamCategory.RAG,
-        "Decree doc chunk overlap (chars)",
-        0,
-        1000,
-        domain_key=DocDomain.DECREE.value,
-    ),
     DynamicParam("source_min_score", float, DynamicParamCategory.RAG, "Min source relevance score", 0.0, 1.0),
     # ── Hybrid search ───────────────────────────────────────────
     DynamicParam("hybrid_enabled", bool, DynamicParamCategory.HYBRID, "Enable hybrid search (dense+sparse)"),
@@ -351,6 +322,20 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
 ]
 
 # Derived lookup: key -> (settings_attr, python_type) — global params only
+DYNAMIC_PARAMS.extend(
+    DynamicParam(
+        key,
+        int,
+        DynamicParamCategory.INGESTION,
+        default.description,
+        default.min_value,
+        default.max_value,
+        domain_key=domain,
+    )
+    for (key, domain), default in PROFILE_CONFIG_DEFAULTS.items()
+    if key in (f"{domain}_chunk_size", f"{domain}_chunk_overlap")
+)
+
 DYNAMIC_FIELDS_MAP: dict[str, tuple[str, type]] = {
     p.key: (p.key, p.type) for p in DYNAMIC_PARAMS if not p.domain_key
 }

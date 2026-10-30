@@ -163,8 +163,10 @@ class SQLAlchemyVectorOutboxRepository:
         orm = result.scalar_one_or_none()
 
         if orm:
-            orm.status = OutboxStatus.DEAD_LETTER.value
-            orm.last_error = error[:2000]
+            entity = self._orm_to_entity(orm)
+            entity.mark_dead_letter(error[:2000])
+            orm.status = entity.status.value
+            orm.last_error = entity.last_error
             await self._db.flush()
 
     async def count_pending(self) -> int:

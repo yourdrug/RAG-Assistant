@@ -17,6 +17,7 @@ from application.ports.ml_clients import MLClientPort
 from application.rag.dto import PreparedQuery
 from config import get_request_settings, settings
 from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
 from domain.rag.context import RagContext
 from infrastructure.benchmark.sweep.data import SweepDataSource
@@ -159,7 +160,7 @@ async def test_request_keeps_settings_cache_model_and_client_family_during_reloa
     registry.corpus_resources.qdrant_factory = MagicMock()
     install_family(registry, old)
     operations = RagOperations(registry, document_access=MagicMock())
-    ctx = RagContext(user_id=1, user_kind=UserKind.INTERNAL)
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER))
     try:
         async with operations.corpus():
             request = operations.request("Q", [], ctx)

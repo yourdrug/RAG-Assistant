@@ -102,7 +102,7 @@ async def toggle_user_active(
     user_service: UserManagementService = Depends(create_user_management_service),
     log=Depends(create_action_logger),
 ):
-    result = await user_service.toggle_active(user_id, is_active=is_active, admin_id=admin.id)
+    result = await user_service.set_active(user_id, is_active=is_active, admin_id=admin.id)
     log("user.toggle_active", user_id=admin.id, details={"target_user": user_id, "is_active": is_active})
     return UserToggleResponse(id=result.id, is_active=result.is_active)
 

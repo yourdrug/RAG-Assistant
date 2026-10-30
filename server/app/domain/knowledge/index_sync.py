@@ -1,4 +1,4 @@
-"""Knowledge domain: index sync."""
+"""Vector projection outbox entries, retry states and producer/dispatcher ports."""
 
 from __future__ import annotations
 
@@ -67,6 +67,10 @@ class VectorOutboxEntry:
             self.status = OutboxStatus.DEAD_LETTER
         else:
             self.status = OutboxStatus.FAILED
+
+    def mark_dead_letter(self, error: str) -> None:
+        self.status = OutboxStatus.DEAD_LETTER
+        self.last_error = error
 
     @property
     def is_dead_letter(self) -> bool:

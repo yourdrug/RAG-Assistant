@@ -2,8 +2,11 @@
 
 import re
 
-from domain.rag.evidence.queries import table_scope_confirmed
-from domain.rag.evidence.reading import ENUMERATION_READING_RULES, evidence_reading_rules
+from infrastructure.ml.evidence_profiles.belarus.predicates import table_scope_confirmed
+from infrastructure.ml.evidence_profiles.belarus.reading import (
+    ENUMERATION_READING_RULES,
+    evidence_reading_rules,
+)
 
 
 MAX_FOCUS_CHARS = 3000

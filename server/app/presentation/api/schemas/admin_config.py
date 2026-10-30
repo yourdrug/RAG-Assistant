@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from domain.runtime.enums import MLProvider
+from application.runtime.enums import MLProvider
 
 
 class ConfigParamResponse(BaseModel):

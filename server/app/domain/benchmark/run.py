@@ -1,4 +1,7 @@
-"""BenchmarkRun domain entity — single benchmark run with config snapshot + metrics."""
+"""Completed benchmark result with configuration, measurements and artifacts.
+
+Execution lifecycle belongs to BackgroundJob/Sweep; a run is persisted only as a result.
+"""
 
 from __future__ import annotations
 

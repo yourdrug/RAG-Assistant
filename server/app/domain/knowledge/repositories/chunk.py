@@ -1,8 +1,9 @@
-"""Knowledge domain: chunk."""
+"""Persistence and search ports for document chunks."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, Unpack, runtime_checkable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
@@ -13,27 +14,33 @@ if TYPE_CHECKING:
     from domain.shared.pagination import CursorPage
 
 
-class ChunkInsertOptions(TypedDict, total=False):
-    owner_id: int | None
-    group_id: int | None
-    doc_domain: str
-    domain_metadata: dict[str, Any] | None
-    act_version_id: int | None
-    effective_from: date | None
-    effective_to: date | None
-    is_current: bool
+@dataclass(frozen=True)
+class ChunkInsertOptions:
+    owner_id: int | None = None
+    group_id: int | None = None
+    doc_domain: str = "general"
+    domain_metadata: dict[str, Any] | None = None
+    act_version_id: int | None = None
+    effective_from: date | None = None
+    effective_to: date | None = None
+    is_current: bool = True
 
 
-class ManualChunkInsertOptions(TypedDict, total=False):
-    owner_id: int | None
-    group_id: int | None
-    manual: bool
-    content_hash: str | None
-    context_metadata: dict[str, Any] | None
-    act_version_id: int | None
-    effective_from: date | None
-    effective_to: date | None
-    is_current: bool
+@dataclass(frozen=True)
+class ManualChunkInsertOptions:
+    owner_id: int | None = None
+    group_id: int | None = None
+    manual: bool = False
+    content_hash: str | None = None
+    context_metadata: dict[str, Any] | None = None
+    act_version_id: int | None = None
+    effective_from: date | None = None
+    effective_to: date | None = None
+    is_current: bool = True
+
+
+DEFAULT_CHUNK_INSERT_OPTIONS = ChunkInsertOptions()
+DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS = ManualChunkInsertOptions()
 
 
 @runtime_checkable
@@ -50,7 +57,7 @@ class ChunkCrudRepository(Protocol):
         filename: str,
         visibility: str,
         chunks: list[ChunkInsert],
-        **options: Unpack[ChunkInsertOptions],
+        options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
     ) -> list[int]: ...
 
     async def get_by_id(self, chunk_id: int) -> ChunkRecord | None: ...
@@ -72,7 +79,7 @@ class ChunkCrudRepository(Protocol):
         visibility: str,
         *,
         doc_domain: str,
-        **options: Unpack[ManualChunkInsertOptions],
+        options: ManualChunkInsertOptions = DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
     ) -> int: ...
 
     async def delete_one(self, chunk_id: int) -> None: ...

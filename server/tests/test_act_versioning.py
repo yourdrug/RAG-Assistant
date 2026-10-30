@@ -474,3 +474,18 @@ async def test_moving_historical_edition_drops_only_derived_source_end(explicit_
     assert stored.effective_to == explicit_expiry
     remaining = await uow.act_versions.get_by_id(successor.id)
     assert not remaining.is_current  # Future edition must not be promoted.
+
+
+@pytest.mark.asyncio
+async def test_relinking_expired_version_to_empty_act_never_marks_it_current():
+    service, factory = make_service()
+    uow = factory._uow
+    target = await uow.regulatory_acts.save(RegulatoryAct(None, "decree", "expired-target", "Target"))
+    version = await uow.act_versions.create(
+        ActVersion(None, None, 1, date(2024, 1, 1), date(2025, 1, 1), False)
+    )
+    uow.documents._documents[1] = Document(id=1)
+    await service.update_version(version.id, act_id=target.id)
+    stored = await uow.act_versions.get_by_id(version.id)
+    assert stored.effective_to == date(2025, 1, 1)
+    assert not stored.is_current

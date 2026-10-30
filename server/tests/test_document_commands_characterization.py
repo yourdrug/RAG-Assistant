@@ -4,6 +4,7 @@ Keep ACL decisions, conflict outcomes, transaction ordering, outbox payloads
 and storage compensation observable through the existing facade methods.
 """
 
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import date
@@ -145,7 +146,7 @@ async def test_explicit_replacement_requires_ownership_and_is_deferred(owner_id)
     h = harness()
     old = await seed(h, owner_id=owner_id)
     if owner_id != 1:
-        with pytest.raises(BusinessRuleViolationError, match="your own documents"):
+        with pytest.raises(BusinessRuleViolationError, match="No permission"):
             await upload(h, replaces_document_id=old.id)
         h.storage.upload_file.assert_not_awaited()
     else:
@@ -197,14 +198,16 @@ async def seed_act_timeline(h, deleted_index):
             document_id=doc.id,
             filename=doc.filename,
             visibility="internal_private",
-            owner_id=1,
-            group_id=None,
-            doc_domain="legal",
             chunks=[ChunkInsert(content="text", content_hash="hash")],
-            act_version_id=version.id,
-            effective_from=version.effective_from,
-            effective_to=version.effective_to,
-            is_current=version.is_current,
+            options=ChunkInsertOptions(
+                owner_id=1,
+                group_id=None,
+                doc_domain="legal",
+                act_version_id=version.id,
+                effective_from=version.effective_from,
+                effective_to=version.effective_to,
+                is_current=version.is_current,
+            ),
         )
 
     original_delete = h.uow.documents.delete
@@ -268,7 +271,7 @@ async def test_write_ownership_is_checked_before_side_effects(operation, owner):
     else:
         action = h.command.rename_document(doc.id, "new.pdf", 1, "user")
     if owner != 1:
-        with pytest.raises(BusinessRuleViolationError, match="your own documents"):
+        with pytest.raises(BusinessRuleViolationError, match="No permission"):
             await action
         assert h.factory.events == [("begin", True), "rollback"]
         assert h.uow.vector_outbox._entries == {}
@@ -348,10 +351,8 @@ async def test_rename_updates_chunks_and_exact_outbox_metadata_before_commit():
         document_id=doc.id,
         filename=doc.filename,
         visibility="internal_private",
-        owner_id=1,
-        group_id=None,
-        doc_domain="legal",
         chunks=[ChunkInsert(content="text", content_hash="hash")],
+        options=ChunkInsertOptions(owner_id=1, group_id=None, doc_domain="legal"),
     )
     h.uow.documents.find_active_slot = AsyncMock(wraps=h.uow.documents.find_active_slot)
     dto = await h.command.rename_document(doc.id, "new.pdf", 1, "user")
@@ -388,10 +389,8 @@ async def test_delete_defers_bm25_to_outbox_and_storage_until_commit(db_fails):
         document_id=doc.id,
         filename=doc.filename,
         visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
-        owner_id=1,
-        group_id=None,
-        doc_domain="general",
         chunks=[ChunkInsert(content="text", content_hash="hash")],
+        options=ChunkInsertOptions(owner_id=1, group_id=None, doc_domain="general"),
     )
 
     h.uow.chunks.list_for_document = AsyncMock(wraps=h.uow.chunks.list_for_document)
@@ -425,8 +424,8 @@ async def test_rename_enqueues_one_payload_patch_for_large_document():
         document_id=doc.id,
         filename=doc.filename,
         visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
-        owner_id=1,
         chunks=[ChunkInsert(content=f"text {i}") for i in range(count)],
+        options=ChunkInsertOptions(owner_id=1),
     )
     await h.command.rename_document(doc.id, "new.pdf", 1, UserRole.USER)
     entries = list(h.uow.vector_outbox._entries.values())

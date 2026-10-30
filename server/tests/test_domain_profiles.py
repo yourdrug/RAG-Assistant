@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 
-from domain.rag.answer_policy import policy_for
+from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.rag.rag_prompts import domain_prompt_addendum
 
 from domain.ingestion.profiles.protocol import (
@@ -303,7 +303,7 @@ class TestAnswerPolicies:
     def test_document_profiles_do_not_own_answer_rules(self):
         for profile in (GeneralDomainProfile(), LegalDomainProfile(), DecreeDomainProfile()):
             assert isinstance(profile, DocumentProfile)
-            assert not hasattr(profile, "prompt_addendum")
+            assert profile.answer_policy is not None
             assert not hasattr(profile, "retrieval_fallback_to_full_corpus")
 
     def test_rag_addendum_respects_registered_domains(self):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.benchmark.question import BenchmarkQuestion
+from domain.benchmark.question import BenchmarkQuestion, validate_annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,7 +62,7 @@ class SQLAlchemyBenchmarkQuestionRepository:
             question=question.question,
             expected_answer=question.expected_answer,
             source_hint=question.source_hint,
-            annotations=question.annotations,
+            annotations=validate_annotations(question.annotations),
             tags=question.tags,
             dataset=question.dataset,
             is_active=question.is_active,
@@ -75,6 +75,9 @@ class SQLAlchemyBenchmarkQuestionRepository:
         return self._to_entity(orm)
 
     async def update(self, question_id: int, **fields) -> BenchmarkQuestion | None:
+        if "annotations" in fields:
+            fields["annotations"] = validate_annotations(fields["annotations"])
+
         stmt = select(BenchmarkQuestionModel).where(BenchmarkQuestionModel.id == question_id)
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
@@ -107,7 +110,7 @@ class SQLAlchemyBenchmarkQuestionRepository:
                 question=q.question,
                 expected_answer=q.expected_answer,
                 source_hint=q.source_hint,
-                annotations=q.annotations,
+                annotations=validate_annotations(q.annotations),
                 tags=q.tags,
                 dataset=q.dataset,
                 is_active=q.is_active,

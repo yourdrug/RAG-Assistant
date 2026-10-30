@@ -134,6 +134,7 @@ class BenchmarkCaseEvaluator:
             evidence.selected if evidence else None,
             evidence.context if evidence else None,
             generated.answer,
+            judge_scores=judge_metrics["scores"],
         )
         retrieval = evaluate_retrieval(question, evidence.retrieved if evidence else None)
         evidence_metrics.update(
@@ -157,7 +158,6 @@ class BenchmarkCaseEvaluator:
         # alternative result when annotated evidence is unavailable.
         retriever_metrics.setdefault("avg_similarity", 0.0)
         retriever_metrics.setdefault("retrieved_sources", [])
-        evidence_metrics.update(judge_metrics["scores"])
         diagnostics["judge"] = judge_metrics["details"]
         cost = metrics.estimate_cost_usd(
             settings.llm_model, generated.input_tokens or 0, generated.output_tokens or 0

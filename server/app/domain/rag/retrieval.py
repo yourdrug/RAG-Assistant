@@ -2,29 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, Unpack
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, TypedDict
 
-from domain.knowledge.chunk import SENTENCE_UNIT_KIND
 from domain.rag.breadth import Breadth
 from domain.rag.classification import has_exact_reference
-from domain.shared.exceptions import ValidationError
-from domain.shared.hashing import content_hash
+from domain.rag.settings import DEFAULT_NUM_PREDICT_BROAD, DEFAULT_NUM_PREDICT_NARROW
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from domain.rag.settings import RagSettings
-
-
-class RetrievalDocument(Protocol):
-    """Read-only content and metadata required by retrieval policies."""
-
-    @property
-    def page_content(self) -> str: ...
-
-    @property
-    def metadata(self) -> dict[str, Any]: ...
 
 
 class RetrievalParams(TypedDict):
@@ -41,7 +28,6 @@ def compute_retrieval_params(
     breadth: Breadth,
     rag_settings: RagSettings,
     query: str,
-    exact_ref_sparse_boost: float = 1.0,
 ) -> RetrievalParams:
     """Compute retrieval parameters based on breadth and settings.
 
@@ -62,7 +48,9 @@ def compute_retrieval_params(
     effective_sparse_weight = rag_settings.hybrid_search.sparse_weight
 
     if use_exact_ref_boost:
-        effective_sparse_weight = rag_settings.hybrid_search.sparse_weight * exact_ref_sparse_boost
+        effective_sparse_weight = (
+            rag_settings.hybrid_search.sparse_weight * rag_settings.exact_ref_sparse_boost
+        )
 
     return {
         "fetch_k": fetch_k,
@@ -73,12 +61,16 @@ def compute_retrieval_params(
     }
 
 
-class ContextBudgetOptions(TypedDict, total=False):
-    chars_per_token: int
-    reserved_overhead: int
-    min_context_tokens: int
-    num_predict_narrow: int
-    num_predict_broad: int
+@dataclass(frozen=True)
+class ContextBudgetOptions:
+    chars_per_token: int = 4
+    reserved_overhead: int = 3000
+    min_context_tokens: int = 1000
+    num_predict_narrow: int = DEFAULT_NUM_PREDICT_NARROW
+    num_predict_broad: int = DEFAULT_NUM_PREDICT_BROAD
+
+
+DEFAULT_CONTEXT_BUDGET_OPTIONS = ContextBudgetOptions()
 
 
 def compute_context_budget(
@@ -89,17 +81,17 @@ def compute_context_budget(
     question_chars: int,
     num_ctx_narrow: int,
     num_ctx_broad: int,
-    **options: Unpack[ContextBudgetOptions],
+    options: ContextBudgetOptions = DEFAULT_CONTEXT_BUDGET_OPTIONS,
 ) -> int:
     """Compute maximum context tokens available for retrieved documents.
 
     Pure function — no infrastructure dependencies.
     """
-    chars_per_token = options.get("chars_per_token", 4)
-    reserved_overhead = options.get("reserved_overhead", 3000)
-    min_context_tokens = options.get("min_context_tokens", 1000)
-    num_predict_narrow = options.get("num_predict_narrow", 400)
-    num_predict_broad = options.get("num_predict_broad", 2048)
+    chars_per_token = options.chars_per_token
+    reserved_overhead = options.reserved_overhead
+    min_context_tokens = options.min_context_tokens
+    num_predict_narrow = options.num_predict_narrow
+    num_predict_broad = options.num_predict_broad
     effective_breadth = Breadth.BROAD if enumerate_cases else breadth
     num_ctx = num_ctx_broad if effective_breadth == Breadth.BROAD else num_ctx_narrow
     num_predict = num_predict_broad if effective_breadth == Breadth.BROAD else num_predict_narrow
@@ -124,109 +116,3 @@ def select_final_top_k(
         )
 
     return rag_settings.retriever.top_k_broad
-
-
-def prioritize_distinct_provisions[ItemT: RetrievalDocument | tuple[RetrievalDocument, float]](
-    items: list[ItemT],
-) -> list[ItemT]:
-    """Stable first pass over provisions, followed by their remaining chunks.
-
-    Accept documents or (document, score) pairs. Sentence splits share their
-    parent's provision. Unstructured chunks and tables retain their own slots.
-    Scope includes the document/version so unrelated provisions never collapse.
-    No text is removed: remaining chunks can fill any unused budget.
-    """
-    seen = set()
-    first: list[ItemT] = []
-    remaining: list[ItemT] = []
-
-    for item in items:
-        doc = item[0] if isinstance(item, tuple) else item
-        metadata = doc.metadata
-        section = metadata.get("section") or metadata.get("heading")
-        source = metadata.get("document_id") or metadata.get("source")
-
-        if not section or not source or metadata.get("table_id"):
-            first.append(item)
-            continue
-
-        parts = section.replace(" \u203a ", " > ").split(" > ")
-
-        if parts[-1] == SENTENCE_UNIT_KIND:
-            parts = parts[:-1]
-
-        if not parts:
-            first.append(item)
-            continue
-
-        key = (source, metadata.get("act_version_id"), tuple(parts))
-
-        if key in seen:
-            remaining.append(item)
-        else:
-            seen.add(key)
-            first.append(item)
-
-    return first + remaining
-
-
-class ContextBudgetExceededError(ValidationError):
-    """No complete retrieved chunk and its conditions fit the context window."""
-
-    code = "context_budget_exceeded"
-
-    def __init__(self) -> None:
-        super().__init__(
-            "Полный контекст найденных документов не помещается в лимит ответа. "
-            "Уточните вопрос или выберите конкретный пункт документа.",
-            errors={"code": self.code},
-        )
-
-
-def compute_reranker_score(sources: Sequence[object]) -> float | None:
-    """Extract the maximum reranker score from a list of source dicts."""
-    if not sources:
-        return None
-
-    scores = [s.get("max_score", 0) for s in sources if isinstance(s, dict)]
-    return max(scores) if scores else None
-
-
-def rrf_merge(
-    dense_results: list[tuple[str, float]],
-    sparse_results: list[tuple[str, float]],
-    k: int = 60,
-    dense_weight: float = 1.0,
-    sparse_weight: float = 1.0,
-) -> list[str]:
-    """Merge two ranked lists using Reciprocal Rank Fusion.
-
-    Takes (content_hash, score) pairs from each source.
-    Returns merged list of content hashes sorted by descending RRF score.
-    k=60 is the standard constant from the original RRF paper.
-    """
-    rrf_scores: dict[str, float] = {}
-
-    for rank, (h, _score) in enumerate(dense_results):
-        rrf_scores[h] = rrf_scores.get(h, 0.0) + dense_weight / (k + rank + 1)
-
-    for rank, (h, _score) in enumerate(sparse_results):
-        rrf_scores[h] = rrf_scores.get(h, 0.0) + sparse_weight / (k + rank + 1)
-
-    merged = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-    return [h for h, _score in merged]
-
-
-def deduplicate_docs[DocumentT: RetrievalDocument](docs: list[DocumentT]) -> list[DocumentT]:
-    """Remove near-duplicate chunks by content_hash to improve context diversity."""
-    seen_hashes: set[str] = set()
-    unique_docs: list[DocumentT] = []
-
-    for doc in docs:
-        h = content_hash(doc.page_content)
-
-        if h not in seen_hashes:
-            seen_hashes.add(h)
-            unique_docs.append(doc)
-
-    return unique_docs

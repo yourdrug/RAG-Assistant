@@ -1,4 +1,4 @@
-"""Knowledge domain: acts."""
+"""Persistence ports for regulatory acts and their editions."""
 
 from __future__ import annotations
 

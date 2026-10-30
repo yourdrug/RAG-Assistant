@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
+    from application.rag.stream_events import UsageReport
     from domain.chat.message import Message
-    from domain.rag.stream_events import UsageReport
 
 
 @dataclass(frozen=True)

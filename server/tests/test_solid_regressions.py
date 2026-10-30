@@ -12,6 +12,7 @@ import pytest
 from config import get_setting
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.benchmark.sweep import BenchmarkStrategy
+from domain.shared.exceptions import ValidationError
 from infrastructure.benchmark.evaluation.runner import run_benchmark_async
 from application.benchmark.sweep_ports import SweepCancelled
 from composition.service_providers import build_sweep_engine
@@ -48,7 +49,7 @@ async def test_optuna_accepts_scalar_fetch_k_and_integer_range_without_step(optu
 async def test_unmigrated_legacy_strategy_is_rejected(optuna_engine):
     sweep = optuna_sweep()
     sweep.strategy = "successive_halving"
-    with pytest.raises(ValueError, match="Unknown strategy"):
+    with pytest.raises(ValidationError, match="Invalid BenchmarkStrategy"):
         await optuna_engine.run_sweep(sweep)
 
 

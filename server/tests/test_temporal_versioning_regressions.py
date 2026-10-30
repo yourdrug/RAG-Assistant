@@ -25,7 +25,7 @@ from domain.knowledge.index_sync import OutboxOperation
 from domain.knowledge.enums import DocumentVisibility
 from domain.knowledge.chunk import ChunkRecord
 from domain.shared.exceptions import ValidationError
-from domain.rag.stream_events import MetaEvent
+from application.rag.stream_events import MetaEvent
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.ml.rag.rag_postprocess import resolve_temporal_conflicts
 from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search

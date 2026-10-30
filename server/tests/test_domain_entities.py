@@ -21,7 +21,7 @@ from domain.ingestion.raw_document import RawDocument
 from domain.identity.user import User
 from domain.shared.exceptions import BusinessRuleViolationError
 from domain.shared.hashing import content_hash
-from domain.runtime.config import parse_bool
+from application.runtime.config import parse_bool
 from domain.knowledge.enums import DocumentStatus
 from domain.chat.message import MessageRole
 from domain.identity.roles import UserKind, UserRole
@@ -162,7 +162,7 @@ class TestUserToggleActive:
         # Arrange
         user = _make_user(is_active=False)
         # Act
-        user.toggle_active(is_active=True)
+        user.set_active(is_active=True)
         # Assert
         assert user.is_active is True
 
@@ -170,7 +170,7 @@ class TestUserToggleActive:
         # Arrange
         user = _make_user(is_active=True)
         # Act
-        user.toggle_active(is_active=False)
+        user.set_active(is_active=False)
         # Assert
         assert user.is_active is False
 
@@ -178,8 +178,8 @@ class TestUserToggleActive:
         # Arrange
         user = _make_user(is_active=True)
         # Act
-        user.toggle_active(is_active=True)
-        user.toggle_active(is_active=True)
+        user.set_active(is_active=True)
+        user.set_active(is_active=True)
         # Assert
         assert user.is_active is True
 

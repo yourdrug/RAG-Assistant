@@ -3,25 +3,25 @@
 from __future__ import annotations
 
 from domain.rag.breadth import Breadth
-from domain.rag.evidence.reading import evidence_reading_rules
-from domain.rag.prompt_blocks import (
-    _BROAD_FORMATTING,
-    _CITATION_CONTEXT_HANDLING_BLOCK,
-    _CONDITIONAL_RULES_BLOCK,
-    _CRITICAL_RULES_BLOCK,
-    _DOCUMENT_CONTEXT_BLOCK,
-    _INTRO,
-    _LANGUAGE_PRECISION_BLOCK,
-    _NARROW_FORMATTING,
-    _SCOPE_BLOCK,
-    _SOURCE_REFERENCE_STYLE_BLOCK,
-    _TABLE_IMAGE_RULES_BLOCK,
+from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+from infrastructure.ml.rag.prompt_blocks import (
+    BROAD_FORMATTING,
+    CITATION_CONTEXT_HANDLING_BLOCK,
+    CONDITIONAL_RULES_BLOCK,
+    CRITICAL_RULES_BLOCK,
+    DOCUMENT_CONTEXT_BLOCK,
+    INTRO,
+    LANGUAGE_PRECISION_BLOCK,
+    NARROW_FORMATTING,
+    SCOPE_BLOCK,
+    SOURCE_REFERENCE_STYLE_BLOCK,
+    TABLE_IMAGE_RULES_BLOCK,
 )
 
 
 DECOMPOSITION_ASSESSMENT_SYSTEM = (
     "Оцени, является ли вопрос составным (содержит 2+ независимых подтемы).\n"
-    "Если да — разбей \u0435\u0433\u043e на 2-4 независимых подвопроса.\n"
+    "Если да — разбей его на 2-4 независимых подвопроса.\n"
     "Если нет — верни needs_decomposition=false."
 )
 
@@ -39,7 +39,7 @@ def build_context_message() -> str:
     This is passed as a **separate user-role message** (not system) so that
     retrieved content runs at user privilege level, not system privilege.
     """
-    return _DOCUMENT_CONTEXT_BLOCK
+    return DOCUMENT_CONTEXT_BLOCK
 
 
 def build_system_prompt(
@@ -64,22 +64,22 @@ def build_system_prompt(
     ``enumerate_cases``: when True, adds instructions for the LLM to enumerate
     all conditional rules/cases separately (saves tokens on simple questions).
     """
-    formatting_rules = _BROAD_FORMATTING if breadth == Breadth.BROAD else _NARROW_FORMATTING
+    formatting_rules = BROAD_FORMATTING if breadth == Breadth.BROAD else NARROW_FORMATTING
 
     parts: list[str] = [
-        _INTRO,
-        _SCOPE_BLOCK,
-        _CRITICAL_RULES_BLOCK,
-        _LANGUAGE_PRECISION_BLOCK,
-        _CITATION_CONTEXT_HANDLING_BLOCK,
+        INTRO,
+        SCOPE_BLOCK,
+        CRITICAL_RULES_BLOCK,
+        LANGUAGE_PRECISION_BLOCK,
+        CITATION_CONTEXT_HANDLING_BLOCK,
         "<formatting_rules>\n" + formatting_rules + "\n</formatting_rules>",
-        _TABLE_IMAGE_RULES_BLOCK,
-        *evidence_reading_rules(question),
-        _SOURCE_REFERENCE_STYLE_BLOCK,
+        TABLE_IMAGE_RULES_BLOCK,
+        *active_evidence_profile.get().reading_rules(question),
+        SOURCE_REFERENCE_STYLE_BLOCK,
     ]
 
     if enumerate_cases:
-        parts.append(_CONDITIONAL_RULES_BLOCK)
+        parts.append(CONDITIONAL_RULES_BLOCK)
 
     if domain_addendum:
         safe_addendum = domain_addendum.strip().replace("{", "{{").replace("}", "}}")

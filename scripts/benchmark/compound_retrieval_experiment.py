@@ -7,6 +7,7 @@ comparison of automatic decomposition must be a separate experiment.
 
 from __future__ import annotations
 
+from domain.identity.user_context import UserContext
 import argparse
 import asyncio
 import json
@@ -66,7 +67,7 @@ async def compare(cases: list[dict[str, Any]], user_id: int) -> dict[str, Any]:
     settings = replace(
         settings, retriever=replace(settings.retriever, fetch_k=30, top_k=8)
     )
-    user = RagContext(user_id, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
+    user = RagContext(user=UserContext(user_id=user_id, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)).to_user_context()
     conditions = get_visibility_conditions(
         UserKind.INTERNAL, [], for_list=False, user_role=UserRole.ADMIN
     )

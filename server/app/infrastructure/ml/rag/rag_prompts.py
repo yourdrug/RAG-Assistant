@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+
 
 from typing import Any
 from typing import TYPE_CHECKING
@@ -13,11 +15,10 @@ import re
 import httpx
 from config import get_request_settings
 from domain.chat.message import MessageRole
-from domain.rag.answer_policy import policy_for
-from domain.rag.evidence.reading import evidence_reading_reminder
-from domain.rag.prompts import build_context_message, build_system_prompt  # noqa: F401
-from domain.rag.retrieval import ContextBudgetExceededError
-from domain.runtime.enums import LLMProvider
+from infrastructure.domain_profile.answer_policy import policy_for
+from infrastructure.ml.rag.prompts import build_context_message, build_system_prompt  # noqa: F401
+from domain.rag.exceptions import ContextBudgetExceededError
+from application.runtime.enums import LLMProvider
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tenacity import (
     retry,
@@ -33,6 +34,7 @@ from infrastructure.ml.clients.llm_schemas import DecompositionCheck
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 
 if TYPE_CHECKING:
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
     from infrastructure.ml.clients.llm_schemas import StructuredClient
     from langchain_core.runnables import Runnable
     from langchain_core.messages import BaseMessage
@@ -320,7 +322,7 @@ def build_prompt(
     messages.append(("human", build_context_message()))
     messages.append(MessagesPlaceholder(variable_name="history"))
 
-    reminder = evidence_reading_reminder(question).replace("{", "{{").replace("}", "}}")
+    reminder = active_evidence_profile.get().reading_reminder(question).replace("{", "{{").replace("}", "}}")
     messages.append(("human", "{question}" + reminder))
     return ChatPromptTemplate.from_messages(messages)
 
@@ -329,9 +331,10 @@ def domain_prompt_addendum(
     query_domain: str,
     ctx: RagContext,
     domain_keys: tuple[str, ...] | None,
+    domain_registry: DomainProfileRegistry | None = None,
 ) -> str | None:
     """Answer rules for a registered domain."""
     if domain_keys is None or query_domain not in domain_keys:
         return None
 
-    return policy_for(query_domain).prompt_addendum(as_of_date=ctx.as_of_date)
+    return policy_for(query_domain, domain_registry).prompt_addendum(as_of_date=ctx.as_of_date)

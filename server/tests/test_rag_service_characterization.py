@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import infrastructure.ml.rag.rag_reranking as rag_rr  # noqa: E402
 import infrastructure.ml.rag.rag_sources as rag_src  # noqa: E402
 from domain.rag.classification import classify_question_breadth  # noqa: E402
-from domain.rag.prompts import build_system_prompt  # noqa: E402
+from infrastructure.ml.rag.prompts import build_system_prompt  # noqa: E402
 from domain.rag.breadth import Breadth  # noqa: E402
 from infrastructure.ml.rag.rag_formatting import format_docs  # noqa: E402
 from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings  # noqa: E402
@@ -276,7 +276,7 @@ class TestBuildSystemPrompt:
         assert "domain_specific_rules" in prompt
 
     def test_context_placeholder_present(self):
-        from domain.rag.prompts import build_context_message
+        from infrastructure.ml.rag.prompts import build_context_message
 
         context_msg = build_context_message()
         assert "{context}" in context_msg

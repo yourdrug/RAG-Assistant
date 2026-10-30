@@ -11,30 +11,31 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from application.chat import ChatLogService, ChatService, ConversationService, CreateChatLogCommand
-from domain.chat.chat_log import ChatLog
-from domain.chat.conversation import Conversation
-from domain.chat.message import Message, MessageRole
-from domain.identity.roles import UserKind, UserRole
-from domain.knowledge.enums import DocDomain
-from domain.rag.breadth import Breadth
-from domain.rag.result import RagResult
-from domain.rag.stream_events import (
+from application.rag.stream_events import (
     MetaEvent,
     SourcesEvent,
     StatusEvent,
     TextChunk,
     UsageReport,
 )
+from domain.chat.chat_log import ChatLog
+from domain.chat.conversation import Conversation
+from domain.chat.message import Message, MessageRole
+from domain.chat.repositories import ChatLogFilter
+from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.enums import DocDomain
+from domain.rag.breadth import Breadth
+from domain.rag.result import RagResult
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, PermissionDeniedError
 
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from domain.rag.context import RagContext
-    from domain.rag.stream_events import (
+    from application.rag.stream_events import (
         StreamEvent,
     )
+    from domain.rag.context import RagContext
 
 
 def chat_fixture() -> SimpleNamespace:
@@ -91,7 +92,7 @@ async def test_sync_loads_scope_and_persists_after_rag(role: UserRole) -> None:
 
     async def invoke(question: str, history: list[Message], ctx: RagContext) -> RagResult:
         assert fixture.events == ["enter", "exit"]
-        assert ctx.user_group_ids == [2]
+        assert ctx.user_group_ids == (2,)
         assert ctx.as_of_date == as_of
         assert ctx.summary == "summary"
         assert [msg.content for msg in history] == ["previous"]
@@ -263,9 +264,11 @@ async def test_log_listing_forwards_scope_and_loads_emails_in_same_uow() -> None
     log = ChatLog(user_id=2)
     fixture.uow.chat_logs.list_logs.return_value = [log]
     fixture.uow.users.get_by_ids.return_value = [SimpleNamespace(id=2, email="owner@example.test")]
-    result = await ChatLogService(fixture.factory).list_logs_with_emails(user_ids=[2], limit=5, offset=3)
+    result = await ChatLogService(fixture.factory).list_logs_with_emails(
+        filters=ChatLogFilter(user_ids=(2,), limit=5, offset=3)
+    )
     assert result == ([log], {2: "owner@example.test"})
-    fixture.uow.chat_logs.list_logs.assert_awaited_once_with(user_ids=[2], limit=5, offset=3)
+    fixture.uow.chat_logs.list_logs.assert_awaited_once_with(ChatLogFilter(user_ids=(2,), limit=5, offset=3))
     fixture.uow.users.get_by_ids.assert_awaited_once_with([2])
     fixture.factory.create.assert_called_once_with()
 

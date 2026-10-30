@@ -5,7 +5,7 @@ from infrastructure.benchmark.judging.prompts import CONTEXT_PRECISION_PROMPT, C
 
 from config import settings
 from infrastructure.budget.runtime import BudgetRuntime
-from domain.runtime.enums import LLMProvider
+from application.runtime.enums import LLMProvider
 from langchain.schema import Document
 from infrastructure.benchmark.judging import judge
 

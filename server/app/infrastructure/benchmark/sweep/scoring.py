@@ -12,7 +12,7 @@ from domain.benchmark.evaluation import (
     summarize_evidence,
     summarize_retrieval,
 )
-from domain.rag.retrieval import rrf_merge
+from domain.rag.ranking import rrf_merge
 from domain.benchmark.scoring import (
     compute_composite_score as compute_composite_score,
     METRIC_SCALES,

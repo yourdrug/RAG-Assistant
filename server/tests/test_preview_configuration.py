@@ -12,8 +12,8 @@ from application.admin import ConfigService
 from application.documents.diagnostics import PDFDiagnosticService
 from application.documents.preview_cache import PreviewCache
 from application.ports.file_storage import FileStorage
+from application.runtime.config import ConfigParameter
 from config import Settings
-from domain.runtime.config import ConfigParameter
 from domain.shared.exceptions import ValidationError
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.ml.config import settings_adapters

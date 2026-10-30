@@ -26,9 +26,11 @@ from application.rag.dto import (
     TerminalResponse,
 )
 from application.rag.service import RagService
+from application.rag.stream_events import TextChunk
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
-from domain.rag.stream_events import TextChunk
 from infrastructure.ml.rag.langchain_mapping import lc_documents, scored_values
 from infrastructure.ml.rag.rag_config import build_rag_settings
 
@@ -39,7 +41,13 @@ if TYPE_CHECKING:
 
 def workflow() -> tuple[RagService, MagicMock, list[str]]:
     request = RagRequest(
-        "question", (), RagContext(1, "internal", "user"), build_rag_settings(), 0, "req", "model"
+        "question",
+        (),
+        RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)),
+        build_rag_settings(),
+        0,
+        "req",
+        "model",
     )
     query = PreparedQuery(request, "question")
     retrieval = RetrievalResult(query, Breadth.NARROW, "general", 25, 4, 1, 1, False, (), (), (), False, 0)
@@ -101,7 +109,9 @@ async def test_corpus_lease_covers_all_stream_exits(exit_at: str) -> None:
     elif exit_at == "error":
         operations.generate.side_effect = RuntimeError("failed")
 
-    stream = service.stream("question", [], RagContext(1, "internal"))
+    stream = service.stream(
+        "question", [], RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL))
+    )
 
     if exit_at == "close":
         await anext(stream)
@@ -136,7 +146,9 @@ async def test_cancellation_releases_corpus_while_generation_is_waiting() -> Non
     operations.generate.side_effect = generate
 
     async def consume() -> None:
-        async for _ in service.stream("question", [], RagContext(1, "internal")):
+        async for _ in service.stream(
+            "question", [], RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL))
+        ):
             pass
 
     task = asyncio.create_task(consume())
@@ -186,7 +198,9 @@ def test_mypy_rejects_generation_and_finalization_before_required_stages(tmp_pat
 @pytest.mark.asyncio
 async def test_invoke_collects_stream_values_using_one_request_snapshot() -> None:
     service, operations, leases = workflow()
-    result = await service.invoke("question", [], RagContext(1, "internal"))
+    result = await service.invoke(
+        "question", [], RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL))
+    )
     assert result.answer == "safe answer"
     assert result.sources == []
     assert result.confidence == 0

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from domain.chat.repositories import ChatLogFilter
 from datetime import datetime
 
 from application.chat import ChatLogService
@@ -39,22 +40,26 @@ async def list_chat_logs(
         user_ids_filter = managed_ids
 
     total = await service.count_logs(
-        user_id=user_id,
-        user_ids=user_ids_filter,
-        domain=domain,
-        date_from=date_from,
-        date_to=date_to,
-        search=search,
+        filters=ChatLogFilter(
+            user_id=user_id,
+            user_ids=tuple(user_ids_filter) if user_ids_filter is not None else None,
+            domain=domain,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+        )
     )
     logs, email_map = await service.list_logs_with_emails(
-        user_id=user_id,
-        user_ids=user_ids_filter,
-        domain=domain,
-        date_from=date_from,
-        date_to=date_to,
-        search=search,
-        limit=limit,
-        offset=offset,
+        filters=ChatLogFilter(
+            user_id=user_id,
+            user_ids=tuple(user_ids_filter) if user_ids_filter is not None else None,
+            domain=domain,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
     )
 
     entries = [

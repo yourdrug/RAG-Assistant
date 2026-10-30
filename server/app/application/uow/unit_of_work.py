@@ -11,6 +11,7 @@ from application.uow.base import BaseUnitOfWork
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
+    from application.runtime.repositories import ConfigParameterRepository
     from application.uow.chunks import ChunkRepository
     from application.uow.session import SessionProtocol
     from domain.benchmark.repositories import (
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from domain.knowledge.index_sync import VectorOutboxRepository
     from domain.knowledge.repositories.acts import ActVersionRepository, RegulatoryActRepository
     from domain.knowledge.repositories.document import DocumentRepository
-    from domain.runtime.repositories import BackgroundJobRepository, ConfigParameterRepository
+    from domain.runtime.repositories import BackgroundJobRepository
 
 
 @dataclass(frozen=True)

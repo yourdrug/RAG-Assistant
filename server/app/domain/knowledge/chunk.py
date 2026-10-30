@@ -1,14 +1,12 @@
-"""Knowledge domain: chunk."""
+"""Chunk content, interpretation metadata and persisted search matches."""
 
 from __future__ import annotations
 
-import base64
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from domain.knowledge.enums import DocDomain
-from domain.shared.exceptions import ValidationError
+from domain.knowledge.enums import GENERAL_DOMAIN_KEY, DocumentVisibility, DomainKey
 
 
 if TYPE_CHECKING:
@@ -91,8 +89,8 @@ class ChunkRecord:
     filename: str
     content: str
     chunk_index: int
-    visibility: str = ""
-    doc_domain: str = DocDomain.GENERAL.value
+    visibility: DocumentVisibility | None = None
+    doc_domain: DomainKey = GENERAL_DOMAIN_KEY
     owner_id: int | None = None
     group_id: int | None = None
     edited_at: datetime | None = None
@@ -113,6 +111,12 @@ class ChunkRecord:
     is_current: bool = True
     context_metadata: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self.doc_domain = DomainKey(self.doc_domain)
+
+        if self.visibility is not None:
+            self.visibility = DocumentVisibility.parse(self.visibility)
+
 
 @dataclass(frozen=True)
 class ChunkStats:
@@ -120,38 +124,6 @@ class ChunkStats:
 
     total_chunks: int
     total_chars: int
-
-
-def encode_cursor(chunk_index: int, chunk_id: int) -> str:
-    """Encode a (chunk_index, chunk_id) pair into an opaque base64url cursor."""
-    payload = f"{chunk_index}:{chunk_id}".encode()
-    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-
-
-def decode_cursor(cursor: str) -> tuple[int, int]:
-    """Decode an opaque cursor back to ``(chunk_index, chunk_id)``.
-
-    Raises ``ValidationError`` if the cursor is malformed.
-    """
-    try:
-        # Re-pad to a multiple of 4 for urlsafe_b64decode
-        padded = cursor + "=" * (-len(cursor) % 4)
-        raw = base64.urlsafe_b64decode(padded).decode("utf-8")
-        return parse_cursor_parts(raw)
-    except Exception as exc:
-        msg = f"Invalid cursor: {exc}"
-        raise ValidationError(msg) from exc
-
-
-def parse_cursor_parts(raw: str) -> tuple[int, int]:
-    parts = raw.split(":")
-    pair_length = 2
-
-    if len(parts) != pair_length:
-        msg = "expected exactly two parts"
-        raise ValueError(msg)
-
-    return int(parts[0]), int(parts[1])
 
 
 SENTENCE_UNIT_KIND = "sentence"

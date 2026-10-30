@@ -7,6 +7,7 @@ Phase B of curator-scope-and-bm25-acl-implementation-plan.md:
 
 from __future__ import annotations
 
+from domain.identity.user_context import UserContext
 import sys
 from pathlib import Path
 
@@ -75,27 +76,33 @@ class TestCuratorScope:
 
 class TestRagContextCuratorScope:
     def test_default_none(self):
-        ctx = RagContext(user_id=1, user_kind="internal")
+        ctx = RagContext(user=UserContext(user_id=1, user_kind="internal", user_role="user"))
         assert ctx.curator_scope is None
 
     def test_explicit_none(self):
-        ctx = RagContext(user_id=1, user_kind="internal", curator_scope=None)
+        ctx = RagContext(
+            user=UserContext(user_id=1, user_kind="internal", user_role="user").with_curator_scope(None)
+        )
         assert ctx.curator_scope is None
 
     def test_explicit_scope(self):
         scope = CuratorScope(managed_client_ids=(100,))
-        ctx = RagContext(user_id=1, user_kind="internal", curator_scope=scope)
-        assert ctx.curator_scope is scope
+        ctx = RagContext(
+            user=UserContext(user_id=1, user_kind="internal", user_role="user").with_curator_scope(scope)
+        )
+        assert ctx.curator_scope == scope
         assert ctx.curator_scope.managed_client_ids == (100,)
 
     def test_frozen_with_scope(self):
         scope = CuratorScope(managed_client_ids=(100,))
-        ctx = RagContext(user_id=1, user_kind="internal", curator_scope=scope)
+        ctx = RagContext(
+            user=UserContext(user_id=1, user_kind="internal", user_role="user").with_curator_scope(scope)
+        )
         with pytest.raises(AttributeError):
             ctx.curator_scope = None
 
     def test_existing_constructors_unaffected(self):
-        ctx = RagContext(user_id=1, user_kind="internal", user_role="admin", user_group_ids=[10])
+        ctx = RagContext(user=UserContext(user_id=1, user_kind="internal", user_role="admin", group_ids=[10]))
         assert ctx.curator_scope is None
         assert ctx.user_id == 1
-        assert ctx.user_group_ids == [10]
+        assert ctx.user_group_ids == (10,)

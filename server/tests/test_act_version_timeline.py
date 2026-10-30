@@ -27,7 +27,7 @@ def test_correction_preserves_original_snapshot_and_closes_historical_gap():
     assert original.get_version(2).effective_from == date(2025, 1, 1)
     assert corrected.get_version(1).effective_to == date(2026, 1, 1)
     assert corrected.get_version(2).is_current
-    edited.effective_from = date(2030, 1, 1)
+    edited = replace(edited, effective_from=date(2030, 1, 1))
     assert corrected.get_version(2).effective_from == date(2026, 1, 1)
 
 
@@ -117,3 +117,27 @@ def test_removal_of_middle_edition_connects_remaining_neighbors():
     assert remaining.get_version(1).effective_to == date(2027, 1, 1)
     assert remaining.get_version(1).is_current
     assert not remaining.get_version(3).is_current
+
+
+def test_expired_insert_and_current_selection_share_rebuild_semantics():
+    original = ActVersionTimeline((ActVersion(1, 10, 1, date(2020, 1, 1)),))
+    remaining, inserted = original.inserting(
+        date(2024, 1, 1), effective_to=date(2025, 1, 1), today=date(2026, 1, 1)
+    )
+    assert not inserted.is_current
+    assert not any(version.is_current for version in remaining.versions)
+    assert not original.is_latest(date(2024, 1, 1), effective_to=date(2025, 1, 1), today=date(2026, 1, 1))
+    assert remaining.get_version(1).effective_to == date(2024, 1, 1)
+
+
+def test_relink_tie_break_uses_persisted_identity_and_survives_noop_correction():
+    start = date(2024, 1, 1)
+    today = date(2026, 1, 1)
+    target = ActVersionTimeline((ActVersion(10, 1, 10, start),))
+    remaining, moved = target.inserting(start, candidate_id=1, today=today)
+    linked = ActVersionTimeline((*remaining.versions, moved))
+    corrected = linked.correct(moved, end_provided=False, today=today)
+    assert corrected.get_version(1).effective_to == start
+    assert not corrected.get_version(1).is_current
+    assert corrected.get_version(10).is_current
+    assert corrected == corrected.correct(moved, end_provided=False, today=today)

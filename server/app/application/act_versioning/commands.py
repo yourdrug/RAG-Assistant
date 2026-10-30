@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 import logging
 from typing import TYPE_CHECKING, Unpack
@@ -210,13 +211,14 @@ class ActVersionCommands:
                 await ActVersionPersistence(uow).save_changes(timeline, changed.versions)
 
         timeline = ActVersionTimeline(tuple(previous))
+        _, inserted = timeline.inserting(effective_date, today=self._today())
         version = ActVersion(
             id=None,
             act_id=act.id if act is not None else None,
             document_id=document_id,
             effective_from=effective_date,
-            effective_to=timeline.successor_date(effective_date),
-            is_current=timeline.is_latest(effective_date, today=self._today()),
+            effective_to=inserted.effective_to,
+            is_current=inserted.is_current,
             date_source=date_source,
             date_confidence=date_confidence,
         )
@@ -253,17 +255,20 @@ class ActVersionCommands:
             version = next(item for item in corrected if item.id == version_id)
 
             if old_act_id != version.act_id:
-                await self.relink_version(uow, version)
+                version = await self.relink_version(uow, version)
 
             version.validate_dates(explicit_end=options.get("effective_to"))
 
             if version.act_id is not None:
                 affected_act_ids.add(version.act_id)
 
-            version.date_source = _DATE_SOURCE_MANUAL
-            version.verified_by = options.get("verified_by")
-            # Keep the existing local, naive timestamp stored by the repository.
-            version.verified_at = datetime.now(tz=UTC).astimezone().replace(tzinfo=None)
+            version = replace(
+                version,
+                date_source=_DATE_SOURCE_MANUAL,
+                verified_by=options.get("verified_by"),
+                verified_at=datetime.now(tz=UTC).astimezone().replace(tzinfo=None),
+            )
+            corrected = tuple(version if item.id == version.id else item for item in corrected)
 
             await persistence.save_changes(timeline, corrected, edited_id=version_id)
 
@@ -288,13 +293,13 @@ class ActVersionCommands:
         old_act_id = version.act_id
 
         if effective_from_provided or effective_from is not None:
-            version.effective_from = effective_from
+            version = replace(version, effective_from=effective_from)
 
         if effective_to_provided or effective_to is not None:
-            version.effective_to = effective_to
+            version = replace(version, effective_to=effective_to)
 
         if act_id_provided or act_id is not None:
-            version.act_id = act_id
+            version = replace(version, act_id=act_id)
 
         dates_changed = any(
             (
@@ -317,12 +322,15 @@ class ActVersionCommands:
         remaining = None
 
         if old_act_id != version.act_id:
-            remaining = self.remove_from_timeline(
+            version, remaining = self.remove_from_timeline(
                 timeline,
                 version,
                 old_act_id=old_act_id,
                 end_provided=effective_to_provided or effective_to is not None,
             )
+
+        if old_act_id != version.act_id:
+            corrected = (version,)
 
         return corrected, remaining
 
@@ -333,9 +341,9 @@ class ActVersionCommands:
         *,
         old_act_id: int | None,
         end_provided: bool,
-    ) -> ActVersionTimeline | None:
+    ) -> tuple[ActVersion, ActVersionTimeline | None]:
         if old_act_id is None:
-            return None
+            return version, None
 
         if version.id is None:
             message = "Persisted act version has no ID"
@@ -344,19 +352,21 @@ class ActVersionCommands:
         remaining = timeline.remove(version.id, today=self._today())
 
         if not end_provided:
-            version.effective_to = timeline.explicit_ends()[version.id]
+            version = replace(version, effective_to=timeline.explicit_ends()[version.id])
 
-        return remaining
+        return version, remaining
 
-    async def relink_version(self, uow: UnitOfWork, version: ActVersion) -> None:
+    async def relink_version(self, uow: UnitOfWork, version: ActVersion) -> ActVersion:
         if version.act_id is None:
             standalone = ActVersionTimeline((version,))
-            version.is_current = (
-                standalone.correct(version, end_provided=False, today=self._today())
-                .get_version(version.id)
-                .is_current
+            return replace(
+                version,
+                is_current=(
+                    standalone.correct(version, end_provided=False, today=self._today())
+                    .get_version(version.id)
+                    .is_current
+                ),
             )
-            return
 
         target_act = await uow.regulatory_acts.get_by_id(version.act_id)
 
@@ -376,9 +386,11 @@ class ActVersionCommands:
                 raise ValidationError(message)
 
         timeline = ActVersionTimeline(tuple(previous))
-        changed = timeline.insert_boundary(version.effective_from, today=self._today())
+        changed, inserted = timeline.inserting(
+            version.effective_from,
+            today=self._today(),
+            effective_to=version.effective_to,
+            candidate_id=version.id,
+        )
         await ActVersionPersistence(uow).save_changes(timeline, changed.versions)
-        version.is_current = timeline.is_latest(version.effective_from, today=self._today())
-
-        if version.effective_to is None:
-            version.effective_to = timeline.successor_date(version.effective_from)
+        return replace(version, is_current=inserted.is_current, effective_to=inserted.effective_to)

@@ -25,8 +25,8 @@ class UserManagementService:
         self, command: CreateUserCommand, creator_role: str | UserRole = UserRole.ADMIN
     ) -> UserDTO:
         async with self._uow_factory.create(master=True) as uow:
-            role = UserRole.validate(command.role)
-            kind = UserKind.validate(command.kind)
+            role = UserRole.parse(command.role)
+            kind = UserKind.parse(command.kind)
 
             user = User(
                 email=command.email,
@@ -73,7 +73,7 @@ class UserManagementService:
                 total,
             )
 
-    async def toggle_active(self, user_id: int, *, is_active: bool, admin_id: int) -> ToggleActiveResult:
+    async def set_active(self, user_id: int, *, is_active: bool, admin_id: int) -> ToggleActiveResult:
         async with self._uow_factory.create(master=True) as uow:
             user = await uow.users.get_by_id(user_id)
 
@@ -96,7 +96,7 @@ class UserManagementService:
                 raise EntityNotFoundError(msg, command.user_id)
 
             old_role = user.role
-            new_role = UserRole.validate(command.new_role)
+            new_role = UserRole.parse(command.new_role)
             user.change_role(new_role)
             await uow.users.update_role(command.user_id, new_role)
 

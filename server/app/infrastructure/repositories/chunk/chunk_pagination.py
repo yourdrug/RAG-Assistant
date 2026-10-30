@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from domain.knowledge.chunk import ChunkRecord, encode_cursor
+from domain.knowledge.chunk import ChunkRecord
+from domain.shared.pagination import encode_cursor
 from domain.shared.pagination import CursorPage
 from sqlalchemy import and_, or_
 

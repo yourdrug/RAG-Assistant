@@ -19,6 +19,7 @@ from domain.ingestion.profiles.types import (
     ConfigDefault,
     ReferenceMatch,
 )
+from domain.shared.profile_policy import AnswerPolicy
 
 
 if TYPE_CHECKING:
@@ -37,32 +38,56 @@ _ARTICLE_REF_RE = re.compile(r"ст(?:ать[июяе]|\.)\s*(\d+[\.\d]*)", re.I
 _CHAPTER_REF_RE = re.compile(r"глав(?:[ауы]|ой)\s*(\d+[\.\d]*)", re.IGNORECASE)
 _LAW_NAME_RE = re.compile(
     r"(?:Федеральный закон|Федеральный конституционный закон|ГК "
-    r"РФ|\u041d\u041a РФ|КоАП|\u0423\u041a РФ|\u0422\u041a РФ)"
-    r"\s*(?:от\s+[\d.]+\s*)?(?:№\s*[\d]+(?:-[\d\u0410-ЯЁ]+)*)?",
+    r"РФ|НК РФ|КоАП|УК РФ|ТК РФ)"
+    r"\s*(?:от\s+[\d.]+\s*)?(?:№\s*[\d]+(?:-[\dА-ЯЁ]+)*)?",
     re.IGNORECASE,
 )
 _LAW_NUMBER_RE = re.compile(
     r"^\s*(?:Федеральный закон|Федеральный конституционный закон)"
-    r"\s*(?:от\s+(?P<date>[^№N\n]+?)\s*)?(?:№|N)\s*(?P<number>[\d]+(?:-[\d\u0410-ЯЁ]+)*)",
+    r"\s*(?:от\s+(?P<date>[^№N\n]+?)\s*)?(?:№|N)\s*(?P<number>[\d]+(?:-[\dА-ЯЁ]+)*)",
     re.IGNORECASE | re.MULTILINE,
 )
 
 _EFFECTIVE_PATTERNS = [
-    (re.compile(r"вступает в силу\s+(?:\u0441\u043e дня|\u0441)\s+([^\n,]+)", re.IGNORECASE), 0.9),
+    (re.compile(r"вступает в силу\s+(?:со дня|с)\s+([^\n,]+)", re.IGNORECASE), 0.9),
     (re.compile(r"вступлени[ея]\s+в\s+силу\s+([^\n,]+)", re.IGNORECASE), 0.7),
-    (re.compile(r"\u0441\s+даты\s+([^\n,]+)", re.IGNORECASE), 0.5),
+    (re.compile(r"с\s+даты\s+([^\n,]+)", re.IGNORECASE), 0.5),
 ]
 
-_SIGNING_DATE_RE = re.compile(r"(\d{1,2}\s+\S+\s+\d{4}\s*\u0433?\.?)")
+_SIGNING_DATE_RE = re.compile(r"(\d{1,2}\s+\S+\s+\d{4}\s*г?\.?)")
 
 
 class LegalDomainProfile(SettingsBackedProfile):
+    answer_policy = AnswerPolicy(
+        "- Обязательно указывай номер статьи/пункта, если он есть в контексте (например: "
+        "«Согласно ст. 15 ФЗ-XXX» или «п. 3.2 Договора»).\n- Не перефразируй формулировки "
+        "нормативных актов — цитируй максимально близко к тексту.\n",
+        fallback_to_full_corpus=True,
+    )
+    query_patterns: tuple[str, ...] = (
+        "вправе\\s+ли",
+        "обязан\\s+ли",
+        "подлежит\\s+ли",
+        "несёт\\s+ли\\s+ответственность",
+        "стать[юяе]\\s+\\d+",
+        "пункт[ае]?\\s+\\d+",
+        "в\\s+соответствии\\s+с",
+        "согласно\\s+(закону|договору|статье)",
+        "нарушени[ея]\\s+(условий|закона)",
+    )
+    query_priority = 1
     key = "legal"
     display_name = "Нормативные акты"
     is_versioned = True
+    chunk_size = 1000
+    chunk_overlap = 250
 
     def config_defaults(self) -> list[ConfigDefault]:
         return [
+            ConfigDefault(f"{self.key}_chunk_size", str(self.chunk_size), "int", "Chunk size", 100, 10000),
+            ConfigDefault(
+                f"{self.key}_chunk_overlap", str(self.chunk_overlap), "int", "Chunk overlap", 0, 5000
+            ),
             ConfigDefault(
                 "max_unit_chars",
                 "1500",
@@ -102,11 +127,11 @@ class LegalDomainProfile(SettingsBackedProfile):
         score += 0.3 * len(_CHAPTER_RE.findall(text))
         score += 0.2 * len(_SECTION_RE.findall(text))
 
-        if re.search(r"Федеральный закон|ГК РФ|\u041d\u041a РФ", text, re.IGNORECASE):
+        if re.search(r"Федеральный закон|ГК РФ|НК РФ", text, re.IGNORECASE):
             score += 2.0
 
         if re.search(
-            r"стороны\s+договорились|настоящ(им|\u0435\u0433\u043e|ий)\s+(договор|соглашени)",
+            r"стороны\s+договорились|настоящ(им|его|ий)\s+(договор|соглашени)",
             text,
             re.IGNORECASE,
         ):

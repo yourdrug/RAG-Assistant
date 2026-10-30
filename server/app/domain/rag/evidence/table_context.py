@@ -3,7 +3,7 @@
 import re
 from typing import Any
 
-from domain.rag.retrieval import RetrievalDocument
+from domain.rag.ranking import RetrievalDocument
 
 
 TABLE_OVERVIEW_RE = re.compile(

@@ -27,10 +27,10 @@ class User:
 
     def __post_init__(self) -> None:
         if isinstance(self.role, str):
-            self.role = UserRole.validate(self.role)
+            self.role = UserRole.parse(self.role)
 
         if isinstance(self.kind, str):
-            self.kind = UserKind.validate(self.kind)
+            self.kind = UserKind.parse(self.kind)
 
     def ensure_can_be_created_by(self, creator_role: UserRole) -> None:
         """Enforce rule: only admin can create users."""
@@ -50,7 +50,7 @@ class User:
             msg = "Cannot deactivate yourself"
             raise BusinessRuleViolationError(msg)
 
-    def toggle_active(self, *, is_active: bool) -> None:
+    def set_active(self, *, is_active: bool) -> None:
         self.is_active = is_active
 
     def change_role(self, new_role: UserRole) -> None:

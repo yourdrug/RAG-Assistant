@@ -1,5 +1,6 @@
 """PostgreSQL round trips and migration contracts for chunk interpretation metadata."""
 
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
 import asyncio
 
 import pytest
@@ -128,8 +129,7 @@ async def test_context_round_trip_and_unauthorized_search(pg_engine):
                     context_metadata=context,
                 )
             ],
-            owner_id=users[0].id,
-            doc_domain=DocDomain.DECREE.value,
+            options=ChunkInsertOptions(owner_id=users[0].id, doc_domain=DocDomain.DECREE.value),
         )
     allowed = UserContext(users[0].id, UserKind.INTERNAL, UserRole.USER)
     denied = UserContext(users[1].id, UserKind.INTERNAL, UserRole.USER)

@@ -6,8 +6,8 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
+from application.runtime.enums import LLMProvider
 from config import Settings, settings
-from domain.runtime.enums import LLMProvider
 from infrastructure.benchmark.judging import clients as judge_clients
 from infrastructure.ml.clients import factories
 

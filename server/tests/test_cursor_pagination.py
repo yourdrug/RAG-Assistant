@@ -11,7 +11,7 @@ from application.chunks.dto import ChunkCursorQuery
 from application.chunks.queries import ChunkQueryService
 from domain.knowledge.document import Document  # noqa: E402
 from domain.shared.exceptions import ValidationError  # noqa: E402
-from domain.knowledge.chunk import decode_cursor, encode_cursor  # noqa: E402
+from domain.shared.pagination import decode_cursor, encode_cursor
 from domain.knowledge.enums import DocumentVisibility  # noqa: E402
 
 from fakes import FakeChunkRepository, FakeUnitOfWork, FakeUnitOfWorkFactory  # noqa: E402
