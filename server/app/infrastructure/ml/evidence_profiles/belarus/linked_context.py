@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from copy import copy
-from typing import TYPE_CHECKING
 import logging
+from typing import TYPE_CHECKING
 
 from langchain_core.documents import Document
 
@@ -19,8 +19,9 @@ from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 
 
 if TYPE_CHECKING:
-    from domain.rag.ports import ChunkRetrievalRepository
     from domain.identity.user_context import UserContext
+    from domain.knowledge.chunk import ChunkRecord
+    from domain.rag.ports import ChunkRetrievalRepository
 
 log = logging.getLogger("default")
 LINK_WINDOW = 3
@@ -44,7 +45,7 @@ async def enrich_linked_context(
     if chunk_search is None or not (amendment or procedure):
         return docs
 
-    recovered = {}
+    recovered: dict[tuple[int | None, int | None, int | None], str] = {}
     lookups = 0
     # Bare amendment tables and actual conditions are more useful seeds than
     # consolidated tables or general definitions when lookup slots are limited.
@@ -73,37 +74,50 @@ async def enrich_linked_context(
         except Exception:
             log.warning("Linked-context lookup failed for document_id=%s", document_id, exc_info=True)
             continue
-        local = [
-            Document(page_content=neighbor.content, metadata=chunk_result_metadata(neighbor))
-            for neighbor in neighbors
-            if neighbor.document_id == document_id
-            and neighbor.act_version_id == metadata.get("act_version_id")
-        ]
-        local.sort(key=lambda item: item.metadata["chunk_index"])
-        scopes = replacement_scopes(local) if is_table else procedure_scopes(local)
-
-        for chunk_index, scope in scopes.items():
-            recovered[(document_id, metadata.get("act_version_id"), chunk_index)] = scope
+        recovered.update(recover_local_scopes(neighbors, doc, is_table=is_table))
 
     result = []
 
-    for doc, score in docs:
-        identity = (
+    for original_doc, score in docs:
+        doc = original_doc
+        result_identity = (
             doc.metadata.get("document_id"),
             doc.metadata.get("act_version_id"),
             doc.metadata.get("chunk_index"),
         )
-        recovered_scope = recovered.get(identity)
+        recovered_scope = recovered.get(result_identity)
 
-        if recovered_scope:
-            doc = copy(doc)
-            parents = list(doc.metadata.get("parent_units", []))
-
-            if not any(parent.get("content") == recovered_scope for parent in parents):
-                parents.append({"content": recovered_scope})
-
-            doc.metadata = {**doc.metadata, "parent_units": parents}
+        doc = attach_recovered_scope(doc, recovered_scope)
 
         result.append((doc, score))
 
     return result
+
+
+def recover_local_scopes(
+    neighbors: list[ChunkRecord], doc: Document, *, is_table: bool
+) -> dict[tuple[int | None, int | None, int | None], str]:
+    metadata = doc.metadata
+    document_id = metadata.get("document_id")
+    local = [
+        Document(page_content=neighbor.content, metadata=chunk_result_metadata(neighbor))
+        for neighbor in neighbors
+        if neighbor.document_id == document_id and neighbor.act_version_id == metadata.get("act_version_id")
+    ]
+    local.sort(key=lambda item: item.metadata["chunk_index"])
+    scopes = replacement_scopes(local) if is_table else procedure_scopes(local)
+
+    return {(document_id, metadata.get("act_version_id"), index): scope for index, scope in scopes.items()}
+
+
+def attach_recovered_scope(doc: Document, recovered_scope: str | None) -> Document:
+    if recovered_scope:
+        doc = copy(doc)
+        parents = list(doc.metadata.get("parent_units", []))
+
+        if not any(parent.get("content") == recovered_scope for parent in parents):
+            parents.append({"content": recovered_scope})
+
+        doc.metadata = {**doc.metadata, "parent_units": parents}
+
+    return doc

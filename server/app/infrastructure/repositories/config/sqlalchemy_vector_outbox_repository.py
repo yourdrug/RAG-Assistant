@@ -6,18 +6,21 @@ The enqueue() method sends pg_notify atomically within the same transaction.
 
 from __future__ import annotations
 
-from sqlalchemy.engine import RowMapping
-
-import json
 from datetime import UTC, datetime, timedelta
+import json
+from typing import TYPE_CHECKING
+
+from sqlalchemy import func, select, text
 
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
-from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
-from sqlalchemy.sql.elements import ColumnElement
-
 from infrastructure.database.models import VectorStoreOutboxModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import RowMapping
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.orm import InstrumentedAttribute
+    from sqlalchemy.sql.elements import ColumnElement
 
 
 def unfinished_document_work(document_id: int | InstrumentedAttribute[int]) -> ColumnElement[bool]:

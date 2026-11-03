@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from domain.benchmark.run import BenchmarkRun
-from domain.benchmark.evaluation import EVIDENCE_METRICS, summarize_evidence
+from typing import TYPE_CHECKING, Any
+
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.benchmark.evaluation import EVIDENCE_METRICS, summarize_evidence
+from domain.benchmark.run import BenchmarkRun
 from infrastructure.database.models import BenchmarkRunModel, BenchmarkSweepModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyBenchmarkRunRepository:
@@ -52,7 +57,8 @@ class SQLAlchemyBenchmarkRunRepository:
         identity = "job_id" if run.job_id is not None else "legacy_hash"
 
         if getattr(run, identity) is None:
-            raise ValueError("A job or legacy import identity is required")
+            msg = "A job or legacy import identity is required"
+            raise ValueError(msg)
 
         values = {
             name: getattr(run, name)
@@ -78,7 +84,8 @@ class SQLAlchemyBenchmarkRunRepository:
         )
 
         if row is None:
-            raise RuntimeError("Committed benchmark identity was not found")
+            msg = "Committed benchmark identity was not found"
+            raise RuntimeError(msg)
 
         return self.to_entity(row)
 
@@ -110,7 +117,7 @@ class SQLAlchemyBenchmarkRunRepository:
         )
         return self.to_entity(row) if row else None
 
-    async def export_header(self, run_id: int) -> dict | None:
+    async def export_header(self, run_id: int) -> dict[str, Any] | None:
         row = (
             (
                 await self._db.execute(
@@ -128,7 +135,7 @@ class SQLAlchemyBenchmarkRunRepository:
         )
         return dict(row) if row else None
 
-    async def result_page(self, run_id: int, *, offset: int, limit: int) -> list[dict]:
+    async def result_page(self, run_id: int, *, offset: int, limit: int) -> list[dict[str, Any]]:
         # PostgreSQL expands the JSON array before LIMIT/OFFSET.
         column = BenchmarkRunModel.per_question_results
         query = (
@@ -139,13 +146,14 @@ class SQLAlchemyBenchmarkRunRepository:
         )
         return list((await self._db.scalars(query)).all())
 
-    async def set_artifact(self, run_id: int, report_format: str, metadata: dict) -> None:
+    async def set_artifact(self, run_id: int, report_format: str, metadata: dict[str, Any]) -> None:
         artifacts = await self._db.scalar(
             select(BenchmarkRunModel.artifacts).where(BenchmarkRunModel.id == run_id).with_for_update()
         )
 
         if artifacts is None:
-            raise ValueError("Benchmark result not found")
+            msg = "Benchmark result not found"
+            raise ValueError(msg)
 
         await self._db.execute(
             update(BenchmarkRunModel)
@@ -164,7 +172,8 @@ class SQLAlchemyBenchmarkRunRepository:
 
     async def save_for_sweep(self, run: BenchmarkRun) -> BenchmarkRun:
         if run.sweep_id is None:
-            raise ValueError("sweep_id is required")
+            msg = "sweep_id is required"
+            raise ValueError(msg)
 
         # The parent row serializes config lookup + insert across worker retries.
         await self._db.execute(

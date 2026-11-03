@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from langchain.schema import Document
 
+from config import settings
+from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
+from domain.knowledge.enums import DocDomain, PageContentType
+from infrastructure.ml.ingestion.page_joining import join_page_word, page_word_evidence
 from infrastructure.ml.ingestion.structural_metadata import unit_metadata
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
-from infrastructure.ml.ingestion.page_joining import join_page_word, page_word_evidence
 from infrastructure.ml.ingestion.text_chunks import (
     document_slice,
     locate_span,
@@ -18,15 +21,14 @@ from infrastructure.ml.ingestion.text_chunks import (
     text_document_chunks,
 )
 
-from config import settings
-from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
-from domain.knowledge.enums import DocDomain
-from domain.knowledge.enums import PageContentType
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from application.chunks import ChunkSettingsPort
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.rag.ranking import RetrievalDocument
 
 log = logging.getLogger("detailed")
 
@@ -77,27 +79,15 @@ def _classify_content_shape(text: str) -> str | None:
     """Cheap structural classification: list, definition, procedure, or None."""
     lines = [ln for ln in text.split("\n") if ln.strip()]
 
-    if len(lines) < _LIST_MIN_LINES:
-        # Short text: check definition/procedure on full text
-        if _DEFINTION_RE.search(text):
-            return "definition"
+    if len(lines) >= _LIST_MIN_LINES:
+        list_lines = sum(1 for ln in lines if _LIST_LINE_RE.match(ln))
 
-        if _PROCEDURE_RE.search(text):
-            return "procedure"
+        if list_lines / len(lines) >= _LIST_MIN_RATIO:
+            return "list"
 
-        return None
-
-    list_lines = sum(1 for ln in lines if _LIST_LINE_RE.match(ln))
-
-    if list_lines / len(lines) >= _LIST_MIN_RATIO:
-        return "list"
-
-    # Check definition/procedure patterns on multi-line text
-    if _DEFINTION_RE.search(text):
-        return "definition"
-
-    if _PROCEDURE_RE.search(text):
-        return "procedure"
+    for name, pattern in [("definition", _DEFINTION_RE), ("procedure", _PROCEDURE_RE)]:
+        if pattern.search(text):
+            return name
 
     return None
 
@@ -114,19 +104,19 @@ def _extract_first_sentence(text: str) -> str | None:
     if m:
         sentence = text[: m.end()].strip()
 
-        if len(sentence) > 200:
+        if len(sentence) > FIRST_SENTENCE_LIMIT:
             sentence = sentence[:197] + "..."
 
         return sentence
 
     # No sentence boundary found — return first 200 chars
-    if len(text) > 200:
+    if len(text) > FIRST_SENTENCE_LIMIT:
         return text[:197] + "..."
 
     return text
 
 
-def _enrich_final_chunks(chunks: list[Any]) -> None:
+def _enrich_final_chunks(chunks: Sequence[RetrievalDocument]) -> None:
     """Enrich final chunks with derived metadata and re-number.
 
     Adds char_count, word_count, sentence_count, has_numbers, has_dates,
@@ -139,7 +129,7 @@ def _enrich_final_chunks(chunks: list[Any]) -> None:
     final chunks — the position that matters for retrieval is the position
     among final chunks, not among pre-split sections.
     """
-    by_source: dict[str, list[Any]] = {}
+    by_source: dict[str, list[RetrievalDocument]] = {}
 
     for c in chunks:
         by_source.setdefault(c.metadata.get("source", ""), []).append(c)
@@ -148,30 +138,34 @@ def _enrich_final_chunks(chunks: list[Any]) -> None:
         total = len(group)
 
         for i, c in enumerate(group, start=1):
-            c.metadata["chunk_index"] = i
-            c.metadata["total_chunks"] = total
-            c.metadata["char_count"] = len(c.page_content)
-            c.metadata["word_count"] = len(c.page_content.split())
-            c.metadata["sentence_count"] = len(_SENTENCE_RE.findall(c.page_content))
-            dates = _DATE_RE.findall(c.page_content)
+            enrich_chunk_metadata(c, i, total)
 
-            if dates:
-                c.metadata["has_dates"] = True
-                c.metadata["extracted_dates"] = dates
 
-            if _DIGIT_RE.search(c.page_content):
-                c.metadata["has_numbers"] = True
+def enrich_chunk_metadata(c: RetrievalDocument, i: int, total: int) -> None:
+    c.metadata["chunk_index"] = i
+    c.metadata["total_chunks"] = total
+    c.metadata["char_count"] = len(c.page_content)
+    c.metadata["word_count"] = len(c.page_content.split())
+    c.metadata["sentence_count"] = len(_SENTENCE_RE.findall(c.page_content))
+    dates = _DATE_RE.findall(c.page_content)
 
-            first = _extract_first_sentence(c.page_content)
+    if dates:
+        c.metadata["has_dates"] = True
+        c.metadata["extracted_dates"] = dates
 
-            if first:
-                c.metadata["first_sentence"] = first
+    if _DIGIT_RE.search(c.page_content):
+        c.metadata["has_numbers"] = True
 
-            if c.metadata.get("content_type") != PageContentType.TABLE.value:
-                shape = _classify_content_shape(c.page_content)
+    first = _extract_first_sentence(c.page_content)
 
-                if shape:
-                    c.metadata["content_type"] = shape
+    if first:
+        c.metadata["first_sentence"] = first
+
+    if c.metadata.get("content_type") != PageContentType.TABLE.value:
+        shape = _classify_content_shape(c.page_content)
+
+        if shape:
+            c.metadata["content_type"] = shape
 
 
 def merge_pdf_pages(pages: list[Document]) -> list[Document]:
@@ -187,7 +181,9 @@ def merge_pdf_pages(pages: list[Document]) -> list[Document]:
 
     result: list[Document] = []
 
-    for group in by_source.values():
+    for original_group in by_source.values():
+        group = original_group
+
         if all("page" in doc.metadata for doc in group):
             group = sorted(group, key=lambda doc: doc.metadata["page"])
 
@@ -260,9 +256,9 @@ def _page_separator(before: str, after: str) -> str:
 def split_documents(
     docs: list[Document],
     domain: str = DocDomain.GENERAL.value,
-    profile: "DocumentProfile | None" = None,
-    settings: "DomainSettingsPort | None" = None,
-    chunk_settings: "ChunkSettingsPort | None" = None,
+    profile: DocumentProfile | None = None,
+    settings: DomainSettingsPort | None = None,
+    chunk_settings: ChunkSettingsPort | None = None,
 ) -> list[Document]:
     """Split documents into chunks.
 
@@ -280,7 +276,9 @@ def split_documents(
     chunks: list[Document] = []
     table_counts: dict[str, int] = {}
 
-    for doc in merge_pdf_pages(docs):
+    for original_doc in merge_pdf_pages(docs):
+        doc = original_doc
+
         if not doc.page_content.strip():
             continue
 
@@ -409,7 +407,11 @@ class Chunker:
         return result
 
 
-def settings_chunk_size(domain: str, domain_settings=None, chunk_settings=None) -> int:
+def settings_chunk_size(
+    domain: str,
+    domain_settings: DomainSettingsPort | None = None,
+    chunk_settings: ChunkSettingsPort | None = None,
+) -> int:
     """Use the same configured limit in every parser/splitter entry point."""
     global_settings = chunk_settings or settings
 
@@ -423,19 +425,25 @@ def settings_chunk_size(domain: str, domain_settings=None, chunk_settings=None) 
     return domain_setting(domain_settings, f"{domain}_chunk_size", domain, default)
 
 
-def domain_setting(settings, key: str, domain_key: str, default: int, *, allow_zero: bool = False) -> int:
+def domain_setting(
+    settings: DomainSettingsPort | None, key: str, domain_key: str, default: int, *, allow_zero: bool = False
+) -> int:
     """Read a domain-specific setting with fallback to default."""
     if settings is None:
         return default
 
     try:
         val = int(settings.get(key, domain_key=domain_key))
-        return val if val > 0 or (allow_zero and val == 0) else default
     except (KeyError, ValueError, TypeError):
         return default
+    else:
+        return val if val > 0 or (allow_zero and val == 0) else default
 
 
 def extract_article_number(chunk_text: str) -> str | None:
     """Extract article number from chunk text if present."""
     m = _ARTICLE_RE.search(chunk_text)
     return m.group(1) if m else None
+
+
+FIRST_SENTENCE_LIMIT = 200

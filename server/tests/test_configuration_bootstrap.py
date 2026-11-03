@@ -9,7 +9,7 @@ from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport
 from infrastructure.ml.clients import managed_http
 from presentation.api.routes.health import ready
-from test_cli_domain_bootstrap import build_infrastructure
+from tests.test_cli_domain_bootstrap import build_infrastructure
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,7 +19,7 @@ from application.runtime.config import ConfigParameter
 from domain.shared.exceptions import ValidationError
 from application.runtime.enums import LLMProvider
 from application.runtime.config import ConfigValueType
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 from infrastructure import initialization
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
@@ -410,7 +410,7 @@ def test_missing_snapshot_key_after_bootstrap_does_not_silently_keep_stale_value
 @pytest.mark.parametrize("malformed", [False, True])
 async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database(monkeypatch, malformed):
     from unittest.mock import AsyncMock
-    from test_cli_domain_bootstrap import build_infrastructure
+    from tests.test_cli_domain_bootstrap import build_infrastructure
     from presentation.cli.commands import config, ingest
 
     infra, bus = build_infrastructure(monkeypatch)

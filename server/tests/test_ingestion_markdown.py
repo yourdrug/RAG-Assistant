@@ -2,14 +2,17 @@
 normalization, code fence masking, date extraction, and doc title extraction.
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
 from domain.knowledge.enums import PageContentType
 
-import sys
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from infrastructure.ml.ingestion.markdown import (  # noqa: E402
+from infrastructure.ml.ingestion.markdown import (
     _mask_code_fences,
     _normalize_setext_headers,
     _unmask_code_fences,
@@ -25,26 +28,26 @@ from infrastructure.ml.ingestion.markdown import (  # noqa: E402
 
 
 class TestMaskCodeFences:
-    def test_replaces_fenced_block(self):
+    def test_replaces_fenced_block(self) -> None:
         raw = "text\n```python\nx = 1\n```\nmore"
         masked, blocks = _mask_code_fences(raw)
         assert len(blocks) == 1
         assert "```python" not in masked
         assert "x = 1" not in masked
 
-    def test_preserves_line_count(self):
+    def test_preserves_line_count(self) -> None:
         raw = "line1\n```\nline2\nline3\n```\nline4"
         masked, _blocks = _mask_code_fences(raw)
         assert masked.count("\n") == raw.count("\n")
 
-    def test_multiple_fences(self):
+    def test_multiple_fences(self) -> None:
         raw = "a\n```\nfoo\n```\nb\n```\nbar\n```\nc"
         masked, blocks = _mask_code_fences(raw)
         assert len(blocks) == 2
         assert "foo" not in masked
         assert "bar" not in masked
 
-    def test_unmask_restores_block_content(self):
+    def test_unmask_restores_block_content(self) -> None:
         raw = "before\n```\ncode here\n```\nafter"
         masked, blocks = _mask_code_fences(raw)
         restored = _unmask_code_fences(masked, blocks)
@@ -52,13 +55,13 @@ class TestMaskCodeFences:
         assert blocks[0] in restored
         assert "code here" in restored
 
-    def test_no_fences_unchanged(self):
+    def test_no_fences_unchanged(self) -> None:
         raw = "just plain text\nno fences"
         masked, blocks = _mask_code_fences(raw)
         assert masked == raw
         assert blocks == []
 
-    def test_tilde_fences(self):
+    def test_tilde_fences(self) -> None:
         raw = "text\n~~~\nblock\n~~~\nend"
         masked, blocks = _mask_code_fences(raw)
         assert len(blocks) == 1
@@ -71,29 +74,29 @@ class TestMaskCodeFences:
 
 
 class TestNormalizeSetextHeaders:
-    def test_converts_equals_to_h1(self):
+    def test_converts_equals_to_h1(self) -> None:
         raw = "Title\n==="
         result = _normalize_setext_headers(raw)
         assert result.startswith("# Title")
         assert "===" not in result
 
-    def test_converts_dashes_to_h2(self):
+    def test_converts_dashes_to_h2(self) -> None:
         raw = "Subtitle\n---"
         result = _normalize_setext_headers(raw)
         assert result.startswith("## Subtitle")
         assert "---" not in result
 
-    def test_does_not_touch_atx_headers(self):
+    def test_does_not_touch_atx_headers(self) -> None:
         raw = "# ATX Title"
         result = _normalize_setext_headers(raw)
         assert result == raw
 
-    def test_does_not_touch_code_blocks(self):
+    def test_does_not_touch_code_blocks(self) -> None:
         raw = "```\nTitle\n===\n```"
         result = _normalize_setext_headers(raw)
         assert "===" in result
 
-    def test_does_not_touch_table_separators(self):
+    def test_does_not_touch_table_separators(self) -> None:
         raw = "| col |\n|-----|"
         result = _normalize_setext_headers(raw)
         assert "|-----|" in result
@@ -105,13 +108,13 @@ class TestNormalizeSetextHeaders:
 
 
 class TestExtractDateFromFilename:
-    def test_extracts_date(self):
+    def test_extracts_date(self) -> None:
         assert extract_date_from_filename("report-2024-03-15.pdf") == "2024-03-15"
 
-    def test_returns_none_when_no_date(self):
+    def test_returns_none_when_no_date(self) -> None:
         assert extract_date_from_filename("report.pdf") is None
 
-    def test_returns_first_date_if_multiple(self):
+    def test_returns_first_date_if_multiple(self) -> None:
         assert extract_date_from_filename("2023-01-01_to_2024-06-30.pdf") == "2023-01-01"
 
 
@@ -121,24 +124,24 @@ class TestExtractDateFromFilename:
 
 
 class TestExtractDocTitle:
-    def _write_md(self, tmp_path, content, name="doc.md"):
+    def _write_md(self, tmp_path: Path, content: str, name: str = "doc.md") -> Path:
         f = tmp_path / name
         f.write_text(content, encoding="utf-8")
         return f
 
-    def test_returns_first_h1(self, tmp_path):
+    def test_returns_first_h1(self, tmp_path: Path) -> None:
         f = self._write_md(tmp_path, "# My Title\n\nSome content.\n## Sub")
         assert extract_doc_title(f) == "My Title"
 
-    def test_returns_first_h2_if_no_h1(self, tmp_path):
+    def test_returns_first_h2_if_no_h1(self, tmp_path: Path) -> None:
         f = self._write_md(tmp_path, "## Second Level\nContent")
         assert extract_doc_title(f) == "Second Level"
 
-    def test_returns_none_for_no_headers(self, tmp_path):
+    def test_returns_none_for_no_headers(self, tmp_path: Path) -> None:
         f = self._write_md(tmp_path, "Just some text.\nNo headers.")
         assert extract_doc_title(f) is None
 
-    def test_skips_code_fences(self, tmp_path):
+    def test_skips_code_fences(self, tmp_path: Path) -> None:
         f = self._write_md(tmp_path, "```\n# Not a header\n```\n# Real Title")
         assert extract_doc_title(f) == "Real Title"
 
@@ -149,39 +152,39 @@ class TestExtractDocTitle:
 
 
 class TestParseMarkdownSections:
-    def _write_md(self, tmp_path, content, name="doc.md"):
+    def _write_md(self, tmp_path: Path, content: str, name: str = "doc.md") -> Path:
         f = tmp_path / name
         f.write_text(content, encoding="utf-8")
         return f
 
-    def test_splits_by_atx_headers(self, tmp_path):
+    def test_splits_by_atx_headers(self, tmp_path: Path) -> None:
         content = "# H1\nBody1\n## H2\nBody2"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
-        headings = [s.heading for s in sections]
+        headings = [s.heading or "" for s in sections]
         assert "H1" in headings[0]
         assert "H1 > H2" in headings[1]
 
-    def test_splits_by_setext_headers(self, tmp_path):
+    def test_splits_by_setext_headers(self, tmp_path: Path) -> None:
         content = "Title One\n===\nBody1\nTitle Two\n---\nBody2"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
         assert len(sections) >= 2
-        headings = [s.heading for s in sections]
+        headings = [s.heading or "" for s in sections]
         assert "Title One" in headings[0]
         assert "Title Two" in headings[1]
 
-    def test_breadcrumb_path_built(self, tmp_path):
+    def test_breadcrumb_path_built(self, tmp_path: Path) -> None:
         content = "# H1\nBody1\n## H2\nBody2\n### H3\nBody3"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
         assert len(sections) >= 3
         # Deepest section has full breadcrumb
-        assert "H1 > H2 > H3" in sections[2].heading
+        assert "H1 > H2 > H3" in (sections[2].heading or "")
         # Intermediate section has partial breadcrumb
         assert sections[1].heading == "H1 > H2"
 
-    def test_leading_text_before_first_header(self, tmp_path):
+    def test_leading_text_before_first_header(self, tmp_path: Path) -> None:
         content = "Intro text.\n# First Header\nBody"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
@@ -189,7 +192,7 @@ class TestParseMarkdownSections:
         assert sections[0].heading is None
         assert "Intro text" in sections[0].content
 
-    def test_code_blocks_not_treated_as_headers(self, tmp_path):
+    def test_code_blocks_not_treated_as_headers(self, tmp_path: Path) -> None:
         content = "# Real Header\nBody\n```\n# Fake Header\n```\nMore"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
@@ -197,27 +200,29 @@ class TestParseMarkdownSections:
         assert len(headings) == 1
         assert "Real Header" in headings[0]
 
-    def test_tables_yielded_as_table_sections(self, tmp_path):
+    def test_tables_yielded_as_table_sections(self, tmp_path: Path) -> None:
         content = "# Section\nText\n| A | B |\n|---|---|\n| 1 | 2 |"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
         types = []
+
         for section in sections:
             if section.kind == PageContentType.TABLE:
                 types.append("table")
             else:
                 types.append("text")
+
         assert "table" in types
         assert "text" in types
 
-    def test_fenced_code_preserved_in_content(self, tmp_path):
+    def test_fenced_code_preserved_in_content(self, tmp_path: Path) -> None:
         content = "# Header\n```python\nprint('hello')\n```"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
         all_content = " ".join(s.content for s in sections)
         assert "print('hello')" in all_content
 
-    def test_no_headers_returns_single_section(self, tmp_path):
+    def test_no_headers_returns_single_section(self, tmp_path: Path) -> None:
         content = "Just some text.\nNo headers here."
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
@@ -232,14 +237,11 @@ class TestParseMarkdownSections:
 
 
 class TestExtractDateExtended:
-    def test_dd_mm_yyyy(self):
+    def test_dd_mm_yyyy(self) -> None:
         assert extract_date_from_filename("doc-15.03.2024.pdf") == "2024-03-15"
 
-    def test_dd_mm_yyyy_normalized(self):
+    def test_dd_mm_yyyy_normalized(self) -> None:
         assert extract_date_from_filename("report-01.12.2023.docx") == "2023-12-01"
 
-    def test_yyyy_mm_dd_still_works(self):
+    def test_yyyy_mm_dd_still_works(self) -> None:
         assert extract_date_from_filename("doc-2024-01-15.pdf") == "2024-01-15"
-
-    def test_no_date(self):
-        assert extract_date_from_filename("report.pdf") is None

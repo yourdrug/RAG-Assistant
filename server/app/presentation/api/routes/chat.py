@@ -66,7 +66,39 @@ def _format_sse_event(event, req_id: str) -> str | None:
     return None
 
 
-@router.post("/chat", dependencies=[Depends(rate_limit(RateLimitPolicyName.CHAT))])
+@router.post(
+    "/chat",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": (
+                "Server-Sent Events (SSE), UTF-8. Frames end with a blank line; "
+                "each data field contains JSON. Events: "
+                '`message` (no event field): {"text": string}, an answer fragment; '
+                '`status`: {"stage": string}, a progress update; '
+                '`done`: {"conversation_id": integer, "sources": object[]|null, '
+                '"confidence": number|null, "as_of_date": string|null, "request_id": string}, '
+                "final metadata (as_of_date is an ISO date); "
+                '`error`: {"error": string, "code": string}, a terminal stream error. '
+                "Errors after streaming starts retain HTTP 200. "
+                "Comment frames (`: heartbeat`) carry no event data and should be ignored."
+            ),
+            "content": {
+                SSE_MEDIA_TYPE: {
+                    "schema": {"type": "string"},
+                    "example": (
+                        ": heartbeat\n\n"
+                        'event: status\ndata: {"stage": "retrieval"}\n\n'
+                        'data: {"text": "Hello"}\n\n'
+                        'event: done\ndata: {"conversation_id": 1, "sources": null, '
+                        '"confidence": null, "as_of_date": null, "request_id": "abc123"}\n\n'
+                    ),
+                },
+            },
+        },
+    },
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.CHAT))],
+)
 async def chat_stream(
     req: ChatRequest,
     request: Request,

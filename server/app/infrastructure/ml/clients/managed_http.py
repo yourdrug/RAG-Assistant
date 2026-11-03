@@ -1,14 +1,21 @@
 """Lease an inference pool until its last admitted HTTP request completes."""
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any, TypedDict, Unpack
 
 import httpx
+
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport
-
-from infrastructure.utils.async_tasks import finish_owned_task
 from infrastructure.ml.clients.client_lease import active_client_leases
+from infrastructure.utils.async_tasks import finish_owned_task
+
+
+class HTTPRequestOptions(TypedDict, total=False):
+    json: Any
+    headers: dict[str, str]
 
 
 class ManagedHTTPPool:
@@ -26,12 +33,13 @@ class ManagedHTTPPool:
         self._retired = False
         self._idle = asyncio.Event()
         self._idle.set()
-        self._close_task: asyncio.Task | None = None
+        self._close_task: asyncio.Task[None] | None = None
 
     @asynccontextmanager
-    async def lease(self):
+    async def lease(self) -> AsyncIterator[None]:
         if self._retired and id(self) not in active_client_leases.get():
-            raise RuntimeError("Inference client was retired; acquire the current registry client")
+            message = "Inference client was retired; acquire the current registry client"
+            raise RuntimeError(message)
 
         token = active_client_leases.set(active_client_leases.get() | {id(self)})
         self._active += 1
@@ -45,7 +53,7 @@ class ManagedHTTPPool:
             if not self._active:
                 self._idle.set()
 
-    async def post(self, url: str, **kwargs) -> httpx.Response:
+    async def post(self, url: str, **kwargs: Unpack[HTTPRequestOptions]) -> httpx.Response:
         async with self.lease():
             response = await self._client.post(url, **kwargs)
             response.raise_for_status()

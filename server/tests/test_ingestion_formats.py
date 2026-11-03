@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 from docx import Document as WordDocument
 from docx.enum.text import WD_BREAK
-import fitz  # type: ignore[import-untyped]
+import fitz
 from langchain.schema import Document
 import pytest
 
@@ -82,7 +82,7 @@ def test_literal_old_marker_remains_text(tmp_path: Path) -> None:
 
 def test_pdf_quality_uses_domain_report(tmp_path: Path) -> None:
     path = tmp_path / "guide.pdf"
-    with fitz.open() as pdf:
+    with fitz.Document() as pdf:
         pdf.new_page()
         pdf.new_page()
         pdf.save(path)
@@ -105,7 +105,7 @@ def test_pdf_auto_falls_back_to_surya_only_for_empty_paddle_result(
     surya = Mock(return_value="Surya recognized text")
     monkeypatch.setattr(ocr, "ocr_image_paddle", paddle)
     monkeypatch.setattr(ocr, "ocr_image_surya", surya)
-    with fitz.open() as pdf:
+    with fitz.Document() as pdf:
         pdf.new_page(width=20, height=20)
         results = ocr.ocr_pdf_pages(pdf, [1], "guide.pdf")
     assert results == {1: paddle_text or "Surya recognized text"}

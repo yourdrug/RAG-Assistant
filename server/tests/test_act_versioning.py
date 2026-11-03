@@ -18,7 +18,7 @@ from domain.knowledge.document import Document
 from domain.knowledge.acts.models import RegulatoryAct
 from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.exceptions import EntityNotFoundError
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 class FakeSettings:

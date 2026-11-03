@@ -12,6 +12,7 @@ from domain.ingestion.repositories import (
 )
 from infrastructure.database.models import IngestionRegistryModel
 
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 

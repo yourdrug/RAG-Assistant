@@ -1,7 +1,7 @@
 """Input-only billing is explicit in Domain and mapped at external boundaries."""
 
 from decimal import Decimal
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -84,13 +84,15 @@ async def test_stored_tariffs_derive_policy_without_a_database_schema_change(pro
             session = AsyncMock()
             session.__aenter__.return_value = session
             session.execute.side_effect = connection.execute
-            runtime = BudgetRuntime()  # type: ignore[no-untyped-call]
-            runtime.session_factory = lambda: session
-            runtime.catalog = AsyncMock()
-            runtime.catalog.max_context.return_value = 100
-            rate = await runtime.rate(provider, "m")  # type: ignore[no-untyped-call]
+            runtime = BudgetRuntime()
+            sessions = MagicMock(return_value=session)
+            runtime.session_factory = sessions
+            catalog = AsyncMock()
+            catalog.max_context.return_value = 100
+            runtime.catalog = catalog
+            rate = await runtime.rate(provider, "m")
             assert bool(rate.input_only) is (provider == "deepinfra")
-            rows = await PostgresRedisBudget(lambda: session, None).rates()  # type: ignore[no-untyped-call]
+            rows = await PostgresRedisBudget(sessions, MagicMock()).rates()
             assert bool(CostRate(**rows[0]).input_only) is (provider == "deepinfra")
     finally:
         engine.dispose()

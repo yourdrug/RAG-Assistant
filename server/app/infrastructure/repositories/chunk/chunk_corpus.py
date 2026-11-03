@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ChunkModel
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyChunkCorpusRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def iter_all_contents_with_acl(self, batch_size: int = 1000):
+    async def iter_all_contents_with_acl(
+        self, batch_size: int = 1000
+    ) -> AsyncIterator[tuple[str, str, int | None, int | None]]:
         """Stream chunk content and ACL metadata without retaining earlier rows."""
         stmt = (
             select(

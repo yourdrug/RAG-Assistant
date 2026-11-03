@@ -188,7 +188,7 @@ async def test_hybrid_uses_point_ids_and_sparse_payload_without_hash_resolution(
         10,
         scope,
         rag,
-        MagicMock(),
+        ml_clients=MagicMock(),
         visibility_conditions=get_visibility_conditions(UserKind.INTERNAL, [], for_list=False),
         user_id=5,
         user_group_ids=[],
@@ -254,13 +254,13 @@ async def test_hybrid_limits_and_errors(monkeypatch: pytest.MonkeyPatch) -> None
     rag = replace(rag, hybrid_search=replace(rag.hybrid_search, enabled=True, bm25_fetch_k=7))
     scope, clients = Filter(), MagicMock()
     kwargs: dict[str, Any] = {"visibility_conditions": [object()], "user_id": 5, "user_group_ids": []}
-    docs = await rag_retrieval.run_hybrid_search("query", 2, scope, rag, clients, **kwargs)
+    docs = await rag_retrieval.run_hybrid_search("query", 2, scope, rag, ml_clients=clients, **kwargs)
     assert len(docs) == 2
     dense.assert_awaited_once_with("query", 2, scope, clients)
     sparse.assert_awaited_once_with("query", 7, scope, clients)
     sparse.side_effect = ValueError("sparse failed")
     with pytest.raises(ValueError, match="sparse failed"):
-        await rag_retrieval.run_hybrid_search("query", 2, scope, rag, clients, **kwargs)
+        await rag_retrieval.run_hybrid_search("query", 2, scope, rag, ml_clients=clients, **kwargs)
 
 
 @pytest.mark.asyncio

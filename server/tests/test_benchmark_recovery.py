@@ -10,7 +10,7 @@ import instructor
 import pytest
 
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 from openai import OpenAI
 
 

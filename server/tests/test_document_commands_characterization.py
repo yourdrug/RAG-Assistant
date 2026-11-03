@@ -25,7 +25,7 @@ from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 from domain.knowledge.enums import DocumentStatus
 from domain.knowledge.enums import DocumentVisibility
 from domain.identity.roles import UserRole
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 class TrackingFactory(FakeUnitOfWorkFactory):
@@ -305,7 +305,7 @@ async def test_client_upload_uses_effective_owner(role, kind, user_id):
     h = harness()
     h.uow.users.add_user(9, kind="client")
     h.uow.assignments.set_user_kind(9, "client")
-    await h.uow.assignments.assign_user(curator_id=1, target_user_id=9, assigned_by=99)
+    await h.uow.assignments.assign_user(manager_id=1, target_user_id=9, assigned_by=99)
     dto = await upload(
         h, visibility="client_private", user_role=role, user_kind=kind, user_id=user_id, client_id=9
     )

@@ -33,8 +33,9 @@ from infrastructure.ml.rag.benchmark_evidence import (
 )
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 from infrastructure.ml.rag.rag_reranking import rerank_documents
-from rag_stage_fixtures import build_context, prepared_query, stage_fixture  # type: ignore[import-not-found]
-from test_rag_pipeline import _make_rag  # type: ignore[import-not-found]
+from infrastructure.ml.rag.retrieval_work import RetrievalWork
+from tests.rag_stage_fixtures import build_context, prepared_query, stage_fixture
+from tests.test_rag_pipeline import make_rag
 
 
 CTX = RagContext(UserContext(1, UserKind.INTERNAL, UserRole.USER))
@@ -295,7 +296,7 @@ async def test_pipeline_top_k_neighbor_recovery_acl_and_prompt_parity(
 
     async def run(capture: bool) -> tuple[Any, Any, Any]:
         state = stage_fixture(
-            rag=_make_rag(retriever=RetrieverConfig(fetch_k=10, top_k=2, fetch_k_broad=10, top_k_broad=4)),
+            rag=make_rag(retriever=RetrieverConfig(fetch_k=10, top_k=2, fetch_k_broad=10, top_k_broad=4)),
             question="Q",
             ctx=CTX,
             user=CTX.user,
@@ -309,7 +310,23 @@ async def test_pipeline_top_k_neighbor_recovery_acl_and_prompt_parity(
         try:
             begin_attempt("Q", "Q")
             state.docs, _, _ = await retrieval_pipeline.rerank_and_enrich(
-                "Q", [*(d for d, _ in docs), denied], state, ml, None, document_access=access
+                "Q",
+                [*(d for d, _ in docs), denied],
+                RetrievalWork(
+                    rag=state.rag,
+                    t_pipeline_start=0,
+                    question=state.question,
+                    ctx=state.ctx,
+                    user=state.user,
+                    access_filter=state.access_filter,
+                    retrieval_filter=state.retrieval_filter,
+                    query_domain=state.query_domain,
+                    breadth=state.breadth,
+                    rerank_top_n=state.rerank_top_n,
+                ),
+                ml,
+                None,
+                document_access=access,
             )
             messages, _ = build_context(state, None)
             return state.docs, messages, evidence
@@ -329,7 +346,7 @@ async def test_pipeline_top_k_neighbor_recovery_acl_and_prompt_parity(
 
 @pytest.mark.asyncio
 async def test_diagnostic_mode_bypasses_cache_read_and_write(monkeypatch: pytest.MonkeyPatch) -> None:
-    rag = _make_rag()
+    rag = make_rag()
     state = stage_fixture(
         question="Q", ctx=CTX, rag=replace(rag, features=replace(rag.features, cache_enabled=True))
     )

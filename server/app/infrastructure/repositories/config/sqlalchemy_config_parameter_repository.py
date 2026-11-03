@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from application.runtime.config import ConfigParameter
-from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING
 
+from sqlalchemy import func, select, text
+
+from application.runtime.config import ConfigParameter
 from infrastructure.database.models import ConfigParameterModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyConfigParameterRepository:

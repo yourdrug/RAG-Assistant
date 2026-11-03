@@ -275,7 +275,7 @@ async def test_cli_export_creates_only_explicit_path(tmp_path, monkeypatch):
 
 
 def test_legacy_json_report_preserves_per_question_results(tmp_path):
-    from test_benchmark_characterization import _result
+    from tests.test_benchmark_characterization import _result
 
     path = tmp_path / "report.json"
     rows = [_result()]

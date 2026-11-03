@@ -375,9 +375,6 @@ class TestHasExactReference:
     def test_no_reference(self):
         assert has_exact_reference("Общая информация") is False
 
-    def test_empty_string(self):
-        assert has_exact_reference("") is False
-
 
 # ---------------------------------------------------------------------------
 # refs_to_metadata

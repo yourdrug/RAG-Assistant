@@ -15,13 +15,13 @@ from infrastructure.ml.preview.docx_preview_strategy import DocxPreviewStrategy
 from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy
 from infrastructure.ml.preview.rtf_preview_strategy import RtfPreviewStrategy
 
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from application.documents.diagnostics import PDFDiagnosticService
-
     from application.documents import DocumentPreviewStrategy
+    from application.documents.diagnostics import PDFDiagnosticService
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.registry import DomainProfileRegistry
 

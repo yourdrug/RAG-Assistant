@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import date
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.knowledge.acts.models import RegulatoryAct
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.database.models import RegulatoryActModel
+
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyRegulatoryActRepository:
@@ -81,7 +86,8 @@ class SQLAlchemyRegulatoryActRepository:
             )
 
             if existing is None:
-                raise RuntimeError("Regulatory act conflict did not resolve to an existing identity")
+                msg = "Regulatory act conflict did not resolve to an existing identity"
+                raise RuntimeError(msg)
 
             return existing
 

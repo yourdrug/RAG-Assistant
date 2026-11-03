@@ -23,7 +23,7 @@ from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswe
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 class JudgeClient:

@@ -11,9 +11,9 @@ from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.enums import DocDomain
-from fakes import FakeUnitOfWorkFactory
 from infrastructure import initialization
 from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 def test_every_setting_has_exactly_one_owner():

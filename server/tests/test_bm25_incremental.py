@@ -1,14 +1,15 @@
 """Tests for BM25 incremental methods (add_text, replace_text, remove_text)."""
 
 import pytest
-from infrastructure.bm25.bm25_index import BM25Index
+
 from domain.shared.hashing import content_hash
+from infrastructure.bm25.bm25_index import BM25Index
 
 
 class TestBM25Incremental:
     """Tests for BM25Index incremental operations."""
 
-    def test_add_text(self):
+    def test_add_text(self) -> None:
         """Test adding a new text to the index."""
         # Start with empty index
         index = BM25Index(texts=[], hashes=[])
@@ -28,14 +29,14 @@ class TestBM25Incremental:
         assert index.texts == ["hello world", "foo bar baz"]
         assert index.doc_lens == [2, 3]
 
-    def test_add_text_with_hash(self):
+    def test_add_text_with_hash(self) -> None:
         """Test adding a text with a custom hash."""
         index = BM25Index(texts=[], hashes=[])
         custom_hash = "custom_hash_123"
         idx = index.add_text("hello world", text_hash=custom_hash)
         assert index.hashes[idx] == custom_hash
 
-    def test_replace_text(self):
+    def test_replace_text(self) -> None:
         """Test replacing text at a given index."""
         index = BM25Index(texts=["hello world", "foo bar"], hashes=["h1", "h2"])
 
@@ -50,7 +51,7 @@ class TestBM25Incremental:
         assert len(results) > 0
         assert results[0][0] == 0  # Should find at index 0
 
-    def test_replace_text_invalid_index(self):
+    def test_replace_text_invalid_index(self) -> None:
         """Test that replace_text raises IndexError for invalid index."""
         index = BM25Index(texts=["hello world"])
 
@@ -60,7 +61,7 @@ class TestBM25Incremental:
         with pytest.raises(IndexError):
             index.replace_text(-1, "new text")
 
-    def test_remove_text(self):
+    def test_remove_text(self) -> None:
         """Test removing text at a given index."""
         index = BM25Index(texts=["hello world", "foo bar", "baz qux"])
 
@@ -76,14 +77,14 @@ class TestBM25Incremental:
             for idx in token_posting:
                 assert 0 <= idx < index.n_docs
 
-    def test_remove_text_invalid_index(self):
+    def test_remove_text_invalid_index(self) -> None:
         """Test that remove_text raises IndexError for invalid index."""
         index = BM25Index(texts=["hello world"])
 
         with pytest.raises(IndexError):
             index.remove_text(5)
 
-    def test_remove_text_first(self):
+    def test_remove_text_first(self) -> None:
         """Test removing the first text."""
         index = BM25Index(texts=["hello world", "foo bar", "baz qux"])
 
@@ -104,7 +105,7 @@ class TestBM25Incremental:
         results = index.search("hello")
         assert len(results) == 0  # Should not find removed text
 
-    def test_remove_text_last(self):
+    def test_remove_text_last(self) -> None:
         """Test removing the last text."""
         index = BM25Index(texts=["hello world", "foo bar", "baz qux"])
 
@@ -112,7 +113,7 @@ class TestBM25Incremental:
         assert index.n_docs == 2
         assert index.texts == ["hello world", "foo bar"]
 
-    def test_avgdl_update(self):
+    def test_avgdl_update(self) -> None:
         """Test that avgdl is updated correctly after operations."""
         # Start with texts of different lengths
         index = BM25Index(texts=["a", "foo bar", "baz qux quux"])
@@ -136,7 +137,7 @@ class TestBM25Incremental:
         max_len = max(index.doc_lens)
         assert min_len <= index.avgdl <= max_len
 
-    def test_search_after_operations(self):
+    def test_search_after_operations(self) -> None:
         """Test that search works correctly after incremental operations."""
         index = BM25Index(texts=["hello world", "foo bar"])
 
@@ -157,7 +158,7 @@ class TestBM25Incremental:
         results = index.search("foo")
         assert len(results) == 0
 
-    def test_serialization_roundtrip(self):
+    def test_serialization_roundtrip(self) -> None:
         """Test that incremental operations preserve serialization."""
         index = BM25Index(texts=["hello world", "foo bar"])
 

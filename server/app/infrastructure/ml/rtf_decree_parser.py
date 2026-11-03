@@ -8,8 +8,7 @@ DecreeDomainProfile.content_boundaries() — no ad-hoc point-search logic here.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from striprtf.striprtf import rtf_to_text
 
@@ -20,23 +19,26 @@ from domain.ingestion.profiles.decree import (
     _POSTANOVLYAYU_RE,
 )
 
+
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from domain.ingestion.ports import DomainSettingsPort
-    from domain.ingestion.profiles.decree import DecreeDomainProfile
+    from domain.ingestion.profiles.protocol import DocumentProfile
 
 _HEADER_ZONE_CHARS = 1500  # decree requisites are always at the top of the document
 
 
 def parse_decree_rtf(
     file_path: Path,
-    profile: "DecreeDomainProfile",
-    settings: "DomainSettingsPort",
-) -> tuple[list[SplitUnit], dict]:
+    profile: DocumentProfile,
+    settings: DomainSettingsPort,
+) -> tuple[list[SplitUnit], dict[str, Any]]:
     """Parse a decree RTF into split units + document-level header metadata."""
     raw = rtf_to_text(file_path.read_text(encoding="utf-8", errors="replace"))
 
     header_zone = raw[:_HEADER_ZONE_CHARS]
-    doc_metadata: dict = {}
+    doc_metadata: dict[str, Any] = {}
 
     if m := _DECREE_NUMBER_RE.search(header_zone):
         doc_metadata["decree_number"] = m.group(1)

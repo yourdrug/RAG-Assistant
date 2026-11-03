@@ -5,21 +5,26 @@ are correctly passed to qdrant_dense_search and resolve_hashes_batch,
 rather than being silently dropped.
 """
 
-from domain.identity.user_context import UserContext
-from infrastructure.ml.rag.retrieval_work import RetrievalWork
-from domain.rag.context import RagContext
-from domain.identity.roles import UserKind, UserRole
+from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+import pytest
 
-import pytest  # noqa: E402
-
-from infrastructure.repositories.vector.acl import (  # noqa: E402
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
+from domain.knowledge.access_control import get_visibility_conditions
+from domain.rag.breadth import Breadth
+from domain.rag.context import RagContext
+from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search, resolve_hashes_batch
+from infrastructure.ml.rag.retrieval_pipeline import (
+    rerank_and_enrich,
+    retrieve_with_decomposition,
+    run_retrieval,
+)
+from infrastructure.ml.rag.retrieval_work import RetrievalWork
+from infrastructure.repositories.vector.acl import (
     build_qdrant_filter,
     with_domain_filter,
     with_temporal_filter,
@@ -31,11 +36,15 @@ from infrastructure.repositories.vector.acl import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def _user(kind="internal", uid=5):
+def _user(kind: str = "internal", uid: int = 5) -> dict[str, str | int]:
     return {"id": uid, "kind": kind, "role": "user"}
 
 
-def _make_ml_clients(qdrant_client=None, embeddings=None, bm25_index=None):
+def _make_ml_clients(
+    qdrant_client: MagicMock | None = None,
+    embeddings: MagicMock | None = None,
+    bm25_index: MagicMock | None = None,
+) -> MagicMock:
     ml = MagicMock()
     ml.qdrant_client.return_value = qdrant_client or MagicMock()
     embs = embeddings or MagicMock()
@@ -51,8 +60,7 @@ def _make_ml_clients(qdrant_client=None, embeddings=None, bm25_index=None):
 
 
 class TestDenseSearchACLFilter:
-    def test_normal_acl_filter_passed_to_search(self):
-        from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
+    def test_normal_acl_filter_passed_to_search(self) -> None:
 
         af = build_qdrant_filter(_user(), [1, 2])
         mock_client = MagicMock()
@@ -64,8 +72,7 @@ class TestDenseSearchACLFilter:
         call_kwargs = mock_client.search.call_args
         assert call_kwargs.kwargs["query_filter"] is not None
 
-    def test_must_style_filter_after_temporal_NOT_dropped(self):
-        from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
+    def test_must_style_filter_after_temporal_not_dropped(self) -> None:
 
         af = build_qdrant_filter(_user(), [1, 2])
         temporal_af = with_temporal_filter(af, None)
@@ -83,8 +90,7 @@ class TestDenseSearchACLFilter:
         )
         assert applied_filter is temporal_af
 
-    def test_must_style_filter_after_domain_NOT_dropped(self):
-        from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
+    def test_must_style_filter_after_domain_not_dropped(self) -> None:
 
         af = build_qdrant_filter(_user(), [1, 2])
         legal_af = with_domain_filter(af, "legal")
@@ -100,8 +106,7 @@ class TestDenseSearchACLFilter:
         assert applied_filter is not None
         assert applied_filter is legal_af
 
-    def test_none_filter_rejected_before_io(self):
-        from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
+    def test_none_filter_rejected_before_io(self) -> None:
 
         mock_client = MagicMock()
         mock_client.search.return_value = []
@@ -122,8 +127,7 @@ class TestDenseSearchACLFilter:
 
 
 class TestResolveHashesACLFilter:
-    def test_must_style_filter_includes_acl_in_scroll(self):
-        from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
+    def test_must_style_filter_includes_acl_in_scroll(self) -> None:
 
         af = build_qdrant_filter(_user(), [1, 2])
         temporal_af = with_temporal_filter(af, None)
@@ -141,9 +145,8 @@ class TestResolveHashesACLFilter:
         assert scroll_filter.must is not None
         assert temporal_af in scroll_filter.must
 
-    def test_none_filter_raises_runtime_error(self):
+    def test_none_filter_raises_runtime_error(self) -> None:
         """access_filter=None must raise RuntimeError (FINDING-020 security guard)."""
-        from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
 
         mock_client = MagicMock()
         mock_client.scroll.return_value = ([], None)
@@ -156,13 +159,12 @@ class TestResolveHashesACLFilter:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("decomposition", [False, True])
 @pytest.mark.parametrize("sub_queries", [["query"], ["first query", "second query"]])
-async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_queries):
-    from domain.knowledge.access_control import get_visibility_conditions
-    from domain.rag.breadth import Breadth
-    from infrastructure.ml.rag.retrieval_pipeline import retrieve_with_decomposition
+async def test_decomposition_and_legal_fallback_preserve_acl(
+    decomposition: bool, sub_queries: list[str]
+) -> None:
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
-    conditions = get_visibility_conditions("internal", [1, 2], for_list=False)
+    conditions = get_visibility_conditions(UserKind.INTERNAL, [1, 2], for_list=False)
     rag = MagicMock()
     rag.features.decomposition_enabled = decomposition
     ml = _make_ml_clients()
@@ -192,7 +194,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
                 access_filter=af,
                 ctx=RagContext(
                     user=UserContext(
-                        user_id=5, user_kind=UserKind.INTERNAL, group_ids=[1, 2], user_role="user"
+                        user_id=5, user_kind=UserKind.INTERNAL, group_ids=(1, 2), user_role=UserRole.USER
                     )
                 ),
                 user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
@@ -203,6 +205,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
     assert candidates == []
     assert actual_queries == (sub_queries if decomposition else ["query"])
     assert search.await_count == 2 * len(actual_queries)
+
     for domain_call, fallback_call in zip(
         search.await_args_list[::2],
         search.await_args_list[1::2],
@@ -210,6 +213,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
     ):
         assert af in domain_call.args[2].must
         assert fallback_call.args[2] is af
+
         for call in (domain_call, fallback_call):
             assert call.kwargs["visibility_conditions"] is conditions
             assert call.kwargs["user_id"] == 5
@@ -217,17 +221,12 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
 
 
 @pytest.mark.asyncio
-async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
-    from domain.knowledge.access_control import get_visibility_conditions
-    from domain.rag.breadth import Breadth
-    from domain.rag.context import RagContext
-    from domain.identity.roles import UserKind, UserRole
-    from infrastructure.ml.rag.retrieval_pipeline import rerank_and_enrich
+async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter() -> None:
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
-    conditions = get_visibility_conditions("internal", [1, 2], for_list=False)
+    conditions = get_visibility_conditions(UserKind.INTERNAL, [1, 2], for_list=False)
     ctx = RagContext(
-        user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, user_role=UserRole.USER, group_ids=[1, 2]),
+        user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, user_role=UserRole.USER, group_ids=(1, 2)),
         as_of_date=None,
     )
     rag = MagicMock()
@@ -277,9 +276,9 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
 
 
 @pytest.fixture(autouse=True)
-def mock_embedding_binding(monkeypatch):
+def mock_embedding_binding(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity", lambda *args: "test:model:v1"
+        "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity", lambda *_args: "test:model:v1"
     )
 
 
@@ -288,12 +287,13 @@ def mock_embedding_binding(monkeypatch):
     "domain,first_hit,expected_calls",
     [("general", False, 1), ("legal", True, 1), ("legal", False, 2)],
 )
-async def test_retrieval_domain_fallback_only_on_empty_legal_search(domain, first_hit, expected_calls):
-    from infrastructure.ml.rag.retrieval_pipeline import run_retrieval
+async def test_retrieval_domain_fallback_only_on_empty_legal_search(
+    domain: str, first_hit: bool, expected_calls: int
+) -> None:
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
     ctx = RagContext(
-        user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, group_ids=[1, 2], user_role="user")
+        user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, group_ids=(1, 2), user_role=UserRole.USER)
     )
     work = RetrievalWork(
         rag=MagicMock(),
@@ -311,8 +311,10 @@ async def test_retrieval_domain_fallback_only_on_empty_legal_search(domain, firs
     )
     hit = MagicMock()
     results = [[hit] if first_hit else []]
+
     if expected_calls == 2:
         results.append([hit])
+
     with patch(
         "infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search", AsyncMock(side_effect=results)
     ) as search:
@@ -320,6 +322,7 @@ async def test_retrieval_domain_fallback_only_on_empty_legal_search(domain, firs
 
     assert candidates == ([hit] if first_hit or expected_calls == 2 else [])
     assert search.await_count == expected_calls
+
     for call in search.await_args_list:
         assert call.args[:2] == ("query", 10)
         assert call.kwargs["dense_weight"] == 0.7
@@ -327,9 +330,11 @@ async def test_retrieval_domain_fallback_only_on_empty_legal_search(domain, firs
         assert call.kwargs["visibility_conditions"] is work.visibility_conditions
         assert call.kwargs["user_id"] == 5
         assert call.kwargs["user_group_ids"] == [1, 2]
+
     if domain == "legal":
         assert af in search.await_args_list[0].args[2].must
     else:
         assert search.await_args_list[0].args[2] is af
+
     if expected_calls == 2:
         assert search.await_args_list[1].args[2] is af

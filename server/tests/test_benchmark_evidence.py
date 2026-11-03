@@ -280,9 +280,9 @@ def test_annotation_copy_does_not_mutate_dataset():
 def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
     from domain.rag.breadth import Breadth
     from domain.identity.roles import UserRole
-    from rag_stage_fixtures import build_context as step_build_context
-    from rag_stage_fixtures import stage_fixture
-    from test_rag_pipeline import _make_rag
+    from tests.rag_stage_fixtures import build_context as step_build_context
+    from tests.rag_stage_fixtures import stage_fixture
+    from tests.test_rag_pipeline import make_rag
 
     raw = [(Document(page_content="Submit application", metadata={"source": "rules.pdf"}), 0.9)]
     enriched = [
@@ -298,7 +298,7 @@ def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
         )
     ]
     state = stage_fixture(
-        rag=_make_rag(),
+        rag=make_rag(),
         t_pipeline_start=0,
         question="Q",
         ctx=RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)),

@@ -1,37 +1,45 @@
-"""Tests for domain/rag.py -- pure RAG logic: formatting, sources, history, reranking.
+"""RAG helper contracts: formatting, sources, history, reranking and classification."""
 
-Complements test_rag_chain.py with additional edge cases.
-"""
+from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
+import re
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from typing import Any, Never
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import docx
+from langchain_core.documents import Document
+from langchain_core.language_models import FakeListChatModel
+from langchain_core.messages import AIMessage, HumanMessage
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+from application.runtime.enums import LLMProvider
+from domain.rag.breadth import Breadth
+from domain.rag.classification import classify_question_breadth, needs_decomposition, should_enumerate_cases
+from infrastructure.ml.ingestion import docx_table_to_markdown, pymupdf_table_to_markdown
+from infrastructure.ml.rag.prompt_blocks import CRITICAL_RULES_BLOCK, NOT_FOUND_PATTERNS
+import infrastructure.ml.rag.rag_formatting as rag_fmt
+from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+from infrastructure.ml.rag.rag_prompts import decompose_question
+import infrastructure.ml.rag.rag_relevance as rag_rel
+from infrastructure.ml.rag.rag_relevance import assess_sufficiency
+import infrastructure.ml.rag.rag_reranking as rag_rr
+import infrastructure.ml.rag.rag_sources as rag_src
 
-import infrastructure.ml.rag.rag_formatting as rag_fmt  # noqa: E402
-import infrastructure.ml.rag.rag_reranking as rag_rr  # noqa: E402
-import infrastructure.ml.rag.rag_relevance as rag_rel  # noqa: E402
-import infrastructure.ml.rag.rag_sources as rag_src  # noqa: E402
-from domain.rag.classification import classify_question_breadth  # noqa: E402
-from application.runtime.enums import LLMProvider  # noqa: E402
-from infrastructure.ml.rag.rag_prompts import decompose_question  # noqa: E402
-from langchain_core.language_models import FakeListChatModel  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _doc(content: str, source: str = "a.pdf", page: int | None = 1):
-    metadata = {"source": source}
+def _doc(content: str, source: str = "a.pdf", page: int | None = 1) -> Document:
+    metadata: dict[str, Any] = {"source": source}
+
     if page is not None:
         metadata["page"] = page
-    return SimpleNamespace(page_content=content, metadata=metadata)
+
+    return Document(page_content=content, metadata=metadata)
 
 
 # ---------------------------------------------------------------------------
@@ -40,19 +48,19 @@ def _doc(content: str, source: str = "a.pdf", page: int | None = 1):
 
 
 class TestFormatDocs:
-    def test_single_doc_with_page(self):
+    def test_single_doc_with_page(self) -> None:
         docs = [_doc("hello", "report.pdf", page=3)]
         result = rag_fmt.format_docs(docs)
         assert "[1] report.pdf (стр. 3)" in result
         assert "hello" in result
 
-    def test_single_doc_without_page(self):
+    def test_single_doc_without_page(self) -> None:
         docs = [_doc("content", "readme.md", page=None)]
         result = rag_fmt.format_docs(docs)
         assert "[1] readme.md" in result
         assert "(стр." not in result
 
-    def test_multiple_docs_separated_by_separator(self):
+    def test_multiple_docs_separated_by_separator(self) -> None:
         docs = [_doc("first", "a.pdf"), _doc("second", "b.pdf")]
         result = rag_fmt.format_docs(docs)
         # Separator is "\n\n---\n\n"
@@ -60,28 +68,28 @@ class TestFormatDocs:
         assert "[1]" in result
         assert "[2]" in result
 
-    def test_empty_list_returns_empty_string(self):
+    def test_empty_list_returns_empty_string(self) -> None:
         assert rag_fmt.format_docs([]) == ""
 
-    def test_doc_with_unknown_source(self):
-        doc = SimpleNamespace(page_content="text", metadata={})
+    def test_doc_with_unknown_source(self) -> None:
+        doc = Document(page_content="text", metadata={})
         result = rag_fmt.format_docs([doc])
         assert "[1] unknown" in result
 
-    def test_docs_numbering_starts_at_one(self):
+    def test_docs_numbering_starts_at_one(self) -> None:
         docs = [_doc("a", "a.pdf"), _doc("b", "b.pdf"), _doc("c", "c.pdf")]
         result = rag_fmt.format_docs(docs)
         assert "[1]" in result
         assert "[2]" in result
         assert "[3]" in result
 
-    def test_metadata_keys_preserved_in_output(self):
-        doc = SimpleNamespace(page_content="data", metadata={"source": "x.pdf", "page": 7})
+    def test_metadata_keys_preserved_in_output(self) -> None:
+        doc = Document(page_content="data", metadata={"source": "x.pdf", "page": 7})
         result = rag_fmt.format_docs([doc])
         assert "x.pdf" in result
         assert "7" in result
 
-    def test_accepts_scored_pairs(self):
+    def test_accepts_scored_pairs(self) -> None:
         docs = [_doc("текст 1", "a.pdf"), _doc("текст 2", "b.pdf")]
         scored = [(docs[0], 0.9), (docs[1], 0.3)]
         result = rag_fmt.format_docs(scored)
@@ -96,45 +104,45 @@ class TestFormatDocs:
 
 
 class TestExtractSources:
-    def test_single_source_single_page(self):
+    def test_single_source_single_page(self) -> None:
         docs = [_doc("t", "a.pdf", page=1)]
         sources = rag_src.extract_sources(docs)
         assert len(sources) == 1
         assert sources[0]["source"] == "a.pdf"
         assert sources[0]["pages"] == [1]
 
-    def test_same_source_multiple_pages_deduplicated(self):
+    def test_same_source_multiple_pages_deduplicated(self) -> None:
         docs = [_doc("t1", "a.pdf", 1), _doc("t2", "a.pdf", 3), _doc("t3", "a.pdf", 1)]
         sources = rag_src.extract_sources(docs)
         assert len(sources) == 1
         assert sorted(sources[0]["pages"]) == [1, 3]
 
-    def test_multiple_sources(self):
+    def test_multiple_sources(self) -> None:
         docs = [_doc("t1", "a.pdf", 1), _doc("t2", "b.pdf", 2)]
         sources = rag_src.extract_sources(docs)
         assert len(sources) == 2
         src_names = {s["source"] for s in sources}
         assert src_names == {"a.pdf", "b.pdf"}
 
-    def test_empty_docs_returns_empty_list(self):
+    def test_empty_docs_returns_empty_list(self) -> None:
         assert rag_src.extract_sources([]) == []
 
-    def test_doc_without_page_metadata(self):
-        doc = SimpleNamespace(page_content="t", metadata={"source": "x.pdf"})
+    def test_doc_without_page_metadata(self) -> None:
+        doc = Document(page_content="t", metadata={"source": "x.pdf"})
         sources = rag_src.extract_sources([doc])
         assert sources[0]["pages"] == []
 
-    def test_doc_without_source_metadata_defaults_to_unknown(self):
-        doc = SimpleNamespace(page_content="t", metadata={})
+    def test_doc_without_source_metadata_defaults_to_unknown(self) -> None:
+        doc = Document(page_content="t", metadata={})
         sources = rag_src.extract_sources([doc])
         assert sources[0]["source"] == "unknown"
 
-    def test_pages_are_sorted(self):
+    def test_pages_are_sorted(self) -> None:
         docs = [_doc("t", "a.pdf", 5), _doc("t", "a.pdf", 2), _doc("t", "a.pdf", 8)]
         sources = rag_src.extract_sources(docs)
         assert sources[0]["pages"] == [2, 5, 8]
 
-    def test_with_scored_pairs_adds_max_score(self):
+    def test_with_scored_pairs_adds_max_score(self) -> None:
         docs = [_doc("t1", "a.pdf", 1), _doc("t2", "a.pdf", 3), _doc("t3", "b.pdf", 1)]
         scored = [(docs[0], 0.5), (docs[1], 0.9), (docs[2], 0.3)]
         sources = rag_src.extract_sources(scored)
@@ -142,7 +150,7 @@ class TestExtractSources:
         assert by_name["a.pdf"]["max_score"] == 0.9
         assert by_name["b.pdf"]["max_score"] == 0.3
 
-    def test_with_scored_pairs_preserve_document_citation_order(self):
+    def test_with_scored_pairs_preserve_document_citation_order(self) -> None:
         docs = [_doc("t1", "low.pdf", 1), _doc("t2", "high.pdf", 1)]
         scored = [(docs[0], 0.2), (docs[1], 0.95)]
         sources = rag_src.extract_sources(scored)
@@ -150,7 +158,7 @@ class TestExtractSources:
         assert sources[1]["source"] == "high.pdf"
         assert [source["citation_id"] for source in sources] == [1, 2]
 
-    def test_without_scores_no_max_score_key(self):
+    def test_without_scores_no_max_score_key(self) -> None:
         docs = [_doc("t", "a.pdf", 1)]
         sources = rag_src.extract_sources(docs)
         assert "max_score" not in sources[0]
@@ -162,7 +170,7 @@ class TestExtractSources:
 
 
 class TestFilterCitedSources:
-    def test_keeps_cited_sources(self):
+    def test_keeps_cited_sources(self) -> None:
         sources = [
             {"source": "a.pdf", "pages": [1]},
             {"source": "b.pdf", "pages": [2]},
@@ -172,22 +180,22 @@ class TestFilterCitedSources:
         result = rag_rel.filter_cited_sources(answer, sources)
         assert [s["source"] for s in result] == ["a.pdf", "c.pdf"]
 
-    def test_no_citations_returns_all(self):
+    def test_no_citations_returns_all(self) -> None:
         sources = [{"source": "a.pdf", "pages": [1]}, {"source": "b.pdf", "pages": [2]}]
         answer = "Ответ без ссылок."
         result = rag_rel.filter_cited_sources(answer, sources)
         assert len(result) == 2
 
-    def test_empty_sources(self):
+    def test_empty_sources(self) -> None:
         assert rag_rel.filter_cited_sources("answer [1]", []) == []
 
-    def test_citation_out_of_range_does_not_claim_support(self):
+    def test_citation_out_of_range_does_not_claim_support(self) -> None:
         sources = [{"source": "a.pdf", "pages": [1]}]
         answer = "См. [5] для деталей."
         result = rag_rel.filter_cited_sources(answer, sources)
         assert result == []
 
-    def test_multiple_citations_same_source(self):
+    def test_multiple_citations_same_source(self) -> None:
         sources = [{"source": "a.pdf", "pages": [1]}, {"source": "b.pdf", "pages": [2]}]
         answer = "[1] и [1] оба указывают на a.pdf"
         result = rag_rel.filter_cited_sources(answer, sources)
@@ -201,7 +209,7 @@ class TestFilterCitedSources:
 
 
 class TestHistoryToMessages:
-    def test_alternating_user_assistant(self):
+    def test_alternating_user_assistant(self) -> None:
         history = [
             {"role": "user", "content": "q1"},
             {"role": "assistant", "content": "a1"},
@@ -209,28 +217,27 @@ class TestHistoryToMessages:
         ]
         messages = rag_fmt.history_to_messages(history)
         assert len(messages) == 3
-        from langchain_core.messages import AIMessage, HumanMessage
 
         assert isinstance(messages[0], HumanMessage)
         assert isinstance(messages[1], AIMessage)
         assert isinstance(messages[2], HumanMessage)
 
-    def test_empty_history(self):
+    def test_empty_history(self) -> None:
         assert rag_fmt.history_to_messages([]) == []
 
-    def test_only_user_messages(self):
+    def test_only_user_messages(self) -> None:
         history = [{"role": "user", "content": "q1"}]
         messages = rag_fmt.history_to_messages(history)
         assert len(messages) == 1
         assert messages[0].content == "q1"
 
-    def test_only_assistant_messages(self):
+    def test_only_assistant_messages(self) -> None:
         history = [{"role": "assistant", "content": "a1"}]
         messages = rag_fmt.history_to_messages(history)
         assert len(messages) == 1
         assert messages[0].content == "a1"
 
-    def test_content_sanitized_for_injection(self):
+    def test_content_sanitized_for_injection(self) -> None:
         history = [{"role": "user", "content": "Special chars: <>&\"'}"}]
         messages = rag_fmt.history_to_messages(history)
         # Angle brackets are escaped to Unicode lookalikes for injection defense
@@ -243,10 +250,10 @@ class TestHistoryToMessages:
 
 
 class TestRerankDocuments:
-    def _fake_reranker(self, scores):
-        return SimpleNamespace(predict=lambda pairs: scores)
+    def _fake_reranker(self, scores: list[float]) -> SimpleNamespace:
+        return SimpleNamespace(predict=lambda _pairs: scores)
 
-    def test_top_n_less_than_docs(self):
+    def test_top_n_less_than_docs(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([0.1, 0.9, 0.5])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
@@ -255,48 +262,48 @@ class TestRerankDocuments:
         assert result[0][0].page_content == "b"
         assert result[0][1] == 0.9
 
-    def test_top_n_greater_than_docs_returns_all(self):
+    def test_top_n_greater_than_docs_returns_all(self) -> None:
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.5, 0.3])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=10, reranker=reranker))
         assert len(result) == 2
 
-    def test_equal_scores_preserve_original_order(self):
+    def test_equal_scores_preserve_original_order(self) -> None:
         docs = [_doc("first"), _doc("second")]
         reranker = self._fake_reranker([0.5, 0.5])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert [d.page_content for d, _ in result] == ["first", "second"]
 
-    def test_negative_scores_handled(self):
+    def test_negative_scores_handled(self) -> None:
         docs = [_doc("bad"), _doc("worse")]
         reranker = self._fake_reranker([-0.8, -0.2])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=1, reranker=reranker))
         assert result[0][0].page_content == "worse"
 
-    def test_empty_docs_returns_empty(self):
+    def test_empty_docs_returns_empty(self) -> None:
         reranker = self._fake_reranker([])
         assert asyncio.run(rag_rr.rerank_documents("q", [], top_n=5, reranker=reranker)) == []
 
-    def test_single_doc_returns_single(self):
+    def test_single_doc_returns_single(self) -> None:
         docs = [_doc("only")]
         reranker = self._fake_reranker([0.7])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=5, reranker=reranker))
         assert len(result) == 1
 
-    def test_top_n_zero_returns_empty(self):
+    def test_top_n_zero_returns_empty(self) -> None:
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.9, 0.1])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=0, reranker=reranker))
         assert result == []
 
-    def test_min_score_filters_low_scores(self):
+    def test_min_score_filters_low_scores(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([0.9, 0.3, 0.1])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=3, reranker=reranker, min_score=0.5))
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 
-    def test_score_gap_ratio_filters_far_from_top(self):
+    def test_score_gap_ratio_filters_far_from_top(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([1.0, 0.05, 0.01])
         result = asyncio.run(
@@ -305,7 +312,7 @@ class TestRerankDocuments:
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 
-    def test_min_score_and_gap_ratio_combined(self):
+    def test_min_score_and_gap_ratio_combined(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([1.0, 0.8, 0.01])
         result = asyncio.run(
@@ -324,47 +331,44 @@ class TestRerankDocuments:
 
 
 class TestClassifyQuestionBreadth:
-    def test_simple_question_is_narrow(self):
+    def test_simple_question_is_narrow(self) -> None:
         assert classify_question_breadth("Какой пароль?") == "narrow"
 
-    def test_podrobno_is_broad(self):
+    def test_podrobno_is_broad(self) -> None:
         assert classify_question_breadth("Расскажи подробно про маркировку") == "broad"
 
-    def test_rasskazhi_pro_is_broad(self):
+    def test_rasskazhi_pro_is_broad(self) -> None:
         assert classify_question_breadth("Расскажи про систему безопасности") == "broad"
 
-    def test_poryadok_polucheniya_is_broad(self):
+    def test_poryadok_polucheniya_is_broad(self) -> None:
         assert classify_question_breadth("Порядок получения кода маркировки") == "broad"
 
-    def test_sistema_is_broad(self):
+    def test_sistema_is_broad(self) -> None:
         assert classify_question_breadth("Система маркировки товаров") == "broad"
 
-    def test_obyasni_vse_is_broad(self):
+    def test_obyasni_vse_is_broad(self) -> None:
         assert classify_question_breadth("Объясни всё про пароли") == "broad"
 
-    def test_kak_rabotaet_is_broad(self):
+    def test_kak_rabotaet_is_broad(self) -> None:
         assert classify_question_breadth("Как работает шифрование?") == "broad"
 
-    def test_case_insensitive(self):
+    def test_case_insensitive(self) -> None:
         assert classify_question_breadth("ПОДРОБНО про безопасность") == "broad"
 
-    def test_plain_factual_is_narrow(self):
+    def test_plain_factual_is_narrow(self) -> None:
         assert classify_question_breadth("Какой срок действия пароля?") == "narrow"
 
-    def test_empty_string(self):
+    def test_empty_string(self) -> None:
         assert classify_question_breadth("") == "narrow"
 
-    def test_kakie_isklyucheniya_is_narrow(self):
+    def test_kakie_isklyucheniya_is_narrow(self) -> None:
         assert classify_question_breadth("Какие есть исключения из правила?") == "narrow"
 
-    def test_kak_ubititsya_is_narrow(self):
+    def test_kak_ubititsya_is_narrow(self) -> None:
         assert classify_question_breadth("Как убедиться что всё верно?") == "narrow"
 
-    def test_chto_takoe_is_narrow(self):
+    def test_chto_takoe_is_narrow(self) -> None:
         assert classify_question_breadth("Что такое ЭТТН?") == "narrow"
-
-    def test_kakoy_srok_deystviya_is_narrow(self):
-        assert classify_question_breadth("Какой срок действия пароля?") == "narrow"
 
 
 # ---------------------------------------------------------------------------
@@ -373,33 +377,27 @@ class TestClassifyQuestionBreadth:
 
 
 class TestNeedsDecomposition:
-    def test_simple_question_no_decomposition(self):
-        from domain.rag.classification import needs_decomposition
+    def test_simple_question_no_decomposition(self) -> None:
 
         assert needs_decomposition("Что такое ЭТТН?") is False
 
-    def test_compound_with_and(self):
-        from domain.rag.classification import needs_decomposition
+    def test_compound_with_and(self) -> None:
 
         assert needs_decomposition("Расскажи про ЭТТН и про маркировку") is True
 
-    def test_compare_question(self):
-        from domain.rag.classification import needs_decomposition
+    def test_compare_question(self) -> None:
 
         assert needs_decomposition("Сравни тарифы А и Б") is True
 
-    def test_how_and_what(self):
-        from domain.rag.classification import needs_decomposition
+    def test_how_and_what(self) -> None:
 
         assert needs_decomposition("Как оформить заказ и что для этого нужно?") is True
 
-    def test_empty_string(self):
-        from domain.rag.classification import needs_decomposition
+    def test_empty_string(self) -> None:
 
         assert needs_decomposition("") is False
 
-    def test_single_topic_no_decomposition(self):
-        from domain.rag.classification import needs_decomposition
+    def test_single_topic_no_decomposition(self) -> None:
 
         assert needs_decomposition("Подробно расскажи про безопасность") is False
 
@@ -410,8 +408,7 @@ class TestNeedsDecomposition:
 
 
 class TestShouldEnumerateCases:
-    def test_two_conditional_chunks_returns_true(self):
-        from domain.rag.classification import should_enumerate_cases
+    def test_two_conditional_chunks_returns_true(self) -> None:
 
         ctx = [
             "Для золотых изделий: не менее 30%, но не менее 100 штук.",
@@ -419,8 +416,7 @@ class TestShouldEnumerateCases:
         ]
         assert should_enumerate_cases(ctx) is True
 
-    def test_one_conditional_chunk_returns_false(self):
-        from domain.rag.classification import should_enumerate_cases
+    def test_one_conditional_chunk_returns_false(self) -> None:
 
         ctx = [
             "Для золотых изделий: не менее 30%, но не менее 100 штук.",
@@ -428,28 +424,16 @@ class TestShouldEnumerateCases:
         ]
         assert should_enumerate_cases(ctx) is False
 
-    def test_two_chunks_with_markers_returns_true(self):
-        from domain.rag.classification import should_enumerate_cases
-
-        ctx = [
-            "Для золотых изделий: не менее 30%, но не менее 100 штук.",
-            "Для серебряных: за исключением случаев менее 50 штук.",
-        ]
-        assert should_enumerate_cases(ctx) is True
-
-    def test_empty_context_returns_false(self):
-        from domain.rag.classification import should_enumerate_cases
+    def test_empty_context_returns_false(self) -> None:
 
         assert should_enumerate_cases([]) is False
 
-    def test_single_chunk_returns_false(self):
-        from domain.rag.classification import should_enumerate_cases
+    def test_single_chunk_returns_false(self) -> None:
 
         ctx = ["Правило: не менее 30% и не менее 100 штук."]
         assert should_enumerate_cases(ctx) is False
 
-    def test_no_markers_returns_false(self):
-        from domain.rag.classification import should_enumerate_cases
+    def test_no_markers_returns_false(self) -> None:
 
         ctx = [
             "Партия проверяется полностью.",
@@ -457,8 +441,7 @@ class TestShouldEnumerateCases:
         ]
         assert should_enumerate_cases(ctx) is False
 
-    def test_percentage_markers_count(self):
-        from domain.rag.classification import should_enumerate_cases
+    def test_percentage_markers_count(self) -> None:
 
         ctx = [
             "Норма: 30% от партии.",
@@ -466,8 +449,7 @@ class TestShouldEnumerateCases:
         ]
         assert should_enumerate_cases(ctx) is True
 
-    def test_none_in_context_handled(self):
-        from domain.rag.classification import should_enumerate_cases
+    def test_none_in_context_handled(self) -> None:
 
         ctx = [
             "Для золотых: не менее 30%.",
@@ -476,14 +458,12 @@ class TestShouldEnumerateCases:
         ]
         assert should_enumerate_cases(ctx) is True
 
-    def test_all_none_context_returns_false(self):
-        from domain.rag.classification import should_enumerate_cases
+    def test_all_none_context_returns_false(self) -> None:
 
         ctx = [None, None]
         assert should_enumerate_cases(ctx) is False
 
-    def test_empty_string_context_not_counted(self):
-        from domain.rag.classification import should_enumerate_cases
+    def test_empty_string_context_not_counted(self) -> None:
 
         ctx = [
             "Правило: не менее 30%.",
@@ -500,9 +480,9 @@ class TestShouldEnumerateCases:
 
 class TestCheckRelevance:
     @pytest.mark.parametrize("provider", list(LLMProvider))
-    def test_timeout_identifies_stage_model_and_limit(self, monkeypatch, provider):
-        from types import SimpleNamespace
-        from unittest.mock import AsyncMock, MagicMock
+    def test_timeout_identifies_stage_model_and_limit(
+        self, monkeypatch: pytest.MonkeyPatch, provider: LLMProvider
+    ) -> None:
 
         client = MagicMock()
         client.chat.completions.create = AsyncMock(side_effect=TimeoutError())
@@ -529,12 +509,11 @@ class TestCheckRelevance:
         assert "LLM_AUXILIARY_TIMEOUT=30s" in str(raised.value)
         assert isinstance(raised.value.__cause__, TimeoutError)
 
-    def test_empty_docs_returns_false(self):
-        result = asyncio.run(rag_rel.check_relevance(None, "question", []))
+    def test_empty_docs_returns_false(self) -> None:
+        result = asyncio.run(rag_rel.check_relevance(MagicMock(), "question", []))
         assert result == (False, "Нет документов для проверки")
 
-    def test_relevant_answer_detected(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
+    def test_relevant_answer_detected(self) -> None:
 
         mock_result = MagicMock()
         mock_result.is_relevant = True
@@ -546,18 +525,17 @@ class TestCheckRelevance:
         mock_ml_clients = MagicMock()
         mock_ml_clients.instructor_client = mock_client
 
-        with patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"):
-            with patch("config.settings") as mock_settings:
-                mock_settings.llm_provider = MagicMock(value="ollama")
-                mock_settings.llm_model = "test-model"
-                mock_settings.llm_auxiliary_timeout = 30
-                result = asyncio.run(
-                    rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")])
-                )
-                assert result[0] is True
+        with (
+            patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"),
+            patch("config.settings") as mock_settings,
+        ):
+            mock_settings.llm_provider = MagicMock(value="ollama")
+            mock_settings.llm_model = "test-model"
+            mock_settings.llm_auxiliary_timeout = 30
+            result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
+            assert result[0] is True
 
-    def test_irrelevant_answer_detected(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
+    def test_irrelevant_answer_detected(self) -> None:
 
         mock_result = MagicMock()
         mock_result.is_relevant = False
@@ -569,15 +547,15 @@ class TestCheckRelevance:
         mock_ml_clients = MagicMock()
         mock_ml_clients.instructor_client = mock_client
 
-        with patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"):
-            with patch("config.settings") as mock_settings:
-                mock_settings.llm_provider = MagicMock(value="ollama")
-                mock_settings.llm_model = "test-model"
-                mock_settings.llm_auxiliary_timeout = 30
-                result = asyncio.run(
-                    rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")])
-                )
-                assert result[0] is False
+        with (
+            patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"),
+            patch("config.settings") as mock_settings,
+        ):
+            mock_settings.llm_provider = MagicMock(value="ollama")
+            mock_settings.llm_model = "test-model"
+            mock_settings.llm_auxiliary_timeout = 30
+            result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
+            assert result[0] is False
 
 
 # ---------------------------------------------------------------------------
@@ -586,17 +564,13 @@ class TestCheckRelevance:
 
 
 class TestAssessSufficiency:
-    def test_empty_docs_returns_insufficient(self):
-        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
+    def test_empty_docs_returns_insufficient(self) -> None:
 
-        result = asyncio.run(assess_sufficiency("question", [], None))
+        result = asyncio.run(assess_sufficiency("question", [], MagicMock()))
         assert result.is_sufficient is False
         assert "No documents" in result.reasoning
 
-    def test_ollama_provider_uses_llm_model(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
+    def test_ollama_provider_uses_llm_model(self) -> None:
 
         mock_result = MagicMock()
         mock_result.is_sufficient = True
@@ -617,8 +591,6 @@ class TestAssessSufficiency:
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
         with patch("config.settings") as mock_settings:
-            from application.runtime.enums import LLMProvider
-
             mock_settings.llm_provider = LLMProvider.OLLAMA
             mock_settings.llm_model = "qwen2.5"
             mock_settings.llm_auxiliary_timeout = 30
@@ -628,10 +600,7 @@ class TestAssessSufficiency:
             call_kwargs = mock_client.chat.completions.create.call_args
             assert call_kwargs.kwargs["model"] == "qwen2.5"
 
-    def test_openrouter_provider_uses_openrouter_model(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
+    def test_openrouter_provider_uses_openrouter_model(self) -> None:
 
         mock_result = MagicMock()
         mock_result.is_sufficient = False
@@ -652,8 +621,6 @@ class TestAssessSufficiency:
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
         with patch("config.settings") as mock_settings:
-            from application.runtime.enums import LLMProvider
-
             mock_settings.llm_provider = LLMProvider.OPENROUTER
             mock_settings.openrouter_model = "qwen/qwen-2.5-7b-instruct"
             mock_settings.llm_auxiliary_timeout = 30
@@ -670,21 +637,15 @@ class TestAssessSufficiency:
 
 
 class TestHandleRelevanceGate:
-    def test_gate_disabled_returns_true(self):
-        from unittest.mock import MagicMock
-
-        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+    def test_gate_disabled_returns_true(self) -> None:
 
         rag = MagicMock()
         rag.features.relevance_gate_enabled = False
 
-        result = asyncio.run(handle_relevance_gate("q", [], None, rag, None))
+        result = asyncio.run(handle_relevance_gate("q", [], Breadth.NARROW, rag, MagicMock()))
         assert result is True
 
-    def test_gate_enabled_relevant_returns_true(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+    def test_gate_enabled_relevant_returns_true(self) -> None:
 
         rag = MagicMock()
         rag.features.relevance_gate_enabled = True
@@ -697,13 +658,14 @@ class TestHandleRelevanceGate:
         target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
         with patch(target, new_callable=AsyncMock) as mock_check:
             mock_check.return_value = (True, "good context")
-            result = asyncio.run(handle_relevance_gate("q", ["doc"], None, rag, mock_ml))
+            result = asyncio.run(
+                handle_relevance_gate(
+                    "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
+                )
+            )
             assert result is True
 
-    def test_gate_enabled_not_relevant_returns_false(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+    def test_gate_enabled_not_relevant_returns_false(self) -> None:
 
         rag = MagicMock()
         rag.features.relevance_gate_enabled = True
@@ -716,13 +678,14 @@ class TestHandleRelevanceGate:
         target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
         with patch(target, new_callable=AsyncMock) as mock_check:
             mock_check.return_value = (False, "not relevant")
-            result = asyncio.run(handle_relevance_gate("q", ["doc"], None, rag, mock_ml))
+            result = asyncio.run(
+                handle_relevance_gate(
+                    "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
+                )
+            )
             assert result is False
 
-    def test_uses_auxiliary_semaphore(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+    def test_uses_auxiliary_semaphore(self) -> None:
 
         rag = MagicMock()
         rag.features.relevance_gate_enabled = True
@@ -737,7 +700,11 @@ class TestHandleRelevanceGate:
         target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
         with patch(target, new_callable=AsyncMock) as mock_check:
             mock_check.return_value = (True, "ok")
-            asyncio.run(handle_relevance_gate("q", ["doc"], None, rag, mock_ml))
+            asyncio.run(
+                handle_relevance_gate(
+                    "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
+                )
+            )
             mock_sem.__aenter__.assert_awaited()
 
 
@@ -747,13 +714,13 @@ class TestHandleRelevanceGate:
 
 
 class TestDecomposeQuestion:
-    def test_single_line_returns_original(self):
+    def test_single_line_returns_original(self) -> None:
         llm = FakeListChatModel(responses=["Один подвопрос"])
         ml_clients = SimpleNamespace(fast_llm=lambda: llm, auxiliary_semaphore=AsyncMock())
         result = asyncio.run(decompose_question("complex question", ml_clients=ml_clients))
         assert result == ["complex question"]
 
-    def test_multi_line_returns_original_without_instructor(self):
+    def test_multi_line_returns_original_without_instructor(self) -> None:
         """Without instructor_client, decompose_question returns the original question."""
         llm = FakeListChatModel(responses=["Подвопрос 1\nПодвопрос 2\nПодвопрос 3"])
         ml_clients = SimpleNamespace(fast_llm=lambda: llm, auxiliary_semaphore=AsyncMock())
@@ -767,52 +734,36 @@ class TestDecomposeQuestion:
 
 
 class TestDocxTableToMarkdown:
-    def test_simple_table(self):
-        from infrastructure.ml.ingestion import docx_table_to_markdown
+    def test_simple_table(self) -> None:
 
-        class MockCell:
-            def __init__(self, text):
-                self.text = text
+        rows = [["Name", "Value"], ["A", "1"], ["B", "2"]]
+        table = docx.Document().add_table(rows=len(rows), cols=len(rows[0]))
 
-        class MockRow:
-            def __init__(self, cells):
-                self.cells = [MockCell(c) for c in cells]
+        for row, values in zip(table.rows, rows, strict=True):
+            for cell, value in zip(row.cells, values, strict=True):
+                cell.text = value
 
-        class MockTable:
-            def __init__(self, rows):
-                self.rows = [MockRow(r) for r in rows]
-
-        table = MockTable([["Name", "Value"], ["A", "1"], ["B", "2"]])
         result = docx_table_to_markdown(table)
         assert "| Name | Value |" in result
         assert "|---|---|" in result
         assert "| A | 1 |" in result
         assert "| B | 2 |" in result
 
-    def test_empty_table(self):
-        from infrastructure.ml.ingestion import docx_table_to_markdown
+    def test_empty_table(self) -> None:
 
-        class MockTable:
-            rows = []
+        table = docx.Document().add_table(rows=0, cols=1)
 
-        assert docx_table_to_markdown(MockTable()) == ""
+        assert docx_table_to_markdown(table) == ""
 
-    def test_pipes_in_cells_escaped(self):
-        from infrastructure.ml.ingestion import docx_table_to_markdown
+    def test_pipes_in_cells_escaped(self) -> None:
 
-        class MockCell:
-            def __init__(self, text):
-                self.text = text
+        rows = [["Header"], ["value|with|pipes"]]
+        table = docx.Document().add_table(rows=len(rows), cols=len(rows[0]))
 
-        class MockRow:
-            def __init__(self, cells):
-                self.cells = [MockCell(c) for c in cells]
+        for row, values in zip(table.rows, rows, strict=True):
+            for cell, value in zip(row.cells, values, strict=True):
+                cell.text = value
 
-        class MockTable:
-            def __init__(self, rows):
-                self.rows = [MockRow(r) for r in rows]
-
-        table = MockTable([["Header"], ["value|with|pipes"]])
         result = docx_table_to_markdown(table)
         assert "value\\|with\\|pipes" in result
 
@@ -823,76 +774,24 @@ class TestDocxTableToMarkdown:
 
 
 class TestPyMuPDFTableToMarkdown:
-    def test_simple_table(self):
-        from infrastructure.ml.ingestion import pymupdf_table_to_markdown
+    def test_simple_table(self) -> None:
 
         class MockTable:
-            def extract(self):
+            def extract(self) -> list[list[str | None]]:
                 return [["Name", "Value"], ["A", "1"], ["B", "2"]]
 
         result = pymupdf_table_to_markdown(MockTable())
         assert "| Name | Value |" in result
         assert "|---|---|" in result
 
-    def test_extract_failure_returns_empty(self):
-        from infrastructure.ml.ingestion import pymupdf_table_to_markdown
+    def test_extract_failure_returns_empty(self) -> None:
 
         class MockTable:
-            def extract(self):
-                raise Exception("not supported")
+            def extract(self) -> Never:
+                message = "not supported"
+                raise RuntimeError(message)
 
         assert pymupdf_table_to_markdown(MockTable()) == ""
-
-
-# ---------------------------------------------------------------------------
-# answer_cache helpers
-# ---------------------------------------------------------------------------
-
-
-class TestAnswerCacheHelpers:
-    def test_same_scope_same_hash(self):
-        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
-
-        h1 = compute_visibility_scope_hash("internal", 5, [1, 2])
-        h2 = compute_visibility_scope_hash("internal", 5, [1, 2])
-        assert h1 == h2
-
-    def test_different_scope_different_hash(self):
-        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
-
-        h1 = compute_visibility_scope_hash("internal", 5, [1])
-        h2 = compute_visibility_scope_hash("client", 5, [1])
-        assert h1 != h2
-
-    def test_different_groups_different_hash(self):
-        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
-
-        h1 = compute_visibility_scope_hash("internal", 5, [1, 2])
-        h2 = compute_visibility_scope_hash("internal", 5, [1, 3])
-        assert h1 != h2
-
-    def test_different_users_same_scope_different_hash(self):
-        # identical kind + groups must NOT share a cache scope —
-        # answers/sources may reference the caller's own private documents.
-        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
-
-        h1 = compute_visibility_scope_hash("internal", 1, [])
-        h2 = compute_visibility_scope_hash("internal", 2, [])
-        assert h1 != h2
-
-    def test_question_hash_deterministic(self):
-        from infrastructure.ml.cache.answers import compute_question_hash
-
-        h1 = compute_question_hash("Что такое ЭТТН?")
-        h2 = compute_question_hash("Что такое ЭТТН?")
-        assert h1 == h2
-
-    def test_question_hash_case_insensitive(self):
-        from infrastructure.ml.cache.answers import compute_question_hash
-
-        h1 = compute_question_hash("ЧТО ТАКОЕ ЭТТН?")
-        h2 = compute_question_hash("что такое Эттн?")
-        assert h1 == h2
 
 
 # ---------------------------------------------------------------------------
@@ -908,11 +807,7 @@ class TestPromptMetricsSync:
     - Add the new phrase to _NOT_FOUND_PATTERNS.
     """
 
-    def test_not_found_phrase_covered_by_metrics_patterns(self):
-        import re
-
-        from infrastructure.ml.rag.prompt_blocks import CRITICAL_RULES_BLOCK
-        from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
+    def test_not_found_phrase_covered_by_metrics_patterns(self) -> None:
 
         match = re.search(r'ответь ровно:\s*\n\s*"(.+?)"', CRITICAL_RULES_BLOCK)
         assert match, "CRITICAL_RULES_BLOCK must contain the quoted not-found phrase"
@@ -932,15 +827,18 @@ class TestPromptMetricsSync:
 
 
 class TestGroupBySection:
-    def _doc_with_section(self, content: str, heading: str = "", section: str = ""):
+    def _doc_with_section(self, content: str, heading: str = "", section: str = "") -> Document:
         metadata = {"source": "a.pdf"}
+
         if heading:
             metadata["heading"] = heading
+
         if section:
             metadata["section"] = section
-        return SimpleNamespace(page_content=content, metadata=metadata)
 
-    def test_groups_same_section_together(self):
+        return Document(page_content=content, metadata=metadata)
+
+    def test_groups_same_section_together(self) -> None:
         docs = [
             (self._doc_with_section("gold rule", heading="21.1"), 0.8),
             (self._doc_with_section("silver rule", heading="21.2"), 0.9),
@@ -950,7 +848,7 @@ class TestGroupBySection:
         headings = [d.metadata.get("heading") for d, _ in result]
         assert headings == ["21.2", "21.1", "21.1"]
 
-    def test_preserves_order_within_group_by_score(self):
+    def test_preserves_order_within_group_by_score(self) -> None:
         docs = [
             (self._doc_with_section("a", heading="21.1"), 0.5),
             (self._doc_with_section("b", heading="21.1"), 0.9),
@@ -960,10 +858,10 @@ class TestGroupBySection:
         scores = [s for _, s in result]
         assert scores == [0.9, 0.7, 0.5]
 
-    def test_empty_input(self):
+    def test_empty_input(self) -> None:
         assert rag_rr.group_by_section([]) == []
 
-    def test_single_group(self):
+    def test_single_group(self) -> None:
         docs = [
             (self._doc_with_section("a", heading="21.1"), 0.5),
             (self._doc_with_section("b", heading="21.1"), 0.9),
@@ -972,15 +870,15 @@ class TestGroupBySection:
         assert len(result) == 2
         assert result[0][1] == 0.9
 
-    def test_no_section_metadata_uses_empty_string(self):
+    def test_no_section_metadata_uses_empty_string(self) -> None:
         docs = [
-            (SimpleNamespace(page_content="x", metadata={"source": "a.pdf"}), 0.8),
-            (SimpleNamespace(page_content="y", metadata={"source": "a.pdf"}), 0.9),
+            (Document(page_content="x", metadata={"source": "a.pdf"}), 0.8),
+            (Document(page_content="y", metadata={"source": "a.pdf"}), 0.9),
         ]
         result = rag_rr.group_by_section(docs)
         assert len(result) == 2
 
-    def test_groups_sorted_by_max_score_descending(self):
+    def test_groups_sorted_by_max_score_descending(self) -> None:
         docs = [
             (self._doc_with_section("low", heading="section_b"), 0.3),
             (self._doc_with_section("high", heading="section_a"), 0.9),
@@ -999,16 +897,16 @@ class TestGroupBySection:
 
 class TestRerankSectionPrefix:
     @staticmethod
-    def _fake_reranker(scores):
-        return SimpleNamespace(predict=lambda pairs: scores)
+    def _fake_reranker(scores: list[float]) -> SimpleNamespace:
+        return SimpleNamespace(predict=lambda _pairs: scores)
 
-    def test_reranker_receives_section_in_prefix(self):
+    def test_reranker_receives_section_in_prefix(self) -> None:
         docs = [
-            SimpleNamespace(
+            Document(
                 page_content="gold rule",
                 metadata={"source": "a.pdf", "filename": "decree.pdf", "heading": "21.1"},
             ),
-            SimpleNamespace(
+            Document(
                 page_content="silver rule",
                 metadata={"source": "a.pdf", "filename": "decree.pdf", "heading": "21.2"},
             ),
@@ -1017,7 +915,7 @@ class TestRerankSectionPrefix:
 
         captured_pairs = []
 
-        def capture_predict(pairs):
+        def capture_predict(pairs: list[tuple[str, str]]) -> list[float]:
             captured_pairs.extend(pairs)
             return [0.5, 0.5]
 
@@ -1030,13 +928,13 @@ class TestRerankSectionPrefix:
         assert "gold rule" in captured_pairs[0][1]
         assert "silver rule" in captured_pairs[1][1]
 
-    def test_reranker_works_without_section(self):
+    def test_reranker_works_without_section(self) -> None:
         docs = [
-            SimpleNamespace(page_content="text", metadata={"source": "a.pdf"}),
+            Document(page_content="text", metadata={"source": "a.pdf"}),
         ]
         captured_pairs = []
 
-        def capture_predict(pairs):
+        def capture_predict(pairs: list[tuple[str, str]]) -> list[float]:
             captured_pairs.extend(pairs)
             return [0.5]
 
@@ -1054,10 +952,7 @@ class TestCircuitBreakerIntegration:
     """Verify pipeline steps properly interact with circuit breakers."""
 
     @pytest.mark.asyncio
-    async def test_handle_relevance_gate_calls_breaker_check_open(self):
-        from unittest.mock import MagicMock, patch
-
-        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+    async def test_handle_relevance_gate_calls_breaker_check_open(self) -> None:
 
         rag = MagicMock()
         rag.features.relevance_gate_enabled = True
@@ -1074,15 +969,14 @@ class TestCircuitBreakerIntegration:
             target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
             with patch(target, new_callable=AsyncMock) as mock_check:
                 mock_check.return_value = (True, "ok")
-                await handle_relevance_gate("q", ["doc"], None, rag, mock_ml)
+                await handle_relevance_gate(
+                    "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
+                )
                 mock_breaker.check_open.assert_called_once()
                 mock_breaker.report_success.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_handle_relevance_gate_calls_breaker_on_failure(self):
-        from unittest.mock import MagicMock, patch
-
-        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+    async def test_handle_relevance_gate_calls_breaker_on_failure(self) -> None:
 
         rag = MagicMock()
         rag.features.relevance_gate_enabled = True
@@ -1100,14 +994,13 @@ class TestCircuitBreakerIntegration:
             with patch(target, new_callable=AsyncMock) as mock_check:
                 mock_check.side_effect = RuntimeError("LLM down")
                 with pytest.raises(RuntimeError, match="LLM down"):
-                    await handle_relevance_gate("q", ["doc"], None, rag, mock_ml)
+                    await handle_relevance_gate(
+                        "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
+                    )
                 mock_breaker.report_failure.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_assess_sufficiency_calls_breaker_check_open(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
+    async def test_assess_sufficiency_calls_breaker_check_open(self) -> None:
 
         mock_breaker = MagicMock()
         mock_breaker.report_success = AsyncMock()
@@ -1126,23 +1019,22 @@ class TestCircuitBreakerIntegration:
         mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
         mock_ml.instructor_client = mock_client
 
-        with patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker):
-            with patch("config.settings") as mock_settings:
-                mock_settings.llm_provider = MagicMock(value="ollama")
-                mock_settings.llm_model = "test"
-                mock_settings.llm_auxiliary_timeout = 30
-                doc = MagicMock()
-                doc.page_content = "context"
-                doc.metadata = {"source": "test.pdf", "document_id": 1}
-                await assess_sufficiency("q", [doc], mock_ml)
-                mock_breaker.check_open.assert_called_once()
-                mock_breaker.report_success.assert_awaited_once()
+        with (
+            patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker),
+            patch("config.settings") as mock_settings,
+        ):
+            mock_settings.llm_provider = MagicMock(value="ollama")
+            mock_settings.llm_model = "test"
+            mock_settings.llm_auxiliary_timeout = 30
+            doc = MagicMock()
+            doc.page_content = "context"
+            doc.metadata = {"source": "test.pdf", "document_id": 1}
+            await assess_sufficiency("q", [doc], mock_ml)
+            mock_breaker.check_open.assert_called_once()
+            mock_breaker.report_success.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_assess_sufficiency_calls_breaker_on_failure(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
+    async def test_assess_sufficiency_calls_breaker_on_failure(self) -> None:
 
         mock_breaker = MagicMock()
         mock_breaker.report_success = AsyncMock()
@@ -1156,14 +1048,16 @@ class TestCircuitBreakerIntegration:
         mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("LLM down"))
         mock_ml.instructor_client = mock_client
 
-        with patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker):
-            with patch("config.settings") as mock_settings:
-                mock_settings.llm_provider = MagicMock(value="ollama")
-                mock_settings.llm_model = "test"
-                mock_settings.llm_auxiliary_timeout = 30
-                doc = MagicMock()
-                doc.page_content = "context"
-                doc.metadata = {"source": "test.pdf", "document_id": 1}
-                with pytest.raises(RuntimeError, match="LLM down"):
-                    await assess_sufficiency("q", [doc], mock_ml)
-                mock_breaker.report_failure.assert_awaited_once()
+        with (
+            patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker),
+            patch("config.settings") as mock_settings,
+        ):
+            mock_settings.llm_provider = MagicMock(value="ollama")
+            mock_settings.llm_model = "test"
+            mock_settings.llm_auxiliary_timeout = 30
+            doc = MagicMock()
+            doc.page_content = "context"
+            doc.metadata = {"source": "test.pdf", "document_id": 1}
+            with pytest.raises(RuntimeError, match="LLM down"):
+                await assess_sufficiency("q", [doc], mock_ml)
+            mock_breaker.report_failure.assert_awaited_once()

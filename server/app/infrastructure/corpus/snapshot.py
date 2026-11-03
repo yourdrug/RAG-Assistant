@@ -18,6 +18,7 @@ from config import settings
 
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
     from qdrant_client import QdrantClient
     from contextlib import AbstractContextManager
     from collections.abc import Awaitable, Callable
@@ -166,7 +167,7 @@ def collection_for(client: object) -> str:
     return settings.collection_name
 
 
-def pin_corpus_call[**P, R](function: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+def pin_corpus_call[**P, R](function: Callable[P, Awaitable[R]]) -> Callable[P, Coroutine[object, object, R]]:
     parameters = signature(function)
 
     @wraps(function)

@@ -7,19 +7,31 @@ indexes that have no ACL metadata.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+from inspect import signature
+from typing import TYPE_CHECKING, Literal, TypedDict
 from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
-
-from domain.shared.hashing import content_hash
-from domain.knowledge.access_control import VisibilityCondition
-from domain.knowledge.access_control import OwnerMatch
+from config import settings
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
+from domain.knowledge.access_control import (
+    OwnerMatch,
+    VisibilityCondition,
+    get_visibility_conditions,
+    is_in_search_scope,
+)
+from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility
+from domain.shared.hashing import content_hash
 from infrastructure.bm25.bm25_index import BM25Index
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from infrastructure.bm25.bm25_index import BM25Snapshot
 
 
 # ---------------------------------------------------------------------------
@@ -27,26 +39,32 @@ from infrastructure.bm25.bm25_index import BM25Index
 # ---------------------------------------------------------------------------
 
 
+class ACLArguments(TypedDict):
+    visibility_conditions: list[VisibilityCondition] | None
+    user_id: int | None
+    user_group_ids: list[int] | None
+
+
 class TestBM25ACLMetadata:
-    def test_add_text_with_acl(self):
+    def test_add_text_with_acl(self) -> None:
         idx = BM25Index(texts=[])
         idx.add_text("public doc", visibility="internal_public", owner_id=None, group_id=None)
         assert idx.doc_visibility == ["internal_public"]
         assert idx.doc_owner_id == [None]
         assert idx.doc_group_id == [None]
 
-    def test_add_text_with_owner(self):
+    def test_add_text_with_owner(self) -> None:
         idx = BM25Index(texts=[])
         idx.add_text("private doc", visibility="internal_private", owner_id=42, group_id=None)
         assert idx.doc_visibility == ["internal_private"]
         assert idx.doc_owner_id == [42]
 
-    def test_add_text_with_group(self):
+    def test_add_text_with_group(self) -> None:
         idx = BM25Index(texts=[])
         idx.add_text("group doc", visibility="internal_group", owner_id=None, group_id=10)
         assert idx.doc_group_id == [10]
 
-    def test_init_with_acl_lists(self):
+    def test_init_with_acl_lists(self) -> None:
         idx = BM25Index(
             texts=["a", "b"],
             doc_visibility=["internal_public", "client_private"],
@@ -56,7 +74,7 @@ class TestBM25ACLMetadata:
         assert idx.doc_visibility == ["internal_public", "client_private"]
         assert idx.doc_owner_id == [None, 100]
 
-    def test_default_acl_none(self):
+    def test_default_acl_none(self) -> None:
         idx = BM25Index(texts=["hello"])
         assert idx.doc_visibility == [None]
         assert idx.doc_owner_id == [None]
@@ -69,7 +87,7 @@ class TestBM25ACLMetadata:
 
 
 class TestBM25ACLReplaceRemove:
-    def test_replace_text_updates_acl(self):
+    def test_replace_text_updates_acl(self) -> None:
         idx = BM25Index(
             texts=["doc1"],
             doc_visibility=["internal_public"],
@@ -80,7 +98,7 @@ class TestBM25ACLReplaceRemove:
         assert idx.doc_visibility == ["client_private"]
         assert idx.doc_owner_id == [100]
 
-    def test_remove_text_removes_acl(self):
+    def test_remove_text_removes_acl(self) -> None:
         idx = BM25Index(
             texts=["doc1", "doc2"],
             doc_visibility=["internal_public", "client_private"],
@@ -98,9 +116,9 @@ class TestBM25ACLReplaceRemove:
 
 
 class TestBM25SearchWithACL:
-    def _make_index_with_acl(self):
+    def make_index_with_acl(self) -> BM25Index:
         """Index with mixed visibility docs."""
-        idx = BM25Index(
+        return BM25Index(
             texts=[
                 "public document",  # 0: internal_public
                 "private document",  # 1: internal_private, owner=10
@@ -118,27 +136,28 @@ class TestBM25SearchWithACL:
             doc_owner_id=[None, 10, 20, 100, None],
             doc_group_id=[None, None, None, None, 5],
         )
-        return idx
 
-    def test_acl_arguments_are_mandatory_keywords(self):
-        idx = self._make_index_with_acl()
+    def test_acl_arguments_are_mandatory_keywords(self) -> None:
+        idx = self.make_index_with_acl()
         with pytest.raises(TypeError):
-            idx.search_with_hashes("document", k=10)
+            signature(idx.search_with_hashes).bind("document", k=10)
         with pytest.raises(TypeError):
-            idx.search_with_hashes("document", 10, [], 10, [])
+            signature(idx.search_with_hashes).bind("document", 10, [], 10, [])
 
     @pytest.mark.parametrize("missing", ["visibility_conditions", "user_id", "user_group_ids"])
     @pytest.mark.parametrize("query", ["document", ""])
-    def test_none_acl_rejected_before_scoring(self, missing, query):
-        idx = self._make_index_with_acl()
-        acl = {"visibility_conditions": [], "user_id": 10, "user_group_ids": []}
+    def test_none_acl_rejected_before_scoring(
+        self, missing: Literal["visibility_conditions", "user_id", "user_group_ids"], query: str
+    ) -> None:
+        idx = self.make_index_with_acl()
+        acl: ACLArguments = {"visibility_conditions": [], "user_id": 10, "user_group_ids": []}
         acl[missing] = None
         with patch.object(idx, "score") as score, pytest.raises(RuntimeError, match="requires"):
             idx.search_with_hashes(query, **acl)
         score.assert_not_called()
 
-    def test_user_sees_public_and_own_private(self):
-        idx = self._make_index_with_acl()
+    def test_user_sees_public_and_own_private(self) -> None:
+        idx = self.make_index_with_acl()
         conditions = [
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC),
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),
@@ -156,8 +175,8 @@ class TestBM25SearchWithACL:
         assert content_hash("other private document") not in hashes
         assert content_hash("client document") not in hashes
 
-    def test_user_does_not_see_client_private(self):
-        idx = self._make_index_with_acl()
+    def test_user_does_not_see_client_private(self) -> None:
+        idx = self.make_index_with_acl()
         conditions = [
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC),
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),
@@ -172,8 +191,8 @@ class TestBM25SearchWithACL:
         hashes = [h for h, _ in results]
         assert content_hash("client document") not in hashes
 
-    def test_curator_sees_managed_docs(self):
-        idx = self._make_index_with_acl()
+    def test_curator_sees_managed_docs(self) -> None:
+        idx = self.make_index_with_acl()
         conditions = [
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC),
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),
@@ -193,8 +212,8 @@ class TestBM25SearchWithACL:
         hashes = [h for h, _ in results]
         assert content_hash("other private document") in hashes
 
-    def test_group_match(self):
-        idx = self._make_index_with_acl()
+    def test_group_match(self) -> None:
+        idx = self.make_index_with_acl()
         conditions = [
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_GROUP, group_match=True),
         ]
@@ -208,8 +227,8 @@ class TestBM25SearchWithACL:
         hashes = [h for h, _ in results]
         assert content_hash("group document") in hashes
 
-    def test_group_match_wrong_group(self):
-        idx = self._make_index_with_acl()
+    def test_group_match_wrong_group(self) -> None:
+        idx = self.make_index_with_acl()
         conditions = [
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_GROUP, group_match=True),
         ]
@@ -223,8 +242,8 @@ class TestBM25SearchWithACL:
         hashes = [h for h, _ in results]
         assert content_hash("group document") not in hashes
 
-    def test_empty_conditions_no_match(self):
-        idx = self._make_index_with_acl()
+    def test_empty_conditions_no_match(self) -> None:
+        idx = self.make_index_with_acl()
         results = idx.search_with_hashes(
             "document",
             k=10,
@@ -242,7 +261,7 @@ class TestBM25SearchWithACL:
 
 class TestBM25ACLBackwardCompat:
     @pytest.mark.parametrize("empty_conditions", [False, True])
-    def test_old_index_no_acl_fails_closed(self, empty_conditions):
+    def test_old_index_no_acl_fails_closed(self, empty_conditions: bool) -> None:
         idx = BM25Index.from_dict({"texts": ["public doc", "private doc"]})
         assert idx.doc_visibility == [None, None]
         conditions = [
@@ -259,7 +278,7 @@ class TestBM25ACLBackwardCompat:
         assert idx.last_survival_ratio == 0.0
         assert len(idx.search("doc", k=10)) == 2
 
-    def test_to_dict_with_acl(self):
+    def test_to_dict_with_acl(self) -> None:
         idx = BM25Index(
             texts=["a"],
             doc_visibility=["internal_public"],
@@ -271,13 +290,13 @@ class TestBM25ACLBackwardCompat:
         assert "doc_owner_id" in d
         assert "doc_group_id" in d
 
-    def test_to_dict_without_acl(self):
+    def test_to_dict_without_acl(self) -> None:
         idx = BM25Index(texts=["a"])
         d = idx.to_dict()
         assert "doc_visibility" not in d
 
-    def test_from_dict_with_acl(self):
-        d = {
+    def test_from_dict_with_acl(self) -> None:
+        d: BM25Snapshot = {
             "texts": ["a"],
             "doc_visibility": ["internal_public"],
             "doc_owner_id": [None],
@@ -286,12 +305,12 @@ class TestBM25ACLBackwardCompat:
         idx = BM25Index.from_dict(d)
         assert idx.doc_visibility == ["internal_public"]
 
-    def test_from_dict_without_acl(self):
-        d = {"texts": ["a"]}
+    def test_from_dict_without_acl(self) -> None:
+        d: BM25Snapshot = {"texts": ["a"]}
         idx = BM25Index.from_dict(d)
         assert idx.doc_visibility == [None]
 
-    def test_serialization_roundtrip_with_acl(self):
+    def test_serialization_roundtrip_with_acl(self) -> None:
         idx = BM25Index(
             texts=["hello world", "foo bar"],
             doc_visibility=["internal_public", "client_private"],
@@ -318,19 +337,18 @@ class TestBM25ACLBackwardCompat:
 
 
 class TestCuratorScopeMaxIds:
-    def test_config_default(self):
-        from config import settings
+    def test_config_default(self) -> None:
 
         assert settings.curator_scope_max_ids == 1000
 
 
 # ---------------------------------------------------------------------------
-# D10: Property — _doc_matches_acl ⇔ is_in_search_scope
+# D10: Property — doc_matches_acl ⇔ is_in_search_scope
 # ---------------------------------------------------------------------------
 
 
 class TestBM25PredicateInvariant:
-    """Property-based invariant: _doc_matches_acl must agree with is_in_search_scope.
+    """Property-based invariant: doc_matches_acl must agree with is_in_search_scope.
 
     For every combination of (role x visibility x owner x group), the BM25
     pre-filter predicate must produce the same boolean as the domain's
@@ -338,7 +356,7 @@ class TestBM25PredicateInvariant:
     (domain rule, Qdrant filter, BM25 predicate).
     """
 
-    def _build_test_docs(self):
+    def build_test_docs(self) -> list[tuple[str, str, int | None, int | None]]:
         """Return list of (label, vis, owner_id, group_id) tuples."""
         return [
             ("pub", "internal_public", None, None),
@@ -349,24 +367,20 @@ class TestBM25PredicateInvariant:
             ("grp_other", "internal_group", None, 999),
         ]
 
-    def _bm25_matches(self, idx, doc_pos, conditions, user_id, group_ids):
-        """Run BM25 _doc_matches_acl and return True/False."""
-        return idx._doc_matches_acl(doc_pos, conditions, user_id, group_ids)
-
-    def _run_invariant(
+    def run_invariant(
         self,
-        user_id,
-        group_ids,
-        user_role,
-        get_conditions_fn,
-        managed_client_ids=None,
-        managed_internal_ids=None,
-        managed_group_ids=None,
-    ):
+        *,
+        user_id: int,
+        group_ids: list[int],
+        user_role: UserRole,
+        get_conditions_fn: Callable[[], list[VisibilityCondition]],
+        user_kind: UserKind = UserKind.INTERNAL,
+        managed_client_ids: list[int] | None = None,
+        managed_internal_ids: list[int] | None = None,
+    ) -> None:
         """Check BM25 predicate matches domain is_in_search_scope for all docs."""
-        from types import SimpleNamespace
 
-        labels, vis_list, owner_list, group_list = zip(*self._build_test_docs(), strict=True)
+        labels, vis_list, owner_list, group_list = zip(*self.build_test_docs(), strict=True)
         idx = BM25Index(
             texts=["x"] * len(labels),
             doc_visibility=list(vis_list),
@@ -375,38 +389,33 @@ class TestBM25PredicateInvariant:
         )
 
         conditions = get_conditions_fn()
-        ctx = SimpleNamespace(
+        ctx = UserContext(
             user_id=user_id,
-            user_kind="internal",
+            user_kind=user_kind,
             user_role=user_role,
-            group_ids=group_ids,
-            managed_client_ids=managed_client_ids or [],
-            managed_internal_ids=managed_internal_ids or [],
-            managed_group_ids=managed_group_ids or [],
+            group_ids=tuple(group_ids),
+            managed_client_ids=tuple(managed_client_ids or []),
+            managed_internal_ids=tuple(managed_internal_ids or []),
         )
 
-        for i, (label, vis, owner, grp) in enumerate(self._build_test_docs()):
-            doc = SimpleNamespace(visibility=vis, owner_id=owner, group_id=grp)
-
-            from domain.knowledge.access_control import is_in_search_scope
+        for i, (label, vis, owner, grp) in enumerate(self.build_test_docs()):
+            doc = Document(visibility=DocumentVisibility(vis), owner_id=owner, group_id=grp)
 
             domain_result = is_in_search_scope(doc, ctx)
-            bm25_result = self._bm25_matches(idx, i, conditions, user_id, group_ids)
+            bm25_result = idx.doc_matches_acl(i, conditions, user_id, group_ids)
 
             assert domain_result == bm25_result, (
                 f"Mismatch for {label} ({vis}, owner={owner}, group={grp}): "
-                f"is_in_search_scope={domain_result}, _doc_matches_acl={bm25_result}"
+                f"is_in_search_scope={domain_result}, doc_matches_acl={bm25_result}"
             )
 
-    def test_user_invariant(self):
+    def test_user_invariant(self) -> None:
         """USER: BM25 predicate matches domain rule."""
-        from domain.knowledge.access_control import get_visibility_conditions
-        from domain.identity.roles import UserKind, UserRole
 
-        self._run_invariant(
+        self.run_invariant(
             user_id=10,
             group_ids=[5],
-            user_role="user",
+            user_role=UserRole.USER,
             get_conditions_fn=lambda: get_visibility_conditions(
                 UserKind.INTERNAL,
                 [5],
@@ -415,15 +424,22 @@ class TestBM25PredicateInvariant:
             ),
         )
 
-    def test_admin_invariant(self):
-        """ADMIN: BM25 predicate matches domain rule (no CLIENT_PRIVATE bonus)."""
-        from domain.knowledge.access_control import get_visibility_conditions
-        from domain.identity.roles import UserKind, UserRole
+    def test_client_invariant(self) -> None:
+        self.run_invariant(
+            user_id=100,
+            group_ids=[5],
+            user_kind=UserKind.CLIENT,
+            user_role=UserRole.USER,
+            get_conditions_fn=lambda: get_visibility_conditions(UserKind.CLIENT, [5], for_list=False),
+        )
 
-        self._run_invariant(
+    def test_admin_invariant(self) -> None:
+        """ADMIN: BM25 predicate matches domain rule (no CLIENT_PRIVATE bonus)."""
+
+        self.run_invariant(
             user_id=1,
             group_ids=[],
-            user_role="admin",
+            user_role=UserRole.ADMIN,
             get_conditions_fn=lambda: get_visibility_conditions(
                 UserKind.INTERNAL,
                 [],
@@ -432,15 +448,13 @@ class TestBM25PredicateInvariant:
             ),
         )
 
-    def test_curator_with_managed_invariant(self):
+    def test_curator_with_managed_invariant(self) -> None:
         """CURATOR with managed_ids: BM25 predicate matches domain rule."""
-        from domain.knowledge.access_control import get_visibility_conditions
-        from domain.identity.roles import UserKind, UserRole
 
-        self._run_invariant(
+        self.run_invariant(
             user_id=10,
             group_ids=[5],
-            user_role="curator",
+            user_role=UserRole.CURATOR,
             get_conditions_fn=lambda: get_visibility_conditions(
                 UserKind.INTERNAL,
                 [5],
@@ -453,14 +467,11 @@ class TestBM25PredicateInvariant:
             managed_client_ids=[100],
         )
 
-    def test_acl_none_in_index_denied(self):
+    def test_acl_none_in_index_denied(self) -> None:
         idx = BM25Index(texts=["pub", "priv"], doc_visibility=[None, None])
-        from domain.knowledge.access_control import VisibilityCondition
-        from domain.knowledge.access_control import OwnerMatch
-        from domain.knowledge.enums import DocumentVisibility
 
         conditions = [
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),
         ]
-        assert not idx._doc_matches_acl(0, conditions, user_id=1, user_group_ids=[])
-        assert not idx._doc_matches_acl(1, conditions, user_id=1, user_group_ids=[])
+        assert not idx.doc_matches_acl(0, conditions, user_id=1, user_group_ids=[])
+        assert not idx.doc_matches_acl(1, conditions, user_id=1, user_group_ids=[])

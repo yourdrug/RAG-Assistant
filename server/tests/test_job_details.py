@@ -12,7 +12,7 @@ from domain.runtime.jobs import BackgroundJob
 from domain.shared.exceptions import AppClientError, EntityNotFoundError
 from domain.runtime.jobs import BackgroundJobStatus
 from domain.identity.roles import UserKind, UserRole
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_job_service
 from presentation.api.exception_handlers import handle_client_exception

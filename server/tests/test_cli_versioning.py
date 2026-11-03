@@ -15,7 +15,7 @@ from application.act_versioning import ActVersioningService
 from application.ingestion import BatchIngestionWorkflow
 from application.ingestion import S3DocumentLoader
 from domain.ingestion.profiles.decree import DecreeDomainProfile
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 from application.ingestion import IngestionService
 from application.ingestion import IngestionRegistry
 from application.ingestion import DocumentSyncService

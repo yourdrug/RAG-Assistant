@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import logging
-import re
 from collections import Counter
 from dataclasses import dataclass, field
-from pathlib import Path
+import itertools
+import logging
+import re
+from typing import TYPE_CHECKING, Any, Protocol
 
 import fitz
 from langchain.schema import Document
@@ -16,6 +17,12 @@ from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.ocr import ocr_pdf_pages, ocr_vl_pdf_pages
 from infrastructure.ml.ingestion.table_formatting import markdown_cell, render_table
 from infrastructure.ml.ingestion.utils import clean_pdf_text
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
 
 log = logging.getLogger("detailed")
 
@@ -38,6 +45,10 @@ _BOILERPLATE_MIN_PAGES = 4
 _DIGITS_RE = re.compile(r"\d+")
 
 
+type TextBlock = tuple[float, float, float, float, str] | tuple[float, float, float, float, str, int, int]
+type ClassifiedPage = tuple[list[TextBlock], list[TextBlock], list[TextBlock]]
+
+
 @dataclass
 class PageResult:
     """Return type for _process_page: collects per-page outputs."""
@@ -45,16 +56,21 @@ class PageResult:
     text_doc: Document | None = None
     ocr_needed: bool = False
     text_for_comparison: str = ""
-    meta: dict = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
     table_docs: list[Document] = field(default_factory=list)
     ordered_docs: list[Document] = field(default_factory=list)
 
 
-def pymupdf_table_to_markdown(table) -> str:
+class ExtractableTable(Protocol):
+    def extract(self) -> list[list[str | None]]: ...
+
+
+def pymupdf_table_to_markdown(table: ExtractableTable) -> str:
     """Convert a PyMuPDF table to markdown format."""
     try:
         data = table.extract()
     except Exception:
+        log.debug("PDF table rendering failed", exc_info=True)
         return ""
 
     if not data or len(data) < 1:
@@ -64,7 +80,17 @@ def pymupdf_table_to_markdown(table) -> str:
     return render_table(rows)
 
 
-def _order_blocks_columnwise(blocks: list, page_width: float) -> list[str]:
+def column_of(x0: float, boundaries: list[float]) -> int:
+    col = 0
+
+    for i, boundary in enumerate(boundaries):
+        if x0 >= boundary:
+            col = i
+
+    return col
+
+
+def _order_blocks_columnwise(blocks: list[TextBlock], page_width: float) -> list[str]:
     """Order a set of text blocks for correct reading order.
 
     Single-column layouts are read top-to-bottom (same as a plain row sort).
@@ -84,23 +110,14 @@ def _order_blocks_columnwise(blocks: list, page_width: float) -> list[str]:
     xs = sorted(b[0] for b in blocks)
     boundaries = [xs[0]]
 
-    for prev, cur in zip(xs, xs[1:], strict=False):
+    for prev, cur in itertools.pairwise(xs):
         if cur - prev > gap_threshold:
             boundaries.append(cur)
 
-    def _column_of(x0: float) -> int:
-        col = 0
-
-        for i, boundary in enumerate(boundaries):
-            if x0 >= boundary:
-                col = i
-
-        return col
-
-    columns: dict[int, list] = {}
+    columns: dict[int, list[TextBlock]] = {}
 
     for b in blocks:
-        columns.setdefault(_column_of(b[0]), []).append(b)
+        columns.setdefault(column_of(b[0], boundaries), []).append(b)
 
     ordered: list[str] = []
 
@@ -111,7 +128,7 @@ def _order_blocks_columnwise(blocks: list, page_width: float) -> list[str]:
     return ordered
 
 
-def _classify_page_blocks(page) -> tuple[list, list, list]:
+def _classify_page_blocks(page: fitz.Page) -> ClassifiedPage:
     """Split a page's text blocks into (header_blocks, body_blocks, footer_blocks).
 
     A block counts as header/footer only if it lies entirely within the
@@ -122,10 +139,12 @@ def _classify_page_blocks(page) -> tuple[list, list, list]:
     header_end = height * _HEADER_ZONE_RATIO
     footer_start = height * (1 - _FOOTER_ZONE_RATIO)
 
-    header, body, footer = [], [], []
+    header: list[TextBlock] = []
+    body: list[TextBlock] = []
+    footer: list[TextBlock] = []
 
     for b in page.get_text("blocks"):
-        if len(b) <= 4 or not b[4].strip():
+        if not b[4].strip():
             continue
 
         y0, y1 = b[1], b[3]
@@ -140,13 +159,13 @@ def _classify_page_blocks(page) -> tuple[list, list, list]:
     return header, body, footer
 
 
-def _extract_page_tables(page, file_path: Path, page_num: int) -> list[Document]:
+def _extract_page_tables(page: fitz.Page, file_path: Path, page_num: int) -> list[Document]:
     """Detect and extract tables from a page. Returns list of table Documents."""
     docs: list[Document] = []
     try:
         tables = page.find_tables()
 
-        if tables and tables.tables:
+        if tables.tables:
             for table in tables.tables:
                 md_table = pymupdf_table_to_markdown(table)
 
@@ -171,10 +190,10 @@ def _detect_tabular_heuristic(text: str, page_num: int) -> None:
     """Log warning if text has tabular-looking lines but find_tables() found nothing."""
     lines = text.split("\n")
     tabular_lines = sum(
-        1 for line in lines if line.count("\t") >= 2 or (len(re.findall(r"  {3,}", line)) > 0)
+        1 for line in lines if line.count("\t") >= MIN_TABULAR_GAPS or (len(re.findall(r"  {3,}", line)) > 0)
     )
 
-    if tabular_lines > 3:
+    if tabular_lines > MIN_TABULAR_LINES:
         log.warning(
             "Page %d: %d tabular-looking lines but find_tables() found nothing",
             page_num,
@@ -182,7 +201,7 @@ def _detect_tabular_heuristic(text: str, page_num: int) -> None:
         )
 
 
-def _outside_table_line(line: dict, rectangles: list) -> tuple | None:
+def _outside_table_line(line: dict[str, Any], rectangles: list[fitz.Rect]) -> tuple[fitz.Rect, str] | None:
     spans = []
 
     for span in line["spans"]:
@@ -205,7 +224,9 @@ def _outside_table_line(line: dict, rectangles: list) -> tuple | None:
     return bbox, text
 
 
-def _outside_table_blocks(page, rectangles: list, boilerplate: set[str]):
+def _outside_table_blocks(
+    page: fitz.Page, rectangles: list[fitz.Rect], boilerplate: set[str]
+) -> Iterator[tuple[fitz.Rect, str]]:
     """Filter individual spans to retain captions sharing a block with a table."""
     text_flags = fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES
 
@@ -227,7 +248,7 @@ def _outside_table_blocks(page, rectangles: list, boilerplate: set[str]):
             yield bbox, text
 
 
-def _mixed_page_documents(page, tables: list[Document], boilerplate: set[str]) -> list[Document]:
+def _mixed_page_documents(page: fitz.Page, tables: list[Document], boilerplate: set[str]) -> list[Document]:
     """Interleave tables and outside text, excluding only the table text spans."""
     rectangles = [fitz.Rect(doc.metadata["_table_bbox"]) for doc in tables]
     base = {key: value for key, value in tables[0].metadata.items() if key in ("page", "source")}
@@ -235,9 +256,9 @@ def _mixed_page_documents(page, tables: list[Document], boilerplate: set[str]) -
     ordered: list[Document] = []
     cursor = 0
 
-    def append_text(band: list) -> None:
+    def append_text(band: list[tuple[fitz.Rect, str]]) -> None:
         if band:
-            positioned = [(*tuple(bbox), text) for bbox, text in band]
+            positioned: list[TextBlock] = [(bbox.x0, bbox.y0, bbox.x1, bbox.y1, text) for bbox, text in band]
             lines = _order_blocks_columnwise(positioned, page.rect.width)
             text = clean_pdf_text("\n".join(lines))
 
@@ -266,15 +287,12 @@ def _mixed_page_documents(page, tables: list[Document], boilerplate: set[str]) -
     return ordered
 
 
-def _should_ocr(text: str, min_chars: int, ocr_enabled: bool) -> bool:
+def _should_ocr(text: str, min_chars: int, *, ocr_enabled: bool) -> bool:
     """Return True if OCR should be triggered based on text length and settings."""
     if not text and ocr_enabled:
         return True
 
-    if text and len(text.strip()) < min_chars and ocr_enabled:
-        return True
-
-    return False
+    return bool(text and len(text.strip()) < min_chars and ocr_enabled)
 
 
 def _select_best_text(existing_text: str | None, ocr_text: str) -> str:
@@ -288,7 +306,7 @@ def _select_best_text(existing_text: str | None, ocr_text: str) -> str:
     return ocr_text
 
 
-def _process_page_text(text: str, tables_found: bool, page_num: int, file_path: Path) -> Document | None:
+def _process_page_text(text: str, *, tables_found: bool, page_num: int, file_path: Path) -> Document | None:
     if text and not tables_found:
         _detect_tabular_heuristic(text, page_num)
 
@@ -306,7 +324,7 @@ def _process_page_text(text: str, tables_found: bool, page_num: int, file_path: 
 def _process_ocr_result(
     page_num: int,
     ocr_text: str,
-    text_to_compare: dict,
+    text_to_compare: dict[int, str],
     file_path: Path,
 ) -> Document | None:
     if not ocr_text:
@@ -322,7 +340,7 @@ def _process_ocr_result(
 
 
 def _find_boilerplate_patterns(
-    classified_pages: list[tuple[list, list, list]],
+    classified_pages: list[ClassifiedPage],
 ) -> set[str]:
     """Determine which header/footer line patterns repeat across most pages.
 
@@ -352,7 +370,7 @@ def _find_boilerplate_patterns(
     return {norm for norm, count in counts.items() if count >= threshold}
 
 
-def _filter_boilerplate_blocks(blocks: list, boilerplate: set[str]) -> list:
+def _filter_boilerplate_blocks(blocks: list[TextBlock], boilerplate: set[str]) -> list[TextBlock]:
     if not boilerplate:
         return blocks
 
@@ -369,7 +387,7 @@ def _filter_boilerplate_blocks(blocks: list, boilerplate: set[str]) -> list:
     return kept
 
 
-def _extract_doc_metadata(doc) -> dict:
+def _extract_doc_metadata(doc: fitz.Document) -> dict[str, Any]:
     """Pull PDF document-info metadata (title/author/subject/keywords) if present.
 
     PyMuPDF exposes this as doc.metadata — a plain dict with string values,
@@ -377,7 +395,7 @@ def _extract_doc_metadata(doc) -> dict:
     values are kept so we never overwrite a real value with "".
     """
     meta = doc.metadata or {}
-    result: dict = {}
+    result: dict[str, Any] = {}
 
     if meta.get("title"):
         result["doc_title"] = meta["title"]
@@ -395,7 +413,7 @@ def _extract_doc_metadata(doc) -> dict:
     return result
 
 
-def _compute_text_quality(page) -> float:
+def _compute_text_quality(page: fitz.Page) -> float:
     """Estimate text extraction quality as ratio of text chars to page area."""
     try:
         page_area = page.rect.width * page.rect.height
@@ -409,10 +427,11 @@ def _compute_text_quality(page) -> float:
         expected_chars = page_area * 0.02
         return min(1.0, char_count / expected_chars) if expected_chars > 0 else 0.0
     except Exception:
+        log.debug("PDF text quality assessment failed", exc_info=True)
         return 0.0
 
 
-def page_needs_vl(page) -> bool:
+def page_needs_vl(page: fitz.Page) -> bool:
     """Image-dominated scans may contain a long, misleading OCR header."""
     area = page.rect.width * page.rect.height
     return area > 0 and any(
@@ -424,9 +443,10 @@ def page_needs_vl(page) -> bool:
 def _process_page(
     doc: fitz.Document,
     page_num: int,
-    classified: list[tuple[list, list, list]],
+    classified: list[ClassifiedPage],
     boilerplate: set[str],
     file_path: Path,
+    *,
     ocr_enabled: bool,
     min_chars: int,
 ) -> PageResult:
@@ -453,7 +473,7 @@ def _process_page(
     body_lines = _order_blocks_columnwise(body, page.rect.width)
     text = "\n".join(header_lines + body_lines + footer_lines)
 
-    if _should_ocr(text, min_chars, ocr_enabled):
+    if _should_ocr(text, min_chars, ocr_enabled=ocr_enabled):
         return PageResult(
             ocr_needed=True,
             text_for_comparison=text,
@@ -469,7 +489,7 @@ def _process_page(
 
         return PageResult(meta=page_meta, ordered_docs=ordered)
 
-    text_doc = _process_page_text(text, bool(table_docs), page_num, file_path)
+    text_doc = _process_page_text(text, tables_found=bool(table_docs), page_num=page_num, file_path=file_path)
 
     if text_doc:
         text_doc.metadata.update(page_meta)
@@ -502,7 +522,9 @@ def _process_ocr_batch(
     return pages
 
 
-def _apply_document_metadata(pages: list[Document], doc_metadata: dict, is_scanned: bool) -> None:
+def _apply_document_metadata(
+    pages: list[Document], doc_metadata: dict[str, Any], *, is_scanned: bool
+) -> None:
     """Stamp doc-level metadata and scanned flag onto every page."""
     for p in pages:
         p.metadata.pop("_table_bbox", None)
@@ -516,7 +538,7 @@ def _apply_document_metadata(pages: list[Document], doc_metadata: dict, is_scann
 
 
 def parse_pdf(file_path: Path) -> list[Document]:
-    with fitz.open(str(file_path)) as doc:
+    with fitz.Document(str(file_path)) as doc:
         return parse_pdf_document(doc, file_path)
 
 
@@ -542,8 +564,8 @@ def parse_pdf_document(doc: fitz.Document, file_path: Path) -> list[Document]:
             classified,
             boilerplate,
             file_path,
-            settings.ocr_enabled,
-            settings.ocr_min_chars,
+            ocr_enabled=settings.ocr_enabled,
+            min_chars=settings.ocr_min_chars,
         )
         pages.extend(result.ordered_docs or result.table_docs)
 
@@ -561,5 +583,9 @@ def parse_pdf_document(doc: fitz.Document, file_path: Path) -> list[Document]:
 
     is_scanned = len(ocr_page_set) >= n_pages * 0.8 if n_pages > 0 else False
     pages.sort(key=lambda page: page.metadata["page"])
-    _apply_document_metadata(pages, doc_metadata, is_scanned)
+    _apply_document_metadata(pages, doc_metadata, is_scanned=is_scanned)
     return pages
+
+
+MIN_TABULAR_GAPS = 2
+MIN_TABULAR_LINES = 3

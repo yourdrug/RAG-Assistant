@@ -2,24 +2,25 @@
 
 from __future__ import annotations
 
+import itertools
 import re
+from typing import Any
 
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, TINY_FRAGMENT_MAX_CHARS
 
+
 MAX_CONTEXT_CHARS = 300
 STEP_HEADING_RE = re.compile(r"^[ \t]*(?:Шаг\s+)?(\d+)[.)][ \t]+([^\n]+)", re.MULTILINE)
 TEXT_SEPARATORS = ["\n\n", "\n", r"(?<=[.!?])\s+(?=[A-ZА-ЯЁ])", r"\s+", ""]
 
 
-def split_at_boundaries(text: str, patterns: list) -> list[str]:
+def split_at_boundaries(text: str, patterns: list[re.Pattern[str]]) -> list[str]:
     """Slice at match offsets, retaining complete markers and capture groups."""
     offsets = sorted({0, len(text), *(m.start() for pattern in patterns for m in pattern.finditer(text))})
-    return [
-        text[start:end] for start, end in zip(offsets, offsets[1:], strict=False) if text[start:end].strip()
-    ]
+    return [text[start:end] for start, end in itertools.pairwise(offsets) if text[start:end].strip()]
 
 
 def overlap_tail(text: str, size: int) -> str:
@@ -46,12 +47,10 @@ def merge_fragments(fragments: list[str], chunk_size: int, chunk_overlap: int) -
     current = ""
 
     for fragment in fragments:
-        if current and len(current) + len(fragment) > chunk_size:
-            # A fragment shorter than the overlap would be emitted twice at
-            # the same source offset. Keep it attached to the following body.
-            if len(current) > chunk_overlap:
-                merged.append(current.strip())
-                current = overlap_tail(current, chunk_overlap)
+        # Keep fragments shorter than the overlap attached to the following body.
+        if current and len(current) + len(fragment) > chunk_size and len(current) > chunk_overlap:
+            merged.append(current.strip())
+            current = overlap_tail(current, chunk_overlap)
 
         current += fragment
 
@@ -74,7 +73,9 @@ def fallback_split(chunks: list[str], chunk_size: int, chunk_overlap: int) -> li
     return [part for chunk in chunks for part in splitter.split_text(chunk)]
 
 
-def split_overflow(text: str, chunk_size: int, chunk_overlap: int, boundary_patterns: list | None = None):
+def split_overflow(
+    text: str, chunk_size: int, chunk_overlap: int, boundary_patterns: list[re.Pattern[str]] | None = None
+) -> list[str]:
     """Retain structural markers while enforcing a strict character budget."""
     if len(text) <= chunk_size:
         return [text.strip()] if text.strip() else []
@@ -126,7 +127,7 @@ def shorten_context(text: str, limit: int = MAX_CONTEXT_CHARS) -> str:
     return text[: max(0, limit - 1)].rstrip() + "…"
 
 
-def context_prefix(metadata: dict, chunk_size: int, *, include_unit: bool = False) -> str:
+def context_prefix(metadata: dict[str, Any], chunk_size: int, *, include_unit: bool = False) -> str:
     """Repeat complete parent conditions when they fit, never partial clauses.
 
     Full parents remain in metadata even when they cannot fit alongside a
@@ -155,7 +156,7 @@ def context_prefix(metadata: dict, chunk_size: int, *, include_unit: bool = Fals
         heading_budget = min(budget - used, remaining)
         heading = metadata["unit_heading_text"]
 
-        if heading_budget > 10 and heading not in "\n".join(parts):
+        if heading_budget > MIN_BODY_BUDGET and heading not in "\n".join(parts):
             parts.append(shorten_context(heading, heading_budget - 1))
 
     return "\n".join(parts) + "\n" if parts else ""
@@ -219,7 +220,8 @@ def pack_step_documents(doc: Document, chunk_size: int) -> list[Document]:
         located = locate_span(doc.page_content, step.page_content, high)
 
         if located is None:
-            raise ValueError("Cannot locate instruction step in its source")
+            message = "Cannot locate instruction step in its source"
+            raise ValueError(message)
 
         start, end = located
 
@@ -285,7 +287,8 @@ def document_slice(doc: Document, content: str, cursor: int = 0) -> Document:
         located = locate_span(doc.page_content, content, cursor)
 
         if located is None:
-            raise ValueError("Cannot map structural unit to its source pages")
+            message = "Cannot map structural unit to its source pages"
+            raise ValueError(message)
 
         start, end = located
         meta["_page_spans"] = [
@@ -310,7 +313,8 @@ def assign_chunk_pages(chunks: list[Document], source: Document, bodies: list[st
         located = locate_span(source.page_content, body, cursor)
 
         if located is None:
-            raise ValueError("Cannot map chunk body to its source pages")
+            message = "Cannot map chunk body to its source pages"
+            raise ValueError(message)
 
         start, end = located
         cursor = max(start + 1, end - overlap)
@@ -323,10 +327,13 @@ def assign_chunk_pages(chunks: list[Document], source: Document, bodies: list[st
             chunk.metadata["page"] = pages[0]
 
 
-def text_document_chunks(doc: Document, chunk_size: int, chunk_overlap: int, patterns: list | None = None):
+def text_document_chunks(
+    doc: Document, chunk_size: int, chunk_overlap: int, patterns: list[re.Pattern[str]] | None = None
+) -> list[Document]:
     """Split after reserving context; the final content always fits the limit."""
     if chunk_size <= 0 or not 0 <= chunk_overlap < chunk_size:
-        raise ValueError("chunk_size must be positive and 0 <= chunk_overlap < chunk_size")
+        message = "chunk_size must be positive and 0 <= chunk_overlap < chunk_size"
+        raise ValueError(message)
 
     normalized_body = " ".join(doc.page_content.split())
     context_metadata = {
@@ -354,3 +361,6 @@ def text_document_chunks(doc: Document, chunk_size: int, chunk_overlap: int, pat
     chunks = [Document(page_content=prefix + body, metadata=dict(doc.metadata)) for body in bodies]
     assign_chunk_pages(chunks, doc, bodies, overlap)
     return chunks
+
+
+MIN_BODY_BUDGET = 10

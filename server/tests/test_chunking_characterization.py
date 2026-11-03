@@ -1,13 +1,16 @@
 """Public parser/splitter contracts captured before chunking changes."""
 
-import pytest
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from docx import Document as WordDocument
 from langchain.schema import Document
+import pytest
 
 from application.ingestion import FileMeta, SplitContext
 from domain.ingestion.raw_document import RawDocument
-from domain.knowledge.enums import DocDomain
-from domain.knowledge.enums import PageContentType
+from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
     IngestionDocumentSplitter,
@@ -16,7 +19,11 @@ from infrastructure.ml.ingestion import parse_docx, parse_docx_sections, split_d
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 
 
-def test_markdown_parser_keeps_breadcrumbs_and_table_headers(tmp_path):
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def test_markdown_parser_keeps_breadcrumbs_and_table_headers(tmp_path: Path) -> None:
     path = tmp_path / "guide.md"
     path.write_text(
         "# Guide\n\n## Fees\n\nPrices below.\n\n| Name | Fee |\n|---|---|\n| A | 5 |", encoding="utf-8"
@@ -28,7 +35,7 @@ def test_markdown_parser_keeps_breadcrumbs_and_table_headers(tmp_path):
     assert all(d.metadata["doc_title"] == "Guide" for d in docs)
 
 
-def test_docx_public_parsers_keep_body_order_and_breadcrumbs(tmp_path):
+def test_docx_public_parsers_keep_body_order_and_breadcrumbs(tmp_path: Path) -> None:
     path = tmp_path / "guide.docx"
     word = WordDocument()
     word.add_heading("Guide", 1)
@@ -40,7 +47,7 @@ def test_docx_public_parsers_keep_body_order_and_breadcrumbs(tmp_path):
     table.cell(1, 0).text = "A"
     table.cell(1, 1).text = "5"
     word.add_paragraph("After the table.")
-    word.save(path)
+    word.save(str(path))
     text, _ = parse_docx(path)
     assert text.index("Before") < text.index("| Name") < text.index("After")
     sections = parse_docx_sections(path)
@@ -50,12 +57,12 @@ def test_docx_public_parsers_keep_body_order_and_breadcrumbs(tmp_path):
 
 
 @pytest.mark.parametrize("extension", [".txt", ".md", ".docx", ".rtf", ".pdf"])
-def test_cli_parser_supported_formats(extension):
+def test_cli_parser_supported_formats(extension: str) -> None:
     assert IngestionDocumentParser().supports(extension)
     assert not IngestionDocumentParser().supports(".exe")
 
 
-def test_cli_parser_keeps_storage_identity(tmp_path):
+def test_cli_parser_keeps_storage_identity(tmp_path: Path) -> None:
     path = tmp_path / "guide.txt"
     path.write_text("Document content with enough meaningful text.", encoding="utf-8")
     meta = FileMeta("s3://bucket/guide.txt", "guide.txt", ".txt", path.stat().st_size)
@@ -67,19 +74,23 @@ def test_cli_parser_keeps_storage_identity(tmp_path):
 
 
 @pytest.mark.parametrize("splitter", [LangchainDocumentSplitter(), IngestionDocumentSplitter()])
-def test_splitter_retains_text_and_custom_metadata(splitter):
+def test_splitter_retains_text_and_custom_metadata(
+    splitter: LangchainDocumentSplitter | IngestionDocumentSplitter,
+) -> None:
     text = "A short paragraph with a complete thought."
     docs = [RawDocument(text, {"source": "guide.txt", "custom": "kept"})]
+
     if isinstance(splitter, LangchainDocumentSplitter):
         chunks = splitter.split(docs, domain=DocDomain.GENERAL.value)
     else:
         chunks = splitter.split(docs, SplitContext())
+
     assert len(chunks) == 1
     assert chunks[0].page_content == text
     assert chunks[0].metadata["custom"] == "kept"
 
 
-def test_table_batches_repeat_header_and_preserve_all_rows():
+def test_table_batches_repeat_header_and_preserve_all_rows() -> None:
     rows = [f"| item-{i} | {i} |" for i in range(31)]
     table = "| Name | Fee |\n|---|---|\n" + "\n".join(rows)
     chunks = split_documents(
@@ -90,7 +101,7 @@ def test_table_batches_repeat_header_and_preserve_all_rows():
     assert [row for c in chunks for row in c.page_content.splitlines()[2:]] == rows
 
 
-def test_split_documents_empty_input_and_final_positions():
+def test_split_documents_empty_input_and_final_positions() -> None:
     assert split_documents([]) == []
     docs = [Document(page_content="word " * 200, metadata={"source": "guide.txt"})]
     chunks = split_documents(docs)

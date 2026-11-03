@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from domain.benchmark.question import BenchmarkQuestion, validate_annotations, validate_history
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import func, select
+
+from domain.benchmark.question import BenchmarkQuestion, validate_annotations, validate_history
 from infrastructure.database.models import BenchmarkQuestionModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.sql import Select
 
 
 class SQLAlchemyBenchmarkQuestionRepository:
@@ -39,7 +45,7 @@ class SQLAlchemyBenchmarkQuestionRepository:
         offset: int = 0,
     ) -> list[BenchmarkQuestion]:
         stmt = select(BenchmarkQuestionModel).order_by(BenchmarkQuestionModel.creation_date.desc())
-        stmt = self._apply_filters(stmt, dataset=dataset, tag=tag, search=search, is_active=is_active)
+        stmt = self.apply_filters(stmt, dataset=dataset, tag=tag, search=search, is_active=is_active)
         stmt = stmt.offset(offset).limit(limit)
         result = await self._db.execute(stmt)
         return [self._to_entity(orm) for orm in result.scalars().all()]
@@ -53,7 +59,7 @@ class SQLAlchemyBenchmarkQuestionRepository:
         is_active: bool | None = None,
     ) -> int:
         stmt = select(func.count()).select_from(BenchmarkQuestionModel)
-        stmt = self._apply_filters(stmt, dataset=dataset, tag=tag, search=search, is_active=is_active)
+        stmt = self.apply_filters(stmt, dataset=dataset, tag=tag, search=search, is_active=is_active)
         result = await self._db.execute(stmt)
         return result.scalar_one()
 
@@ -76,7 +82,7 @@ class SQLAlchemyBenchmarkQuestionRepository:
         await self._db.refresh(orm)
         return self._to_entity(orm)
 
-    async def update(self, question_id: int, **fields) -> BenchmarkQuestion | None:
+    async def update(self, question_id: int, **fields: object) -> BenchmarkQuestion | None:
         if "annotations" in fields:
             fields["annotations"] = validate_annotations(fields["annotations"])
 
@@ -144,7 +150,14 @@ class SQLAlchemyBenchmarkQuestionRepository:
         return {row[0]: row[1] for row in result.all()}
 
     @staticmethod
-    def _apply_filters(stmt, *, dataset=None, tag=None, search=None, is_active=None):
+    def apply_filters[T: tuple[Any, ...]](
+        stmt: Select[T],
+        *,
+        dataset: str | None = None,
+        tag: str | None = None,
+        search: str | None = None,
+        is_active: bool | None = None,
+    ) -> Select[T]:
         if dataset is not None:
             stmt = stmt.where(BenchmarkQuestionModel.dataset == dataset)
 

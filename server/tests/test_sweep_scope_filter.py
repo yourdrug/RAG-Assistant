@@ -1,21 +1,22 @@
 """Sweep scoring must honor the exclusions made while caching reranker scores."""
 
-from infrastructure.benchmark.sweep.settings import settings_snapshot
+from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import pytest
 from langchain.schema import Document
+import pytest
 
 from infrastructure.benchmark.sweep.reranking import cache_reranker_scores
 from infrastructure.benchmark.sweep.scoring import score_config_cheap
+from infrastructure.benchmark.sweep.settings import settings_snapshot
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sparse_only", [False, True])
 @pytest.mark.parametrize("include_matching", [False, True])
-async def test_phase_a_honors_query_scope_exclusions(sparse_only, include_matching):
+async def test_phase_a_honors_query_scope_exclusions(sparse_only: bool, include_matching: bool) -> None:
     query = "Как часто передавать сведения о товарах, не включённых в перечень?"
     conflicting = Document(
         page_content="Сведения о товарах, включённых в перечень, передаются ежедневно.",
@@ -26,8 +27,10 @@ async def test_phase_a_honors_query_scope_exclusions(sparse_only, include_matchi
         metadata={"source": "law.pdf"},
     )
     candidates = {"conflicting": conflicting}
+
     if include_matching:
         candidates["matching"] = matching
+
     dense = {} if sparse_only else {query: [(h, 1.0, doc) for h, doc in candidates.items()]}
     sparse = {query: [(h, 1.0) for h in candidates]} if sparse_only else {}
     questions = [{"question": query, "source_hint": "law.pdf"}]
@@ -53,7 +56,7 @@ async def test_phase_a_honors_query_scope_exclusions(sparse_only, include_matchi
     assert metrics["avg_mrr"] == int(include_matching)
 
 
-def test_phase_a_does_not_hide_missing_scores_for_eligible_candidates():
+def test_phase_a_does_not_hide_missing_scores_for_eligible_candidates() -> None:
     doc = Document(page_content="Relevant evidence", metadata={"source": "law.pdf"})
     with pytest.raises(KeyError, match="eligible"):
         score_config_cheap(

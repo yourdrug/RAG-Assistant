@@ -1,17 +1,20 @@
 """Fail-closed authorization of indexed evidence and cache dependencies."""
 
+from typing import Any, TypeGuard
+
 from application.documents import DocumentAccessPort
 from domain.identity.user_context import UserContext
+from domain.rag.ranking import RetrievalDocument
 
 
-def valid_document_id(value) -> bool:
+def valid_document_id(value: object) -> TypeGuard[int]:
     return type(value) is int and value > 0
 
 
-async def filter_documents(docs: list, access: DocumentAccessPort, user: UserContext) -> list:
-    ids = {
-        doc.metadata.get("document_id") for doc in docs if valid_document_id(doc.metadata.get("document_id"))
-    }
+async def filter_documents[DocumentT: RetrievalDocument](
+    docs: list[DocumentT], access: DocumentAccessPort, user: UserContext
+) -> list[DocumentT]:
+    ids = {value for doc in docs if valid_document_id(value := doc.metadata.get("document_id"))}
     allowed = await access.allowed_document_ids(sorted(ids), user) if ids else set()
     return [
         doc
@@ -20,13 +23,15 @@ async def filter_documents(docs: list, access: DocumentAccessPort, user: UserCon
     ]
 
 
-async def filter_scored_documents(docs: list, access: DocumentAccessPort, user: UserContext) -> list:
+async def filter_scored_documents[DocumentT: RetrievalDocument](
+    docs: list[tuple[DocumentT, float]], access: DocumentAccessPort, user: UserContext
+) -> list[tuple[DocumentT, float]]:
     permitted = await filter_documents([doc for doc, _ in docs], access, user)
     permitted_objects = {id(doc) for doc in permitted}
     return [(doc, score) for doc, score in docs if id(doc) in permitted_objects]
 
 
-async def cache_is_accessible(cached: dict, access: DocumentAccessPort, user: UserContext) -> bool:
+async def cache_is_accessible(cached: dict[str, Any], access: DocumentAccessPort, user: UserContext) -> bool:
     dependencies = cached.get("document_ids")
 
     # Old/incomplete entries cannot prove which documents the answer used.
@@ -44,10 +49,11 @@ async def cache_is_accessible(cached: dict, access: DocumentAccessPort, user: Us
         return False
 
     for source in sources:
-        if not isinstance(source, dict) or not valid_document_id(source.get("document_id")):
-            return False
-
-        if source["document_id"] not in required:
+        if (
+            not isinstance(source, dict)
+            or not valid_document_id(source.get("document_id"))
+            or source["document_id"] not in required
+        ):
             return False
 
     return required <= await access.allowed_document_ids(sorted(required), user)

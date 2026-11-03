@@ -1,9 +1,10 @@
 """Deployment-owned exact origins prevent SSRF and provider key forwarding."""
 
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from config import Settings
 from domain.shared.exceptions import ValidationError
+
 
 ENDPOINT_KEYS = frozenset(
     {
@@ -20,28 +21,34 @@ CLOUD_ORIGINS = {
 }
 
 
+FIRST_PRINTABLE_CODEPOINT = 32
+
+
+def validate_endpoint_components(parsed: SplitResult, value: str) -> None:
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or "\\" in value
+        or any(character.isspace() or ord(character) < FIRST_PRINTABLE_CODEPOINT for character in value)
+    ):
+        raise ValueError
+
+
 def endpoint_origin(value: str) -> str:
     try:
         parsed = urlsplit(value)
 
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-            or "\\" in value
-            or any(character.isspace() or ord(character) < 32 for character in value)
-        ):
-            raise ValueError
+        validate_endpoint_components(parsed, value)
 
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        return f"{parsed.scheme}://{parsed.hostname.lower()}:{port}"
+        return f"{parsed.scheme}://{(parsed.hostname or '').lower()}:{port}"
     except ValueError:
-        raise ValidationError(
-            "ML endpoint requires an HTTP(S) URL without credentials, query or fragment"
-        ) from None
+        message = "ML endpoint requires an HTTP(S) URL without credentials, query or fragment"
+        raise ValidationError(message) from None
 
 
 def validate_endpoints(candidate: Settings) -> None:
@@ -58,7 +65,8 @@ def validate_endpoints(candidate: Settings) -> None:
         allowed = {CLOUD_ORIGINS[key]} if key in CLOUD_ORIGINS else internal
 
         if origin not in allowed:
-            raise ValidationError(f"ML endpoint origin is not deployment-approved: {key}")
+            message = f"ML endpoint origin is not deployment-approved: {key}"
+            raise ValidationError(message)
 
 
 def validate_pools(candidate: Settings) -> None:

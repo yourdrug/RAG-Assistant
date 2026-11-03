@@ -19,8 +19,8 @@ from infrastructure.benchmark.judging.judge_rubric import (
     JUDGE_RUBRIC_VERSION,
 )
 from infrastructure.benchmark.sweep.scoring import compute_composite_score
-from fakes import FakeUnitOfWorkFactory
-from test_grouped_benchmark_judge import JudgeClient, case, generator, requested_metrics, response
+from tests.fakes import FakeUnitOfWorkFactory
+from tests.test_grouped_benchmark_judge import JudgeClient, case, generator, requested_metrics, response
 
 
 def test_both_judge_paths_use_the_same_claim_support_criteria():

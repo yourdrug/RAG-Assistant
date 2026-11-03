@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
-
+from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage
 
 from infrastructure.ml.evidence_profiles.belarus.focus import MAX_FOCUS_CHARS
-from typing import TYPE_CHECKING
+from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+
 
 if TYPE_CHECKING:
-    from langchain_core.prompts import ChatPromptTemplate
     from langchain_core.messages import BaseMessage
+    from langchain_core.prompts import ChatPromptTemplate
 
 
 def format_generation_messages(

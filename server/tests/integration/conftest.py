@@ -1,6 +1,9 @@
 """PostgreSQL contract tests, isolated in a disposable schema per test."""
 
+from __future__ import annotations
+
 import os
+from typing import TYPE_CHECKING
 import uuid
 
 from alembic import command
@@ -11,17 +14,26 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 
-def upgrade_schema(connection):
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from sqlalchemy.engine import Connection
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+
+def upgrade_schema(connection: Connection) -> None:
     config = Config("alembic.ini")
     config.attributes["connection"] = connection
     command.upgrade(config, "head")
 
 
 @pytest_asyncio.fixture
-async def pg_engine():
+async def pg_engine() -> AsyncIterator[AsyncEngine]:
     url = os.environ.get("TEST_POSTGRES_URL")
+
     if not url:
         pytest.skip("Set TEST_POSTGRES_URL for PostgreSQL integration tests")
+
     schema = f"test_{uuid.uuid4().hex}"
     admin = create_async_engine(url)
     async with admin.begin() as conn:

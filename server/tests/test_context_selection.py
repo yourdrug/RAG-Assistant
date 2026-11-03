@@ -1,11 +1,15 @@
 """Context packing regressions: priority, complete blocks and full-prompt budget."""
 
+from __future__ import annotations
+
 from dataclasses import asdict, replace
 import json
 from pathlib import Path
 import runpy
+from typing import Any
 from unittest.mock import MagicMock
 
+from langchain_core.messages import HumanMessage
 import pytest
 
 from domain.rag.exceptions import ContextBudgetExceededError
@@ -18,16 +22,16 @@ from infrastructure.ml.rag.context_selection import ExclusionReason
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens, estimate_text_tokens
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection, render_selected_docs
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, rerank_documents
-from rag_stage_fixtures import build_context as step_build_context
-from test_rag_improvements import doc, state_for
+from tests.rag_stage_fixtures import build_context as step_build_context
+from tests.test_rag_improvements import doc, state_for
 
 
-def test_relevance_selection_precedes_document_grouping():
+def test_relevance_selection_precedes_document_grouping() -> None:
     first = (doc("Most relevant evidence " * 5, 1), 0.99)
     weak = (doc("Low priority table rows " * 5, 1), 0.1)
     amendment = (doc("Important amendment " * 5, 2), 0.98)
     expected, _ = render_selected_docs([first, amendment])
-    exclusions = []
+    exclusions: list[dict[str, Any]] = []
     context, selected = format_docs_with_selection(
         [first, weak, amendment], estimate_text_tokens(expected), exclusions=exclusions
     )
@@ -36,7 +40,7 @@ def test_relevance_selection_precedes_document_grouping():
     assert [item["reason"] for item in exclusions] == [ExclusionReason.BUDGET]
 
 
-def test_marginal_coverage_prioritizes_an_uncovered_question_part():
+def test_marginal_coverage_prioritizes_an_uncovered_question_part() -> None:
     docs = [
         (doc("registration passport", 1), 0.99),
         (doc("registration extra form", 1), 0.98),
@@ -45,7 +49,7 @@ def test_marginal_coverage_prioritizes_an_uncovered_question_part():
     ]
 
     # Only two blocks fit, regardless of their lengths.
-    def counter(text):
+    def counter(text: str) -> int:
         return text.count("same.pdf")
 
     _, selected = format_docs_with_selection(
@@ -54,7 +58,7 @@ def test_marginal_coverage_prioritizes_an_uncovered_question_part():
     assert [d.page_content for d, _ in selected] == ["registration passport", "delivery invoice"]
 
 
-def test_rejected_oversized_block_does_not_mark_question_part_as_covered():
+def test_rejected_oversized_block_does_not_mark_question_part_as_covered() -> None:
     docs = [
         (doc("registration", 1), 1.0),
         (doc("delivery invoice " * 100, 2), 0.99),
@@ -66,13 +70,13 @@ def test_rejected_oversized_block_does_not_mark_question_part_as_covered():
     assert "delivery invoice" in [d.page_content for d, _ in selected]
 
 
-def test_duplicate_and_oversized_decisions_preserve_complete_parent_scope():
+def test_duplicate_and_oversized_decisions_preserve_complete_parent_scope() -> None:
     parent = "Only organizations meeting all conditions. " * 100
     oversized = doc("Submit the form.", 3)
     oversized.metadata["parent_units"] = [{"content": parent}]
     first = doc("Duplicate statement.", 1)
     duplicate = doc("Duplicate statement.", 1)
-    exclusions = []
+    exclusions: list[dict[str, Any]] = []
     context, selected = format_docs_with_selection(
         [(first, 1.0), (duplicate, 0.9), (oversized, 0.8)], 50, exclusions=exclusions
     )
@@ -85,12 +89,12 @@ def test_duplicate_and_oversized_decisions_preserve_complete_parent_scope():
     assert oversized.metadata["parent_units"][0]["content"] == parent
 
 
-def test_equal_text_with_different_source_or_parent_scope_is_not_a_duplicate():
+def test_equal_text_with_different_source_or_parent_scope_is_not_a_duplicate() -> None:
     first = doc("Required statement.", 1)
     other_source = doc("Required statement.", 2)
     scoped = doc("Required statement.", 1)
     scoped.metadata["parent_units"] = [{"content": "Only for legal entities."}]
-    exclusions = []
+    exclusions: list[dict[str, Any]] = []
     _, selected = format_docs_with_selection(
         [(first, 1.0), (other_source, 0.9), (scoped, 0.8)], exclusions=exclusions
     )
@@ -98,16 +102,15 @@ def test_equal_text_with_different_source_or_parent_scope_is_not_a_duplicate():
     assert exclusions == []
 
 
-def test_cyrillic_context_and_messages_share_the_same_estimate():
+def test_cyrillic_context_and_messages_share_the_same_estimate() -> None:
     text = "Условия применения: организация и грузополучатель."
-    from langchain_core.messages import HumanMessage
 
     assert estimate_message_tokens([HumanMessage(content=text)]) == 15 + estimate_text_tokens(text)
     context, _ = format_docs_with_selection([(doc(text * 20, 1), 1.0)], 100)
     assert context == ""
 
 
-def test_pipeline_keeps_high_score_from_another_section_with_full_prompt_counter():
+def test_pipeline_keeps_high_score_from_another_section_with_full_prompt_counter() -> None:
     docs = [
         (doc("Primary evidence " * 40, 1), 0.99),
         (doc("Unimportant rows " * 40, 1), 0.1),
@@ -129,15 +132,20 @@ def test_pipeline_keeps_high_score_from_another_section_with_full_prompt_counter
         active_evidence.reset(token)
     assert len(retrieved) == 3
     assert {d.metadata["document_id"] for d, _ in state._prompt_docs} == {1, 2}
+    assert docs[1][0] is not None
+    assert evidence.context is not None
     assert docs[1][0].page_content not in evidence.context
+    assert evidence.prompt_budget is not None
     assert evidence.prompt_budget["input_tokens"] + state.rag.llm_num_predict_narrow == limit
+    assert evidence is not None
+    assert evidence.prompt_candidates is not None
     assert len(evidence.prompt_candidates) == 3
     assert evidence.exclusions[0]["reason"] == ExclusionReason.BUDGET
     assert all(any(state.question in m.content for m in call.args[0]) for call in counter.call_args_list)
     assert all("citation_id" not in d.metadata for d, _ in docs)
 
 
-def test_no_fitting_block_preserves_exclusion_before_raising():
+def test_no_fitting_block_preserves_exclusion_before_raising() -> None:
     state = state_for([(doc("Very large block " * 10000, 1), 0.99)])
     evidence = BenchmarkEvidence()
     token = active_evidence.set(evidence)
@@ -151,7 +159,7 @@ def test_no_fitting_block_preserves_exclusion_before_raising():
 
 
 @pytest.mark.asyncio
-async def test_reranker_threshold_and_dedup_diagnostics_survive_prompt_capture():
+async def test_reranker_threshold_and_dedup_diagnostics_survive_prompt_capture() -> None:
     docs = [doc("Best", 1), doc("Below score gap", 2), doc("Below minimum", 3)]
     evidence = BenchmarkEvidence()
     token = active_evidence.set(evidence)
@@ -176,19 +184,23 @@ async def test_reranker_threshold_and_dedup_diagnostics_survive_prompt_capture()
     ]
     restored = BenchmarkEvidence(**asdict(evidence))
     assert restored == evidence
-    assert BenchmarkEvidence(**{"retrieved": [], "selected": [], "context": ""}).exclusions == []
+    assert BenchmarkEvidence(retrieved=[], selected=[], context="").exclusions == []
 
 
 @pytest.fixture(scope="module")
-def saved_snapshot_replay():
+def saved_snapshot_replay() -> dict[str, Any]:
     root = Path(__file__).resolve().parents[2]
     script = root / "scripts/benchmark/replay_context_snapshots.py"
     snapshot = Path(__file__).parent / "fixtures" / "context_budget_replay.json"
-    return runpy.run_path(str(script))["replay"](json.loads(snapshot.read_text(encoding="utf-8")))
+    result = runpy.run_path(str(script))["replay"](json.loads(snapshot.read_text(encoding="utf-8")))
+    assert isinstance(result, dict)
+    return result
 
 
 @pytest.mark.parametrize("question_id", [136, 140, 154, 158])
-def test_saved_snapshot_loss_is_reproduced_and_repaired(saved_snapshot_replay, question_id):
+def test_saved_snapshot_loss_is_reproduced_and_repaired(
+    saved_snapshot_replay: dict[str, Any], question_id: int
+) -> None:
     question = next(q for q in saved_snapshot_replay["questions"] if q["id"] == question_id)
     assert question["legacy_context_exact_match"]
     legacy = question["variants"]["legacy"]

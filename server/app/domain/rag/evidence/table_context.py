@@ -41,14 +41,11 @@ def focused_table_content(doc: RetrievalDocument, query: str) -> tuple[str, dict
 
     rows = body.splitlines()
 
-    if len(rows) != high - low + 1:
-        return None
-
-    matches = []
-
-    for offset, row in enumerate(rows):
-        if row_matches_query(row, query):
-            matches.append(offset)
+    matches = (
+        [offset for offset, row in enumerate(rows) if row_matches_query(row, query)]
+        if len(rows) == high - low + 1
+        else []
+    )
 
     if len(matches) != 1:
         return None
@@ -86,7 +83,7 @@ def row_matches_query(row: str, query: str) -> bool:
     candidates = [cells[0].strip()]
 
     if len(cells) > 1:
-        name = re.sub(r"‹br›|<br\s*/?>|\b(?:an|n|a)\.\.\d+", " ", cells[1])
+        name = re.sub(r"\u2039br\u203a|<br\s*/?>|\b(?:an|n|a)\.\.\d+", " ", cells[1])
         name = re.sub(r"\s+", " ", name).strip()
 
         if name and not name.isdigit():

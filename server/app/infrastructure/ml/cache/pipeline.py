@@ -3,21 +3,35 @@
 Extracted from RagService to isolate cache I/O from pipeline orchestration.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Unpack
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from langchain_core.documents import Document
+
+    from application.chat.ports import PIIRedactorPort
+    from application.rag.stream_events import StreamEvent
+    from domain.rag.settings import RagSettings
+    from infrastructure.ml.cache.answers import CacheOptions
+
 import logging
 import time
-from collections.abc import AsyncIterator
 
+from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, TextChunk
 from domain.rag.breadth import Breadth
-from domain.rag.settings import RagSettings
-from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, StreamEvent, TextChunk
-from infrastructure.ml.cache.answers import find_cached_answer, store_cached_answer
-from infrastructure.ml.guardrails.output_scanner import OutputScanner
 from infrastructure.metrics.metrics import (
     RAG_CACHE_HITS_TOTAL,
     RAG_CACHE_MISSES_TOTAL,
     RAG_STAGE_DURATION,
     record_rag_answer,
 )
+from infrastructure.ml.cache.answers import find_cached_answer, store_cached_answer
+from infrastructure.ml.guardrails.output_scanner import OutputScanner
+
 
 log = logging.getLogger("default")
 
@@ -27,7 +41,7 @@ async def check_cache(
     q_hash: str,
     vis_hash: str,
     expected_revision: str | None = None,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Look up cached answer. Returns cache entry or None on miss."""
     if not rag.features.cache_enabled:
         return None
@@ -46,11 +60,11 @@ async def check_cache(
 
 
 async def handle_cache_hit(
-    cached: dict,
+    cached: dict[str, Any],
     q_hash: str,
     t_pipeline_start: float,
     rag: RagSettings | None = None,
-    pii_redactor=None,
+    pii_redactor: PIIRedactorPort | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Yield events for a cache hit (answer text + sources)."""
     RAG_CACHE_HITS_TOTAL.inc()
@@ -75,14 +89,14 @@ async def handle_cache_hit(
 
 
 async def store_answer_cache(
-    docs: list,
+    docs: list[tuple[Document, float]],
     query_for_search: str,
     q_hash: str,
     vis_hash: str,
     full_answer: str,
-    sources: list[dict],
-    cache_enabled: bool = True,
-    expected_revision: str | None = None,
+    *,
+    sources: list[dict[str, Any]],
+    **options: Unpack[CacheOptions],
 ) -> None:
     """Persist answer to cache for future lookups."""
     doc_ids = []
@@ -100,6 +114,5 @@ async def store_answer_cache(
         sources=sources,
         visibility_scope_hash=vis_hash,
         document_ids=doc_ids,
-        cache_enabled=cache_enabled,
-        expected_revision=expected_revision,
+        **options,
     )

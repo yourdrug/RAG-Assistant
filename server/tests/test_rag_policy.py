@@ -16,12 +16,11 @@ from __future__ import annotations
 
 import sys
 
+
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
 
-from infrastructure.domain_profile.answer_policy import classify_query_domain
-from infrastructure.ml.rag.prompts import (
-    build_system_prompt,
-)
+from domain.knowledge.enums import DocDomain
+from domain.rag.breadth import Breadth
 from domain.rag.classification import (
     classify_question_breadth,
     has_exact_reference,
@@ -29,8 +28,10 @@ from domain.rag.classification import (
     needs_decomposition,
     should_enumerate_cases,
 )
-from domain.knowledge.enums import DocDomain
-from domain.rag.breadth import Breadth
+from infrastructure.domain_profile.answer_policy import classify_query_domain
+from infrastructure.ml.rag.prompts import (
+    build_system_prompt,
+)
 
 
 # ===========================================================================
@@ -43,58 +44,58 @@ class TestClassifyQuestionBreadth:
 
     # --- Narrow overrides (high priority) ---
 
-    def test_how_to_check_is_narrow(self):
+    def test_how_to_check_is_narrow(self) -> None:
         assert classify_question_breadth("Как проверить статус маркировки?") == Breadth.NARROW
 
-    def test_where_to_find_is_narrow(self):
+    def test_where_to_find_is_narrow(self) -> None:
         assert classify_question_breadth("Где скачать форму заявления?") == Breadth.NARROW
 
-    def test_what_is_narrow(self):
+    def test_what_is_narrow(self) -> None:
         assert classify_question_breadth("Что такое ЭТТН?") == Breadth.NARROW
 
-    def test_which_exceptions_is_narrow(self):
+    def test_which_exceptions_is_narrow(self) -> None:
         assert classify_question_breadth("Какие исключения из правила?") == Breadth.NARROW
 
-    def test_why_is_narrow(self):
+    def test_why_is_narrow(self) -> None:
         assert classify_question_breadth("Почему отклонили заявку?") == Breadth.NARROW
 
-    def test_can_i_is_narrow(self):
+    def test_can_i_is_narrow(self) -> None:
         assert classify_question_breadth("Можно ли подать заявку онлайн?") == Breadth.NARROW
 
     # --- Broad patterns ---
 
-    def test_detailed_is_broad(self):
+    def test_detailed_is_broad(self) -> None:
         assert classify_question_breadth("Подробно опиши процесс маркировки") == Breadth.BROAD
 
-    def test_explain_everything_is_broad(self):
+    def test_explain_everything_is_broad(self) -> None:
         assert classify_question_breadth("Объясни всё про штрафы") == Breadth.BROAD
 
-    def test_tell_about_is_broad(self):
+    def test_tell_about_is_broad(self) -> None:
         assert classify_question_breadth("Расскажи про систему маркировки") == Breadth.BROAD
 
-    def test_how_works_is_broad(self):
+    def test_how_works_is_broad(self) -> None:
         assert classify_question_breadth("Как работает процесс оформления?") == Breadth.BROAD
 
-    def test_order_of_is_broad(self):
+    def test_order_of_is_broad(self) -> None:
         assert classify_question_breadth("Порядок получения кодов маркировки") == Breadth.BROAD
 
-    def test_all_conditions_is_broad(self):
+    def test_all_conditions_is_broad(self) -> None:
         assert classify_question_breadth("Какие условия для получения?") == Breadth.BROAD
 
-    def test_list_is_broad(self):
+    def test_list_is_broad(self) -> None:
         assert classify_question_breadth("Список документов для подачи") == Breadth.BROAD
 
     # --- Default ---
 
-    def test_short_question_defaults_to_narrow(self):
+    def test_short_question_defaults_to_narrow(self) -> None:
         assert classify_question_breadth("Статус заявки?") == Breadth.NARROW
 
-    def test_empty_string_is_narrow(self):
+    def test_empty_string_is_narrow(self) -> None:
         assert classify_question_breadth("") == Breadth.NARROW
 
     # --- Override priority ---
 
-    def test_narrow_override_wins_over_broad_pattern(self):
+    def test_narrow_override_wins_over_broad_pattern(self) -> None:
         # "Как проверить" is narrow override, even though it could match broad patterns
         q = "Как проверить статус заявки подробно"
         assert classify_question_breadth(q) == Breadth.NARROW
@@ -108,22 +109,22 @@ class TestClassifyQuestionBreadth:
 class TestNeedsDecomposition:
     """Business rule: detect compound questions that benefit from decomposition."""
 
-    def test_compare_x_and_y(self):
+    def test_compare_x_and_y(self) -> None:
         assert needs_decomposition("Сравни маркировку и сертификацию") is True
 
-    def test_tell_about_x_and_y(self):
+    def test_tell_about_x_and_y(self) -> None:
         assert needs_decomposition("Расскажи про штрафы и про порядок обжалования") is True
 
-    def test_how_x_and_y(self):
+    def test_how_x_and_y(self) -> None:
         assert needs_decomposition("Как оформить заявку и как получить код?") is True
 
-    def test_simple_question_no_decomposition(self):
+    def test_simple_question_no_decomposition(self) -> None:
         assert needs_decomposition("Какой статус заявки?") is False
 
-    def test_empty_string(self):
+    def test_empty_string(self) -> None:
         assert needs_decomposition("") is False
 
-    def test_single_topic_no_decomposition(self):
+    def test_single_topic_no_decomposition(self) -> None:
         assert needs_decomposition("Порядок получения кодов маркировки") is False
 
 
@@ -135,46 +136,46 @@ class TestNeedsDecomposition:
 class TestShouldEnumerateCases:
     """Business rule: detect when context has conditional/exclusive rules."""
 
-    def test_single_chunk_not_enough(self):
+    def test_single_chunk_not_enough(self) -> None:
         assert should_enumerate_cases(["один чанк"]) is False
 
-    def test_empty_context(self):
+    def test_empty_context(self) -> None:
         assert should_enumerate_cases([]) is False
 
-    def test_two_chunks_with_conditions(self):
+    def test_two_chunks_with_conditions(self) -> None:
         texts = [
             "В случае нарушения штраф 10000 руб.",
             "При условии соответствия выдаётся сертификат",
         ]
         assert should_enumerate_cases(texts) is True
 
-    def test_two_chunks_without_conditions(self):
+    def test_two_chunks_without_conditions(self) -> None:
         texts = [
             "Маркировка товаров обязательна",
             "Коды выдаются оператором",
         ]
         assert should_enumerate_cases(texts) is False
 
-    def test_one_chunk_with_conditions_not_enough(self):
+    def test_one_chunk_with_conditions_not_enough(self) -> None:
         texts = ["В случае нарушения штраф 10000 руб."]
         assert should_enumerate_cases(texts) is False
 
-    def test_percentage_in_context(self):
+    def test_percentage_in_context(self) -> None:
         texts = ["Штраф составляет 5% от суммы", "НДС 20% от стоимости"]
         assert should_enumerate_cases(texts) is True
 
-    def test_exception_marker(self):
+    def test_exception_marker(self) -> None:
         texts = [
             "За исключением случаев force majeure",
             "При условии соответствия выдаётся сертификат",
         ]
         assert should_enumerate_cases(texts) is True
 
-    def test_none_entries_in_context(self):
+    def test_none_entries_in_context(self) -> None:
         texts = [None, "В случае нарушения штраф", "При условии оплаты"]
         assert should_enumerate_cases(texts) is True
 
-    def test_empty_string_entries(self):
+    def test_empty_string_entries(self) -> None:
         texts = ["", "В случае нарушения штраф", "При условии оплаты"]
         assert should_enumerate_cases(texts) is True
 
@@ -189,50 +190,50 @@ class TestIsOutOfDomain:
 
     # --- Corporate questions (in domain) ---
 
-    def test_markeeringa_question_is_in_domain(self):
+    def test_markeeringa_question_is_in_domain(self) -> None:
         assert is_out_of_domain("Как оформить маркировку товаров?") is False
 
-    def test_shtrafy_question_is_in_domain(self):
+    def test_shtrafy_question_is_in_domain(self) -> None:
         assert is_out_of_domain("Какие штрафы за нарушение?") is False
 
-    def test_poryadok_question_is_in_domain(self):
+    def test_poryadok_question_is_in_domain(self) -> None:
         assert is_out_of_domain("Порядок получения кодов") is False
 
     # --- Out of domain ---
 
-    def test_codeforces_is_out_of_domain(self):
+    def test_codeforces_is_out_of_domain(self) -> None:
         assert is_out_of_domain("Реши задачу Codeforces 1234A") is True
 
-    def test_leetcode_is_out_of_domain(self):
+    def test_leetcode_is_out_of_domain(self) -> None:
         assert is_out_of_domain("Algorithm for LeetCode problem") is True
 
-    def test_recipe_is_out_of_domain(self):
+    def test_recipe_is_out_of_domain(self) -> None:
         assert is_out_of_domain("рецепта готовки борща") is True
 
-    def test_weather_is_out_of_domain(self):
+    def test_weather_is_out_of_domain(self) -> None:
         assert is_out_of_domain("Прогноз погоды на завтра") is True
 
-    def test_horoscope_is_out_of_domain(self):
+    def test_horoscope_is_out_of_domain(self) -> None:
         assert is_out_of_domain("Гороскоп на сегодня") is True
 
-    def test_newton_laws_is_out_of_domain(self):
+    def test_newton_laws_is_out_of_domain(self) -> None:
         assert is_out_of_domain("Закона Ньютона в физике") is True
 
-    def test_tutorial_is_out_of_domain(self):
+    def test_tutorial_is_out_of_domain(self) -> None:
         assert is_out_of_domain("Tutorial: как написать скрипт на Python") is True
 
-    def test_quantum_mechanics_is_out_of_domain(self):
+    def test_quantum_mechanics_is_out_of_domain(self) -> None:
         assert is_out_of_domain("Квантовая механика для начинающих") is True
 
-    def test_algorithm_is_out_of_domain(self):
+    def test_algorithm_is_out_of_domain(self) -> None:
         assert is_out_of_domain("Алгоритм быстрой сортировки") is True
 
     # --- Edge cases ---
 
-    def test_empty_string_is_in_domain(self):
+    def test_empty_string_is_in_domain(self) -> None:
         assert is_out_of_domain("") is False
 
-    def test_case_insensitive(self):
+    def test_case_insensitive(self) -> None:
         assert is_out_of_domain("CODEFORCES задача") is True
 
 
@@ -244,19 +245,19 @@ class TestIsOutOfDomain:
 class TestClassifyQueryDomain:
     """Business rule: classify query as legal or general."""
 
-    def test_legal_question_with_article(self):
+    def test_legal_question_with_article(self) -> None:
         assert classify_query_domain("Статья 15 ФЗ-XXX говорит о") == DocDomain.LEGAL
 
-    def test_legal_question_with_clause(self):
+    def test_legal_question_with_clause(self) -> None:
         assert classify_query_domain("Пункт 3.2 договора") == DocDomain.LEGAL
 
-    def test_legal_question_with_accordance(self):
+    def test_legal_question_with_accordance(self) -> None:
         assert classify_query_domain("В соответствии с законом") == DocDomain.LEGAL
 
-    def test_general_question(self):
+    def test_general_question(self) -> None:
         assert classify_query_domain("Какой статус заявки?") == DocDomain.GENERAL
 
-    def test_general_question_empty(self):
+    def test_general_question_empty(self) -> None:
         assert classify_query_domain("") == DocDomain.GENERAL
 
 
@@ -268,25 +269,25 @@ class TestClassifyQueryDomain:
 class TestHasExactReference:
     """Business rule: detect structural references in questions."""
 
-    def test_article_reference(self):
+    def test_article_reference(self) -> None:
         assert has_exact_reference("Что говорит статья 15?") is True
 
-    def test_clause_reference(self):
+    def test_clause_reference(self) -> None:
         assert has_exact_reference("Пункт 3.2 договора") is True
 
-    def test_section_reference(self):
+    def test_section_reference(self) -> None:
         assert has_exact_reference("Раздел 2 документа") is True
 
-    def test_chapter_reference(self):
+    def test_chapter_reference(self) -> None:
         assert has_exact_reference("Глава 1 описывает") is True
 
-    def test_no_reference(self):
+    def test_no_reference(self) -> None:
         assert has_exact_reference("Общая информация о маркировке") is False
 
-    def test_empty_string(self):
+    def test_empty_string(self) -> None:
         assert has_exact_reference("") is False
 
-    def test_abbreviated_forms(self):
+    def test_abbreviated_forms(self) -> None:
         assert has_exact_reference("ст. 15 ФЗ") is True
         assert has_exact_reference("п. 3.2") is True
 
@@ -299,19 +300,19 @@ class TestHasExactReference:
 class TestBuildSystemPrompt:
     """Business rule: prompt construction depends on breadth and context."""
 
-    def test_narrow_prompt_brief(self):
+    def test_narrow_prompt_brief(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.NARROW)
         assert "КРАТКО" in prompt
 
-    def test_broad_prompt_detailed(self):
+    def test_broad_prompt_detailed(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=True)
         assert "подпунктам" in prompt.lower() or "ПОДПУНКТАМ" in prompt
 
-    def test_broad_prompt_without_enumerate(self):
+    def test_broad_prompt_without_enumerate(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=False)
         assert "conditional_rules_expansion" not in prompt
 
-    def test_domain_addendum_appears_in_prompt(self):
+    def test_domain_addendum_appears_in_prompt(self) -> None:
         prompt = build_system_prompt(
             breadth=Breadth.NARROW,
             domain_addendum="Обязательно указывай номер статьи/пункта.",
@@ -319,11 +320,11 @@ class TestBuildSystemPrompt:
         assert "domain_specific_rules" in prompt
         assert "Обязательно указывай номер статьи/пункта." in prompt
 
-    def test_no_domain_addendum_no_domain_block(self):
+    def test_no_domain_addendum_no_domain_block(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.NARROW)
         assert "domain_specific_rules" not in prompt
 
-    def test_domain_addendum_overrides_generic_rules(self):
+    def test_domain_addendum_overrides_generic_rules(self) -> None:
         prompt = build_system_prompt(
             breadth=Breadth.NARROW,
             domain_addendum="Дополнительное правило домена",
@@ -331,6 +332,6 @@ class TestBuildSystemPrompt:
         assert "Дополнительное правило домена" in prompt
         assert "domain_specific_rules" in prompt
 
-    def test_not_found_phrase_in_prompt(self):
+    def test_not_found_phrase_in_prompt(self) -> None:
         prompt = build_system_prompt()
         assert "Информация не найдена в документах" in prompt

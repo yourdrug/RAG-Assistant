@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from domain.knowledge.access_control import VisibilityCondition
-
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+
 if TYPE_CHECKING:
-    from domain.ingestion.profiles.registry import DomainProfileRegistry
     from langchain_core.documents import Document
     from langchain_core.messages import BaseMessage
 
-from domain.identity.user_context import UserContext
-from domain.rag.breadth import Breadth
-from domain.rag.context import RagContext
-from domain.rag.settings import RagSettings
+    from domain.identity.user_context import UserContext
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.knowledge.access_control import VisibilityCondition
+    from domain.rag.breadth import Breadth
+    from domain.rag.context import RagContext
+    from domain.rag.settings import RagSettings
 
 
 @dataclass

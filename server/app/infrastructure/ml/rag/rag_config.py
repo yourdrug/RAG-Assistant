@@ -11,8 +11,8 @@ from domain.rag.settings import (
     RerankConfig,
     RetrieverConfig,
 )
-
 from infrastructure.ml.config.settings_adapters import LiveRagSettings
+
 
 if TYPE_CHECKING:
     from application.ports.rag_settings import RagSettingsPort

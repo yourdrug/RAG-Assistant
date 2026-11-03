@@ -1,5 +1,8 @@
 """Saved answer coverage remains available across history selections."""
 
+from __future__ import annotations
+
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -12,7 +15,9 @@ from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository i
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stored", [{}, {"avg_answer_condition_coverage": None}])
-async def test_history_recovers_missing_answer_coverage_without_changing_stored_data(stored):
+async def test_history_recovers_missing_answer_coverage_without_changing_stored_data(
+    stored: dict[str, Any],
+) -> None:
     row = BenchmarkRunModel(
         id=12,
         summary_metrics=stored,
@@ -26,14 +31,16 @@ async def test_history_recovers_missing_answer_coverage_without_changing_stored_
 
     run = await repository.get_by_id(12)
 
+    assert run is not None
     assert run.summary_metrics["avg_answer_condition_coverage"] == 0.6667
+    assert run is not None
     assert run.summary_metrics["answer_condition_coverage_evaluated_count"] == 6
     assert row.summary_metrics == stored
     assert "answer_condition_coverage_evaluated_count" not in row.summary_metrics
 
 
 @pytest.mark.asyncio
-async def test_history_preserves_saved_averages_and_unmeasured_metrics():
+async def test_history_preserves_saved_averages_and_unmeasured_metrics() -> None:
     row = BenchmarkRunModel(
         id=12,
         summary_metrics={"avg_answer_condition_coverage": 0.75},
@@ -44,5 +51,7 @@ async def test_history_preserves_saved_averages_and_unmeasured_metrics():
 
     run = await SQLAlchemyBenchmarkRunRepository(db).get_by_id(12)
 
+    assert run is not None
     assert run.summary_metrics["avg_answer_condition_coverage"] == 0.75
+    assert run is not None
     assert run.summary_metrics.get("avg_answer_fact_coverage") is None

@@ -1,5 +1,9 @@
 """Tests for chunk mutations and manual-document creation."""
 
+from application.ports.cache_invalidator import CacheInvalidatorPort
+from application.chunks import ChunkSettingsPort
+from typing import Any
+
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock
 
@@ -27,8 +31,8 @@ class _FakeChunkSettings:
     chunk_size: int = 550
 
 
-def _make_doc(**overrides) -> Document:
-    defaults = {
+def _make_doc(**overrides: Any) -> Document:
+    defaults: dict[str, Any] = {
         "id": 1,
         "filename": "test.pdf",
         "visibility": DocumentVisibility.INTERNAL_PUBLIC,
@@ -40,8 +44,8 @@ def _make_doc(**overrides) -> Document:
     return Document(**defaults)
 
 
-def _make_chunk(**overrides) -> ChunkRecord:
-    defaults = {
+def _make_chunk(**overrides: Any) -> ChunkRecord:
+    defaults: dict[str, Any] = {
         "chunk_id": 10,
         "document_id": 1,
         "chunk_index": 0,
@@ -67,7 +71,7 @@ def _make_chunk(**overrides) -> ChunkRecord:
     return ChunkRecord(**defaults)
 
 
-def _make_uow(doc=None, chunk=None, max_index=0):
+def _make_uow(doc: Document | None = None, chunk: ChunkRecord | None = None, max_index: int = 0) -> AsyncMock:
     """Build a mock UoW with document + chunk repos."""
     if doc is None:
         doc = _make_doc()
@@ -91,7 +95,12 @@ def _make_uow(doc=None, chunk=None, max_index=0):
     return uow
 
 
-def _make_service(uow, *, chunk_settings=None, cache_invalidator=None):
+def _make_service(
+    uow: AsyncMock,
+    *,
+    chunk_settings: ChunkSettingsPort | None = None,
+    cache_invalidator: CacheInvalidatorPort | None = None,
+) -> ChunkMutationService:
     factory = MagicMock()
     factory.create.return_value = AsyncMock(
         __aenter__=AsyncMock(return_value=uow),

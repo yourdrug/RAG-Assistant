@@ -12,8 +12,8 @@ from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
-from fakes import FakeUnitOfWorkFactory  # type: ignore[import-not-found]
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 @pytest.mark.asyncio
@@ -36,12 +36,6 @@ async def test_cli_document_waits_for_outbox(
             chunks=[ChunkInsert(content="old text")],
         )
 
-    # The shared fake's status methods are no-ops; record persisted status here.
-    async def update_status(document_id: int, status: str, **kwargs: object) -> None:
-        document = await uow.documents.get_by_id(document_id)
-        document.status = DocumentStatus(status)
-
-    monkeypatch.setattr(uow.documents, "update_status", update_status)
     mark_done = AsyncMock(wraps=uow.documents.mark_done_if_indexing)
     monkeypatch.setattr(uow.documents, "mark_done_if_indexing", mark_done)
 
@@ -51,6 +45,7 @@ async def test_cli_document_waits_for_outbox(
         [RawDocument("new text", {"source": "s3://bucket/test.md"})],
     )
     document = await uow.documents.get_by_id(1)
+    assert document is not None
     assert document.status == DocumentStatus.INDEXING
     vector_store = AsyncMock()
 
@@ -64,7 +59,9 @@ async def test_cli_document_waits_for_outbox(
             await dispatcher._apply_one(entry)
 
     if qdrant_down:
-        assert any(entry.status == OutboxStatus.DEAD_LETTER for entry in uow.vector_outbox._entries.values())
+        assert any(
+            entry.status == OutboxStatus.DEAD_LETTER for entry in await uow.vector_outbox.list_dead_letters()
+        )
         mark_done.assert_not_awaited()
         dto = await DocumentQueryService(factory).enrich_with_outbox_status(
             uow, DocumentDTO.from_entity(document)
@@ -78,7 +75,8 @@ async def test_cli_document_waits_for_outbox(
         )
     else:
         mark_done.assert_awaited_once_with(document.id)
-        assert all(entry.status == OutboxStatus.DONE for entry in uow.vector_outbox._entries.values())
+        assert await uow.vector_outbox.count_pending() == 0
+        assert await uow.vector_outbox.list_dead_letters() == []
 
 
 @pytest.mark.asyncio
@@ -87,6 +85,7 @@ async def test_document_done_requires_every_outbox_entry_done(other_status: Outb
     factory = FakeUnitOfWorkFactory()
     uow = factory._uow
     document = await uow.documents.save(Document(filename="test.md", status=DocumentStatus.INDEXING))
+    assert document.id is not None
     other = await uow.vector_outbox.enqueue(VectorOutboxEntry(aggregate_id=document.id))
     other.status = other_status
     successful = await uow.vector_outbox.enqueue(

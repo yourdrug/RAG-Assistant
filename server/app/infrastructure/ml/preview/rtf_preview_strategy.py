@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
+from domain.ingestion.preview import DryRunPageResult, PreviewUnitKind
 from domain.ingestion.text_quality import classify_content
 from domain.knowledge.enums import PageContentType
-from domain.ingestion.preview import PreviewUnitKind
-
-from domain.ingestion.preview import DryRunPageResult
 from infrastructure.ml.ingestion.rtf import parse_rtf
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
+
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.registry import DomainProfileRegistry
 
@@ -26,8 +26,8 @@ _DECREE_FINGERPRINT_PREFIX_CHARS = 3000
 class RtfPreviewStrategy:
     def __init__(
         self,
-        domain_registry: "DomainProfileRegistry | None" = None,
-        domain_settings: "DomainSettingsPort | None" = None,
+        domain_registry: DomainProfileRegistry | None = None,
+        domain_settings: DomainSettingsPort | None = None,
     ) -> None:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
@@ -82,7 +82,7 @@ class RtfPreviewStrategy:
 
         profile = self._domain_registry.get("decree")
         try:
-            split_units, _doc_metadata = parse_decree_rtf(path, profile, self._domain_settings)  # type: ignore[arg-type]
+            split_units, _doc_metadata = parse_decree_rtf(path, profile, self._domain_settings)
         except Exception:
             logger.exception("Decree preview failed for %s — falling back to flat preview", path.name)
             return self._analyze_flat(raw_text)
@@ -144,4 +144,6 @@ class RtfPreviewStrategy:
         units: list[DryRunPageResult],
         unit_ids: list[int],
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
-        raise ValueError("OCR not supported for RTF — no access to embedded images")
+        del path, units, unit_ids
+        message = "OCR not supported for RTF — no access to embedded images"
+        raise ValueError(message)

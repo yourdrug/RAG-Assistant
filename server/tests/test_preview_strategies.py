@@ -1,25 +1,23 @@
 """Tests for preview strategies (PDF, DOCX, RTF) and PreviewStrategyFactory."""
 
+from __future__ import annotations
+
 import io
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from docx import Document
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-
-# Mock fitz before importing preview strategies, then restore
-_real_fitz = sys.modules.get("fitz")
-sys.modules["fitz"] = MagicMock()
-
-from domain.knowledge.enums import PageContentType  # noqa: E402
-from domain.ingestion.preview import PreviewUnitKind  # noqa: E402
-from domain.ingestion.preview import DryRunPageResult  # noqa: E402
-from infrastructure.ml.preview.factory import PreviewStrategyFactory  # noqa: E402
-from infrastructure.ml.preview.rtf_preview_strategy import RtfPreviewStrategy  # noqa: E402
-from infrastructure.ml.preview.docx_preview_strategy import DocxPreviewStrategy  # noqa: E402
-from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy  # noqa: E402
+from domain.ingestion.preview import (
+    DryRunPageResult,
+    PreviewUnitKind,
+)
+from domain.knowledge.enums import PageContentType
+from infrastructure.ml.preview.docx_preview_strategy import DocxPreviewStrategy
+from infrastructure.ml.preview.factory import PreviewStrategyFactory
+from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy
+from infrastructure.ml.preview.rtf_preview_strategy import RtfPreviewStrategy
 
 
 # ---------------------------------------------------------------------------
@@ -28,29 +26,28 @@ from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy  #
 
 
 class TestPreviewStrategyFactory:
-    def test_pdf_returns_pdf_strategy(self):
-        from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy
+    def test_pdf_returns_pdf_strategy(self) -> None:
 
         strategy = PreviewStrategyFactory.for_extension(".pdf", diag_service=MagicMock())
         assert isinstance(strategy, PdfPreviewStrategy)
 
-    def test_docx_returns_docx_strategy(self):
+    def test_docx_returns_docx_strategy(self) -> None:
         strategy = PreviewStrategyFactory.for_extension(".docx")
         assert isinstance(strategy, DocxPreviewStrategy)
 
-    def test_rtf_returns_rtf_strategy(self):
+    def test_rtf_returns_rtf_strategy(self) -> None:
         strategy = PreviewStrategyFactory.for_extension(".rtf")
         assert isinstance(strategy, RtfPreviewStrategy)
 
-    def test_doc_raises_error(self):
+    def test_doc_raises_error(self) -> None:
         with pytest.raises(ValueError, match="not supported"):
             PreviewStrategyFactory.for_extension(".doc")
 
-    def test_unknown_extension_raises(self):
+    def test_unknown_extension_raises(self) -> None:
         with pytest.raises(ValueError, match="Unsupported"):
             PreviewStrategyFactory.for_extension(".xlsx")
 
-    def test_supported_extensions(self):
+    def test_supported_extensions(self) -> None:
         exts = PreviewStrategyFactory.supported_extensions()
         assert ".pdf" in exts
         assert ".docx" in exts
@@ -65,14 +62,16 @@ class TestPreviewStrategyFactory:
 
 def _make_docx_with_text(*headings_and_texts: tuple[str | None, str]) -> bytes:
     """Create a minimal DOCX file in memory with given sections."""
-    from docx import Document
 
     doc = Document()
+
     for heading, text in headings_and_texts:
         if heading:
             doc.add_heading(heading, level=1)
+
         if text:
             doc.add_paragraph(text)
+
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -80,7 +79,6 @@ def _make_docx_with_text(*headings_and_texts: tuple[str | None, str]) -> bytes:
 
 def _make_docx_with_table() -> bytes:
     """Create a DOCX with a table."""
-    from docx import Document
 
     doc = Document()
     doc.add_heading("Section 1", level=1)
@@ -98,15 +96,15 @@ def _make_docx_with_table() -> bytes:
 
 
 class TestDocxPreviewStrategy:
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.strategy = DocxPreviewStrategy()
 
-    def test_supports_docx(self):
+    def test_supports_docx(self) -> None:
         assert self.strategy.supports(".docx") is True
         assert self.strategy.supports(".pdf") is False
         assert self.strategy.supports(".rtf") is False
 
-    def test_simple_text_sections(self, tmp_path):
+    def test_simple_text_sections(self, tmp_path: Path) -> None:
         docx_bytes = _make_docx_with_text(
             (None, "Intro paragraph"),
             ("Heading One", "Content under heading"),
@@ -123,7 +121,7 @@ class TestDocxPreviewStrategy:
         assert all(u.label for u in units)
         assert types_count[PageContentType.TEXT] >= 3
 
-    def test_empty_sections(self, tmp_path):
+    def test_empty_sections(self, tmp_path: Path) -> None:
         docx_bytes = _make_docx_with_text(
             ("Heading", "Some text"),
             (None, ""),
@@ -131,12 +129,12 @@ class TestDocxPreviewStrategy:
         path = tmp_path / "test.docx"
         path.write_bytes(docx_bytes)
 
-        units, types_count, _ = self.strategy.analyze(path)
+        units, _types_count, _ = self.strategy.analyze(path)
         # Empty paragraphs are skipped by parse_docx_sections, no empty unit created
         text_units = [u for u in units if u.type == PageContentType.TEXT]
         assert len(text_units) >= 1
 
-    def test_garbled_content(self, tmp_path):
+    def test_garbled_content(self, tmp_path: Path) -> None:
         # python-docx cannot write NULL bytes, use latin-1 compatible garbled text
         garbled_text = "".join(chr(i) for i in range(0xC0, 0xFF)) * 10
         docx_bytes = _make_docx_with_text(
@@ -145,22 +143,21 @@ class TestDocxPreviewStrategy:
         path = tmp_path / "test.docx"
         path.write_bytes(docx_bytes)
 
-        units, types_count, _ = self.strategy.analyze(path)
+        units, _types_count, _ = self.strategy.analyze(path)
         garbled = [u for u in units if u.type == PageContentType.GARBLED]
         # If is_garbled heuristic triggers, we get GARBLED; otherwise TEXT (depends on char distribution)
         assert len(garbled) >= 0  # at minimum, the section exists
 
-    def test_table_detection(self, tmp_path):
+    def test_table_detection(self, tmp_path: Path) -> None:
         docx_bytes = _make_docx_with_table()
         path = tmp_path / "test.docx"
         path.write_bytes(docx_bytes)
 
-        units, types_count, _ = self.strategy.analyze(path)
+        units, _types_count, _ = self.strategy.analyze(path)
         tables = [u for u in units if u.type == PageContentType.TABLE]
         assert len(tables) >= 1
 
-    def test_empty_document(self, tmp_path):
-        from docx import Document
+    def test_empty_document(self, tmp_path: Path) -> None:
 
         doc = Document()
         buf = io.BytesIO()
@@ -168,11 +165,11 @@ class TestDocxPreviewStrategy:
         path = tmp_path / "empty.docx"
         path.write_bytes(buf.getvalue())
 
-        units, types_count, _ = self.strategy.analyze(path)
+        units, _types_count, _ = self.strategy.analyze(path)
         assert len(units) == 1
         assert units[0].type == PageContentType.EMPTY
 
-    def test_label_contains_heading(self, tmp_path):
+    def test_label_contains_heading(self, tmp_path: Path) -> None:
         docx_bytes = _make_docx_with_text(
             ("Important Section", "Content here"),
         )
@@ -183,7 +180,7 @@ class TestDocxPreviewStrategy:
         heading_units = [u for u in units if "Important Section" in u.label]
         assert len(heading_units) == 1
 
-    def test_ocr_problem_units_no_images(self, tmp_path):
+    def test_ocr_problem_units_no_images(self, tmp_path: Path) -> None:
         docx_bytes = _make_docx_with_text(
             ("Section", "Some text"),
         )
@@ -207,15 +204,15 @@ def _make_rtf(text: str = "Hello world") -> bytes:
 
 
 class TestRtfPreviewStrategy:
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.strategy = RtfPreviewStrategy()
 
-    def test_supports_rtf(self):
+    def test_supports_rtf(self) -> None:
         assert self.strategy.supports(".rtf") is True
         assert self.strategy.supports(".pdf") is False
         assert self.strategy.supports(".docx") is False
 
-    def test_valid_rtf(self, tmp_path):
+    def test_valid_rtf(self, tmp_path: Path) -> None:
         rtf_bytes = _make_rtf("This is readable text content for testing.")
         path = tmp_path / "test.rtf"
         path.write_bytes(rtf_bytes)
@@ -228,26 +225,26 @@ class TestRtfPreviewStrategy:
         assert total_chars > 0
         assert types_count[PageContentType.TEXT] == 1
 
-    def test_empty_rtf(self, tmp_path):
+    def test_empty_rtf(self, tmp_path: Path) -> None:
         rtf_bytes = _make_rtf("")
         path = tmp_path / "empty.rtf"
         path.write_bytes(rtf_bytes)
 
-        units, types_count, _ = self.strategy.analyze(path)
+        units, _types_count, _ = self.strategy.analyze(path)
         assert len(units) == 1
         assert units[0].type == PageContentType.EMPTY
 
-    def test_garbled_rtf(self, tmp_path):
+    def test_garbled_rtf(self, tmp_path: Path) -> None:
         garbled_text = "".join(chr(i) for i in range(0xC0, 0xFF)) * 10
         rtf_bytes = _make_rtf(garbled_text)
         path = tmp_path / "garbled.rtf"
         path.write_bytes(rtf_bytes)
 
-        units, types_count, _ = self.strategy.analyze(path)
+        units, _types_count, _ = self.strategy.analyze(path)
         # is_garbled check depends on character distribution
         assert units[0].type in (PageContentType.GARBLED, PageContentType.TEXT)
 
-    def test_ocr_not_supported(self, tmp_path):
+    def test_ocr_not_supported(self, tmp_path: Path) -> None:
         rtf_bytes = _make_rtf("Some text")
         path = tmp_path / "test.rtf"
         path.write_bytes(rtf_bytes)
@@ -263,12 +260,12 @@ class TestRtfPreviewStrategy:
 
 
 class TestDryRunPageResult:
-    def test_default_unit_kind(self):
+    def test_default_unit_kind(self) -> None:
         r = DryRunPageResult(page=1, type="text")
         assert r.unit_kind == PreviewUnitKind.PAGE
         assert r.label == ""
 
-    def test_custom_unit_kind(self):
+    def test_custom_unit_kind(self) -> None:
         r = DryRunPageResult(
             page=1,
             type="text",
@@ -285,16 +282,16 @@ class TestDryRunPageResult:
 
 
 class TestPdfPreviewStrategy:
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.mock_diag = MagicMock()
         self.strategy = PdfPreviewStrategy(diag_service=self.mock_diag)
 
-    def test_supports_pdf(self):
+    def test_supports_pdf(self) -> None:
         assert self.strategy.supports(".pdf") is True
         assert self.strategy.supports(".docx") is False
         assert self.strategy.supports(".rtf") is False
 
-    def test_analyze_enriches_with_unit_kind_and_label(self):
+    def test_analyze_enriches_with_unit_kind_and_label(self) -> None:
         page1 = DryRunPageResult(page=1, type="text", chars=100, content_type=PageContentType.TEXT)
         page2 = DryRunPageResult(page=2, type="scan", chars=50, content_type=PageContentType.SCAN)
         self.mock_diag.analyze_text_layer.return_value = (
@@ -303,7 +300,7 @@ class TestPdfPreviewStrategy:
             150,
         )
 
-        units, types_count, total_chars = self.strategy.analyze(Path("/tmp/test.pdf"))
+        units, _types_count, total_chars = self.strategy.analyze(Path("fixture.pdf"))
 
         assert len(units) == 2
         assert all(u.unit_kind == PreviewUnitKind.PAGE for u in units)
@@ -311,7 +308,7 @@ class TestPdfPreviewStrategy:
         assert units[1].label == "Стр. 2"
         assert total_chars == 150
 
-    def test_analyze_preserves_page_type(self):
+    def test_analyze_preserves_page_type(self) -> None:
         page = DryRunPageResult(page=1, type="garbled", content_type=PageContentType.GARBLED)
         self.mock_diag.analyze_text_layer.return_value = (
             [page],
@@ -319,11 +316,11 @@ class TestPdfPreviewStrategy:
             0,
         )
 
-        units, _, _ = self.strategy.analyze(Path("/tmp/test.pdf"))
+        units, _, _ = self.strategy.analyze(Path("fixture.pdf"))
         assert units[0].type == "garbled"
         assert units[0].content_type == PageContentType.GARBLED
 
-    def test_ocr_problem_units_filters_and_merges(self):
+    def test_ocr_problem_units_filters_and_merges(self) -> None:
         page1 = DryRunPageResult(page=1, type="text", chars=100)
         page2 = DryRunPageResult(page=2, type="scan", chars=50)
         ocr_result = DryRunPageResult(page=2, type="ocr", chars=200)
@@ -333,8 +330,8 @@ class TestPdfPreviewStrategy:
             200,
         )
 
-        units, types_count, total_chars = self.strategy.ocr_problem_units(
-            Path("/tmp/test.pdf"), [page1, page2], [2]
+        units, _types_count, total_chars = self.strategy.ocr_problem_units(
+            Path("fixture.pdf"), [page1, page2], [2]
         )
 
         self.mock_diag.ocr_problem_pages.assert_called_once()
@@ -347,7 +344,7 @@ class TestPdfPreviewStrategy:
         assert units[1].label == "Стр. 2"
         assert total_chars == 300
 
-    def test_ocr_problem_units_preserves_non_ocr_pages(self):
+    def test_ocr_problem_units_preserves_non_ocr_pages(self) -> None:
         page1 = DryRunPageResult(page=1, type="text", chars=100)
         page2 = DryRunPageResult(page=2, type="text", chars=100)
         page3 = DryRunPageResult(page=3, type="text", chars=100)
@@ -358,17 +355,10 @@ class TestPdfPreviewStrategy:
             150,
         )
 
-        units, _, total = self.strategy.ocr_problem_units(Path("/tmp/test.pdf"), [page1, page2, page3], [2])
+        units, _, total = self.strategy.ocr_problem_units(Path("fixture.pdf"), [page1, page2, page3], [2])
 
         assert len(units) == 3
         assert units[0].type == "text"
         assert units[1].type == "ocr"
         assert units[2].type == "text"
         assert total == 350
-
-
-# Restore real fitz module so other test files can use it
-if _real_fitz is not None:
-    sys.modules["fitz"] = _real_fitz
-elif "fitz" in sys.modules:
-    del sys.modules["fitz"]

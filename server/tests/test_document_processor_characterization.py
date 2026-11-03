@@ -36,7 +36,7 @@ from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.index_sync import OutboxOperation
 from domain.knowledge.enums import DocumentStatus
 from domain.ingestion.preview import PDFQualityReport
-from fakes import FakeDocumentRepository, FakeUnitOfWorkFactory
+from tests.fakes import FakeDocumentRepository, FakeUnitOfWorkFactory
 from infrastructure.ingestion.document_parser_adapter import IngestionDocumentSplitter
 
 if TYPE_CHECKING:

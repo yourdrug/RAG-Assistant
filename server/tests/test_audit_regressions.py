@@ -132,15 +132,26 @@ async def test_sweep_dense_and_sparse_share_production_temporal_scope() -> None:
     assert filters == [production, production]
 
 
-def install_family(registry: MLClientRegistry, client: ManagedLLM) -> None:
+class ClientFamily(ManagedLLM):
+    async def embed_query(self, text: str) -> list[float]:
+        return self.embed_query_sync(text)
+
+    def embed_query_sync(self, text: str) -> list[float]:
+        return [float(len(text))]
+
+    async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
+        return [1.0] * len(pairs)
+
+
+def install_family(registry: MLClientRegistry, client: ClientFamily) -> None:
     registry.install_clients(
         {
-            "_embeddings": client,
-            "_reranker": client,
-            "_llm": client,
-            "_fast_llm": client,
-            "_instructor": client,
-            "_llm_breadth_cache": {"narrow": client, "broad": client},
+            "cached_embeddings": client,
+            "cached_reranker": client,
+            "cached_llm": client,
+            "cached_fast_llm": client,
+            "cached_instructor": client,
+            "cached_llm_breadth_cache": {"narrow": client, "broad": client},
         }
     )
 
@@ -154,8 +165,8 @@ async def test_request_keeps_settings_cache_model_and_client_family_during_reloa
     monkeypatch.setattr(settings, "openrouter_model", "remote-model")
     monkeypatch.setattr(settings, "rag_retrieval_score_threshold", 0.1)
     old_close, new_close = AsyncMock(), AsyncMock()
-    old = ManagedLLM(SimpleNamespace(close=old_close))
-    new = ManagedLLM(SimpleNamespace(close=new_close))
+    old = ClientFamily(SimpleNamespace(close=old_close))
+    new = ClientFamily(SimpleNamespace(close=new_close))
     registry = MLClientRegistry()
     registry.corpus_resources.qdrant_factory = MagicMock()
     install_family(registry, old)

@@ -1,14 +1,11 @@
 """Run full RAG and judge evaluation for the best retrieval configurations."""
 
 from __future__ import annotations
-from typing import Any
 
-from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from application.benchmark.sweep_ports import (
-    ProgressCallback,
-    ShouldCancel,
-    SweepSettingsPort,
     check_cancelled,
     report_progress,
 )
@@ -22,6 +19,24 @@ from domain.benchmark.selection import select_fast_candidates
 from domain.benchmark.sweep import SweepEvaluationMode
 
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from application.benchmark.sweep_ports import (
+        ProgressCallback,
+        ShouldCancel,
+        SweepSettingsPort,
+    )
+
+
+@dataclass(frozen=True)
+class SweepEvaluationPlan:
+    top_n_llm: int
+    judge_model: str
+    weights: dict[str, Any]
+    evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
+
+
 class SweepFullEvaluator:
     def __init__(self, runtime: SweepSettingsPort) -> None:
         self._runtime = runtime
@@ -29,22 +44,19 @@ class SweepFullEvaluator:
     async def evaluate(
         self,
         results: list[dict[str, Any]],
-        top_n_llm: int,
-        judge_model: str,
+        plan: SweepEvaluationPlan,
         questions: list[dict[str, Any]],
-        weights: dict[str, Any],
         should_cancel: ShouldCancel | None,
         run_benchmark: Callable[[list[dict[str, Any]], str], Awaitable[dict[str, Any]]],
         *,
-        evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST,
         progress_callback: ProgressCallback | None = None,
     ) -> list[dict[str, Any]]:
-        weights = validate_objective_weights(weights, require_retrieval=False)
-        evaluation_mode = SweepEvaluationMode(evaluation_mode)
+        weights = validate_objective_weights(plan.weights, require_retrieval=False)
+        evaluation_mode = SweepEvaluationMode(plan.evaluation_mode)
         candidates = (
             list(results)
             if evaluation_mode == SweepEvaluationMode.FULL
-            else select_fast_candidates(results, top_n_llm)
+            else select_fast_candidates(results, plan.top_n_llm)
         )
         await report_progress(progress_callback, 0, len(candidates), {"phase": "full_evaluation"})
         finalists = []
@@ -56,7 +68,7 @@ class SweepFullEvaluator:
         for idx, result in enumerate(candidates, 1):
             await check_cancelled(should_cancel, f"phase B config {idx}/{len(candidates)}")
             with self._runtime.override(result["config"]):
-                full = await run_benchmark(questions, judge_model)
+                full = await run_benchmark(questions, plan.judge_model)
             result["full_metrics"] = full
             result["llm_evaluated"] = True
             metrics = {

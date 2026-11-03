@@ -14,7 +14,7 @@ EVIDENCE_POLICY_VERSION = "2026-10-09-applicability-v6"
 
 
 def normalize_reading_text(text: str) -> str:
-    return " ".join(re.sub(r"‹br›|<br\s*/?>", " ", text.casefold()).replace("ё", "е").split())
+    return " ".join(re.sub(r"\u2039br\u203a|<br\s*/?>", " ", text.casefold()).replace("ё", "е").split())
 
 
 def requested_fields(question: str) -> list[tuple[str, str]]:
@@ -34,11 +34,15 @@ def matching_field_rows(text: str, number: str, name: str) -> list[str]:
         cells = line.split("|")
         actual_name = (
             normalize_reading_text(re.split(r"\b(?:an|n|a)\.\.\d+", cells[2], maxsplit=1)[0]).strip(' "')
-            if len(cells) > 2
+            if len(cells) > NAME_COLUMN_INDEX
             else ""
         )
 
-        if len(cells) > 3 and cells[1].strip(' "') == number and normalize_reading_text(name) == actual_name:
+        if (
+            len(cells) > MIN_FIELD_CELLS
+            and cells[1].strip(' "') == number
+            and normalize_reading_text(name) == actual_name
+        ):
             rows.append(line)
 
     return rows
@@ -97,7 +101,7 @@ def amendment_anchors(context: str, question: str) -> list[str]:
     anchors = []
 
     for block in re.split(r"\n\s*---\s*\n", context):
-        normalized = re.sub(r"‹br›|<br\s*/?>", " ", block.casefold()).replace("ё", "е")
+        normalized = re.sub(r"\u2039br\u203a|<br\s*/?>", " ", block.casefold()).replace("ё", "е")
         normalized = " ".join(normalized.split())
 
         if not re.search(rf"в таблице {re.escape(table[1])}(?![\d.])", normalized):
@@ -143,7 +147,7 @@ def table_lookup_anchors(context: str, question: str) -> list[str]:
 
         score = sum(term in line.casefold() for term in terms)
 
-        if score >= 2:
+        if score >= MIN_QUERY_TERM_MATCHES:
             candidates.append((score, header + "\n" + line if header else line))
 
     best = max((score for score, _ in candidates), default=0)
@@ -190,7 +194,7 @@ def enumeration_anchors(context: str, question: str) -> list[str]:
 
             matches = sum(term in line.casefold() for term in terms)
 
-            if not reference and matches < 2:
+            if not reference and matches < MIN_QUERY_TERM_MATCHES:
                 continue
 
             anchors.append(conditional_paragraph(lines, index))
@@ -207,14 +211,7 @@ def reading_anchors(context: str, question: str) -> list[str]:
     anchors = amendment_anchors(context, question) + table_lookup_anchors(context, question)
     dates = re.findall(r"\d{2}\.\d{2}\.\d{4}", question)
 
-    if re.search(r"дополнительн|введ[её]н", question, re.IGNORECASE):
-        for index, line in enumerate(lines):
-            if index and re.search(r"абзац введ[её]н", line, re.IGNORECASE):
-                if dates and not any(value in line for value in dates):
-                    continue
-
-                previous = next((value for value in reversed(lines[:index]) if value.strip()), "")
-                anchors.append(previous + "\n" + line)
+    anchors.extend(introduced_paragraph_anchors(lines, question, dates))
 
     names = re.findall(r"«([^»]+)»", question)
     field = re.search(r"пол[еяю]\s+(\d+)", question, re.IGNORECASE)
@@ -227,14 +224,14 @@ def reading_anchors(context: str, question: str) -> list[str]:
             if not line.startswith("|"):
                 continue
 
-            normalized = re.sub(r"\s+", " ", re.sub(r"‹br›|<br\s*/?>", " ", line)).casefold()
+            normalized = re.sub(r"\s+", " ", re.sub(r"\u2039br\u203a|<br\s*/?>", " ", line)).casefold()
 
             if not any(name.casefold() in normalized for name in names):
                 continue
 
             cells = line.split("|")
 
-            if len(cells) > 2 and cells[1].strip() == field[1]:
+            if len(cells) > NAME_COLUMN_INDEX and cells[1].strip() == field[1]:
                 # Keep the editorial note paired with the target row.
                 following = lines[index + 1] if index + 1 < len(lines) else ""
                 target_rows.append(line + ("\n" + following if "в ред." in following else ""))
@@ -249,3 +246,23 @@ def reading_anchors(context: str, question: str) -> list[str]:
 
     anchors.extend(enumeration_anchors(context, question))
     return list(dict.fromkeys(anchors))
+
+
+NAME_COLUMN_INDEX = 2
+MIN_FIELD_CELLS = 3
+MIN_QUERY_TERM_MATCHES = 2
+
+
+def introduced_paragraph_anchors(lines: list[str], question: str, dates: list[str]) -> list[str]:
+    anchors = []
+
+    if re.search(r"дополнительн|введ[её]н", question, re.IGNORECASE):
+        for index, line in enumerate(lines):
+            if index and re.search(r"абзац введ[её]н", line, re.IGNORECASE):
+                if dates and not any(value in line for value in dates):
+                    continue
+
+                previous = next((value for value in reversed(lines[:index]) if value.strip()), "")
+                anchors.append(previous + "\n" + line)
+
+    return anchors

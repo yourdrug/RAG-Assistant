@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
+from typing import TYPE_CHECKING
 
-from datetime import date, datetime
 from sqlalchemy import func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.knowledge.acts.models import ActVersion
 from infrastructure.database.models import ActVersionModel, DocumentModel, RegulatoryActModel
 
 
-def as_date(value) -> date | None:
+if TYPE_CHECKING:
+    from datetime import date
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+
+def as_date(value: date | datetime | None) -> date | None:
     """Normalize a Date/DateTime column value into a date."""
     if value is None:
         return None

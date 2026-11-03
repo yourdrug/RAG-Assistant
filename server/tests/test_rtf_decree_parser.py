@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 
+from typing import TYPE_CHECKING
+
+from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
-from domain.ingestion.profiles.decree import DecreeDomainProfile
+
+
+if TYPE_CHECKING:
+    from domain.ingestion.profiles.protocol import DocumentProfile
 
 
 class FakeSettings:
     def get(self, key: str, domain_key: str = "") -> str:
         defaults = {"max_unit_chars": "800", "fingerprint_min_points": "1"}
-        return defaults.get(key, "0")
+        return defaults.get(key, "0") if domain_key in {"", "decree"} else "0"
 
 
 _DECREE_RTF = (
@@ -35,7 +43,7 @@ def _decree_profile() -> DecreeDomainProfile:
     return DecreeDomainProfile(settings=FakeSettings())
 
 
-def test_parse_decree_rtf_extracts_header_metadata_and_units(tmp_path):
+def test_parse_decree_rtf_extracts_header_metadata_and_units(tmp_path: Path) -> None:
     file_path = tmp_path / "ukaz.rtf"
     file_path.write_text(_DECREE_RTF, encoding="utf-8")
 
@@ -46,10 +54,11 @@ def test_parse_decree_rtf_extracts_header_metadata_and_units(tmp_path):
     assert "preamble" in kinds
     assert "point" in kinds
     point_values = [u.boundary_value for u in units if u.unit_kind == "point"]
-    assert "1" in point_values and "2" in point_values
+    assert "1" in point_values
+    assert "2" in point_values
 
 
-def test_parse_decree_rtf_without_postanovlyayu_still_splits(tmp_path):
+def test_parse_decree_rtf_without_postanovlyayu_still_splits(tmp_path: Path) -> None:
     content = (
         r"{\rtf1\ansi УКАЗ № 5 от 2 февраля 2026 г.\par "
         r"1. Первая позиция постановляющего характера.\par "
@@ -62,10 +71,10 @@ def test_parse_decree_rtf_without_postanovlyayu_still_splits(tmp_path):
     assert any(u.unit_kind == "point" for u in units)
 
 
-def test_parser_routes_decree_rtf_to_structured_path(tmp_path):
+def test_parser_routes_decree_rtf_to_structured_path(tmp_path: Path) -> None:
     file_path = tmp_path / "ukaz.rtf"
     file_path.write_text(_DECREE_RTF, encoding="utf-8")
-    parser = LangchainDocumentParser(domain_registry=_RegistryStub(), domain_settings=FakeSettings())
+    parser = LangchainDocumentParser(domain_registry=registry(), domain_settings=FakeSettings())
     docs = parser.parse(file_path)
     # One RawDocument per structural unit, header metadata on each
     assert len(docs) > 1
@@ -73,15 +82,15 @@ def test_parser_routes_decree_rtf_to_structured_path(tmp_path):
     assert any(d.metadata.get("unit_kind") == "point" for d in docs)
 
     # Splitter passes pre-split units through without re-splitting
-    splitter = LangchainDocumentSplitter(domain_registry=_RegistryStub(), domain_settings=FakeSettings())
+    splitter = LangchainDocumentSplitter(domain_registry=registry(), domain_settings=FakeSettings())
     chunks = splitter.split(docs, domain="decree")
     assert len(chunks) == len(docs)
 
 
-def test_plain_rtf_uses_flat_path(tmp_path):
+def test_plain_rtf_uses_flat_path(tmp_path: Path) -> None:
     file_path = tmp_path / "letter.rtf"
     file_path.write_text(_PLAIN_RTF, encoding="utf-8")
-    parser = LangchainDocumentParser(domain_registry=_RegistryStub(), domain_settings=FakeSettings())
+    parser = LangchainDocumentParser(domain_registry=registry(), domain_settings=FakeSettings())
     docs = parser.parse(file_path)
     assert len(docs) == 1
     assert "unit_kind" not in docs[0].metadata
@@ -90,7 +99,14 @@ def test_plain_rtf_uses_flat_path(tmp_path):
 class _RegistryStub:
     """Minimal registry stub: only 'decree' is known."""
 
-    def get(self, key: str):
+    def get(self, key: str) -> DocumentProfile:
         if key != "decree":
             raise KeyError(key)
+
         return _decree_profile()
+
+
+def registry() -> DomainProfileRegistry:
+    result = DomainProfileRegistry()
+    result.register(_decree_profile())
+    return result

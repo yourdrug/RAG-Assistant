@@ -8,9 +8,13 @@ Extracted from ``rtf.py`` to reduce its size and isolate the walker concern.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-from typing import Callable
+import re
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 # --- Constants --------------------------------------------------------------
@@ -65,16 +69,23 @@ class Segment:
 
 
 class GroupState:
-    __slots__ = ("bold", "font_size", "centered", "skip")
+    __slots__ = ("bold", "centered", "font_size", "skip")
 
-    def __init__(self, bold=False, font_size=None, centered=False, skip=False):
+    def __init__(
+        self,
+        *,
+        bold: bool = False,
+        font_size: float | None = None,
+        centered: bool = False,
+        skip: bool = False,
+    ) -> None:
         self.bold = bold
         self.font_size = font_size
         self.centered = centered
         self.skip = skip
 
-    def copy(self) -> "GroupState":
-        return GroupState(self.bold, self.font_size, self.centered, self.skip)
+    def copy(self) -> GroupState:
+        return GroupState(bold=self.bold, font_size=self.font_size, centered=self.centered, skip=self.skip)
 
 
 @dataclass
@@ -170,38 +181,51 @@ def _get_target(ws: WalkerState) -> list[str]:
 
 
 def _handle_pard(ws: WalkerState, top: GroupState, argval: int | None) -> None:
+    del ws, argval
     top.bold, top.font_size, top.centered = False, None, False
 
 
 def _handle_skip_dest(ws: WalkerState, top: GroupState, argval: int | None) -> None:
+    del ws, argval
     top.skip = True
 
 
 def _handle_bold(ws: WalkerState, top: GroupState, argval: int | None) -> None:
+    del ws
     top.bold = argval != 0 if argval is not None else True
 
 
 def _handle_font_size(ws: WalkerState, top: GroupState, argval: int | None) -> None:
+    del ws
+
     if argval is not None:
         top.font_size = argval / 2.0
 
 
 def _handle_tab(ws: WalkerState, top: GroupState, argval: int | None) -> None:
+    del argval
+
     if not top.skip:
         _get_target(ws).append("\t")
 
 
 def _handle_dash(ws: WalkerState, top: GroupState, argval: int | None) -> None:
+    del argval
+
     if not top.skip:
         _get_target(ws).append("-")
 
 
 def _handle_intbl(ws: WalkerState, top: GroupState, argval: int | None) -> None:
+    del top, argval
+
     if not ws.in_table:
         ws.in_table = True
 
 
 def _handle_cell(ws: WalkerState, top: GroupState, argval: int | None) -> None:
+    del top, argval
+
     if ws.in_table:
         _flush_cell(ws)
 
@@ -232,7 +256,7 @@ def _update_cur_metrics(ws: WalkerState, top: GroupState) -> None:
             ws.cur_centered = True
 
 
-def _handle_row(ws: WalkerState, m: re.Match, rtf: str, n: int) -> None:
+def _handle_row(ws: WalkerState, m: re.Match[str], rtf: str, n: int) -> None:
     r"""Handle \\row control word with peek-ahead for table finalization."""
     if not ws.in_table:
         return
@@ -256,7 +280,7 @@ def _handle_row(ws: WalkerState, m: re.Match, rtf: str, n: int) -> None:
 
 
 def _process_control_word(
-    ws: WalkerState, word: str, argval: int | None, m: re.Match, rtf: str, n: int
+    ws: WalkerState, word: str, argval: int | None, m: re.Match[str], rtf: str, *, n: int
 ) -> bool:
     """Process an RTF control word. Returns True if word was handled."""
     top = ws.stack[-1]
@@ -271,25 +295,17 @@ def _process_control_word(
 
     if word in _SKIP_DESTINATIONS:
         _handle_skip_dest(ws, top, argval)
-        _update_cur_metrics(ws, top)
-        return True
-
-    if word == "row":
+    elif word == "row":
         _handle_row(ws, m, rtf, n)
-        _update_cur_metrics(ws, top)
-        return True
-
-    if word in _CENTERING_WORDS:
+    elif word in _CENTERING_WORDS:
         top.centered = word == "qc"
-        _update_cur_metrics(ws, top)
-        return True
-
-    handler = _CONTROL_HANDLERS.get(word)
-
-    if handler:
-        handler(ws, top, argval)
     else:
-        return False
+        handler = _CONTROL_HANDLERS.get(word)
+
+        if handler is None:
+            return False
+
+        handler(ws, top, argval)
 
     _update_cur_metrics(ws, top)
     return True
@@ -347,7 +363,7 @@ def _process_backslash(ws: WalkerState, rtf: str, pos: int, n: int) -> int:
 
         word, arg = m.group(1), m.group(2)
         argval = int(arg) if arg else None
-        _process_control_word(ws, word, argval, m, rtf, n)
+        _process_control_word(ws, word, argval, m, rtf, n=n)
         return m.end()
 
     _process_special_symbol(ws, nxt)
@@ -371,6 +387,20 @@ def _finalize_walker(ws: WalkerState) -> list[Segment]:
 
 
 # --- Main walker -----------------------------------------------------------
+
+
+def append_plain_character(ws: WalkerState, top: GroupState, ch: str) -> None:
+    # Plain character
+    if not top.skip:
+        _flush_hex(ws)
+        target = ws.current_cell_chars if ws.in_table else ws.cur_chars
+        target.append(ch)
+
+        if ch.strip():
+            ws.cur_any_text = True
+
+            if not top.bold:
+                ws.cur_all_bold = False
 
 
 def _walk_paragraphs(rtf: str, codepage: str = "cp1251") -> list[Segment]:
@@ -401,17 +431,7 @@ def _walk_paragraphs(rtf: str, codepage: str = "cp1251") -> list[Segment]:
             pos = _process_backslash(ws, rtf, pos, n)
             continue
 
-        # Plain character
-        if not top.skip:
-            _flush_hex(ws)
-            target = ws.current_cell_chars if ws.in_table else ws.cur_chars
-            target.append(ch)
-
-            if ch.strip():
-                ws.cur_any_text = True
-
-                if not top.bold:
-                    ws.cur_all_bold = False
+        append_plain_character(ws, top, ch)
 
         pos += 1
 

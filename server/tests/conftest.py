@@ -5,12 +5,17 @@ Provides common fixtures for testing application services without
 Postgres, Qdrant, Redis, or LLM.
 """
 
+from collections.abc import Iterator
 import os
-import sys
 from pathlib import Path
+import sys
+from tempfile import gettempdir
 from unittest.mock import MagicMock
 
 import pytest
+
+from tests.fakes import FakeChatRAGPort, FakeEventBus, FakeMLClientRegistry, FakeUnitOfWorkFactory
+
 
 # ---------------------------------------------------------------------------
 # Ensure app directory is on sys.path for all tests
@@ -35,12 +40,13 @@ _TEST_DEFAULTS = {
     "LLM_PROVIDER": "ollama",
     "LLM_MODEL": "qwen2.5:7b",
     "JWT_SECRET_KEY": "test-secret-key",
-    "DATA_DIR": "/tmp/rag_test",
+    "DATA_DIR": str(Path(gettempdir()) / "rag_test"),
     "REDIS_PASSWORD": "test-redis-password",
     "S3_ACCESS_KEY": "test-access-key",
     "S3_SECRET_KEY": "test-secret-key-value",
     "RATE_LIMIT_ENABLED": "false",
 }
+
 for _key, _val in _TEST_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
 
@@ -50,6 +56,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         return
 
     skip_integration = pytest.mark.skip(reason="Set RUN_INTEGRATION_TESTS=1 to run integration tests")
+
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip_integration)
@@ -58,11 +65,12 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 # Initialize circuit breakers for all tests (required by step_generate, handle_relevance_gate, etc.)
 from infrastructure.resilience.circuit_breaker import init_breakers  # noqa: E402
 
+
 init_breakers(fail_max=5, timeout_duration=300)
 
 
 @pytest.fixture(autouse=True)
-def _reset_breakers_between_tests():
+def reset_breakers_between_tests() -> Iterator[None]:
     """Reset circuit breaker state between tests to prevent cross-test contamination."""
     init_breakers(fail_max=5, timeout_duration=300)
     yield
@@ -82,39 +90,35 @@ sys.modules.setdefault("surya.recognition", _surya_mock)
 
 
 @pytest.fixture
-def fake_uow_factory():
+def fake_uow_factory() -> FakeUnitOfWorkFactory:
     """Fake UnitOfWorkFactory for testing application services."""
-    from fakes import FakeUnitOfWorkFactory
 
     return FakeUnitOfWorkFactory()
 
 
 @pytest.fixture
-def fake_chat_rag_port():
+def fake_chat_rag_port() -> FakeChatRAGPort:
     """Fake ChatRAGPort for testing ChatService."""
-    from fakes import FakeChatRAGPort
 
     return FakeChatRAGPort()
 
 
 @pytest.fixture
-def fake_event_bus():
+def fake_event_bus() -> FakeEventBus:
     """Fake EventBus for testing ConfigService."""
-    from fakes import FakeEventBus
 
     return FakeEventBus()
 
 
 @pytest.fixture
-def fake_ml_clients():
+def fake_ml_clients() -> FakeMLClientRegistry:
     """Fake MLClientRegistry for testing ML-dependent services."""
-    from fakes import FakeMLClientRegistry
 
     return FakeMLClientRegistry()
 
 
 @pytest.fixture
-def mock_vector_store():
+def mock_vector_store() -> MagicMock:
     """Mock VectorSearch."""
     mock = MagicMock()
     mock.generate_embeddings.return_value = [0.1] * 128
@@ -122,7 +126,7 @@ def mock_vector_store():
 
 
 @pytest.fixture
-def mock_file_storage():
+def mock_file_storage() -> MagicMock:
     """Mock FileStorage."""
     mock = MagicMock()
     mock.supported_extensions = (".pdf", ".docx", ".txt", ".md")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict, Unpack, cast
 
 from langchain.schema import Document as LCDocument
 
@@ -36,20 +36,31 @@ from infrastructure.repositories.vector.acl import with_domain_filter
 
 
 if TYPE_CHECKING:
+    from qdrant_client.models import Filter
+
     from application.documents import DocumentAccessPort
     from application.ports.ml_clients import MLClientPort
+    from domain.identity.user_context import UserContext
+    from domain.knowledge.access_control import VisibilityCondition
+    from domain.rag.context import RagContext
     from domain.rag.ports import ChunkRetrievalRepository
+    from domain.rag.settings import RagSettings
     from infrastructure.ml.rag.retrieval_work import RetrievalWork
 
 log = logging.getLogger("default")
 
 
-async def run_retrieval(query_for_search: str, state: RetrievalWork, ml_clients) -> list[LCDocument]:
+async def run_retrieval(
+    query_for_search: str, state: RetrievalWork, ml_clients: MLClientPort
+) -> list[LCDocument]:
     """Search the legal domain first, falling back within the same access scope."""
-    filters = [state.retrieval_filter]
+    retrieval_filter = cast("Filter | None", state.retrieval_filter)
+    filters = [retrieval_filter]
 
     if policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus:
-        filters.insert(0, with_domain_filter(state.retrieval_filter, state.query_domain))
+        filters.insert(0, with_domain_filter(retrieval_filter, state.query_domain))
+
+    candidates: list[LCDocument] = []
 
     for access_filter in filters:
         candidates = await run_hybrid_search(
@@ -79,9 +90,9 @@ async def run_retrieval(query_for_search: str, state: RetrievalWork, ml_clients)
 async def apply_exact_search(
     query_for_search: str,
     candidates: list[LCDocument],
-    user,
-    ctx,
-    chunk_search,
+    user: UserContext,
+    ctx: RagContext,
+    chunk_search: ChunkRetrievalRepository | None,
 ) -> None:
     """Augment candidates with exact substring matches."""
     if chunk_search is None:
@@ -114,26 +125,36 @@ async def apply_exact_search(
 
             log.info("Exact-search added %d additional candidates", len(exact_results))
     except Exception as e:
-        log.warning("Exact-search failed: %s", e)
+        log.warning("Exact-search failed: %s", e, exc_info=True)
+
+
+class LegalFallbackOptions(TypedDict):
+    visibility_conditions: list[VisibilityCondition]
+    user_id: int
+    user_group_ids: list[int]
+    document_access: NotRequired[DocumentAccessPort | None]
+    user: NotRequired[UserContext | None]
 
 
 async def apply_legal_rerank_fallback(
     query_for_search: str,
-    access_filter,
-    rag,
+    access_filter: Filter | None,
+    rag: RagSettings,
     top_k: int,
-    docs: list,
-    ml_clients,
+    docs: list[tuple[LCDocument, float]],
     *,
-    visibility_conditions: list,
-    user_id: int,
-    user_group_ids: list[int],
-    document_access=None,
-    user=None,
-) -> list:
+    ml_clients: MLClientPort,
+    **options: Unpack[LegalFallbackOptions],
+) -> list[tuple[LCDocument, float]]:
     """Fallback: rerank entire corpus for legal queries that got no docs."""
     if docs:
         return docs
+
+    visibility_conditions = options["visibility_conditions"]
+    user_id = options["user_id"]
+    user_group_ids = options["user_group_ids"]
+    document_access = options.get("document_access")
+    user = options.get("user")
 
     log.info("Legal query got no docs after rerank — fallback on entire corpus with rerank")
     fallback_candidates = await run_hybrid_search(
@@ -147,7 +168,7 @@ async def apply_legal_rerank_fallback(
         user_group_ids=user_group_ids,
     )
 
-    if document_access is not None:
+    if document_access is not None and user is not None:
         fallback_candidates = await filter_documents(fallback_candidates, document_access, user)
 
     evidence = active_evidence.get()
@@ -171,7 +192,7 @@ async def apply_legal_rerank_fallback(
 
 
 async def retrieve_with_decomposition(
-    query: str, state: RetrievalWork, ml_clients
+    query: str, state: RetrievalWork, ml_clients: MLClientPort
 ) -> tuple[list[LCDocument], list[str]]:
     """Run hybrid retrieval with optional multi-query decomposition.
 
@@ -184,10 +205,10 @@ async def retrieve_with_decomposition(
                 query, instructor_client=ml_clients.instructor_client, ml_clients=ml_clients
             )
         except Exception as e:
-            log.warning("Decomposition failed, falling back to single query: %s", e)
+            log.warning("Decomposition failed, falling back to single query: %s", e, exc_info=True)
             sub_queries = [query]
 
-        if len(sub_queries) < 2:
+        if len(sub_queries) < MIN_DECOMPOSITION_PARTS:
             candidates = await run_retrieval(query, state, ml_clients)
             RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
         else:
@@ -227,10 +248,10 @@ async def rerank_and_enrich(
     query: str,
     candidates: list[LCDocument],
     state: RetrievalWork,
-    ml_clients,
-    chunk_search,
+    ml_clients: MLClientPort,
+    chunk_search: ChunkRetrievalRepository | None,
     *,
-    document_access=None,
+    document_access: DocumentAccessPort | None = None,
 ) -> tuple[list[tuple[LCDocument, float]], list[LCDocument], float]:
     """Rerank candidates, apply temporal/legal fixes, trim, enrich with neighbors.
 
@@ -263,25 +284,16 @@ async def rerank_and_enrich(
     RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
     if state.ctx.as_of_date is not None:
-        before_temporal = docs
-        docs = resolve_temporal_conflicts(docs)
-        selected_ids = {id(doc) for doc, _ in docs}
-        capture_exclusions(
-            [
-                exclusion_record(item, ExclusionReason.TEMPORAL_CONFLICT, "temporal")
-                for item in before_temporal
-                if id(item[0]) not in selected_ids
-            ]
-        )
+        docs = retained_temporal_candidates(docs)
 
     if policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus:
         docs = await apply_legal_rerank_fallback(
             query,
-            state.retrieval_filter,
+            cast("Filter | None", state.retrieval_filter),
             state.rag,
             state.rerank_top_n,
             docs,
-            ml_clients,
+            ml_clients=ml_clients,
             visibility_conditions=state.visibility_conditions,
             user_id=state.user.user_id,
             user_group_ids=list(state.ctx.user_group_ids),
@@ -301,7 +313,6 @@ async def rerank_and_enrich(
     docs = docs[:final_top_k]
     capture_stage("retained", docs, score_kind="reranker")
     capture_retrieval(docs)
-    avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
 
     max_context_tokens = compute_context_budget(
         breadth=state.breadth,
@@ -315,19 +326,35 @@ async def rerank_and_enrich(
             num_predict_broad=state.rag.llm_num_predict_broad,
         ),
     )
+    docs = await enrich_retained_docs(
+        docs, state, query, chunk_search, document_access, max_context_tokens=max_context_tokens
+    )
+    avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
+    docs_only: list[LCDocument] = [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else []
+    return docs, docs_only, avg_sim
+
+
+async def enrich_retained_docs(
+    docs: list[tuple[LCDocument, float]],
+    state: RetrievalWork,
+    query: str,
+    chunk_search: ChunkRetrievalRepository | None,
+    document_access: DocumentAccessPort | None,
+    *,
+    max_context_tokens: int,
+) -> list[tuple[LCDocument, float]]:
     retained_ids = {id(doc) for doc, _ in docs}
     docs = await enrich_with_neighbors(
         docs,
-        state.enumerate_cases,
-        chunk_search,
-        max_context_tokens,
+        enumerate_cases=state.enumerate_cases,
+        chunk_search=chunk_search,
+        max_context_tokens=max_context_tokens,
         user=state.ctx.to_user_context(),
         query=query,
     )
 
     if document_access is not None:
         docs = await filter_scored_documents(docs, document_access, state.ctx.to_user_context())
-        avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
 
     authorize_capture(docs)
     record_origins([item for item in docs if id(item[0]) not in retained_ids], "neighbor")
@@ -341,13 +368,11 @@ async def rerank_and_enrich(
     docs = await active_evidence_profile.get().enrich_scope(
         docs, query, chunk_search, state.ctx.to_user_context()
     )
-    avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
     record_origins([item for item in docs if id(item[0]) not in before_scope], "scope_context")
     # Link/scope enrichers enforce access internally; capture only their authorized output.
     authorize_capture(docs)
     capture_stage("enriched", docs, ordered=False, score_kind="reranker")
-    docs_only: list[LCDocument] = [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else []
-    return docs, docs_only, avg_sim
+    return docs
 
 
 class RetrievalPipeline:
@@ -384,3 +409,20 @@ class RetrievalPipeline:
             document_access=self.document_access,
         )
         return state
+
+
+MIN_DECOMPOSITION_PARTS = 2
+
+
+def retained_temporal_candidates(docs: list[tuple[LCDocument, float]]) -> list[tuple[LCDocument, float]]:
+    before_temporal = docs
+    docs = resolve_temporal_conflicts(docs)
+    selected_ids = {id(doc) for doc, _ in docs}
+    capture_exclusions(
+        [
+            exclusion_record(item, ExclusionReason.TEMPORAL_CONFLICT, "temporal")
+            for item in before_temporal
+            if id(item[0]) not in selected_ids
+        ]
+    )
+    return docs

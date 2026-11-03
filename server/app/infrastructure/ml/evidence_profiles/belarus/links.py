@@ -1,5 +1,7 @@
 """Recognize explicit replacement and procedure links in adjacent source chunks."""
 
+from collections.abc import Sequence
+import itertools
 import re
 
 from domain.knowledge.enums import PageContentType
@@ -18,7 +20,7 @@ def chunk_body(doc: RetrievalDocument) -> str:
     )
 
 
-def replacement_scopes(docs: list[RetrievalDocument]) -> dict[int, str]:
+def replacement_scopes(docs: Sequence[RetrievalDocument]) -> dict[int, str]:
     scopes = {}
 
     for target, old, bridge, new in zip(docs, docs[1:], docs[2:], docs[3:], strict=False):
@@ -52,10 +54,10 @@ def replacement_scopes(docs: list[RetrievalDocument]) -> dict[int, str]:
     return scopes
 
 
-def procedure_scopes(docs: list[RetrievalDocument]) -> dict[int, str]:
+def procedure_scopes(docs: Sequence[RetrievalDocument]) -> dict[int, str]:
     scopes = {}
 
-    for previous, current in zip(docs, docs[1:], strict=False):
+    for previous, current in itertools.pairwise(docs):
         if current.metadata["chunk_index"] != previous.metadata["chunk_index"] + 1:
             continue
 

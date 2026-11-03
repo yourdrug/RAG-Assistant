@@ -23,7 +23,7 @@ from qdrant_client.models import Filter
 import pytest
 
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 from pydantic import ValidationError
 
 from application.budget import BudgetAdminService, BudgetPolicy, CostBudgetService
@@ -229,8 +229,8 @@ async def test_benchmark_pins_all_parallel_and_queued_questions(monkeypatch, tmp
 async def test_candidate_cache_keeps_client_across_switch(monkeypatch):
     registry, old, new = corpus_pair()
     old.client.search.return_value = []
-    registry._embeddings = Mock()
-    registry._embeddings.embed_query_sync.return_value = [1.0]
+    registry.cached_embeddings = Mock()
+    registry.cached_embeddings.embed_query_sync.return_value = [1.0]
 
     def search(*args, **kwargs):
         registry.install_corpus(new)

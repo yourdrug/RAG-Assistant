@@ -19,7 +19,7 @@ from domain.shared.exceptions import AppClientError
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from domain.identity.roles import UserKind, UserRole
 from domain.benchmark.sweep import SweepEvaluationMode
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 from infrastructure.worker import sweep as worker
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.exception_handlers import handle_client_exception

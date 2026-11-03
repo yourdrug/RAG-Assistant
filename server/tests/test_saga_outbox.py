@@ -35,14 +35,14 @@ from domain.knowledge.enums import DocumentStatus
 
 @pytest.fixture
 def fake_outbox():
-    from fakes import FakeVectorOutboxRepository
+    from tests.fakes import FakeVectorOutboxRepository
 
     return FakeVectorOutboxRepository()
 
 
 @pytest.fixture
 def fake_uow(fake_outbox):
-    from fakes import FakeUnitOfWork, FakeDocumentRepository
+    from tests.fakes import FakeUnitOfWork, FakeDocumentRepository
 
     uow = FakeUnitOfWork()
     uow.vector_outbox = fake_outbox
@@ -55,7 +55,7 @@ def fake_uow(fake_outbox):
 
 @pytest.fixture
 def fake_uow_factory(fake_uow):
-    from fakes import FakeUnitOfWorkFactory
+    from tests.fakes import FakeUnitOfWorkFactory
 
     return FakeUnitOfWorkFactory(uow=fake_uow)
 

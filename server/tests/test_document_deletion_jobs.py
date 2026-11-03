@@ -15,8 +15,8 @@ from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility
 from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
-from fakes import FakeUnitOfWorkFactory
 from infrastructure.worker.document_deletion import delete_document
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 async def harness():

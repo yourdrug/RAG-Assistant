@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 
-from application.documents import DocumentPreviewStrategy
 from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS, FormatContext
+
+
+if TYPE_CHECKING:
+    from application.documents import DocumentPreviewStrategy
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 
 class PreviewStrategyFactory:
@@ -13,21 +19,23 @@ class PreviewStrategyFactory:
         extension: str,
         *,
         diag_service: object | None = None,
-        domain_registry=None,
-        domain_settings=None,
+        domain_registry: DomainProfileRegistry | None = None,
+        domain_settings: DomainSettingsPort | None = None,
     ) -> DocumentPreviewStrategy:
         ext = extension.lower()
 
         if ext == ".doc":
-            raise ValueError(
+            message = (
                 "Legacy .doc format (Word 97-2003) is not supported for preview. "
                 "Convert the file to .docx and try again."
             )
+            raise ValueError(message)
 
         handler = FORMAT_HANDLERS.get(ext)
 
         if handler is None or handler.preview is None:
-            raise ValueError(f"Unsupported extension for dry-run preview: {ext}")
+            message = f"Unsupported extension for dry-run preview: {ext}"
+            raise ValueError(message)
 
         return handler.preview(FormatContext(domain_registry, domain_settings, diag_service))
 

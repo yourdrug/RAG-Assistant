@@ -28,8 +28,8 @@ jobs:
         run: |
           status=0
           uv run python tools/blank_lines.py --exclude-from blank-lines-baseline.txt --check app tests tools || status=1
-          uv run ruff check app tests tools || status=1
-          uv run ruff format --check app tests tools || status=1
+          uv run ruff check app tests tools typings || status=1
+          uv run ruff format --check app tests tools typings || status=1
           uv run mypy || status=1
           PYTHONPATH=app uv run lint-imports || status=1
           uv run deptry . || status=1

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
-from domain.runtime.jobs import BackgroundJob
-from domain.runtime.jobs import BackgroundJobStatus
 from sqlalchemy import delete, func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus
 from infrastructure.database.models import BackgroundJobModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyBackgroundJobRepository:
@@ -21,7 +24,7 @@ class SQLAlchemyBackgroundJobRepository:
         return BackgroundJob(
             id=orm.id,
             job_type=orm.job_type,
-            status=orm.status,
+            status=BackgroundJobStatus(orm.status),
             related_id=orm.related_id,
             request_id=orm.request_id,
             started_at=orm.started_at,

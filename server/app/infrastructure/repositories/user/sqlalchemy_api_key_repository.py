@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from domain.identity.api_key import ApiKey
-from domain.identity.api_key import ApiKeyClientInfo
-from domain.identity.roles import UserKind
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.identity.api_key import ApiKey, ApiKeyClientInfo
+from domain.identity.roles import UserKind
 from infrastructure.database.models import ApiKeyModel, UserModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyApiKeyRepository:

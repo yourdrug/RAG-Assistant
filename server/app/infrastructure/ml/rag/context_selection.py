@@ -1,18 +1,17 @@
 """Budget selection independent of document/section presentation order."""
 
+from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import Any
 
-from infrastructure.ml.rag.benchmark_evidence import snapshot_documents
-
-if TYPE_CHECKING:
-    from langchain_core.documents import Document
+from langchain_core.documents import Document
 
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.guardrails.sanitization import sanitize_for_prompt
+from domain.rag.ranking import RetrievalDocument
 from domain.shared.hashing import content_hash
-
 from infrastructure.bm25.tokenizer import tokenize
+from infrastructure.ml.rag.benchmark_evidence import snapshot_documents
 from infrastructure.ml.rag.context_rendering import build_header, render_selected_docs
 from infrastructure.ml.rag.document_sources import document_identity
 
@@ -32,7 +31,12 @@ class ExclusionReason(StrEnum):
 CONTEXT_COVERAGE_WEIGHT = 0.15
 
 
-def exclusion_record(item, reason: ExclusionReason, stage: str, **details) -> dict:
+def exclusion_record(
+    item: RetrievalDocument | tuple[RetrievalDocument, float],
+    reason: ExclusionReason,
+    stage: str,
+    **details: object,
+) -> dict[str, Any]:
 
     doc, score = item if isinstance(item, tuple) else (item, 0.0)
     return {
@@ -44,7 +48,13 @@ def exclusion_record(item, reason: ExclusionReason, stage: str, **details) -> di
     }
 
 
-def select_context(docs, budget: int, count_tokens, query_parts: list[str], exclusions=None):
+def select_context[ItemT: Document | tuple[Document, float]](
+    docs: Sequence[ItemT],
+    budget: int,
+    count_tokens: Callable[[str], int],
+    query_parts: list[str],
+    exclusions: list[dict[str, Any]] | None = None,
+) -> tuple[str, list[ItemT]]:
     """Greedily pack relevance plus marginal lexical query-part coverage.
 
     Always try the highest reranker score first. Later candidates can receive a
@@ -53,45 +63,23 @@ def select_context(docs, budget: int, count_tokens, query_parts: list[str], excl
     This is a lexical heuristic, not a claim of semantic evidence coverage.
     """
     if budget <= 0:
-        raise ValueError("max_context_tokens must be positive")
+        message = "max_context_tokens must be positive"
+        raise ValueError(message)
 
-    ranked = sorted(
-        enumerate(docs),
-        key=lambda pair: -(float(pair[1][1]) if isinstance(pair[1], tuple) else 0.0),
-    )
-    parts = [set(tokenize(part)) for part in query_parts if part.strip()]
-    parts = [part for part in parts if part]
+    remaining, parts = context_candidates(docs, query_parts, exclusions)
     covered: set[str] = set()
-    seen: set[tuple] = set()
-    remaining = []
-
-    for index, item in ranked:
-        doc, score = item if isinstance(item, tuple) else (item, 0.0)
-        scoped = sanitize_for_prompt(content_with_parent_scope(doc))
-        # Equal text can have different legal scope/source metadata. Only merge
-        # blocks with the same document, header and complete parent conditions.
-        identity = (document_identity(doc), build_header(doc, 1), content_hash(scoped))
-
-        if identity in seen:
-            if exclusions is not None:
-                exclusions.append(exclusion_record(item, ExclusionReason.DUPLICATE, "context"))
-
-            continue
-
-        seen.add(identity)
-        remaining.append((index, item, float(score), set(tokenize(scoped)) if parts else set()))
-
     score_range = max((entry[2] for entry in remaining), default=0.0) - min(
         (entry[2] for entry in remaining), default=0.0
     )
     # Equal scores still allow coverage to break ties, without altering relevance.
     coverage_weight = CONTEXT_COVERAGE_WEIGHT * score_range
-    chosen: list[Document | tuple[Document, float]] = []
-    context, selected = "", []
+    chosen: list[ItemT] = []
+    context = ""
+    selected: list[ItemT] = []
 
     while remaining:
 
-        def priority(entry):
+        def priority(entry: tuple[int, ItemT, float, set[str]]) -> tuple[float, float, int]:
             index, _, score, terms = entry
             gain = (
                 sum(len((terms & part) - covered) / len(part) for part in parts) / len(parts) if parts else 0
@@ -112,13 +100,56 @@ def select_context(docs, budget: int, count_tokens, query_parts: list[str], excl
             continue
 
         if exclusions is not None:
-            single_context, _ = render_selected_docs([item])
-            single_tokens = count_tokens(single_context)
-            reason = ExclusionReason.OVERSIZED_BLOCK if single_tokens > budget else ExclusionReason.BUDGET
-            exclusions.append(
-                exclusion_record(
-                    item, reason, "context", tokens=trial_tokens, single_tokens=single_tokens, budget=budget
-                )
-            )
+            record_budget_exclusion(item, trial_tokens, budget, count_tokens, exclusions)
 
     return context, selected
+
+
+def context_candidates[ItemT: Document | tuple[Document, float]](
+    docs: Sequence[ItemT],
+    query_parts: list[str],
+    exclusions: list[dict[str, Any]] | None,
+) -> tuple[list[tuple[int, ItemT, float, set[str]]], list[set[str]]]:
+    ranked = sorted(
+        enumerate(docs),
+        key=lambda pair: -(float(pair[1][1]) if isinstance(pair[1], tuple) else 0.0),
+    )
+    parts = [set(tokenize(part)) for part in query_parts if part.strip()]
+    parts = [part for part in parts if part]
+    seen: set[tuple[tuple[str, object], str, str]] = set()
+    remaining = []
+
+    for index, item in ranked:
+        doc, score = item if isinstance(item, tuple) else (item, 0.0)
+        scoped = sanitize_for_prompt(content_with_parent_scope(doc))
+        # Equal text can have different legal scope/source metadata. Only merge
+        # blocks with the same document, header and complete parent conditions.
+        identity = (document_identity(doc), build_header(doc, 1), content_hash(scoped))
+
+        if identity in seen:
+            if exclusions is not None:
+                exclusions.append(exclusion_record(item, ExclusionReason.DUPLICATE, "context"))
+
+            continue
+
+        seen.add(identity)
+        remaining.append((index, item, float(score), set(tokenize(scoped)) if parts else set()))
+
+    return remaining, parts
+
+
+def record_budget_exclusion(
+    item: Document | tuple[Document, float],
+    trial_tokens: int,
+    budget: int,
+    count_tokens: Callable[[str], int],
+    exclusions: list[dict[str, Any]],
+) -> None:
+    single_context, _ = render_selected_docs([item])
+    single_tokens = count_tokens(single_context)
+    reason = ExclusionReason.OVERSIZED_BLOCK if single_tokens > budget else ExclusionReason.BUDGET
+    exclusions.append(
+        exclusion_record(
+            item, reason, "context", tokens=trial_tokens, single_tokens=single_tokens, budget=budget
+        )
+    )

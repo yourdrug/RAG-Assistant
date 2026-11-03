@@ -1,22 +1,25 @@
 """Source links are recovered only inside an authorized document and version."""
 
-from domain.identity.user_context import UserContext
+from __future__ import annotations
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import pytest
 from langchain_core.documents import Document
+import pytest
 
-from domain.knowledge.chunk import ChunkRecord
-from domain.rag.context import RagContext
-from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
+from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.enums import PageContentType
+from domain.rag.context import RagContext
+from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.ml.evidence_profiles.belarus.applicable_context import enrich_applicable_context
 from infrastructure.ml.evidence_profiles.belarus.grounded_response import (
     extractive_timing_response,
     missing_field_response,
 )
-from domain.rag.evidence.context import content_with_parent_scope
+
 
 USER = RagContext(
     user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
@@ -24,7 +27,7 @@ USER = RagContext(
 QUESTION = "Формат поля «Код» (позиция 18 таблицы 4.2, BLRDLN)?"
 
 
-def source_chunk(index, text, table_id=None, version=1):
+def source_chunk(index: int, text: str, table_id: str | None = None, version: int = 1) -> ChunkRecord:
     return ChunkRecord(
         chunk_id=index,
         document_id=1,
@@ -39,7 +42,7 @@ def source_chunk(index, text, table_id=None, version=1):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mutation", ["", "gap", "version", "other_table"])
-async def test_table_scope_requires_contiguous_matching_table_and_version(mutation):
+async def test_table_scope_requires_contiguous_matching_table_and_version(mutation: str) -> None:
     doc = Document(
         page_content="Теги ЭТН:\n| 18 | Код an..15 |",
         metadata={
@@ -56,12 +59,14 @@ async def test_table_scope_requires_contiguous_matching_table_and_version(mutati
         source_chunk(11, "| 1 | Начало |", "table-2"),
         source_chunk(12, doc.page_content, "table-2"),
     ]
+
     if mutation == "gap":
         neighbors.pop(1)
     elif mutation == "version":
         neighbors[0].act_version_id = 2
     elif mutation == "other_table":
         neighbors[1].context_metadata["table_id"] = "table-3"
+
     search = SimpleNamespace(get_neighbors=AsyncMock(return_value=neighbors))
     result = await enrich_applicable_context([(doc, 0.9)], QUESTION, search, USER)
     assert bool(missing_field_response(content_with_parent_scope(result[0][0]), QUESTION)) == bool(mutation)
@@ -70,7 +75,7 @@ async def test_table_scope_requires_contiguous_matching_table_and_version(mutati
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("version", [1, 2])
-async def test_timing_reference_requires_definition_and_appendix_in_same_version(version):
+async def test_timing_reference_requires_definition_and_appendix_in_same_version(version: int) -> None:
     question = "В каком режиме EDI-провайдер передаёт сведения о товарах, включённых в перечни, по N 71?"
     doc = Document(
         page_content="2.2. сведения, указанные в пункте 1 настоящего постановления:\n"
@@ -94,7 +99,7 @@ async def test_timing_reference_requires_definition_and_appendix_in_same_version
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("version", [1, 2])
-async def test_amendment_target_link_is_explicit_and_same_version(version):
+async def test_amendment_target_link_is_explicit_and_same_version(version: int) -> None:
     question = "Изменился ли формат поля «Код» (позиция 18 таблицы 4.2 BLRDLN) постановлением N 71?"
     doc = Document(
         page_content="Таблица 4.2 BLRDLN\n| 18 | Код an..8 | М |",

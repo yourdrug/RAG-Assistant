@@ -1,10 +1,12 @@
 """Reconstruct retrieved chunk metadata from authoritative PostgreSQL fields."""
 
+from typing import Any
+
 from domain.knowledge.chunk import ChunkRecord, extract_chunk_context
 from domain.shared.hashing import content_hash
 
 
-def chunk_result_metadata(chunk: ChunkRecord) -> dict:
+def chunk_result_metadata(chunk: ChunkRecord) -> dict[str, Any]:
     metadata = extract_chunk_context(chunk.context_metadata)
 
     for key in ("section", "heading", "heading_level", "content_type", "doc_title", "doc_type"):

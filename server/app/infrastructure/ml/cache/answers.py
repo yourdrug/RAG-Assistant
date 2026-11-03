@@ -10,22 +10,25 @@ O(1) lookup instead of O(N) SCAN. Entries without an index expire by TTL.
 
 from __future__ import annotations
 
-from typing import Any
-
 import base64
 import gzip
 import json
 import logging
 import time
-from collections.abc import Awaitable
-from typing import cast
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
-from domain.shared.hashing import content_hash
 from config import get_request_settings
+from domain.identity.roles import UserRole
+from domain.shared.hashing import content_hash
 from infrastructure.corpus.snapshot import active_corpus
 from infrastructure.redis.redis_client import redis_client
-from domain.identity.user_context import CuratorScope
-from domain.identity.roles import UserRole
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
+    from domain.identity.user_context import CuratorScope
+
 
 log = logging.getLogger("default")
 
@@ -46,6 +49,15 @@ for i = 3, #KEYS do
 end
 return 1
 """
+
+
+class CacheOptions(TypedDict, total=False):
+    cache_enabled: bool
+    expected_revision: str | None
+
+
+class CacheWriteOptions(CacheOptions, total=False):
+    document_ids: list[int] | None
 
 
 async def get_corpus_revision() -> str | None:
@@ -93,7 +105,7 @@ def compute_question_hash(question_text: str, context: dict[str, Any] | None = N
     return content_hash(normalized)
 
 
-def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
+def cache_key(question_hash: str, visibility_scope_hash: str) -> str:
     """Build Redis key for cache entry."""
     pinned = active_corpus.get()
     namespace = (
@@ -104,17 +116,17 @@ def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
     return f"{CACHE_PREFIX}{namespace}:{question_hash}:{visibility_scope_hash}"
 
 
-def _doc_index_key(doc_id: int) -> str:
+def doc_index_key(doc_id: int) -> str:
     """Build Redis key for reverse index set."""
     return f"{DOC_INDEX_PREFIX}{doc_id}"
 
 
-def _encode_entry(entry: dict[str, Any]) -> str:
+def encode_entry(entry: dict[str, Any]) -> str:
     # RedisClient uses decode_responses=True for the shared connection.
     return base64.b64encode(gzip.compress(json.dumps(entry).encode())).decode("ascii")
 
 
-def _decode_entry(raw: str | bytes) -> dict[str, Any]:
+def decode_entry(raw: str | bytes) -> dict[str, Any]:
     if isinstance(raw, bytes) and raw.startswith(b"\x1f\x8b"):
         return cast("dict[str, Any]", json.loads(gzip.decompress(raw)))
 
@@ -124,6 +136,7 @@ def _decode_entry(raw: str | bytes) -> dict[str, Any]:
 async def find_cached_answer(
     question_hash: str,
     visibility_scope_hash: str,
+    *,
     cache_enabled: bool = True,
     expected_revision: str | None = None,
 ) -> dict[str, Any] | None:
@@ -131,30 +144,29 @@ async def find_cached_answer(
 
     Returns the cache entry dict or None on miss.
     """
-    if not cache_enabled:
-        return None
-
     try:
         r = redis_client.async_redis
-        key = _cache_key(question_hash, visibility_scope_hash)
-        raw = await r.get(key)
+        key = cache_key(question_hash, visibility_scope_hash)
+        raw = await r.get(key) if cache_enabled else None
 
         if raw is None:
             return None
 
-        entry = _decode_entry(raw)
+        entry = decode_entry(raw)
 
         if expected_revision is not None and await get_corpus_revision() != expected_revision:
             return None
 
         entry["hit_count"] = entry.get("hit_count", 0) + 1
 
-        await r.set(key, _encode_entry(entry), keepttl=True, xx=True)
+        await r.set(key, encode_entry(entry), keepttl=True, xx=True)
 
-        return entry
     except Exception:
         log.exception("Cache lookup failed")
-        return None
+    else:
+        return entry
+
+    return None
 
 
 async def store_cached_answer(
@@ -163,17 +175,18 @@ async def store_cached_answer(
     answer: str,
     sources: list[dict[str, Any]],
     visibility_scope_hash: str,
-    document_ids: list[int] | None = None,
-    cache_enabled: bool = True,
-    expected_revision: str | None = None,
+    **options: Unpack[CacheWriteOptions],
 ) -> None:
     """Store a question-answer pair in the cache."""
-    if not cache_enabled:
+    document_ids = options.get("document_ids")
+    expected_revision = options.get("expected_revision")
+
+    if not options.get("cache_enabled", True):
         return
 
     try:
         r = redis_client.async_redis
-        key = _cache_key(question_hash, visibility_scope_hash)
+        key = cache_key(question_hash, visibility_scope_hash)
         entry = {
             "question_text": question_text,
             "answer": answer,
@@ -184,11 +197,11 @@ async def store_cached_answer(
         }
 
         if expected_revision is not None:
-            indexes = [_doc_index_key(doc_id) for doc_id in set(document_ids or [])]
+            indexes = [doc_index_key(doc_id) for doc_id in set(document_ids or [])]
             # Redis shares the EVAL stub between sync and async clients; this
             # connection is always redis.asyncio.Redis, so the result is awaitable.
             await cast(
-                Awaitable[object],
+                "Awaitable[object]",
                 r.eval(
                     _STORE_IF_CURRENT,
                     2 + len(indexes),
@@ -196,19 +209,19 @@ async def store_cached_answer(
                     key,
                     *indexes,
                     expected_revision,
-                    _encode_entry(entry),
+                    encode_entry(entry),
                     str(CACHE_TTL_SECONDS),
                 ),
             )
             return
 
         pipe = r.pipeline(transaction=True)
-        pipe.set(key, _encode_entry(entry), ex=CACHE_TTL_SECONDS)
+        pipe.set(key, encode_entry(entry), ex=CACHE_TTL_SECONDS)
 
         if document_ids:
             for doc_id in document_ids:
-                pipe.sadd(_doc_index_key(doc_id), key)
-                pipe.expire(_doc_index_key(doc_id), DOC_INDEX_TTL)
+                pipe.sadd(doc_index_key(doc_id), key)
+                pipe.expire(doc_index_key(doc_id), DOC_INDEX_TTL)
 
         await pipe.execute()
 
@@ -217,7 +230,7 @@ async def store_cached_answer(
         log.exception("Failed to store cached answer")
 
 
-async def _delete_cache_entries(keys: list[str]) -> int:
+async def delete_cache_entries(keys: list[str]) -> int:
     """Delete cache entries and clean up their reverse index links atomically."""
     if not keys:
         return 0
@@ -235,12 +248,12 @@ async def _delete_cache_entries(keys: list[str]) -> int:
     for key, raw in zip(keys, raw_results, strict=True):
         if raw is not None:
             try:
-                entry = _decode_entry(raw)
+                entry = decode_entry(raw)
 
                 for doc_id in entry.get("document_ids", []):
-                    pipe2.srem(_doc_index_key(doc_id), key)
+                    pipe2.srem(doc_index_key(doc_id), key)
             except Exception:
-                log.debug("Failed to clean reverse index for %s", key)
+                log.debug("Failed to clean reverse index for %s", key, exc_info=True)
 
         pipe2.delete(key)
 
@@ -250,6 +263,7 @@ async def _delete_cache_entries(keys: list[str]) -> int:
 
 async def invalidate_by_document_ids(
     document_ids: list[int],
+    *,
     cache_enabled: bool = True,
     raise_on_error: bool = False,
 ) -> int:
@@ -259,6 +273,8 @@ async def invalidate_by_document_ids(
     ``raise_on_error`` to retry failures; already committed HTTP mutations
     use best-effort immediate invalidation and leave retries to the outbox.
     """
+    del cache_enabled
+
     # Mutations must invalidate old entries even while cache reads are disabled.
     if not document_ids:
         return 0
@@ -269,17 +285,16 @@ async def invalidate_by_document_ids(
         keys_to_delete: set[str] = set()
 
         for doc_id in document_ids:
-            members = await r.smembers(_doc_index_key(doc_id))  # type: ignore[misc]
+            members = await cast("Awaitable[set[str]]", r.smembers(doc_index_key(doc_id)))
 
             if members:
                 keys_to_delete.update(m for m in members)
 
-        invalidated = await _delete_cache_entries(list(keys_to_delete))
+        invalidated = await delete_cache_entries(list(keys_to_delete))
 
         if invalidated:
             log.info("Invalidated %d cache entries for document_ids=%s", invalidated, document_ids)
 
-        return invalidated
     except Exception:
         log.exception("Cache invalidation failed")
 
@@ -287,3 +302,5 @@ async def invalidate_by_document_ids(
             raise
 
         return 0
+    else:
+        return invalidated

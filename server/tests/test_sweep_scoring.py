@@ -1,27 +1,34 @@
 """Characterization and regression contracts for sweep scoring and final selection."""
 
-from infrastructure.benchmark.sweep.settings import settings_snapshot
+from __future__ import annotations
 
-from unittest.mock import AsyncMock
 from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock
 
-import pytest
 from langchain.schema import Document
 from pydantic import ValidationError
+import pytest
 
+from application.benchmark.sweep_evaluation import SweepEvaluationPlan, SweepFullEvaluator
+from composition.service_providers import build_sweep_engine
 from config import get_setting
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
-from domain.benchmark.sweep import BenchmarkSweep
-from domain.benchmark.sweep import BenchmarkStrategy
-from composition.service_providers import build_sweep_engine
-from infrastructure.ml.rag.langchain_mapping import chunk_value
-from application.benchmark.sweep_evaluation import SweepFullEvaluator
+from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep
 from infrastructure.benchmark.sweep.scoring import compute_composite_score, score_config_cheap
-from infrastructure.benchmark.sweep.settings import LiveSweepSettings
+from infrastructure.benchmark.sweep.settings import LiveSweepSettings, settings_snapshot
+from infrastructure.ml.rag.langchain_mapping import chunk_value
 from presentation.api.schemas.benchmark import SweepCreateRequest
+from tests.fakes import FakeUnitOfWorkFactory
 
 
-def score_documents(documents, annotations=None, source_hint="law.pdf", rerank_scores=None, **config):
+def score_documents(
+    documents: list[Document],
+    annotations: dict[str, Any] | None = None,
+    source_hint: str = "law.pdf",
+    rerank_scores: dict[str, dict[str, float]] | None = None,
+    **config: Any,
+) -> dict[str, Any]:
     return score_config_cheap(
         {"top_k": 5, "fetch_k": 10, "dense_weight": 1, "sparse_weight": 0, **config},
         [{"question": "article 17?", "source_hint": source_hint, "annotations": annotations}],
@@ -35,7 +42,7 @@ def score_documents(documents, annotations=None, source_hint="law.pdf", rerank_s
 
 
 @pytest.mark.parametrize("top_k, expected", [(1, 0), (2, 0.5)])
-def test_cheap_scoring_characterizes_top_k_and_first_source_rank(top_k, expected):
+def test_cheap_scoring_characterizes_top_k_and_first_source_rank(top_k: int, expected: float) -> None:
     metrics = score_documents(
         [
             Document(page_content="other", metadata={"filename": "other.pdf"}),
@@ -47,23 +54,25 @@ def test_cheap_scoring_characterizes_top_k_and_first_source_rank(top_k, expected
     assert metrics["avg_hit_rate"] == int(expected > 0)
 
 
-def test_threshold_comparison_requires_cached_reranker_scores():
+def test_threshold_comparison_requires_cached_reranker_scores() -> None:
     with pytest.raises(ValueError, match="Cached reranker scores"):
         score_documents([], rerank_min_score=0.1)
 
 
 @pytest.mark.parametrize("correct_rank", [None, 2, 5])
-def test_fragment_annotation_rejects_wrong_article_from_correct_law(correct_rank):
+def test_fragment_annotation_rejects_wrong_article_from_correct_law(correct_rank: int | None) -> None:
     docs = [Document(page_content="article 29", metadata={"filename": "law.pdf"}) for _ in range(5)]
+
     if correct_rank:
         docs[correct_rank - 1] = Document(page_content="article 17", metadata={"filename": "law.pdf"})
+
     metrics = score_documents(docs, {"expected_fragments": [{"source": "law.pdf", "text": "article 17"}]})
     assert metrics["avg_hit_rate"] == int(correct_rank is not None)
     assert metrics["avg_mrr"] == (1 / correct_rank if correct_rank else 0)
 
 
 @pytest.mark.parametrize("metadata", [{"section": "29", "page": 1}, {"section": "17", "page": 2}])
-def test_fragment_scoring_respects_section_and_pages(metadata):
+def test_fragment_scoring_respects_section_and_pages(metadata: dict[str, Any]) -> None:
     metrics = score_documents(
         [Document(page_content="article 17", metadata={"source": "/docs/law.pdf", **metadata})],
         {"expected_fragments": [{"source": "law.pdf", "text": "article 17", "section": "17", "pages": [1]}]},
@@ -72,7 +81,7 @@ def test_fragment_scoring_respects_section_and_pages(metadata):
 
 
 @pytest.mark.parametrize("include_second_fact", [False, True])
-def test_required_facts_must_be_covered_across_retrieved_chunks(include_second_fact):
+def test_required_facts_must_be_covered_across_retrieved_chunks(include_second_fact: bool) -> None:
     docs = [
         Document(page_content="Article 17 requires filing", metadata={"filename": "law.pdf"}),
         Document(
@@ -86,7 +95,7 @@ def test_required_facts_must_be_covered_across_retrieved_chunks(include_second_f
     assert metrics["avg_evidence_completion_rr"] == (0.5 if include_second_fact else 0)
 
 
-def test_fragment_hit_does_not_hide_missing_required_fact():
+def test_fragment_hit_does_not_hide_missing_required_fact() -> None:
     metrics = score_documents(
         [Document(page_content="article 17", metadata={"filename": "law.pdf"})],
         {"expected_fragments": [{"source": "law.pdf", "text": "article 17"}], "required_facts": ["30 days"]},
@@ -99,12 +108,15 @@ def test_fragment_hit_does_not_hide_missing_required_fact():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("top_n", [0, 1])
 @pytest.mark.parametrize("parameter", ["rerank_min_score", "rerank_score_gap_ratio"])
-async def test_reranker_scores_all_combinations_but_llm_only_scores_shortlist(monkeypatch, top_n, parameter):
+async def test_reranker_scores_all_combinations_but_llm_only_scores_shortlist(
+    monkeypatch: pytest.MonkeyPatch, top_n: int, parameter: str
+) -> None:
     wrong = Document(page_content="article 29", metadata={"source": "law.pdf"})
     correct = Document(page_content="article 17", metadata={"source": "law.pdf", "section": "17"})
     predict = AsyncMock(return_value=[0.9, 0.4])
     engine = build_sweep_engine(
-        uow_factory=None, ml_clients=SimpleNamespace(reranker=lambda: SimpleNamespace(predict=predict))
+        uow_factory=FakeUnitOfWorkFactory(),
+        ml_clients=SimpleNamespace(reranker=lambda: SimpleNamespace(predict=predict)),
     )
     question = {
         "question": "q",
@@ -129,7 +141,9 @@ async def test_reranker_scores_all_combinations_but_llm_only_scores_shortlist(mo
     monkeypatch.setattr(engine, "cache_candidates", cache)
     thresholds = []
 
-    async def evaluate_current_settings(questions, judge_model, **kwargs):
+    async def evaluate_current_settings(
+        questions: list[dict[str, Any]], judge_model: str, **kwargs: Any
+    ) -> dict[str, Any]:
         thresholds.append(get_setting(parameter))
         return {"hit_rate": 1, "avg_mrr": 0.5}
 
@@ -159,8 +173,10 @@ async def test_reranker_scores_all_combinations_but_llm_only_scores_shortlist(mo
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("strategy", [BenchmarkStrategy.RANDOM, BenchmarkStrategy.OPTUNA_TPE])
-async def test_sampled_reranker_trials_respect_llm_budget(monkeypatch, strategy):
-    engine = build_sweep_engine(uow_factory=None)
+async def test_sampled_reranker_trials_respect_llm_budget(
+    monkeypatch: pytest.MonkeyPatch, strategy: BenchmarkStrategy
+) -> None:
+    engine = build_sweep_engine(uow_factory=FakeUnitOfWorkFactory())
     monkeypatch.setattr(
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "law.pdf"}])
     )
@@ -168,7 +184,7 @@ async def test_sampled_reranker_trials_respect_llm_budget(monkeypatch, strategy)
     run = AsyncMock(return_value={"hit_rate": 1})
     monkeypatch.setattr(engine, "run_full_benchmark", run)
     sweep = BenchmarkSweep(
-        strategy=strategy.value,
+        strategy=strategy,
         search_space={"rerank_min_score": {"values": [0.1, 0.9]}, "_n_random": 3, "_n_trials": 3},
         objective_weights={"hit_rate": 1},
         top_n_llm=1,
@@ -179,7 +195,7 @@ async def test_sampled_reranker_trials_respect_llm_budget(monkeypatch, strategy)
 
 
 @pytest.mark.parametrize("parameter", ["rerank_min_score", "rerank_score_gap_ratio"])
-def test_reranking_precedes_top_k_and_filters(parameter):
+def test_reranking_precedes_top_k_and_filters(parameter: str) -> None:
     docs = [
         Document(page_content="article 29", metadata={"source": "law.pdf"}),
         Document(page_content="article 17", metadata={"source": "law.pdf"}),
@@ -190,11 +206,11 @@ def test_reranking_precedes_top_k_and_filters(parameter):
         docs, annotations, rerank_scores=scores, top_k=1, rerank_min_score=None, rerank_score_gap_ratio=None
     )
     assert metrics["avg_hit_rate"] == metrics["avg_mrr"] == 1
-    config = {"rerank_min_score": None, "rerank_score_gap_ratio": None, parameter: 1.1}
+    config: dict[str, Any] = {"rerank_min_score": None, "rerank_score_gap_ratio": None, parameter: 1.1}
     assert score_documents(docs, annotations, rerank_scores=scores, top_k=1, **config)["avg_hit_rate"] == 0
 
 
-def test_reranking_respects_fetch_k_candidate_pool():
+def test_reranking_respects_fetch_k_candidate_pool() -> None:
     docs = [
         Document(page_content="article 29", metadata={"source": "law.pdf"}),
         Document(page_content="article 17", metadata={"source": "law.pdf"}),
@@ -211,7 +227,7 @@ def test_reranking_respects_fetch_k_candidate_pool():
     assert metrics["avg_hit_rate"] == 0
 
 
-def test_phase_a_uses_effective_runtime_threshold_defaults():
+def test_phase_a_uses_effective_runtime_threshold_defaults() -> None:
     docs = [Document(page_content="article 17", metadata={"source": "law.pdf"})]
     annotations = {"expected_fragments": [{"source": "law.pdf", "text": "article 17"}]}
     scores = {"article 17?": {"0": 0.4}}
@@ -222,14 +238,14 @@ def test_phase_a_uses_effective_runtime_threshold_defaults():
         assert score_documents(docs, annotations, rerank_scores=scores)["avg_hit_rate"] == 1
 
 
-def test_retrieval_only_score_uses_available_weights():
+def test_retrieval_only_score_uses_available_weights() -> None:
     assert compute_composite_score(
         {"hit_rate": 1, "mrr": 0.5}, {"hit_rate": 0.4, "mrr": 0.2}
     ) == pytest.approx(5 / 6)
 
 
 @pytest.mark.asyncio
-async def test_full_evaluation_runs_shortlist_and_restores_settings():
+async def test_full_evaluation_runs_shortlist_and_restores_settings() -> None:
     previous_top_k = get_setting("retriever_top_k")
     results = [
         {"config": {"top_k": k}, "avg_hit_rate": 1, "avg_mrr": 1, "composite_score": 1} for k in (5, 2)
@@ -237,10 +253,8 @@ async def test_full_evaluation_runs_shortlist_and_restores_settings():
     run = AsyncMock(return_value={"hit_rate": 1, "avg_mrr": 1, "avg_faithfulness": 8, "avg_relevancy": 7})
     evaluated = await SweepFullEvaluator(LiveSweepSettings()).evaluate(
         results,
-        2,
-        "judge",
+        SweepEvaluationPlan(2, "judge", {"hit_rate": 0.4, "faithfulness": 0.3, "relevancy": 0.3}),
         [{"question": "q"}],
-        {"hit_rate": 0.4, "faithfulness": 0.3, "relevancy": 0.3},
         None,
         run,
     )
@@ -250,7 +264,7 @@ async def test_full_evaluation_runs_shortlist_and_restores_settings():
     assert get_setting("retriever_top_k") == previous_top_k
 
 
-def test_normalization_makes_weights_proportional_to_influence():
+def test_normalization_makes_weights_proportional_to_influence() -> None:
     zero = {"hit_rate": 0, "faithfulness": 0, "relevancy": 0, "correctness": 0}
     assert compute_composite_score({**zero, "hit_rate": 1}) == pytest.approx(0.2)
     assert compute_composite_score({**zero, "faithfulness": 10}) == pytest.approx(0.4)
@@ -260,13 +274,13 @@ def test_normalization_makes_weights_proportional_to_influence():
     ) == pytest.approx(1)
 
 
-def test_mrr_and_correctness_have_explicit_normalized_influence():
+def test_mrr_and_correctness_have_explicit_normalized_influence() -> None:
     assert compute_composite_score(
         {"mrr": 0.5, "correctness": 10}, {"mrr": 0.2, "correctness": 0.8}
     ) == pytest.approx(0.9)
 
 
-def test_explicit_weights_do_not_add_hidden_metrics():
+def test_explicit_weights_do_not_add_hidden_metrics() -> None:
     metrics = {"hit_rate": 1, "mrr": 0, "faithfulness": 10, "relevancy": 10, "correctness": 0}
     assert compute_composite_score(
         metrics, {"hit_rate": 0.4, "faithfulness": 0.3, "relevancy": 0.3}
@@ -287,13 +301,13 @@ def test_explicit_weights_do_not_add_hidden_metrics():
         {"faithfulness": 1},
     ],
 )
-def test_invalid_objectives_rejected(weights):
+def test_invalid_objectives_rejected(weights: dict[str, float]) -> None:
     with pytest.raises(ValidationError):
         SweepCreateRequest(search_space={}, objective_weights=weights)
 
 
 @pytest.mark.asyncio
-async def test_unchecked_config_cannot_beat_full_finalists():
+async def test_unchecked_config_cannot_beat_full_finalists() -> None:
     results = [
         {"config": {"top_k": k}, "composite_score": score} for k, score in [(5, 1), (3, 0.9), (2, 0.8)]
     ]
@@ -304,7 +318,7 @@ async def test_unchecked_config_cannot_beat_full_finalists():
         ]
     )
     ranked = await SweepFullEvaluator(LiveSweepSettings()).evaluate(
-        results, 2, "judge", [], DEFAULT_OBJECTIVE_WEIGHTS, None, run
+        results, SweepEvaluationPlan(2, "judge", DEFAULT_OBJECTIVE_WEIGHTS), [], None, run
     )
     assert [r["config"]["top_k"] for r in ranked] == [3, 5, 2]
     assert ranked[0]["composite_score"] == pytest.approx(0.16)
@@ -313,7 +327,7 @@ async def test_unchecked_config_cannot_beat_full_finalists():
 
 
 @pytest.mark.asyncio
-async def test_incomplete_config_is_excluded_instead_of_reweighting():
+async def test_incomplete_config_is_excluded_instead_of_reweighting() -> None:
     results = [{"config": {"top_k": i}, "composite_score": score} for i, score in enumerate((1, 0.9))]
     run = AsyncMock(
         side_effect=[
@@ -322,17 +336,21 @@ async def test_incomplete_config_is_excluded_instead_of_reweighting():
         ]
     )
     ranked = await SweepFullEvaluator(LiveSweepSettings()).evaluate(
-        results, 2, "judge", [], DEFAULT_OBJECTIVE_WEIGHTS, None, run
+        results, SweepEvaluationPlan(2, "judge", DEFAULT_OBJECTIVE_WEIGHTS), [], None, run
     )
     assert ranked[0]["retrieval_score"] == 0.9
     assert ranked[-1]["composite_score"] is None
 
 
 @pytest.mark.asyncio
-async def test_no_complete_finalist_returns_diagnostics_without_retrieval_winner():
+async def test_no_complete_finalist_returns_diagnostics_without_retrieval_winner() -> None:
     run = AsyncMock(return_value={"hit_rate": 1, "avg_faithfulness": 10})
     results = await SweepFullEvaluator(LiveSweepSettings()).evaluate(
-        [{"config": {}, "composite_score": 1}], 1, "judge", [], DEFAULT_OBJECTIVE_WEIGHTS, None, run
+        [{"config": {}, "composite_score": 1}],
+        SweepEvaluationPlan(1, "judge", DEFAULT_OBJECTIVE_WEIGHTS),
+        [],
+        None,
+        run,
     )
     assert results[0]["composite_score"] is None
     assert results[0]["evaluation_complete"] is False

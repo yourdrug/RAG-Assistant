@@ -6,12 +6,11 @@ import ast
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-import subprocess
-import sys
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 from langchain_core.documents import Document
+from mypy import api as mypy_api
 import pytest
 
 from application.rag.dto import (
@@ -173,7 +172,9 @@ def test_new_application_modules_do_not_import_adapters() -> None:
                 assert all(not alias.name.startswith(forbidden) for alias in node.names), file
 
 
-def test_mypy_rejects_generation_and_finalization_before_required_stages(tmp_path: Path) -> None:
+def test_mypy_rejects_generation_and_finalization_before_required_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     sample = tmp_path / "invalid_rag_transitions.py"
     sample.write_text(
         "from application.rag.dto import PreparedQuery, RetrievalResult\n"
@@ -182,17 +183,12 @@ def test_mypy_rejects_generation_and_finalization_before_required_stages(tmp_pat
         "    await g.generate(q)\n"
         "    f.finalize(r)\n"
     )
-    result = subprocess.run(  # noqa: S603 - invokes the local type checker on a fixed test sample.
-        [sys.executable, "-m", "mypy", "--follow-imports=silent", str(sample)],
-        cwd=Path(__file__).parents[1],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 1, result.stdout + result.stderr
-    assert result.stdout.count("[arg-type]") == 2, result.stdout
-    assert 'expected "PreparedContext"' in result.stdout
-    assert 'expected "SanitizedAnswer"' in result.stdout
+    monkeypatch.chdir(Path(__file__).parents[1])
+    output, errors, status = mypy_api.run(["--follow-imports=silent", str(sample)])
+    assert status == 1, output + errors
+    assert output.count("[arg-type]") == 2, output
+    assert 'expected "PreparedContext"' in output
+    assert 'expected "SanitizedAnswer"' in output
 
 
 @pytest.mark.asyncio

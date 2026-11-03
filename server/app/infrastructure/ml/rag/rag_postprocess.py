@@ -3,20 +3,24 @@
 Extracted from RagService to isolate post-processing logic from pipeline orchestration.
 """
 
+from collections.abc import AsyncIterator
+from datetime import date as _date
 import logging
 import re
 import time
-from collections.abc import AsyncIterator
-from datetime import date as _date
+from typing import Any
 
-from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
+from langchain_core.documents import Document, Document as LCDocument
+
+from application.ports.ml_clients import MLClientPort
+from application.rag.stream_events import SourcesEvent, StreamEvent, TextChunk
+from domain.identity.user_context import UserContext
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS, ChunkRecord
 from domain.knowledge.enums import PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.evidence.table_context import requests_table_overview
-from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
+from domain.rag.ports import ChunkRetrievalRepository
 from domain.rag.settings import RagSettings
-from application.rag.stream_events import SourcesEvent, StreamEvent, TextChunk
-
 from infrastructure.metrics.metrics import (
     RAG_RELEVANCE_GATE_TOTAL,
     RAG_STAGE_DURATION,
@@ -24,22 +28,26 @@ from infrastructure.metrics.metrics import (
     record_rag_answer,
 )
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
+from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
 from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN
 from infrastructure.ml.rag.rag_relevance import check_relevance, filter_cited_sources
 from infrastructure.ml.rag.table_context import focus_table_rows
 from infrastructure.resilience import circuit_breaker
+
 
 log = logging.getLogger("default")
 
 
 async def handle_relevance_gate(
     query_for_search: str,
-    docs: list,
+    docs: list[tuple[Document, float]],
     breadth: Breadth,
     rag: RagSettings,
-    ml_clients,
+    ml_clients: MLClientPort,
 ) -> bool:
     """Check relevance gate. Returns True if relevant, False if rejected."""
+    del breadth
+
     if not rag.features.relevance_gate_enabled:
         return True
 
@@ -68,7 +76,7 @@ async def handle_relevance_gate(
 
 async def reject_not_relevant(
     breadth: Breadth,
-    docs: list,
+    docs: list[tuple[Document, float]],
     avg_sim: float,
     t_pipeline_start: float,
 ) -> AsyncIterator[StreamEvent]:
@@ -87,10 +95,10 @@ async def reject_not_relevant(
     yield SourcesEvent(sources=[], confidence=None)
 
 
-def resolve_temporal_conflicts(docs: list) -> list:
+def resolve_temporal_conflicts(docs: list[tuple[Document, float]]) -> list[tuple[Document, float]]:
     """Keep all retrieved chunks from the newest eligible version of each act."""
-    versions_by_act: dict[int, list[tuple]] = {}
-    non_versioned: list[tuple] = []
+    versions_by_act: dict[int, list[tuple[Document, float, _date]]] = {}
+    non_versioned: list[tuple[Document, float]] = []
 
     for doc, score in docs:
         act_id = doc.metadata.get("act_id")
@@ -100,13 +108,7 @@ def resolve_temporal_conflicts(docs: list) -> list:
             non_versioned.append((doc, score))
             continue
 
-        effective_from = doc.metadata.get("effective_from") or _date.min
-
-        if isinstance(effective_from, str):
-            try:
-                effective_from = _date.fromisoformat(effective_from)
-            except ValueError:
-                effective_from = _date.min
+        effective_from = effective_from_for(doc)
 
         versions_by_act.setdefault(act_id, []).append((doc, score, effective_from))
 
@@ -117,7 +119,7 @@ def resolve_temporal_conflicts(docs: list) -> list:
             resolved.append(versions[0][:2])
             continue
 
-        versions_by_id: dict[int, list[tuple]] = {}
+        versions_by_id: dict[int, list[tuple[Document, float, _date]]] = {}
 
         for item in versions:
             version_id = item[0].metadata["act_version_id"]
@@ -144,7 +146,9 @@ def resolve_temporal_conflicts(docs: list) -> list:
     return resolved
 
 
-def apply_citation_filter(rag: RagSettings, full_answer: str, sources: list[dict]) -> list[dict]:
+def apply_citation_filter(
+    rag: RagSettings, full_answer: str, sources: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     """Filter sources to only those cited in the LLM answer."""
     if not rag.features.citation_filter_enabled:
         return sources
@@ -161,12 +165,21 @@ def apply_citation_filter(rag: RagSettings, full_answer: str, sources: list[dict
     return filtered
 
 
-async def fetch_context_neighbors(doc, chunk_search, user, full_table, enumerate_cases, hashes, scopes):
+async def fetch_context_neighbors(
+    doc: Document,
+    chunk_search: ChunkRetrievalRepository,
+    user: UserContext | None,
+    *,
+    full_table: bool,
+    enumerate_cases: bool,
+    hashes: set[str],
+    scopes: set[tuple[int, str, int | None, int | None]],
+) -> list[ChunkRecord]:
     """Resolve one authorized table/row scope or a bounded text neighborhood."""
     document_id = doc.metadata.get("document_id")
     chunk_index = doc.metadata.get("chunk_index")
 
-    if not document_id or chunk_index is None:
+    if user is None or not document_id or chunk_index is None:
         return []
 
     if doc.metadata.get("content_type") != PageContentType.TABLE.value:
@@ -181,6 +194,116 @@ async def fetch_context_neighbors(doc, chunk_search, user, full_table, enumerate
             user=user,
         )
 
+    return await fetch_table_context(doc, chunk_search, user, hashes, scopes, full_table=full_table)
+
+
+async def enrich_with_neighbors(
+    docs: list[tuple[Document, float]],
+    *,
+    enumerate_cases: bool,
+    chunk_search: ChunkRetrievalRepository | None,
+    max_context_tokens: int = 6000,
+    user: UserContext | None = None,
+    query: str = "",
+) -> list[tuple[Document, float]]:
+    """Expand table rows within their table; full tables require an overview request."""
+    full_table = requests_table_overview(query)
+
+    if not full_table:
+        docs = [
+            (focus_table_rows(doc, query), score)
+            if doc.metadata.get("content_type") == PageContentType.TABLE.value
+            else (doc, score)
+            for doc, score in docs
+        ]
+
+    if not chunk_search:
+        return docs
+
+    existing_hashes = {h for h in (doc.metadata.get("content_hash") for doc, _ in docs) if h is not None}
+    new_docs: list[tuple[Document, float]] = []
+    current_chars = sum(len(doc.page_content) for doc, _ in docs)
+    max_chars = max_context_tokens * CHARS_PER_TOKEN
+    scopes: set[tuple[int, str, int | None, int | None]] = set()
+
+    for doc, score in docs:
+        try:
+            neighbors = await fetch_context_neighbors(
+                doc,
+                chunk_search,
+                user,
+                full_table=full_table,
+                enumerate_cases=enumerate_cases,
+                hashes=existing_hashes,
+                scopes=scopes,
+            )
+        except Exception:
+            log.warning(
+                "Failed to fetch context for doc_id=%s", doc.metadata.get("document_id"), exc_info=True
+            )
+            continue
+
+        for neighbor in neighbors:
+            if not neighbor.content_hash or neighbor.content_hash in existing_hashes:
+                continue
+
+            neighbor_doc = LCDocument(
+                page_content=neighbor.content,
+                metadata=chunk_result_metadata(neighbor),
+            )
+
+            neighbor_doc = neighbor_doc if full_table else focus_table_rows(neighbor_doc, query)
+
+            neighbor_chars = len(neighbor_doc.page_content)
+
+            if current_chars + neighbor_chars > max_chars:
+                break
+
+            new_docs.append((neighbor_doc, score * 0.9))
+            existing_hashes.add(neighbor.content_hash)
+            current_chars += neighbor_chars
+
+    return docs + new_docs
+
+
+def is_not_found_answer(answer: str) -> bool:
+    """Return True if the LLM answer indicates information was not found."""
+    lower = answer.lower().strip()
+
+    if "информация не найдена в документах" in lower:
+        return True
+
+    if len(lower) < NOT_FOUND_SHORT_LIMIT and not re.search(r"\[\d+\]", answer):
+        return any(p in lower for p in NOT_FOUND_PATTERNS)
+
+    return False
+
+
+NOT_FOUND_SHORT_LIMIT = 50
+
+
+def effective_from_for(doc: Document) -> _date:
+    effective_from = doc.metadata.get("effective_from") or _date.min
+
+    if isinstance(effective_from, str):
+        try:
+            effective_from = _date.fromisoformat(effective_from)
+        except ValueError:
+            effective_from = _date.min
+
+    return effective_from
+
+
+async def fetch_table_context(
+    doc: Document,
+    chunk_search: ChunkRetrievalRepository,
+    user: UserContext,
+    hashes: set[str],
+    scopes: set[tuple[int, str, int | None, int | None]],
+    *,
+    full_table: bool,
+) -> list[ChunkRecord]:
+    document_id = doc.metadata["document_id"]
     table_id = doc.metadata.get("table_id")
     row_start = None if full_table else doc.metadata.get("table_row_start")
     row_end = None if full_table else doc.metadata.get("table_row_end")
@@ -204,87 +327,3 @@ async def fetch_context_neighbors(doc, chunk_search, user, full_table, enumerate
         row_start=row_start,
         row_end=row_end,
     )
-
-
-async def enrich_with_neighbors(
-    docs: list[tuple],
-    enumerate_cases: bool,
-    chunk_search,
-    max_context_tokens: int = 6000,
-    user=None,
-    query: str = "",
-) -> list[tuple]:
-    """Expand table rows within their table; full tables require an overview request."""
-    from langchain.schema import Document as LCDocument
-
-    full_table = requests_table_overview(query)
-
-    if not full_table:
-        docs = [
-            (focus_table_rows(doc, query), score)
-            if doc.metadata.get("content_type") == PageContentType.TABLE.value
-            else (doc, score)
-            for doc, score in docs
-        ]
-
-    if not chunk_search:
-        return docs
-
-    existing_hashes = {h for h in (doc.metadata.get("content_hash") for doc, _ in docs) if h is not None}
-    new_docs: list[tuple] = []
-    current_chars = sum(len(doc.page_content) for doc, _ in docs)
-    max_chars = max_context_tokens * CHARS_PER_TOKEN
-    scopes: set[tuple] = set()
-
-    for doc, score in docs:
-        try:
-            neighbors = await fetch_context_neighbors(
-                doc,
-                chunk_search,
-                user,
-                full_table,
-                enumerate_cases,
-                existing_hashes,
-                scopes,
-            )
-        except Exception:
-            log.warning(
-                "Failed to fetch context for doc_id=%s", doc.metadata.get("document_id"), exc_info=True
-            )
-            continue
-
-        for neighbor in neighbors:
-            if not neighbor.content_hash or neighbor.content_hash in existing_hashes:
-                continue
-
-            neighbor_doc = LCDocument(
-                page_content=neighbor.content,
-                metadata=chunk_result_metadata(neighbor),
-            )
-
-            if not full_table:
-                neighbor_doc = focus_table_rows(neighbor_doc, query)
-
-            neighbor_chars = len(neighbor_doc.page_content)
-
-            if current_chars + neighbor_chars > max_chars:
-                break
-
-            new_docs.append((neighbor_doc, score * 0.9))
-            existing_hashes.add(neighbor.content_hash)
-            current_chars += neighbor_chars
-
-    return docs + new_docs
-
-
-def is_not_found_answer(answer: str) -> bool:
-    """Return True if the LLM answer indicates information was not found."""
-    lower = answer.lower().strip()
-
-    if "информация не найдена в документах" in lower:
-        return True
-
-    if len(lower) < 50 and not re.search(r"\[\d+\]", answer):
-        return any(p in lower for p in NOT_FOUND_PATTERNS)
-
-    return False

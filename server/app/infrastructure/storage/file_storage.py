@@ -3,21 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
 import tempfile
 import threading
-from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator
-from typing import Any
-from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from aiobotocore.session import get_session
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from application.ports.file_storage import FileItem, FileStorage
+from application.ports.file_storage import FileItem
 from config import settings
 from infrastructure.utils.async_tasks import finish_owned_task, run_sync_io
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+    from contextlib import AbstractAsyncContextManager
+
+    from application.ports.file_storage import FileStorage
+    from infrastructure.storage.s3_types import MultipartPart, S3Client
+
 
 log = logging.getLogger("default")
 S3_MISSING_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
@@ -47,11 +55,11 @@ def s3_client_kwargs() -> dict[str, Any]:
     return kwargs
 
 
-def write_download_block(handle, block: bytes) -> None:
+def write_download_block(handle: tempfile._TemporaryFileWrapper[bytes], block: bytes) -> None:
     handle.write(block)
 
 
-def close_download(handle, *, remove: bool) -> None:
+def close_download(handle: tempfile._TemporaryFileWrapper[bytes], *, remove: bool) -> None:
     try:
         handle.close()
     finally:
@@ -59,21 +67,62 @@ def close_download(handle, *, remove: bool) -> None:
             Path(handle.name).unlink(missing_ok=True)
 
 
+async def create_download_handle(key: str) -> tempfile._TemporaryFileWrapper[bytes]:
+    # Shield temp creation too: cancellation must not lose its path.
+    creation = asyncio.create_task(
+        asyncio.to_thread(tempfile.NamedTemporaryFile, mode="w+b", delete=False, suffix=Path(key).suffix)
+    )
+    try:
+        handle = await asyncio.shield(creation)
+    except asyncio.CancelledError as exc:
+        try:
+            handle = await finish_owned_task(creation)
+            await run_sync_io(close_download, handle, remove=True)
+        except OSError:
+            log.warning("Failed to create/clean up S3 download after cancellation", exc_info=True)
+        finally:
+            # Neither thread failure nor cleanup may replace cancellation.
+            raise exc
+    except BaseException:
+        handle = await finish_owned_task(creation)
+        await run_sync_io(close_download, handle, remove=True)
+        raise
+    return handle
+
+
+async def create_multipart(client: S3Client, bucket: str, key: str) -> str:
+    creation = asyncio.create_task(client.create_multipart_upload(Bucket=bucket, Key=key))
+    try:
+        created = await asyncio.shield(creation)
+    except asyncio.CancelledError as exc:
+        try:
+            created = await finish_owned_task(creation)
+            abort = asyncio.create_task(
+                client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=created["UploadId"])
+            )
+            await finish_owned_task(abort)
+        except Exception:
+            log.exception("Multipart creation/cleanup failed after cancellation")
+        finally:
+            raise exc
+    return created["UploadId"]
+
+
 class S3Storage:
     """One lazy async S3 client, owned by one container and one event loop."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.bucket = settings.s3_bucket
         self._kwargs = s3_client_kwargs()
         self._extensions = settings.supported_extensions
         self._limit = asyncio.Semaphore(settings.s3_max_concurrent)
         self._acquire_timeout = settings.semaphore_acquire_timeout
         self._init_lock = asyncio.Lock()
-        self._client = None
-        self._context = None
-        self._loop = None
+        self._client: S3Client | None = None
+        self._context: AbstractAsyncContextManager[S3Client] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._closing = False
-        self._close_task = None
+        self._close_task: asyncio.Task[None] | None = None
         self._active = 0
         self._idle = asyncio.Event()
         self._idle.set()
@@ -88,16 +137,18 @@ class S3Storage:
         if self._loop is None:
             self._loop = loop
         elif self._loop is not loop:
-            raise RuntimeError("S3 storage belongs to another event loop")
+            msg = "S3 storage belongs to another event loop"
+            raise RuntimeError(msg)
 
-    async def ensure_client(self):
+    async def ensure_client(self) -> S3Client:
         """Acquire a client through the same admission/teardown boundary as requests."""
         async with self.operation() as client:
             return client
 
-    async def initialize_client(self):
+    async def initialize_client(self) -> S3Client:
         if not self._active:
-            raise RuntimeError("S3 client initialization requires an active storage operation")
+            msg = "S3 client initialization requires an active storage operation"
+            raise RuntimeError(msg)
 
         async with self._init_lock:
             if self._client is None:
@@ -111,11 +162,12 @@ class S3Storage:
             return self._client
 
     @asynccontextmanager
-    async def operation(self):
+    async def operation(self) -> AsyncIterator[S3Client]:
         self.check_loop()
 
         if self._closing:
-            raise RuntimeError("S3 storage is closed")
+            msg = "S3 storage is closed"
+            raise RuntimeError(msg)
 
         self._active += 1
         self._idle.clear()
@@ -172,25 +224,7 @@ class S3Storage:
         async with self.operation() as client:
             response = await client.get_object(Bucket=self.bucket, Key=key)
             async with response["Body"] as body:
-                # Shield temp creation too: cancellation must not lose its path.
-                creation = asyncio.create_task(
-                    asyncio.to_thread(tempfile.NamedTemporaryFile, delete=False, suffix=Path(key).suffix)
-                )
-                try:
-                    handle = await asyncio.shield(creation)
-                except asyncio.CancelledError as exc:
-                    try:
-                        handle = await finish_owned_task(creation)
-                        await run_sync_io(close_download, handle, remove=True)
-                    except OSError:
-                        log.warning("Failed to create/clean up S3 download after cancellation", exc_info=True)
-                    finally:
-                        # Neither thread failure nor cleanup may replace cancellation.
-                        raise exc
-                except BaseException:
-                    handle = await finish_owned_task(creation)
-                    await run_sync_io(close_download, handle, remove=True)
-                    raise
+                handle = await create_download_handle(key)
                 try:
                     while block := await body.read(S3_DOWNLOAD_CHUNK_BYTES):
                         await run_sync_io(write_download_block, handle, block)
@@ -215,29 +249,13 @@ class S3Storage:
     async def upload_stream(self, key: str, blocks: AsyncIterator[bytes]) -> None:
         # Multipart storage keeps memory bounded without a persistent local spool.
         async with self.operation() as client:
-            creation = asyncio.create_task(client.create_multipart_upload(Bucket=self.bucket, Key=key))
-            try:
-                created = await asyncio.shield(creation)
-            except asyncio.CancelledError as exc:
-                try:
-                    created = await finish_owned_task(creation)
-                    abort = asyncio.create_task(
-                        client.abort_multipart_upload(
-                            Bucket=self.bucket, Key=key, UploadId=created["UploadId"]
-                        )
-                    )
-                    await finish_owned_task(abort)
-                except Exception:
-                    log.exception("Multipart creation/cleanup failed after cancellation")
-                finally:
-                    raise exc
-            upload_id = created["UploadId"]
-            parts: list[dict] = []
+            upload_id = await create_multipart(client, self.bucket, key)
+            parts: list[MultipartPart] = []
             buffer = bytearray()
             part_size = 5 * 1024 * 1024
             try:
 
-                async def send_part(data):
+                async def send_part(data: bytes) -> None:
                     number = len(parts) + 1
                     response = await client.upload_part(
                         Bucket=self.bucket, Key=key, UploadId=upload_id, PartNumber=number, Body=data
@@ -272,7 +290,7 @@ class S3Storage:
         async with self.operation() as client:
             await client.delete_object(Bucket=self.bucket, Key=key)
 
-    async def copy_with_client(self, client, old_key: str, new_key: str) -> bool:
+    async def copy_with_client(self, client: S3Client, old_key: str, new_key: str) -> bool:
         try:
             await client.copy_object(
                 Bucket=self.bucket, CopySource={"Bucket": self.bucket, "Key": old_key}, Key=new_key
@@ -322,17 +340,18 @@ class S3Storage:
 class LazyStorage:
     """Container-owned backend rotation; in-flight calls retain their backend."""
 
-    def __init__(self):
-        self._resolved = None
-        self._retired = []
+    def __init__(self) -> None:
+        self._resolved: FileStorage | None = None
+        self._retired: list[FileStorage] = []
         self._lock = threading.Lock()
         self._closed = False
-        self._close_task = None
+        self._close_task: asyncio.Task[None] | None = None
 
-    def ensure(self):
+    def ensure(self) -> FileStorage:
         with self._lock:
             if self._closed:
-                raise RuntimeError("Storage is closed")
+                msg = "Storage is closed"
+                raise RuntimeError(msg)
 
             if self._resolved is None:
                 self._resolved = create_storage()
@@ -373,13 +392,15 @@ class LazyStorage:
                 self._retired.append(self._resolved)
                 self._resolved = None
 
-    async def close_backends(self, backends) -> None:
+    async def close_backends(self, backends: list[FileStorage]) -> None:
         error = None
 
         for backend in backends:
             try:
                 await backend.aclose()
             except Exception as exc:
+                log.exception("Storage backend shutdown failed")
+
                 if error is None:
                     error = exc
 

@@ -1,50 +1,74 @@
 """Regression contracts for medium lifecycle, retrieval and transaction findings."""
 
+from __future__ import annotations
+
 import asyncio
+import gzip
+import json
+import logging.config
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
+from arq import Retry
 import fakeredis.aioredis
-import pytest
+from fastapi import FastAPI
 from langchain.schema import Document as LCDocument
+from langchain_core.messages import AIMessage
+import pytest
+from qdrant_client import QdrantClient
+import redis.asyncio as aioredis
 
+from application.chunks import ChunkMutationService
 from application.search import HybridRetriever
-from domain.knowledge.document import Document
+from domain.identity.roles import UserRole
 from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentStatus
+from infrastructure.database.database import database
 from infrastructure.ml.cache import answers as answer_cache
-from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
-from infrastructure.redis.redis_client import RedisClient
+from infrastructure.ml.clients.managed_llm import ManagedInstructor, ManagedLLM
+from infrastructure.redis.redis_client import RedisClient, redis_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
+from infrastructure.scheduling.scheduler import scheduler
 from infrastructure.worker.admission import document_admission
-from fakes import FakeUnitOfWorkFactory
+import main
+from tests.fakes import FakeUnitOfWorkFactory
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from tests.fakes import FakeUnitOfWork
 
 
 @pytest.mark.asyncio
-async def test_fake_factory_creates_transactions_and_rolls_back():
+async def test_fake_factory_creates_transactions_and_rolls_back() -> None:
     factory = FakeUnitOfWorkFactory()
     async with factory.create(master=True) as first:
         saved = await first.documents.save(Document(filename="committed.pdf"))
+    assert saved.id is not None
     assert first._committed
-    with pytest.raises(ValueError):
-        async with factory.create(master=True) as second:
-            await second.documents.delete(saved.id)
-            raise ValueError("abort")
+    transactions: list[FakeUnitOfWork] = []
+    with pytest.raises(ValueError, match="abort"):
+        await abort_document_delete(factory, saved.id, transactions)
+    second = transactions[0]
     assert first is not second
-    assert second._rolled_back and not second._committed
+    assert second._rolled_back
+    assert not second._committed
     async with factory.create() as third:
         assert await third.documents.get_by_id(saved.id) is not None
 
 
 @pytest.mark.asyncio
-async def test_redis_failed_ping_closes_client_and_allows_retry(monkeypatch):
+async def test_redis_failed_ping_closes_client_and_allows_retry(monkeypatch: pytest.MonkeyPatch) -> None:
     failed = MagicMock(ping=AsyncMock(side_effect=OSError("offline")), aclose=AsyncMock())
     healthy = MagicMock(ping=AsyncMock(), aclose=AsyncMock())
     factory = MagicMock(side_effect=[failed, healthy])
-    import redis.asyncio as aioredis
 
     monkeypatch.setattr(aioredis, "from_url", factory)
     client = RedisClient()
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="offline"):
         await client.init()
     failed.aclose.assert_awaited_once()
     with pytest.raises(RuntimeError):
@@ -55,14 +79,14 @@ async def test_redis_failed_ping_closes_client_and_allows_retry(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_llm_retirement_waits_for_active_calls_and_closes_pool():
+async def test_llm_retirement_waits_for_active_calls_and_closes_pool() -> None:
     started, finish = asyncio.Event(), asyncio.Event()
     pool = SimpleNamespace(close=AsyncMock())
 
-    async def invoke(*args, **kwargs):
+    async def invoke(*args: object, **kwargs: Any) -> AIMessage:
         started.set()
         await finish.wait()
-        return "answer"
+        return AIMessage(content="answer")
 
     raw = SimpleNamespace(ainvoke=invoke, root_async_client=pool, root_client=None)
     managed = ManagedLLM(raw)
@@ -72,7 +96,7 @@ async def test_llm_retirement_waits_for_active_calls_and_closes_pool():
     await asyncio.sleep(0)
     pool.close.assert_not_awaited()
     finish.set()
-    assert await call == "answer"
+    assert (await call).content == "answer"
     await managed.close()
     pool.close.assert_awaited_once()
     with pytest.raises(RuntimeError, match="retired"):
@@ -80,7 +104,7 @@ async def test_llm_retirement_waits_for_active_calls_and_closes_pool():
 
 
 @pytest.mark.asyncio
-async def test_instructor_retirement_closes_underlying_openai():
+async def test_instructor_retirement_closes_underlying_openai() -> None:
     pool = SimpleNamespace(close=AsyncMock())
     create = AsyncMock(return_value="structured")
     raw = SimpleNamespace(client=pool, chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
@@ -90,7 +114,7 @@ async def test_instructor_retirement_closes_underlying_openai():
     pool.close.assert_awaited_once()
 
 
-def test_full_rrf_ranks_sparse_first_and_limits_fetch_k():
+def test_full_rrf_ranks_sparse_first_and_limits_fetch_k() -> None:
     dense = LCDocument(page_content="dense text")
     sparse = LCDocument(page_content="sparse text")
     result = HybridRetriever().merge_and_dedup(
@@ -106,29 +130,34 @@ def test_full_rrf_ranks_sparse_first_and_limits_fetch_k():
 
 
 @pytest.mark.asyncio
-async def test_cache_store_hit_isolation_invalidate_miss_without_scan(monkeypatch):
+async def test_cache_store_hit_isolation_invalidate_miss_without_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(answer_cache.redis_client, "_redis", redis)
+    monkeypatch.setattr(redis_client, "_redis", redis)
     question = answer_cache.compute_question_hash("same question")
     user_a = answer_cache.compute_visibility_scope_hash("internal", 1, [], "user")
     user_b = answer_cache.compute_visibility_scope_hash("internal", 2, [], "user")
     admin_a = answer_cache.compute_visibility_scope_hash("internal", 1, [], "admin")
     try:
-        await answer_cache.store_cached_answer("same question", question, "private answer", [], user_a, [42])
-        assert (await answer_cache.find_cached_answer(question, user_a))["answer"] == "private answer"
+        await answer_cache.store_cached_answer(
+            "same question", question, "private answer", [], user_a, document_ids=[42]
+        )
+        cached = await answer_cache.find_cached_answer(question, user_a)
+        assert cached is not None
+        assert cached["answer"] == "private answer"
         assert await answer_cache.find_cached_answer(question, user_b) is None
         assert await answer_cache.find_cached_answer(question, admin_a) is None
         assert await answer_cache.invalidate_by_document_ids([42]) == 1
         assert await answer_cache.find_cached_answer(question, user_a) is None
-        assert not await redis.smembers(answer_cache._doc_index_key(42))
+        assert not await cast("Awaitable[set[str]]", redis.smembers(answer_cache.doc_index_key(42)))
         monkeypatch.setattr(redis, "scan_iter", MagicMock(side_effect=AssertionError("full scan")))
         assert await answer_cache.invalidate_by_document_ids([999]) == 0
     finally:
         await redis.aclose()
 
 
-def test_embedding_binding_rejects_same_dimension_different_model():
-    from qdrant_client import QdrantClient
+def test_embedding_binding_rejects_same_dimension_different_model() -> None:
 
     client = QdrantClient(":memory:")
     try:
@@ -140,16 +169,16 @@ def test_embedding_binding_rejects_same_dimension_different_model():
 
 
 @pytest.mark.asyncio
-async def test_document_worker_defers_same_owner_and_admits_other_owner():
-    from arq import Retry
+async def test_document_worker_defers_same_owner_and_admits_other_owner() -> None:
 
     redis = fakeredis.aioredis.FakeRedis()
     started, finish = asyncio.Event(), asyncio.Event()
     ran = []
 
-    async def action(ctx, **kwargs):
+    async def action(ctx: dict[str, Any], **kwargs: Any) -> None:
         async with document_admission(ctx, kwargs):
             ran.append(kwargs["job_id"])
+
             if kwargs["job_id"] == 1:
                 started.set()
                 await finish.wait()
@@ -176,9 +205,9 @@ async def test_document_worker_defers_same_owner_and_admits_other_owner():
     "operation,index_method", [("edit", "replace"), ("add", "add"), ("delete", "remove")]
 )
 @pytest.mark.parametrize("fail_commit", [False, True])
-async def test_chunk_vectors_are_deferred_to_outbox(monkeypatch, operation, index_method, fail_commit):
-    from application.chunks import ChunkMutationService
-    from domain.knowledge.enums import DocumentStatus
+async def test_chunk_vectors_are_deferred_to_outbox(
+    monkeypatch: pytest.MonkeyPatch, operation: str, index_method: str, fail_commit: bool
+) -> None:
 
     events = []
     document = Document(id=1, filename="test.pdf", status=DocumentStatus.DONE)
@@ -205,19 +234,21 @@ async def test_chunk_vectors_are_deferred_to_outbox(monkeypatch, operation, inde
     )
 
     class Transaction:
-        async def __aenter__(self):
+        async def __aenter__(self) -> SimpleNamespace:
             return uow
 
-        async def __aexit__(self, *args):
+        async def __aexit__(self, *args: object) -> None:
             if fail_commit:
-                raise OSError("commit failed")
+                message = "commit failed"
+                raise OSError(message)
+
             events.append("committed")
 
     index = AsyncMock()
-    getattr(index, index_method).side_effect = lambda *args, **kwargs: events.append("indexed")
-    factory = SimpleNamespace(create=lambda **kwargs: Transaction())
+    getattr(index, index_method).side_effect = lambda *_args, **_kwargs: events.append("indexed")
+    factory = SimpleNamespace(create=lambda **_kwargs: Transaction())
     service = ChunkMutationService(factory, SimpleNamespace(chunk_size=100))
-    service.update_document_stats = AsyncMock()
+    monkeypatch.setattr(service, "update_document_stats", AsyncMock())
     monkeypatch.setattr(
         "application.chunks.mutations.load_doc_for_edit",
         AsyncMock(return_value=(document, None)),
@@ -226,12 +257,15 @@ async def test_chunk_vectors_are_deferred_to_outbox(monkeypatch, operation, inde
         "application.chunks.mutations.load_doc_for_add",
         AsyncMock(return_value=(document, None)),
     )
+    action: Awaitable[object]
+
     if operation == "edit":
-        action = service.edit_chunk(1, 2, "x" * 80, 1, "admin")
+        action = service.edit_chunk(1, 2, "x" * 80, 1, UserRole.ADMIN)
     elif operation == "add":
-        action = service.add_chunk(1, "x" * 80, 1, "admin")
+        action = service.add_chunk(1, "x" * 80, 1, UserRole.ADMIN)
     else:
-        action = service.delete_chunk(1, 2, 1, "admin")
+        action = service.delete_chunk(1, 2, 1, UserRole.ADMIN)
+
     if fail_commit:
         with pytest.raises(OSError, match="commit failed"):
             await action
@@ -244,40 +278,42 @@ async def test_chunk_vectors_are_deferred_to_outbox(monkeypatch, operation, inde
 
 
 @pytest.mark.asyncio
-async def test_lifespan_cleans_up_when_database_startup_fails(monkeypatch):
-    import main
+async def test_lifespan_cleans_up_when_database_startup_fails(monkeypatch: pytest.MonkeyPatch) -> None:
 
-    monkeypatch.setattr(main.logging.config, "dictConfig", MagicMock())
+    monkeypatch.setattr(logging.config, "dictConfig", MagicMock())
     monkeypatch.setattr(main, "attach_log_buffer", MagicMock())
-    monkeypatch.setattr(main.redis_client, "init", AsyncMock())
-    monkeypatch.setattr(main.database, "connect", AsyncMock(side_effect=OSError("database offline")))
+    monkeypatch.setattr(redis_client, "init", AsyncMock())
+    monkeypatch.setattr(database, "connect", AsyncMock(side_effect=OSError("database offline")))
     cleanup = AsyncMock()
     monkeypatch.setattr(main, "_shutdown", cleanup)
-    application = SimpleNamespace(state=SimpleNamespace())
+    application = FastAPI()
     with pytest.raises(OSError, match="database offline"):
         async with main.lifespan(application):
             pytest.fail("startup should fail before yield")
-    cleanup.assert_awaited_once_with(None, main.scheduler, main.database, main.redis_client)
+    cleanup.assert_awaited_once_with(None, scheduler, database, redis_client)
     assert application.state.container is None
 
 
 @pytest.mark.asyncio
-async def test_cache_shared_indexes_disabled_and_corrupt_entries(monkeypatch):
+async def test_cache_shared_indexes_disabled_and_corrupt_entries(monkeypatch: pytest.MonkeyPatch) -> None:
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(answer_cache.redis_client, "_redis", redis)
+    monkeypatch.setattr(redis_client, "_redis", redis)
     try:
         for question in ("q1", "q2"):
-            await answer_cache.store_cached_answer(question, question, "answer", [], "scope", [1, 2])
+            await answer_cache.store_cached_answer(
+                question, question, "answer", [], "scope", document_ids=[1, 2]
+            )
+
         assert await answer_cache.invalidate_by_document_ids([1]) == 2
-        assert not await redis.smembers(answer_cache._doc_index_key(2))
+        assert not await cast("Awaitable[set[str]]", redis.smembers(answer_cache.doc_index_key(2)))
         await answer_cache.store_cached_answer("q", "q", "answer", [], "scope", cache_enabled=False)
         assert await answer_cache.find_cached_answer("q", "scope", cache_enabled=False) is None
         assert await answer_cache.invalidate_by_document_ids([], cache_enabled=True) == 0
         assert await answer_cache.invalidate_by_document_ids([1], cache_enabled=False) == 0
-        key = answer_cache._cache_key("broken", "scope")
+        key = answer_cache.cache_key("broken", "scope")
         await redis.set(key, "invalid base64")
         assert await answer_cache.find_cached_answer("broken", "scope") is None
-        await redis.sadd(answer_cache._doc_index_key(3), key)
+        await cast("Awaitable[int]", redis.sadd(answer_cache.doc_index_key(3), key))
         assert await answer_cache.invalidate_by_document_ids([3]) == 1
         assert not await redis.exists(key)
     finally:
@@ -285,14 +321,16 @@ async def test_cache_shared_indexes_disabled_and_corrupt_entries(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_optional_cache_logs_backend_failures_and_returns_miss(monkeypatch, caplog):
+async def test_optional_cache_logs_backend_failures_and_returns_miss(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     redis = SimpleNamespace(
         get=AsyncMock(side_effect=OSError("offline")),
         incr=AsyncMock(side_effect=OSError("offline")),
         pipeline=MagicMock(side_effect=OSError("offline")),
         smembers=AsyncMock(side_effect=OSError("offline")),
     )
-    monkeypatch.setattr(answer_cache.redis_client, "_redis", redis)
+    monkeypatch.setattr(redis_client, "_redis", redis)
     assert await answer_cache.find_cached_answer("q", "scope") is None
     await answer_cache.store_cached_answer("q", "q", "answer", [], "scope")
     assert await answer_cache.invalidate_by_document_ids([1]) == 0
@@ -304,21 +342,24 @@ async def test_optional_cache_logs_backend_failures_and_returns_miss(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_cache_hit_does_not_resurrect_concurrently_deleted_key(monkeypatch):
+async def test_cache_hit_does_not_resurrect_concurrently_deleted_key(monkeypatch: pytest.MonkeyPatch) -> None:
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(answer_cache.redis_client, "_redis", redis)
+    monkeypatch.setattr(redis_client, "_redis", redis)
     try:
-        await answer_cache.store_cached_answer("q", "q", "answer", [], "scope", [1])
+        await answer_cache.store_cached_answer("q", "q", "answer", [], "scope", document_ids=[1])
         original_get = redis.get
-        key = answer_cache._cache_key("q", "scope")
+        key = answer_cache.cache_key("q", "scope")
 
-        async def get_then_delete(cache_key):
+        async def get_then_delete(cache_key: str) -> str | bytes | None:
             raw = await original_get(cache_key)
             await redis.delete(cache_key)
+            assert raw is None or isinstance(raw, (str, bytes))
             return raw
 
         monkeypatch.setattr(redis, "get", get_then_delete)
-        assert (await answer_cache.find_cached_answer("q", "scope"))["answer"] == "answer"
+        cached = await answer_cache.find_cached_answer("q", "scope")
+        assert cached is not None
+        assert cached["answer"] == "answer"
         assert not await redis.exists(key)
         assert await redis.ttl(key) == -2
     finally:
@@ -326,27 +367,34 @@ async def test_cache_hit_does_not_resurrect_concurrently_deleted_key(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_cache_hit_preserves_expiration_and_removes_all_reverse_links(monkeypatch):
+async def test_cache_hit_preserves_expiration_and_removes_all_reverse_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Exercise the Redis command contract without the native fake server parser."""
-    import json
-    import gzip
 
-    values, indexes, ttls = {}, {}, {}
+    values: dict[str, str | bytes] = {}
+    indexes: dict[str, set[str]] = {}
+    ttls: dict[str, int] = {}
 
-    async def get(key):
+    async def get(key: str) -> str | bytes | None:
         return values.get(key)
 
-    async def set_value(key, value, ex=None, keepttl=False, xx=False):
+    async def set_value(
+        key: str, value: str | bytes, ex: int | None = None, keepttl: bool = False, xx: bool = False
+    ) -> bool | None:
         if xx and key not in values:
             return None
+
         values[key] = value
+
         if ex is not None:
             ttls[key] = ex
         elif not keepttl:
             ttls.pop(key, None)
+
         return True
 
-    async def members(key):
+    async def members(key: str) -> set[str]:
         return indexes.get(key, set())
 
     redis = SimpleNamespace(
@@ -354,44 +402,54 @@ async def test_cache_hit_preserves_expiration_and_removes_all_reverse_links(monk
         incr=AsyncMock(return_value=1),
         set=set_value,
         smembers=members,
-        pipeline=lambda **kwargs: _CacheContractPipeline(values, indexes, ttls, get, set_value),
+        pipeline=lambda **_kwargs: CacheContractPipeline(values, indexes, ttls, get, set_value),
     )
-    monkeypatch.setattr(answer_cache.redis_client, "_redis", redis)
-    await answer_cache.store_cached_answer("Q", "q", "answer", [], "scope", [1, 2])
-    key = answer_cache._cache_key("q", "scope")
+    monkeypatch.setattr(redis_client, "_redis", redis)
+    await answer_cache.store_cached_answer("Q", "q", "answer", [], "scope", document_ids=[1, 2])
+    key = answer_cache.cache_key("q", "scope")
     assert ttls[key] == answer_cache.CACHE_TTL_SECONDS
     assert isinstance(values[key], str)
     hit = await answer_cache.find_cached_answer("q", "scope")
-    assert hit["answer"] == "answer" and hit["hit_count"] == 1
+    assert hit is not None
+    assert hit["answer"] == "answer"
+    assert hit["hit_count"] == 1
     assert ttls[key] == answer_cache.CACHE_TTL_SECONDS
     assert await answer_cache.invalidate_by_document_ids([1]) == 1
-    assert not indexes[answer_cache._doc_index_key(2)]
+    assert not indexes[answer_cache.doc_index_key(2)]
     assert await answer_cache.find_cached_answer("q", "scope") is None
     # Binary entries from deployments using a binary Redis connection remain readable.
     legacy = gzip.compress(json.dumps({"answer": "legacy"}).encode())
-    assert answer_cache._decode_entry(legacy)["answer"] == "legacy"
+    assert answer_cache.decode_entry(legacy)["answer"] == "legacy"
     assert answer_cache.compute_question_hash(
         "Q", {"date": "2026-01-01"}
     ) != answer_cache.compute_question_hash("Q", {"date": "2026-01-02"})
 
 
-class _CacheContractPipeline:
-    def __init__(self, values, indexes, ttls, get, set_value):
-        self.commands = []
+class CacheContractPipeline:
+    def __init__(
+        self,
+        values: dict[str, str | bytes],
+        indexes: dict[str, set[str]],
+        ttls: dict[str, int],
+        get: Callable[[str], Awaitable[str | bytes | None]],
+        set_value: Callable[..., Awaitable[bool | None]],
+    ) -> None:
+        self.commands: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
         self.values, self.indexes, self.ttls = values, indexes, ttls
         self._get, self._set_value = get, set_value
 
-    def __getattr__(self, name):
-        def queue(*args, **kwargs):
+    def __getattr__(self, name: str) -> Callable[..., CacheContractPipeline]:
+        def queue(*args: Any, **kwargs: Any) -> CacheContractPipeline:
             self.commands.append((name, args, kwargs))
             return self
 
         return queue
 
-    async def execute(self):
+    async def execute(self) -> list[object]:
         values, indexes, ttls = self.values, self.indexes, self.ttls
         get, set_value = self._get, self._set_value
-        result = []
+        result: list[object] = []
+
         for name, args, kwargs in self.commands:
             if name == "set":
                 result.append(await set_value(*args, **kwargs))
@@ -410,27 +468,28 @@ class _CacheContractPipeline:
                 result.append(int(values.pop(args[0], None) is not None))
                 ttls.pop(args[0], None)
             else:
-                raise AssertionError(f"Unexpected Redis command: {name}")
+                message = f"Unexpected Redis command: {name}"
+                raise AssertionError(message)
+
         return result
 
 
 @pytest.fixture
-def startup_container(monkeypatch):
-    import main
+def startup_container(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 
     container = MagicMock()
     container.dispose = AsyncMock()
     monkeypatch.setattr(main, "Container", MagicMock(return_value=container))
-    monkeypatch.setattr(main.logging.config, "dictConfig", MagicMock())
+    monkeypatch.setattr(logging.config, "dictConfig", MagicMock())
     monkeypatch.setattr(main, "attach_log_buffer", MagicMock())
-    monkeypatch.setattr(main.redis_client, "init", AsyncMock())
-    monkeypatch.setattr(main.redis_client, "aclose", AsyncMock())
-    monkeypatch.setattr(main.database, "connect", AsyncMock())
-    monkeypatch.setattr(main.database, "disconnect", AsyncMock())
+    monkeypatch.setattr(redis_client, "init", AsyncMock())
+    monkeypatch.setattr(redis_client, "aclose", AsyncMock())
+    monkeypatch.setattr(database, "connect", AsyncMock())
+    monkeypatch.setattr(database, "disconnect", AsyncMock())
     monkeypatch.setattr(main, "bootstrap_admin", AsyncMock())
     monkeypatch.setattr(main, "collect_infra_metrics", AsyncMock())
-    monkeypatch.setattr(main.scheduler, "startup", AsyncMock())
-    monkeypatch.setattr(main.scheduler, "shutdown", AsyncMock())
+    monkeypatch.setattr(scheduler, "startup", AsyncMock())
+    monkeypatch.setattr(scheduler, "shutdown", AsyncMock())
     monkeypatch.setattr("infrastructure.worker.queue.close_arq_pool", AsyncMock())
     return container
 
@@ -438,10 +497,9 @@ def startup_container(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("compatible", [False, True])
 async def test_startup_propagates_collection_error_and_disposes_resources(
-    startup_container,
+    startup_container: MagicMock,
     compatible: bool,
 ) -> None:
-    import main
 
     container = startup_container
     infrastructure = container.infrastructure
@@ -451,17 +509,29 @@ async def test_startup_propagates_collection_error_and_disposes_resources(
     infrastructure.ml.vector_store_repo.ensure_collection = AsyncMock(
         side_effect=None if compatible else ValueError("incompatible sparse index"),
     )
-    application = SimpleNamespace(state=SimpleNamespace())
+    application = FastAPI()
+
     if compatible:
         async with main.lifespan(application):
             assert application.state.container is container
-        main.scheduler.startup.assert_awaited_once()
+        cast("AsyncMock", scheduler.startup).assert_awaited_once()
     else:
         with pytest.raises(ValueError, match="incompatible sparse index"):
             async with main.lifespan(application):
                 pytest.fail("incompatible collection admitted requests")
-        main.scheduler.startup.assert_not_awaited()
+        cast("AsyncMock", scheduler.startup).assert_not_awaited()
+
     container.dispose.assert_awaited_once()
-    main.database.disconnect.assert_awaited_once()
-    main.redis_client.aclose.assert_awaited_once()
+    cast("AsyncMock", database.disconnect).assert_awaited_once()
+    cast("AsyncMock", redis_client.aclose).assert_awaited_once()
     assert application.state.container is None
+
+
+async def abort_document_delete(
+    factory: FakeUnitOfWorkFactory, document_id: int, transactions: list[FakeUnitOfWork]
+) -> None:
+    async with factory.create(master=True) as transaction:
+        transactions.append(transaction)
+        await transaction.documents.delete(document_id)
+        message = "abort"
+        raise ValueError(message)

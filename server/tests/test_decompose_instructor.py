@@ -9,22 +9,20 @@ Verifies that:
 
 from __future__ import annotations
 
-from domain.identity.user_context import UserContext
-from infrastructure.ml.rag.retrieval_work import RetrievalWork
-from domain.rag.context import RagContext
-from domain.identity.roles import UserKind, UserRole
-
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from langchain_core.language_models import FakeListChatModel
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-
-from infrastructure.ml.clients.llm_schemas import DecompositionCheck  # noqa: E402
-from infrastructure.ml.rag.rag_prompts import decompose_question  # noqa: E402
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
+from domain.rag.breadth import Breadth
+from domain.rag.context import RagContext
+from infrastructure.ml.clients.llm_schemas import DecompositionCheck
+from infrastructure.ml.rag.rag_prompts import decompose_question
+from infrastructure.ml.rag.retrieval_pipeline import retrieve_with_decomposition
+from infrastructure.ml.rag.retrieval_work import RetrievalWork
 
 
 # ---------------------------------------------------------------------------
@@ -32,16 +30,15 @@ from infrastructure.ml.rag.rag_prompts import decompose_question  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def _mock_instructor_client(check: DecompositionCheck):
+def _mock_instructor_client(check: DecompositionCheck) -> MagicMock:
     """Create a mock async instructor client returning the given DecompositionCheck."""
     client = MagicMock()
     client.chat.completions.create = AsyncMock(return_value=check)
     return client
 
 
-def _mock_ml_clients(fast_llm_response: str = ""):
+def _mock_ml_clients(fast_llm_response: str = "") -> SimpleNamespace:
     """Create a mock ml_clients with fast_llm and auxiliary_semaphore."""
-    from langchain_core.language_models import FakeListChatModel
 
     llm = FakeListChatModel(responses=[fast_llm_response])
     return SimpleNamespace(
@@ -57,7 +54,7 @@ def _mock_ml_clients(fast_llm_response: str = ""):
 
 class TestDecomposeInstructorPath:
     @pytest.mark.asyncio
-    async def test_returns_sub_queries(self):
+    async def test_returns_sub_queries(self) -> None:
         check = DecompositionCheck(
             needs_decomposition=True,
             sub_queries=["What is RAG?", "How does retrieval work?"],
@@ -67,28 +64,28 @@ class TestDecomposeInstructorPath:
         assert result == ["What is RAG?", "How does retrieval work?"]
 
     @pytest.mark.asyncio
-    async def test_needs_decomposition_false_returns_original(self):
+    async def test_needs_decomposition_false_returns_original(self) -> None:
         check = DecompositionCheck(needs_decomposition=False, sub_queries=[])
         client = _mock_instructor_client(check)
         result = await decompose_question("Simple question", instructor_client=client)
         assert result == ["Simple question"]
 
     @pytest.mark.asyncio
-    async def test_empty_sub_queries_returns_original(self):
+    async def test_empty_sub_queries_returns_original(self) -> None:
         check = DecompositionCheck(needs_decomposition=True, sub_queries=[])
         client = _mock_instructor_client(check)
         result = await decompose_question("question", instructor_client=client)
         assert result == ["question"]
 
     @pytest.mark.asyncio
-    async def test_single_sub_query_returns_original(self):
+    async def test_single_sub_query_returns_original(self) -> None:
         check = DecompositionCheck(needs_decomposition=True, sub_queries=["only one"])
         client = _mock_instructor_client(check)
         result = await decompose_question("question", instructor_client=client)
         assert result == ["question"]
 
     @pytest.mark.asyncio
-    async def test_strips_empty_strings(self):
+    async def test_strips_empty_strings(self) -> None:
         check = DecompositionCheck(
             needs_decomposition=True,
             sub_queries=["q1", "", "  ", "q2"],
@@ -98,7 +95,7 @@ class TestDecomposeInstructorPath:
         assert result == ["q1", "q2"]
 
     @pytest.mark.asyncio
-    async def test_limits_to_four(self):
+    async def test_limits_to_four(self) -> None:
         check = DecompositionCheck(
             needs_decomposition=True,
             sub_queries=["q1", "q2", "q3", "q4", "q5"],
@@ -109,7 +106,7 @@ class TestDecomposeInstructorPath:
         assert result == ["q1", "q2", "q3", "q4"]
 
     @pytest.mark.asyncio
-    async def test_instructor_uses_max_retries_two(self):
+    async def test_instructor_uses_max_retries_two(self) -> None:
         check = DecompositionCheck(needs_decomposition=False, sub_queries=[])
         client = _mock_instructor_client(check)
         await decompose_question("q", instructor_client=client)
@@ -118,7 +115,7 @@ class TestDecomposeInstructorPath:
         assert call_kwargs.kwargs.get("max_retries") == 2 or call_kwargs[1].get("max_retries") == 2
 
     @pytest.mark.asyncio
-    async def test_semaphore_acquired_when_ml_clients_provided(self):
+    async def test_semaphore_acquired_when_ml_clients_provided(self) -> None:
         check = DecompositionCheck(needs_decomposition=False, sub_queries=[])
         client = _mock_instructor_client(check)
         ml_clients = _mock_ml_clients()
@@ -127,7 +124,7 @@ class TestDecomposeInstructorPath:
         ml_clients.auxiliary_semaphore.__aenter__.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_semaphore_not_acquired_without_ml_clients(self):
+    async def test_semaphore_not_acquired_without_ml_clients(self) -> None:
         check = DecompositionCheck(needs_decomposition=False, sub_queries=[])
         client = _mock_instructor_client(check)
         # Should not raise — no semaphore needed
@@ -141,20 +138,20 @@ class TestDecomposeInstructorPath:
 
 class TestDecomposeLegacyPath:
     @pytest.mark.asyncio
-    async def test_legacy_ml_clients_only_returns_original(self):
+    async def test_legacy_ml_clients_only_returns_original(self) -> None:
         """Without instructor_client, decompose_question returns the original question."""
         ml_clients = _mock_ml_clients(fast_llm_response="q1\nq2\nq3")
         result = await decompose_question("complex question", ml_clients=ml_clients)
         assert result == ["complex question"]
 
     @pytest.mark.asyncio
-    async def test_legacy_single_line_returns_original(self):
+    async def test_legacy_single_line_returns_original(self) -> None:
         ml_clients = _mock_ml_clients(fast_llm_response="only one question")
         result = await decompose_question("simple question", ml_clients=ml_clients)
         assert result == ["simple question"]
 
     @pytest.mark.asyncio
-    async def test_no_client_no_ml_clients_returns_original(self):
+    async def test_no_client_no_ml_clients_returns_original(self) -> None:
         result = await decompose_question("question")
         assert result == ["question"]
 
@@ -166,9 +163,8 @@ class TestDecomposeLegacyPath:
 
 class TestDecomposeCallerIntegration:
     @pytest.mark.asyncio
-    async def test_retrieval_passes_instructor_client(self):
+    async def test_retrieval_passes_instructor_client(self) -> None:
         """Verify that retrieval_pipeline.py passes instructor_client to decompose_question."""
-        from infrastructure.ml.rag.retrieval_pipeline import retrieve_with_decomposition
 
         mock_rag = MagicMock()
         mock_rag.features.decomposition_enabled = True
@@ -184,7 +180,6 @@ class TestDecomposeCallerIntegration:
         ):
             mock_ml = MagicMock()
             mock_ml.instructor_client = MagicMock()
-            from domain.rag.breadth import Breadth
 
             await retrieve_with_decomposition(
                 "complex question",
@@ -202,7 +197,7 @@ class TestDecomposeCallerIntegration:
                     access_filter=None,
                     ctx=RagContext(
                         user=UserContext(
-                            user_id=0, user_kind=UserKind.INTERNAL, group_ids=[], user_role="user"
+                            user_id=0, user_kind=UserKind.INTERNAL, group_ids=(), user_role=UserRole.USER
                         )
                     ),
                     user=UserContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),

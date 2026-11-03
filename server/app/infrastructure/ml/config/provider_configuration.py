@@ -2,60 +2,74 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import json
 import math
-from application.runtime.enums import MLProvider
-from dataclasses import replace
+from typing import TYPE_CHECKING, Any, cast
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from config import Settings
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
+    from infrastructure.events.in_process_event_bus import InProcessEventBus
+    from infrastructure.ml.clients.client_registry import MLClientRegistry
+
+
 from pyrate_limiter import Rate
 from pyrate_limiter.utils import validate_rate_list
 
 from application.admin import ConfigurationStatus, EffectiveParameter
-from config import Settings, settings
-from application.runtime.config import ConfigParameter
-from application.runtime.config import ConfigParameterChanged
-from domain.shared.exceptions import ValidationError
-from domain.runtime.cost import usd_units
-from application.runtime.config import parse_bool
+from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType, parse_bool
 from application.runtime.dynamic_params import DYNAMIC_PARAMS
+from application.runtime.enums import LLMProvider, MLProvider
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
-from application.runtime.enums import LLMProvider
-from application.runtime.config import ConfigValueType
-from infrastructure.events.in_process_event_bus import event_bus, InProcessEventBus
-from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from domain.ingestion.profiles.registry import DomainProfileRegistry
-from infrastructure.ml.config.endpoint_policy import validate_endpoints, validate_pools
-from infrastructure.ml.config.client_switch import prepare_clients, dispose_clients
-from infrastructure.ml.config.client_switch import LLM_CLIENT_KEYS
+from config import settings
+from domain.runtime.cost import usd_units
+from domain.shared.exceptions import ValidationError
 from infrastructure.benchmark.judging.clients import retire_judge_clients
+from infrastructure.events.in_process_event_bus import event_bus
+from infrastructure.ml.config.client_switch import LLM_CLIENT_KEYS, dispose_clients, prepare_clients
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
+from infrastructure.ml.config.endpoint_policy import validate_endpoints, validate_pools
 from infrastructure.rate_limit.policies import build_policies
 
 
-def decode_parameter(param: ConfigParameter, value: str):
+type ConfigValue = str | int | float | bool | list[str]
+
+
+def decode_parameter(param: ConfigParameter, value: str) -> ConfigValue:
     param.validate(value)
 
-    if param.value_type == ConfigValueType.BOOL:
-        return parse_bool(value)
+    scalar_converters: dict[str, Callable[[str], ConfigValue]] = {
+        ConfigValueType.BOOL: parse_bool,
+        ConfigValueType.INT: int,
+    }
+    converter = scalar_converters.get(param.value_type)
 
-    if param.value_type == ConfigValueType.INT:
-        return int(value)
+    if converter is not None:
+        return converter(value)
 
     if param.value_type == ConfigValueType.FLOAT:
         result = float(value)
 
         if not math.isfinite(result):
-            raise ValidationError(f"Invalid configuration parameter '{param.key}'")
+            message = f"Invalid configuration parameter '{param.key}'"
+            raise ValidationError(message)
 
         return result
 
     if param.value_type == ConfigValueType.LIST:
-        result = json.loads(value)
+        result_list = json.loads(value)
 
-        if not isinstance(result, list) or any(not isinstance(item, str) for item in result):
-            raise ValidationError(f"Invalid configuration parameter '{param.key}'")
+        if not isinstance(result_list, list) or any(not isinstance(item, str) for item in result_list):
+            message = f"Invalid configuration parameter '{param.key}'"
+            raise ValidationError(message)
 
-        return result
+        return cast("list[str]", result_list)
 
     return param.normalize(value)
 
@@ -67,7 +81,7 @@ class SettingsProviderConfiguration:
         domain_settings: DomainSettingsAdapter | None = None,
         registry: DomainProfileRegistry | None = None,
         bus: InProcessEventBus = event_bus,
-        ml_clients=None,
+        ml_clients: MLClientRegistry | None = None,
     ) -> None:
         self.settings = model
         self.domain_settings = domain_settings
@@ -101,7 +115,7 @@ class SettingsProviderConfiguration:
                         domain_key=profile.key,
                     )
 
-        self._status = ConfigurationStatus(None, None, False, None)
+        self._status = ConfigurationStatus(None, None, ready=False, error=None)
         self.applying = False
         self.require_complete = False
 
@@ -113,7 +127,17 @@ class SettingsProviderConfiguration:
             value = getattr(self.settings, key)
 
             if key in SECRET_SETTING_KEYS:
-                result.append(EffectiveParameter(key, "secret", None, None, False, "recreate", bool(value)))
+                result.append(
+                    EffectiveParameter(
+                        key,
+                        "secret",
+                        None,
+                        None,
+                        editable=False,
+                        application_mode="recreate",
+                        present=bool(value),
+                    )
+                )
                 continue
 
             dynamic = (key, None) in self.definitions
@@ -126,8 +150,8 @@ class SettingsProviderConfiguration:
                     "database" if dynamic else "deployment",
                     row.normalize(row.value) if row else (None if dynamic else applied),
                     applied,
-                    dynamic and key not in {"qdrant_url", "collection_name"},
-                    "corpus_switch"
+                    editable=dynamic and key not in {"qdrant_url", "collection_name"},
+                    application_mode="corpus_switch"
                     if key in {"qdrant_url", "collection_name"}
                     else "next_cron"
                     if key == "job_cleanup_days"
@@ -144,8 +168,8 @@ class SettingsProviderConfiguration:
                         "database",
                         row.normalize(row.value) if row else None,
                         str(value),
-                        True,
-                        "next_operation",
+                        editable=True,
+                        application_mode="next_operation",
                         domain_key=domain,
                     )
                 )
@@ -183,62 +207,58 @@ class SettingsProviderConfiguration:
 
         for policy in build_policies(candidate).values():
             if not validate_rate_list([Rate(spec.limit, spec.interval_ms) for spec in policy.rates]):
-                raise ValidationError(f'Incompatible rate limit quotas for {policy.name.value}')
+                message = f"Incompatible rate limit quotas for {policy.name.value}"
+                raise ValidationError(message)
 
         if (
             self._status.applied_version is not None
-            or (self.ml_clients is not None and self.ml_clients._embeddings is not None)
+            or (self.ml_clients is not None and self.ml_clients.cached_embeddings is not None)
         ) and configured_embedding_identity(candidate) != configured_embedding_identity(self.settings):
-            raise ValidationError("Embedding identity changes require the corpus migration workflow")
+            message = "Embedding identity changes require the corpus migration workflow"
+            raise ValidationError(message)
 
-        for key in ("cost_hourly_limit", "cost_daily_limit"):
-            if usd_units(str(getattr(candidate, key))) <= 0:
-                raise ValidationError("USD budgets must be positive")
-
-        errors = candidate.check_ml_provider()
-
-        if candidate.llm_provider == LLMProvider.OPENROUTER.value and not candidate.openrouter_api_key:
-            errors.append("OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter")
-
-        if candidate.llm_provider not in {provider.value for provider in LLMProvider}:
-            errors.append("Unknown LLM provider")
-
-        if errors:
-            raise ValidationError("; ".join(errors))
+        validate_provider_credentials(candidate)
 
     def validate_domain_change(self, key: str, value: str, domain_key: str) -> None:
         definition = self.definitions.get((key, domain_key))
 
         if definition is None:
-            raise ValidationError(f"'{key}' is not an active parameter for '{domain_key}'")
+            message = f"'{key}' is not an active parameter for '{domain_key}'"
+            raise ValidationError(message)
 
         try:
             decode_parameter(definition, value)
         except (ValueError, TypeError):
-            raise ValidationError(f"Invalid configuration parameter '{key}'") from None
+            message = f"Invalid configuration parameter '{key}'"
+            raise ValidationError(message) from None
 
     def validate_change(self, key: str, value: str) -> None:
         definition = self.definitions.get((key, None))
 
         if definition is None:
-            raise ValidationError(f"'{key}' is not an active global parameter")
+            message = f"'{key}' is not an active global parameter"
+            raise ValidationError(message)
 
         try:
             decoded = decode_parameter(definition, value)
         except (ValueError, TypeError) as exc:
-            raise ValidationError(f"Invalid configuration parameter '{key}'") from exc
+            message = f"Invalid configuration parameter '{key}'"
+            raise ValidationError(message) from exc
         candidate = self.settings.model_copy(update={key: decoded})
         self.validate_provider(candidate)
 
-    async def validate_snapshot_change(self, rows, key: str, value: str, domain_key: str | None) -> None:
+    async def validate_snapshot_change(
+        self, rows: list[ConfigParameter], key: str, value: str, domain_key: str | None
+    ) -> None:
         active = [row for row in rows if (row.key, row.domain_key) in self.definitions]
         target = next((row for row in active if (row.key, row.domain_key) == (key, domain_key)), None)
 
         if target is None:
-            raise ValidationError("Configuration parameter is not initialized")
+            message = "Configuration parameter is not initialized"
+            raise ValidationError(message)
 
         candidate_rows = [replace(row, value=value) if row is target else row for row in active]
-        updates, _, events = self.prepare_snapshot(candidate_rows, False)
+        updates, _, events = self.prepare_snapshot(candidate_rows, require_complete=False)
 
         if self.ml_clients is not None:
             prepared = await prepare_clients(
@@ -250,31 +270,31 @@ class SettingsProviderConfiguration:
             )
             await dispose_clients(prepared)
 
-    def prepare_snapshot(self, active: list[ConfigParameter], require_complete: bool):
+    def prepare_snapshot(
+        self, active: list[ConfigParameter], *, require_complete: bool
+    ) -> tuple[dict[str, Any], dict[tuple[str, str], str], list[ConfigParameterChanged]]:
         pairs = [(row.key, row.domain_key) for row in active]
 
         if len(pairs) != len(set(pairs)) or (require_complete and set(pairs) != set(self.definitions)):
-            raise ValidationError("Configuration snapshot is incomplete or contains duplicate keys")
+            message = "Configuration snapshot is incomplete or contains duplicate keys"
+            raise ValidationError(message)
 
-        updates, domain_updates, events = {}, {}, []
+        updates: dict[str, Any] = {}
+        domain_updates: dict[tuple[str, str], str] = {}
+        events: list[ConfigParameterChanged] = []
 
         for row in active:
             definition = self.definitions[(row.key, row.domain_key)]
 
-            if row.value_type != definition.value_type:
-                raise ValidationError(f"Invalid configuration type for '{row.key}'")
-
-            try:
-                value = decode_parameter(definition, row.value)
-            except (ValueError, TypeError) as exc:
-                raise ValidationError(f"Invalid configuration parameter '{row.key}'") from exc
+            value = decode_snapshot_value(definition, row)
 
             if row.domain_key is None:
                 old = getattr(self.settings, row.key)
                 updates[row.key] = value
             else:
                 if self.domain_settings is None:
-                    raise ValidationError("Domain settings are not initialized")
+                    message = "Domain settings are not initialized"
+                    raise ValidationError(message)
 
                 try:
                     old = self.domain_settings.get(row.key, row.domain_key)
@@ -297,29 +317,36 @@ class SettingsProviderConfiguration:
         self.validate_provider(self.settings.model_copy(update=updates))
         return updates, domain_updates, events
 
-    def validate_corpus_settings(self, updates):
+    def validate_corpus_settings(self, updates: dict[str, Any]) -> None:
         if self.ml_clients is not None:
-            snapshot = getattr(self.ml_clients, 'corpus_snapshot', None)
+            snapshot = getattr(self.ml_clients, "corpus_snapshot", None)
 
             if snapshot is not None and (
-                updates.get('qdrant_url', snapshot.endpoint) != snapshot.endpoint
-                or updates.get('collection_name', snapshot.alias) != snapshot.alias
+                updates.get("qdrant_url", snapshot.endpoint) != snapshot.endpoint
+                or updates.get("collection_name", snapshot.alias) != snapshot.alias
             ):
-                raise ValidationError('Corpus settings require the coordinated journal to be applied first')
+                message = "Corpus settings require the coordinated journal to be applied first"
+                raise ValidationError(message)
 
     async def apply_async(
-        self, rows: list[ConfigParameter], *, require_complete: bool = False, verify=None
+        self,
+        rows: list[ConfigParameter],
+        *,
+        require_complete: bool = False,
+        verify: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         if self.ml_clients is None:
             self.apply(rows, require_complete=require_complete)
             return
 
-        prepared = {}
+        prepared: dict[str, object] = {}
         try:
             previous_version = self._status.applied_version
             current = self.settings.model_copy()
             active = [row for row in rows if (row.key, row.domain_key) in self.definitions]
-            updates, _, events = self.prepare_snapshot(active, require_complete or self.require_complete)
+            updates, _, events = self.prepare_snapshot(
+                active, require_complete=require_complete or self.require_complete
+            )
             candidate = self.settings.model_copy(update=updates)
             keys = {event.key for event in events}
 
@@ -339,13 +366,8 @@ class SettingsProviderConfiguration:
                 applied=self._status.applied_version is not None,
             )
 
-            if verify is not None and not await verify():
-                raise ValidationError("Configuration changed during ML preparation; retry synchronization")
-
-            if self._status.applied_version != previous_version:
-                raise ValidationError(
-                    "Applied configuration changed during preparation; retry synchronization"
-                )
+            verified = verify is None or await verify()
+            self.validate_prepared_version(previous_version, verified=verified)
 
             self.switching_clients = True
             self.apply(rows, require_complete=require_complete, prepared=prepared)
@@ -361,9 +383,25 @@ class SettingsProviderConfiguration:
         finally:
             self.switching_clients = False
 
-    def apply(self, rows: list[ConfigParameter], *, require_complete: bool = False, prepared=None) -> None:
+    def validate_prepared_version(self, previous_version: str | None, *, verified: bool) -> None:
+        if not verified:
+            message = "Configuration changed during ML preparation; retry synchronization"
+            raise ValidationError(message)
+
+        if self._status.applied_version != previous_version:
+            message = "Applied configuration changed during preparation; retry synchronization"
+            raise ValidationError(message)
+
+    def apply(
+        self,
+        rows: list[ConfigParameter],
+        *,
+        require_complete: bool = False,
+        prepared: dict[str, object] | None = None,
+    ) -> None:
         if self.ml_clients is not None and prepared is None:
-            raise RuntimeError("ML resource snapshots require async preparation")
+            message = "ML resource snapshots require async preparation"
+            raise RuntimeError(message)
 
         require_complete = require_complete or self.require_complete
         active = [
@@ -377,7 +415,7 @@ class SettingsProviderConfiguration:
         previous_global = {}
         previous_domain = self.domain_settings.snapshot() if self.domain_settings is not None else {}
         try:
-            updates, domain_updates, events = self.prepare_snapshot(active, require_complete)
+            updates, domain_updates, events = self.prepare_snapshot(active, require_complete=require_complete)
             previous_global = {key: getattr(self.settings, key) for key in updates}
             # No awaits: all global/domain values become visible before any reaction runs.
             self.settings.__dict__.update(updates)
@@ -387,17 +425,9 @@ class SettingsProviderConfiguration:
 
             self.applying = True
 
-            for event in events:
-                self.bus.publish_strict(event)
+            self.publish_prepared_events(events, prepared)
 
-            # Publication is the last synchronous action; no old pool is retired on a failed reaction.
-            if self.ml_clients is not None:
-                self.ml_clients.install_clients(prepared)
-
-                if any(event.key in LLM_CLIENT_KEYS for event in events):
-                    retire_judge_clients(runtime=self.ml_clients.budget_runtime)
-
-            self._status = ConfigurationStatus(version, version, True, None)
+            self._status = ConfigurationStatus(version, version, ready=True, error=None)
             self.require_complete = require_complete
         except Exception:
             self.settings.__dict__.update(previous_global)
@@ -413,7 +443,51 @@ class SettingsProviderConfiguration:
         finally:
             self.applying = False
 
+    def publish_prepared_events(
+        self, events: list[ConfigParameterChanged], prepared: dict[str, object] | None
+    ) -> None:
+        for event in events:
+            self.bus.publish_strict(event)
+
+        # Publication is the last synchronous action; no old pool is retired on a failed reaction.
+        if self.ml_clients is not None:
+            self.ml_clients.install_clients(prepared if prepared is not None else {})
+
+            if any(event.key in LLM_CLIENT_KEYS for event in events):
+                retire_judge_clients(runtime=self.ml_clients.budget_runtime)
+
     def failed(self) -> None:
         self._status = replace(
             self._status, ready=False, error="Configuration database synchronization failed"
         )
+
+
+def validate_provider_credentials(candidate: Settings) -> None:
+    for key in ("cost_hourly_limit", "cost_daily_limit"):
+        if usd_units(str(getattr(candidate, key))) <= 0:
+            message = "USD budgets must be positive"
+            raise ValidationError(message)
+
+    errors = candidate.check_ml_provider()
+
+    if candidate.llm_provider == LLMProvider.OPENROUTER.value and not candidate.openrouter_api_key:
+        errors.append("OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter")
+
+    if candidate.llm_provider not in {provider.value for provider in LLMProvider}:
+        errors.append("Unknown LLM provider")
+
+    if errors:
+        raise ValidationError("; ".join(errors))
+
+
+def decode_snapshot_value(definition: ConfigParameter, row: ConfigParameter) -> ConfigValue:
+    if row.value_type != definition.value_type:
+        message = f"Invalid configuration type for '{row.key}'"
+        raise ValidationError(message)
+
+    try:
+        value = decode_parameter(definition, row.value)
+    except (ValueError, TypeError) as exc:
+        message = f"Invalid configuration parameter '{row.key}'"
+        raise ValidationError(message) from exc
+    return value

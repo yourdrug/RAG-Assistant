@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import fitz
-from domain.ingestion.text_quality import is_garbled
+
 from domain.ingestion.preview import PDFQualityReport
+from domain.ingestion.text_quality import is_garbled
 
 
-def assess_pdf_extraction_quality(pdf_path: Path, extracted_docs: list) -> PDFQualityReport:
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from langchain_core.documents import Document
+
+
+def assess_pdf_extraction_quality(pdf_path: Path, extracted_docs: list[Document]) -> PDFQualityReport:
     """Сравнивает физическое число страниц PDF с тем, что реально извлеклось.
 
     Страница считается "плохой", если для неё нет ни одного Document в extracted_docs
@@ -17,7 +24,7 @@ def assess_pdf_extraction_quality(pdf_path: Path, extracted_docs: list) -> PDFQu
     (is_garbled). Это именно тот случай ">30% сканов/мусора, и OCR не помог",
     который нужно поймать перед индексацией.
     """
-    doc = fitz.open(str(pdf_path))
+    doc = fitz.Document(str(pdf_path))
     try:
         total_pages = len(doc)
     finally:

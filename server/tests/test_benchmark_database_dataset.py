@@ -117,7 +117,7 @@ async def test_phase_b_uses_loaded_dataset_including_cases_without_source_hints(
     cache = AsyncMock(return_value=({}, {}, {}))
     monkeypatch.setattr(engine, "cache_candidates", cache)
 
-    def score(config, *args):
+    def score(config, *args, **_kwargs):
         # Simulate dataset editing between phases. B must use the original snapshot.
         repo.list_active.return_value = [BenchmarkQuestion(id=30, question="Changed")]
         return {"composite_score": config["top_k"]}

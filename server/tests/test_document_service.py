@@ -16,7 +16,7 @@ from domain.knowledge.enums import DocumentStatus
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
 
-from fakes import FakeUnitOfWork, FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWork, FakeUnitOfWorkFactory
 
 
 # ---------------------------------------------------------------------------
@@ -748,7 +748,7 @@ async def test_list_uploadable_clients_curator():
     uow.users.add_user(30, email="other@test.com", kind="client")
     uow.assignments.set_user_kind(10, "client")
     uow.assignments.set_user_kind(20, "client")
-    await uow.assignments.assign_user(curator_id=1, target_user_id=10, assigned_by=99)
+    await uow.assignments.assign_user(manager_id=1, target_user_id=10, assigned_by=99)
 
     result = await query.list_uploadable_clients(user_id=1, user_kind="internal", user_role="curator")
 

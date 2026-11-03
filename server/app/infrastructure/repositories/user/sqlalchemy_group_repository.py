@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from domain.identity.group import GroupInfo, GroupMemberInfo
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING
 
+from sqlalchemy import select
+
+from domain.identity.group import GroupInfo, GroupMemberInfo
 from infrastructure.database.models import GroupModel, UserGroupModel, UserModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyGroupRepository:

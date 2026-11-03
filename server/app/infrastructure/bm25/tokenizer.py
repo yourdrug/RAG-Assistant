@@ -6,6 +6,7 @@ import re
 
 from infrastructure.bm25.stemmer import stem_token
 
+
 _TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.UNICODE)
 
 

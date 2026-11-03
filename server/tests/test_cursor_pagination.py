@@ -14,7 +14,7 @@ from domain.shared.exceptions import ValidationError  # noqa: E402
 from domain.shared.pagination import decode_cursor, encode_cursor
 from domain.knowledge.enums import DocumentVisibility  # noqa: E402
 
-from fakes import FakeChunkRepository, FakeUnitOfWork, FakeUnitOfWorkFactory  # noqa: E402
+from tests.fakes import FakeChunkRepository, FakeUnitOfWork, FakeUnitOfWorkFactory  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

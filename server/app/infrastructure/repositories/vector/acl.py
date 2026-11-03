@@ -1,5 +1,4 @@
-"""
-infrastructure/acl.py — Qdrant filter construction for document access control.
+"""infrastructure/acl.py — Qdrant filter construction for document access control.
 
 Translates canonical VisibilityCondition objects from the domain layer
 into Qdrant Filter objects. All business logic lives in domain/knowledge/access_control.py.
@@ -7,15 +6,10 @@ into Qdrant Filter objects. All business logic lives in domain/knowledge/access_
 
 from __future__ import annotations
 
-from typing import Any
-from domain.identity.user_context import UserContext
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
-from datetime import date
-
-from domain.knowledge.access_control import get_visibility_conditions
-from domain.identity.roles import UserKind, UserRole
 from qdrant_client.models import (
-    Condition,
     DatetimeRange,
     FieldCondition,
     Filter,
@@ -24,6 +18,18 @@ from qdrant_client.models import (
     MatchValue,
     PayloadField,
 )
+
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
+from domain.knowledge.access_control import get_visibility_conditions
+
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from qdrant_client.models import (
+        Condition,
+    )
 
 
 def build_qdrant_filter(
@@ -113,7 +119,7 @@ def with_temporal_filter(access_filter: Filter | None, as_of_date: date | None) 
     # Use the same interval logic for current and historical queries. A future
     # edition must become current on its effective date without an ingestion job.
     # IsEmptyCondition matches both absent and explicit-null payload keys.
-    effective_date = as_of_date or date.today()
+    effective_date = as_of_date or datetime.now().astimezone().date()
     temporal_condition = Filter(
         must=[
             Filter(

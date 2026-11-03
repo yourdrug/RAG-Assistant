@@ -33,35 +33,36 @@ from infrastructure.ml.ingestion.splitting import (
 from infrastructure.ml.ingestion.txt import parse_txt
 from infrastructure.ml.ingestion.utils import clean_pdf_text
 
+
 __all__ = [
-    # OCR
-    "get_paddle_ocr",
-    "get_surya_predictors",
-    "ocr_image_paddle",
-    "ocr_image_surya",
-    "ocr_pdf_pages",
-    # PDF
-    "pymupdf_table_to_markdown",
-    "parse_pdf",
-    # DOCX
-    "docx_table_to_markdown",
-    "parse_docx",
-    "parse_docx_sections",
-    # RTF
-    "parse_rtf",
-    # TXT
-    "parse_txt",
-    # Markdown
-    "parse_markdown",
-    "split_markdown_tables",
-    "parse_markdown_sections",
-    "extract_date_from_filename",
-    # Splitting
-    "merge_pdf_pages",
-    "split_documents",
-    "extract_article_number",
     "LEGAL_SEPARATORS",
     "TABLE_BATCH_ROWS",
     # Utils
     "clean_pdf_text",
+    # DOCX
+    "docx_table_to_markdown",
+    "extract_article_number",
+    "extract_date_from_filename",
+    # OCR
+    "get_paddle_ocr",
+    "get_surya_predictors",
+    # Splitting
+    "merge_pdf_pages",
+    "ocr_image_paddle",
+    "ocr_image_surya",
+    "ocr_pdf_pages",
+    "parse_docx",
+    "parse_docx_sections",
+    # Markdown
+    "parse_markdown",
+    "parse_markdown_sections",
+    "parse_pdf",
+    # RTF
+    "parse_rtf",
+    # TXT
+    "parse_txt",
+    # PDF
+    "pymupdf_table_to_markdown",
+    "split_documents",
+    "split_markdown_tables",
 ]

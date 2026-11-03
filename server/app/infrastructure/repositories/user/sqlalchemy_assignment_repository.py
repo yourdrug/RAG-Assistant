@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.identity.repositories import AssignmentRepository
 from domain.identity.roles import UserKind
@@ -12,6 +13,10 @@ from infrastructure.database.models import (
     CuratorUserAssignmentModel,
     UserModel,
 )
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyAssignmentRepository(AssignmentRepository):

@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from domain.knowledge.enums import PageContentType
-from domain.ingestion.preview import PreviewUnitKind
-
-from domain.ingestion.preview import DryRunPageResult
 from config import settings
+from domain.ingestion.preview import DryRunPageResult, PreviewUnitKind
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.pdf import parse_pdf
 
+
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from langchain.schema import Document
+
     from application.documents.diagnostics import PDFDiagnosticService
 
 logger = logging.getLogger("default")
@@ -95,7 +96,7 @@ class PdfPreviewStrategy:
         unit_ids: list[int],
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         filtered = [u for u in units if u.page in unit_ids]
-        result, ocr_types_count, _total_chars = self._svc.ocr_problem_pages(path, filtered)
+        result, _ocr_types_count, _total_chars = self._svc.ocr_problem_pages(path, filtered)
         merged = []
         by_page = {u.page: u for u in result}
 

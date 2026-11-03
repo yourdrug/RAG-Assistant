@@ -12,7 +12,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("benchmark_questions", sa.Column("history", postgresql.JSONB(), nullable=True))
+    op.add_column("benchmark_questions", sa.Column("history", postgresql.JSONB, nullable=True))
     op.add_column("benchmark_questions", sa.Column("as_of_date", sa.Date(), nullable=True))
 
 

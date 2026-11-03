@@ -3,36 +3,51 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import docx
 from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 
 from domain.knowledge.enums import PageContentType
+from infrastructure.ml.ingestion.docx_numbering import (
+    ListNumberer,
+    _get_numbering_formats,
+    _paragraph_list_info,
+    xml_element,
+)
 from infrastructure.ml.ingestion.sections import Section
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from docx.document import Document as WordDocument
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
 from infrastructure.ml.ingestion.table_formatting import markdown_cell, render_table
 from infrastructure.storage.docx_validation import validate_docx_archive
 
 
-def _has_page_break(paragraph) -> bool:
+def _has_page_break(paragraph: Paragraph) -> bool:
     """Check if a paragraph contains a manual page break."""
     for run in paragraph.runs:
-        for br in run._element.findall(qn("w:br")):
+        for br in xml_element(run).findall(qn("w:br")):
             if br.get(qn("w:type")) == "page":
                 return True
 
     return False
 
 
-def _paragraph_full_text(paragraph) -> str:
+def _paragraph_full_text(paragraph: Paragraph) -> str:
     """Full paragraph text, including runs nested inside hyperlinks."""
     t_tag = qn("w:t")
     tab_tag = qn("w:tab")
     br_tag = qn("w:br")
     parts: list[str] = []
 
-    for node in paragraph._element.iter():
+    for node in xml_element(paragraph).iter():
         if node.tag == t_tag:
             if node.text:
                 parts.append(node.text)
@@ -46,18 +61,11 @@ def _paragraph_full_text(paragraph) -> str:
 
 # --- Numbering format resolution — delegated to _docx_numbering ---
 
-from infrastructure.ml.ingestion.docx_numbering import (  # noqa: E402, F401
-    _get_numbering_formats,
-    ListNumberer,
-    _paragraph_list_info,
-    _to_roman,
-)
-
 
 # --- Extraction helpers -----------------------------------------------------
 
 
-def _extract_headers_footers(doc) -> dict:
+def _extract_headers_footers(doc: WordDocument) -> dict[str, list[str]]:
     """Collect unique header/footer text across all sections."""
     headers: list[str] = []
     footers: list[str] = []
@@ -69,7 +77,7 @@ def _extract_headers_footers(doc) -> dict:
             (section.header, seen_headers, headers),
             (section.footer, seen_footers, footers),
         ):
-            if container is None or container.is_linked_to_previous:
+            if container.is_linked_to_previous:
                 continue
 
             text = "\n".join(p.text.strip() for p in container.paragraphs if p.text.strip())
@@ -81,7 +89,7 @@ def _extract_headers_footers(doc) -> dict:
     return {"headers": headers, "footers": footers}
 
 
-def _extract_notes(doc, part_reltype_substring: str, xml_tag: str) -> list[str]:
+def _extract_notes(doc: WordDocument, part_reltype_substring: str, xml_tag: str) -> list[str]:
     """Extract footnote or endnote body text."""
     notes_part = None
 
@@ -113,10 +121,10 @@ def _extract_notes(doc, part_reltype_substring: str, xml_tag: str) -> list[str]:
     return texts
 
 
-def _extract_document_properties(doc) -> dict:
+def _extract_document_properties(doc: WordDocument) -> dict[str, Any]:
     """Pull core document properties (title/author/dates) into metadata."""
     props = doc.core_properties
-    meta: dict = {}
+    meta: dict[str, Any] = {}
 
     if props.title:
         meta["doc_title"] = props.title
@@ -136,32 +144,31 @@ def _extract_document_properties(doc) -> dict:
     return meta
 
 
-def _extract_image_captions(doc) -> list[str]:
+def _extract_image_captions(doc: WordDocument) -> list[str]:
     """Extract alt text/descriptions from inline images in DOCX."""
     captions = []
 
     for p in doc.paragraphs:
-        for drawing in p._element.findall(f".//{qn('w:drawing')}"):
-            for docPr in drawing.findall(f".//{qn('wp:docPr')}"):
-                descr = docPr.get(qn("wp:descr")) or docPr.get("descr", "")
+        for drawing in xml_element(p).findall(f".//{qn('w:drawing')}"):
+            for drawing_properties in drawing.findall(f".//{qn('wp:docPr')}"):
+                descr = drawing_properties.get(qn("wp:descr")) or drawing_properties.get("descr", "")
 
                 if descr and descr.strip():
                     captions.append(f"[image: {descr.strip()}]")
 
-        for obj in p._element.findall(f".//{qn('w:object')}"):
+        for obj in xml_element(p).findall(f".//{qn('w:object')}"):
             ole = obj.find(f".//{qn('o:OLEObject')}")
 
             if ole is not None:
                 prog_id = ole.get(qn("o:ProgID")) or "OLE object"
                 captions.append(f"[embedded: {prog_id}]")
 
-        for _smart_art in p._element.findall(f".//{qn('dgm:relents')}"):
-            captions.append("[diagram: SmartArt]")
+        captions.extend("[diagram: SmartArt]" for _ in xml_element(p).findall(f".//{qn('dgm:relents')}"))
 
     return captions
 
 
-def docx_table_to_markdown(table) -> str:
+def docx_table_to_markdown(table: Table) -> str:
     """Convert a python-docx table to markdown table format."""
     rows = []
 
@@ -186,7 +193,7 @@ class DocxSectionState:
     numberer: ListNumberer = field(default_factory=lambda: ListNumberer({}))
 
 
-def _detect_heading_level(p) -> int | None:
+def _detect_heading_level(p: Paragraph) -> int | None:
     """Detect heading level from paragraph style. Returns 0 for Title, 1-N for Heading N, None otherwise."""
     style_name = (p.style.name or "").lower() if p.style else ""
 
@@ -227,7 +234,7 @@ def flush_table(state: DocxSectionState, md_table: str) -> None:
         state.current_lines = []
 
 
-def process_section_paragraph(state: DocxSectionState, paragraph, text: str) -> None:
+def process_section_paragraph(state: DocxSectionState, paragraph: Paragraph, text: str) -> None:
     text = text.strip()
 
     if not text:
@@ -248,14 +255,14 @@ def process_section_paragraph(state: DocxSectionState, paragraph, text: str) -> 
 
 
 def _collect_docx_metadata(
-    doc,
+    doc: WordDocument,
     page_numbers: list[int],
     paragraph_count: int,
     table_count: int,
     image_count: int,
-) -> dict:
+) -> dict[str, Any]:
     """Build metadata dict from document statistics and properties."""
-    metadata: dict = {}
+    metadata: dict[str, Any] = {}
 
     if page_numbers:
         metadata["page_start"] = page_numbers[0]
@@ -282,11 +289,12 @@ def _collect_docx_metadata(
 
 
 def append_docx_paragraph(
-    paragraph,
+    paragraph: Paragraph,
     text: str,
     numberer: ListNumberer,
     parts: list[str],
     page_numbers: list[int],
+    *,
     current_page: int,
 ) -> int:
     if _has_page_break(paragraph):
@@ -305,11 +313,9 @@ def append_docx_paragraph(
     return current_page
 
 
-def read_docx(file_path: Path) -> tuple[str, list[Section], dict]:
-    """Read body order, sections and document metadata in one document pass."""
-    validate_docx_archive(file_path)
-    doc = docx.Document(str(file_path))
-    formats = _get_numbering_formats(doc)
+def read_docx_body(
+    doc: WordDocument, formats: dict[tuple[str, int], str]
+) -> tuple[list[str], list[int], int, int, DocxSectionState]:
     numberer = ListNumberer(formats)
     parts: list[str] = []
     page_numbers: list[int] = []
@@ -321,8 +327,8 @@ def read_docx(file_path: Path) -> tuple[str, list[Section], dict]:
     para_tag = qn("w:p")
     tbl_tag = qn("w:tbl")
 
-    para_by_element = {id(p._element): p for p in doc.paragraphs}
-    tbl_by_element = {id(t._element): t for t in doc.tables}
+    para_by_element = {id(xml_element(p)): p for p in doc.paragraphs}
+    tbl_by_element = {id(xml_element(t)): t for t in doc.tables}
 
     state = DocxSectionState(sections=[], heading_stack=[], numberer=ListNumberer(formats))
 
@@ -334,7 +340,9 @@ def read_docx(file_path: Path) -> tuple[str, list[Section], dict]:
             if p is not None:
                 text = _paragraph_full_text(p)
                 process_section_paragraph(state, p, text)
-                current_page = append_docx_paragraph(p, text, numberer, parts, page_numbers, current_page)
+                current_page = append_docx_paragraph(
+                    p, text, numberer, parts, page_numbers, current_page=current_page
+                )
         elif child.tag == tbl_tag:
             table_count += 1
             table = tbl_by_element.get(id(child))
@@ -346,7 +354,17 @@ def read_docx(file_path: Path) -> tuple[str, list[Section], dict]:
                 if markdown:
                     parts.extend(["", markdown])
 
-    image_count = sum(1 for _ in body.iter(qn("w:drawing")))
+    return parts, page_numbers, paragraph_count, table_count, state
+
+
+def read_docx(file_path: Path) -> tuple[str, list[Section], dict[str, Any]]:
+    """Read body order, sections and document metadata in one document pass."""
+    validate_docx_archive(file_path)
+    doc = docx.Document(str(file_path))
+    formats = _get_numbering_formats(doc)
+    parts, page_numbers, paragraph_count, table_count, state = read_docx_body(doc, formats)
+
+    image_count = sum(1 for _ in doc.element.body.iter(qn("w:drawing")))
 
     captions = _extract_image_captions(doc)
     parts.extend(captions)
@@ -378,7 +396,7 @@ def read_docx(file_path: Path) -> tuple[str, list[Section], dict]:
     return text, state.sections or [Section(None, text)], metadata
 
 
-def parse_docx(file_path: Path) -> tuple[str, dict]:
+def parse_docx(file_path: Path) -> tuple[str, dict[str, Any]]:
     """Parse DOCX and return flat text and metadata."""
     text, _sections, metadata = read_docx(file_path)
     return text, metadata

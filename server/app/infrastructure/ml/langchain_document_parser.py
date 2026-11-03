@@ -7,34 +7,35 @@ parser/splitter pair used by the shared application-port adapters.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain.schema import Document
 
 from domain.ingestion.doc_type import DOC_TYPE_SAMPLE_CHARS, classify_doc_type
 from domain.ingestion.raw_document import RawDocument
-from domain.knowledge.enums import DocDomain
-from infrastructure.ml.ingestion.splitting import split_documents
-from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS, FormatContext
-from domain.knowledge.enums import PageContentType
+from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.ml.ingestion.amendment_context import attach_table_replacement_scope
 from infrastructure.ml.ingestion.markdown import extract_date_from_filename
+from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS, FormatContext
+from infrastructure.ml.ingestion.splitting import split_documents
+
 
 if TYPE_CHECKING:
-    from infrastructure.ml.ingestion.sections import Section
     from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from infrastructure.ml.ingestion.sections import Section
 
 
-def _lc_to_raw(docs) -> list[RawDocument]:
+def _lc_to_raw(docs: list[Document]) -> list[RawDocument]:
     return [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in docs]
 
 
-def _raw_to_lc(docs: list[RawDocument]):
+def _raw_to_lc(docs: list[RawDocument]) -> list[Document]:
     return [Document(page_content=d.page_content, metadata=dict(d.metadata)) for d in docs]
 
 
-def _populate_heading_metadata(metadata: dict, heading: str | None, ctx: dict) -> None:
+def _populate_heading_metadata(metadata: dict[str, Any], heading: str | None, ctx: dict[str, Any]) -> None:
     """Set the 6 heading-related metadata keys from heading context."""
     if not heading:
         return
@@ -58,15 +59,16 @@ def _populate_heading_metadata(metadata: dict, heading: str | None, ctx: dict) -
 
 def build_section_metadata(
     heading: str | None,
-    ctx: dict,
+    ctx: dict[str, Any],
     file_path: Path,
-    page_meta: dict | None,
+    page_meta: dict[str, Any] | None,
     chunk_index: int,
+    *,
     total: int,
     is_table: bool,
-) -> dict:
+) -> dict[str, Any]:
     """Assemble the full metadata dict for a single section document."""
-    metadata: dict = {"source": file_path.name}
+    metadata: dict[str, Any] = {"source": file_path.name}
 
     if page_meta:
         metadata.update(page_meta)
@@ -84,7 +86,7 @@ def build_section_metadata(
     return metadata
 
 
-def heading_context(sections: list[Section]) -> dict:
+def heading_context(sections: list[Section]) -> dict[str, Any]:
     """Derive level/parent/siblings/prev/next/toc from a list of breadcrumb headings.
 
     Breadcrumbs already look like "Раздел 1 > Пункт 1.1" (see
@@ -114,15 +116,7 @@ def heading_context(sections: list[Section]) -> dict:
     for h in order:
         groups.setdefault(parent[h], []).append(h)
 
-    prev_h: dict[str, str | None] = {}
-    next_h: dict[str, str | None] = {}
-    siblings: dict[str, list[str]] = {}
-
-    for group in groups.values():
-        for i, h in enumerate(group):
-            prev_h[h] = immediate[group[i - 1]] if i > 0 else None
-            next_h[h] = immediate[group[i + 1]] if i + 1 < len(group) else None
-            siblings[h] = [immediate[s] for j, s in enumerate(group) if j != i]
+    prev_h, next_h, siblings = heading_neighbors(groups, immediate)
 
     toc: list[str] = []
     seen_toc: set[str] = set()
@@ -151,8 +145,8 @@ class LangchainDocumentParser:
 
     def __init__(
         self,
-        domain_registry: "DomainProfileRegistry | None" = None,
-        domain_settings: "DomainSettingsPort | None" = None,
+        domain_registry: DomainProfileRegistry | None = None,
+        domain_settings: DomainSettingsPort | None = None,
     ) -> None:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
@@ -174,7 +168,8 @@ class LangchainDocumentParser:
         handler = FORMAT_HANDLERS.get(ext)
 
         if handler is None:
-            raise RuntimeError(f"Unsupported format: {ext}")
+            message = f"Unsupported format: {ext}"
+            raise RuntimeError(message)
 
         parsed = handler.parse(file_path, FormatContext(self._domain_registry, self._domain_settings))
 
@@ -233,7 +228,7 @@ class LangchainDocumentParser:
     def sections_to_documents(
         sections: list[Section],
         file_path: Path,
-        page_meta: dict | None = None,
+        page_meta: dict[str, Any] | None = None,
     ) -> list[RawDocument]:
         ctx = heading_context(sections)
         total = sum(bool(section.content.strip()) for section in sections)
@@ -255,14 +250,15 @@ class LangchainDocumentParser:
                 file_path,
                 page_meta,
                 chunk_index,
-                total,
-                is_table,
+                total=total,
+                is_table=is_table,
             )
             metadata.update(section.metadata)
             docs.append(RawDocument(page_content=content, metadata=metadata))
 
         if not docs:
-            raise RuntimeError("Too little text in document")
+            message = "Too little text in document"
+            raise RuntimeError(message)
 
         attach_table_replacement_scope(docs)
         return docs
@@ -273,8 +269,8 @@ class LangchainDocumentSplitter:
 
     def __init__(
         self,
-        domain_registry: "DomainProfileRegistry | None" = None,
-        domain_settings: "DomainSettingsPort | None" = None,
+        domain_registry: DomainProfileRegistry | None = None,
+        domain_settings: DomainSettingsPort | None = None,
     ) -> None:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
@@ -284,8 +280,8 @@ class LangchainDocumentSplitter:
         documents: list[RawDocument],
         domain: str = DocDomain.GENERAL.value,
         *,
-        profile=None,
-        domain_settings=None,
+        profile: DocumentProfile | None = None,
+        domain_settings: DomainSettingsPort | None = None,
     ) -> list[RawDocument]:
         profile = profile or self._get_profile(domain)
         docs = _raw_to_lc(documents)
@@ -310,7 +306,7 @@ class LangchainDocumentSplitter:
             )
         )
 
-    def _get_profile(self, domain: str):
+    def _get_profile(self, domain: str) -> DocumentProfile | None:
         if self._domain_registry is None:
             return None
 
@@ -318,3 +314,19 @@ class LangchainDocumentSplitter:
             return self._domain_registry.get(domain)
         except KeyError:
             return None
+
+
+def heading_neighbors(
+    groups: dict[str | None, list[str]], immediate: dict[str, str]
+) -> tuple[dict[str, str | None], dict[str, str | None], dict[str, list[str]]]:
+    prev_h: dict[str, str | None] = {}
+    next_h: dict[str, str | None] = {}
+    siblings: dict[str, list[str]] = {}
+
+    for group in groups.values():
+        for i, h in enumerate(group):
+            prev_h[h] = immediate[group[i - 1]] if i > 0 else None
+            next_h[h] = immediate[group[i + 1]] if i + 1 < len(group) else None
+            siblings[h] = [immediate[s] for j, s in enumerate(group) if j != i]
+
+    return prev_h, next_h, siblings

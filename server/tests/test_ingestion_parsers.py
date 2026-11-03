@@ -3,29 +3,27 @@
 No Qdrant/embeddings/OCR -- only text transformations, so they run fast without external services.
 """
 
-import sys
-from pathlib import Path
+from __future__ import annotations
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-
-from infrastructure.ml.ingestion import clean_pdf_text  # noqa: E402
+from application.ports.file_storage import FileItem
+from infrastructure.ml.ingestion import clean_pdf_text
 
 
-def file_hash(source):  # noqa: E402
+def file_hash(source: FileItem) -> str:
     return f"{source.size_bytes}_{source.last_modified}"
 
 
-def test_clean_pdf_text_dehyphenates_line_breaks():
+def test_clean_pdf_text_dehyphenates_line_breaks() -> None:
     raw = "Компа-\nния заключила дого-\nвор"
     assert clean_pdf_text(raw) == "Компания заключила договор"
 
 
-def test_clean_pdf_text_collapses_extra_whitespace():
+def test_clean_pdf_text_collapses_extra_whitespace() -> None:
     raw = "Строка   с      лишними    пробелами"
     assert clean_pdf_text(raw) == "Строка с лишними пробелами"
 
 
-def test_clean_pdf_text_drops_decorative_lines():
+def test_clean_pdf_text_drops_decorative_lines() -> None:
     raw = "Заголовок\n------------\nТекст после разделителя\n•••"
     cleaned = clean_pdf_text(raw)
     assert "------------" not in cleaned
@@ -34,14 +32,13 @@ def test_clean_pdf_text_drops_decorative_lines():
     assert "Текст после разделителя" in cleaned
 
 
-def test_clean_pdf_text_drops_blank_lines_between_paragraphs():
+def test_clean_pdf_text_drops_blank_lines_between_paragraphs() -> None:
     raw = "Абзац 1\n\n\n\n\nАбзац 2"
     # 5 newlines → collapsed to paragraph break (\n\n)
     assert clean_pdf_text(raw) == "Абзац 1\n\nАбзац 2"
 
 
-def test_file_hash_changes_when_file_modified():
-    from infrastructure.storage import FileItem
+def test_file_hash_changes_when_file_modified() -> None:
 
     item1 = FileItem(
         key="doc.txt",
@@ -64,8 +61,7 @@ def test_file_hash_changes_when_file_modified():
     assert h1 != h2
 
 
-def test_file_hash_same_for_identical_items():
-    from infrastructure.storage import FileItem
+def test_file_hash_same_for_identical_items() -> None:
 
     item1 = FileItem(
         key="doc.txt",

@@ -1,5 +1,7 @@
 """Interpretation context survives persistence, exact search, neighbors and edits."""
 
+from __future__ import annotations
+
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
@@ -110,7 +112,9 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
     neighbor = to_chunk_search_result(models[0])
     search = SimpleNamespace(get_neighbors=AsyncMock(return_value=[neighbor]))
     seed = Document(page_content="A separate related passage.", metadata={"document_id": 7, "chunk_index": 2})
-    enriched = await enrich_with_neighbors([(seed, 0.9)], True, search, user=user)
+    enriched = await enrich_with_neighbors(
+        [(seed, 0.9)], enumerate_cases=True, chunk_search=search, user=user
+    )
     assert len(enriched) == 2
     assert context["parent_units"][0]["content"] in format_docs([enriched[1]])
     assert enriched[1][0].metadata["pages"] == [4]
@@ -220,7 +224,7 @@ def test_context_selection_excludes_transient_parser_offsets():
 
 @pytest.mark.asyncio
 async def test_edit_keeps_scope_and_current_acl_in_vector_outbox():
-    from test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
+    from tests.test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
 
     context = make_context()
     chunk = _make_chunk(
@@ -244,7 +248,7 @@ async def test_edit_keeps_scope_and_current_acl_in_vector_outbox():
 
 @pytest.mark.asyncio
 async def test_manual_chunk_persists_page_and_section_context():
-    from test_chunk_service import _make_service, _make_uow
+    from tests.test_chunk_service import _make_service, _make_uow
 
     uow = _make_uow()
     await _make_service(uow).add_chunk(
@@ -284,7 +288,7 @@ async def test_edit_persists_content_and_hash_in_one_flush():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("versioned", [False, True])
 async def test_rename_preserves_chunk_metadata(versioned):
-    from test_document_commands_characterization import harness, seed
+    from tests.test_document_commands_characterization import harness, seed
 
     h = harness()
     doc = await seed(h)

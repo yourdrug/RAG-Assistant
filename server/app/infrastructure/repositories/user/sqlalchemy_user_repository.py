@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from domain.identity.user import User
-from domain.identity.roles import UserKind, UserRole
+from typing import TYPE_CHECKING
+
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user import User
 from infrastructure.database.models import UserModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyUserRepository:
@@ -48,7 +53,7 @@ class SQLAlchemyUserRepository:
         stmt = (
             insert(UserModel)
             .values(email=email.lower(), hashed_password=hashed_password, role=role, kind=kind)
-            .on_conflict_do_nothing(index_elements=["email"])  # type: ignore[attr-defined]
+            .on_conflict_do_nothing(index_elements=["email"])
         )
         await self._db.execute(stmt)
         await self._db.flush()
@@ -70,7 +75,7 @@ class SQLAlchemyUserRepository:
         result = await self._db.execute(select(func.count()).select_from(UserModel))
         return int(result.scalar_one())
 
-    async def set_active(self, user_id: int, is_active: bool) -> bool:
+    async def set_active(self, user_id: int, *, is_active: bool) -> bool:
         result = await self._db.execute(select(UserModel).where(UserModel.id == user_id))
         orm = result.scalar_one_or_none()
 

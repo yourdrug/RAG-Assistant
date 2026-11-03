@@ -19,7 +19,7 @@ from presentation.api.exception_handlers import handle_client_exception  # noqa:
 from presentation.api.rate_limit import rate_limit  # noqa: E402
 from presentation.api.schemas import CurrentUser  # noqa: E402
 
-from fakes import FakeRateLimiterPort  # noqa: E402
+from tests.fakes import FakeRateLimiterPort  # noqa: E402
 
 
 def _current_user() -> CurrentUser:

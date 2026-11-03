@@ -2,23 +2,12 @@
 
 from __future__ import annotations
 
-from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
-
-
-from typing import Any
-from typing import TYPE_CHECKING
-
 import asyncio
 import logging
 import re
+from typing import TYPE_CHECKING, Any
 
 import httpx
-from config import get_request_settings
-from domain.chat.message import MessageRole
-from infrastructure.domain_profile.answer_policy import policy_for
-from infrastructure.ml.rag.prompts import build_context_message, build_system_prompt  # noqa: F401
-from domain.rag.exceptions import ContextBudgetExceededError
-from application.runtime.enums import LLMProvider
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tenacity import (
     retry,
@@ -27,19 +16,25 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from infrastructure.ml.clients.llm_schemas import create_structured_response
-
+from application.runtime.enums import LLMProvider
+from config import get_request_settings
+from domain.chat.message import MessageRole
+from domain.rag.exceptions import ContextBudgetExceededError
+from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.clients.client_lease import client_operation
-from infrastructure.ml.clients.llm_schemas import DecompositionCheck
+from infrastructure.ml.clients.llm_schemas import DecompositionCheck, create_structured_response
+from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
+from infrastructure.ml.rag.prompts import build_context_message, build_system_prompt
+
 
 if TYPE_CHECKING:
-    from domain.ingestion.profiles.registry import DomainProfileRegistry
-    from infrastructure.ml.clients.llm_schemas import StructuredClient
-    from langchain_core.runnables import Runnable
     from langchain_core.messages import BaseMessage
-    from domain.rag.context import RagContext
+    from langchain_core.runnables import Runnable
+
     from application.ports.ml_clients import MLClientPort
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.rag.context import RagContext
 
 _RETRYABLE_ERRORS = (TimeoutError, ConnectionError, httpx.TransportError, OSError)
 
@@ -104,15 +99,16 @@ async def condense_question(
     if not isinstance(result.content, str):
         message = "Condensation model returned non-text content"
         raise TypeError(message)
+
     condensed = result.content.strip()
 
-    if not condensed or len(condensed) < 3:
+    if not condensed or len(condensed) < MIN_CONDENSE_CHARS:
         log.warning("Condensation returned empty/garbled output, using original question")
         return question
 
     len_ratio = len(condensed) / len(question) if len(question) > 0 else 1.0
 
-    if len_ratio < 0.3 or len_ratio > 5.0:
+    if len_ratio < MIN_CONDENSE_RATIO or len_ratio > MAX_CONDENSE_RATIO:
         log.warning(
             "Condensation suspicious: len ratio %.2f, original_chars=%d, condensed_chars=%d",
             len_ratio,
@@ -149,7 +145,7 @@ DECOMPOSE_SYSTEM = (
 async def decompose_question(
     question: str,
     *,
-    instructor_client: StructuredClient | None = None,
+    instructor_client: object | None = None,
     ml_clients: MLClientPort | None = None,
 ) -> list[str]:
     """Split a compound question into independent sub-queries.
@@ -198,7 +194,7 @@ async def decompose_question(
 
     sub_queries = [q.strip() for q in result.sub_queries if q.strip()]
 
-    if len(sub_queries) < 2:
+    if len(sub_queries) < MIN_DECOMPOSITION_PARTS:
         log.warning("Decomposition returned %d sub-queries, using original question", len(sub_queries))
         return [question]
 
@@ -237,42 +233,16 @@ async def update_rolling_summary(
     remaining = turns_text
     input_budget = get_request_settings().llm_num_ctx_narrow - get_request_settings().llm_num_predict_narrow
 
-    def prompt_for(text: str) -> str:
-        if summary:
-            return f"Предыдущее резюме:\n{summary}\n\nНовые сообщения:\n{text}"
-
-        return f"Сообщения диалога:\n{text}"
-
     while remaining:
-        # Summarize every part of long turns instead of dropping their tails.
-        low, high, accepted = 1, len(remaining), 0
-
-        while low <= high:
-            midpoint = (low + high) // 2
-            messages = SUMMARY_PROMPT.format_messages(prompt=prompt_for(remaining[:midpoint]))
-
-            if estimate_message_tokens(messages) <= input_budget:
-                accepted = midpoint
-                low = midpoint + 1
-            else:
-                high = midpoint - 1
-
-        if not accepted:
-            raise ContextBudgetExceededError()
-
-        if accepted < len(remaining):
-            boundaries = list(re.finditer(r"[.!?]\s+|\n", remaining[:accepted]))
-
-            if boundaries:
-                accepted = boundaries[-1].end()
-
+        prompt_text, accepted = summary_part(summary, remaining, input_budget)
         result = await asyncio.wait_for(
-            chain.ainvoke({"prompt": prompt_for(remaining[:accepted])}),
+            chain.ainvoke({"prompt": prompt_text}),
             timeout=get_request_settings().llm_auxiliary_timeout,
         )
 
         if not isinstance(result.content, str) or not result.content.strip():
-            raise ValueError("Summary model returned empty or non-text content")
+            message = "Summary model returned empty or non-text content"
+            raise ValueError(message)
 
         summary = result.content.strip()
         remaining = remaining[accepted:]
@@ -290,6 +260,7 @@ def build_prompt(
     breadth: str = "narrow",
     summary: str | None = None,
     domain_addendum: str | None = None,
+    *,
     enumerate_cases: bool = False,
     question: str = "",
 ) -> ChatPromptTemplate:
@@ -338,3 +309,43 @@ def domain_prompt_addendum(
         return None
 
     return policy_for(query_domain, domain_registry).prompt_addendum(as_of_date=ctx.as_of_date)
+
+
+MIN_CONDENSE_HISTORY = 3
+MIN_CONDENSE_RATIO = 0.3
+MAX_CONDENSE_RATIO = 5.0
+MIN_DECOMPOSITION_PARTS = 2
+
+MIN_CONDENSE_CHARS = 3
+
+
+def summary_part(summary: str, remaining: str, input_budget: int) -> tuple[str, int]:
+    def prompt_for(text: str) -> str:
+        if summary:
+            return f"Предыдущее резюме:\n{summary}\n\nНовые сообщения:\n{text}"
+
+        return f"Сообщения диалога:\n{text}"
+
+    # Summarize every part of long turns instead of dropping their tails.
+    low, high, accepted = 1, len(remaining), 0
+
+    while low <= high:
+        midpoint = (low + high) // 2
+        messages = SUMMARY_PROMPT.format_messages(prompt=prompt_for(remaining[:midpoint]))
+
+        if estimate_message_tokens(messages) <= input_budget:
+            accepted = midpoint
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+
+    if not accepted:
+        raise ContextBudgetExceededError
+
+    if accepted < len(remaining):
+        boundaries = list(re.finditer(r"[.!?]\s+|\n", remaining[:accepted]))
+
+        if boundaries:
+            accepted = boundaries[-1].end()
+
+    return prompt_for(remaining[:accepted]), accepted

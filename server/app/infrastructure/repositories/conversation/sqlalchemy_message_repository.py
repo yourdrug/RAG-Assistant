@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from domain.chat.message import Message, MessageRole
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING
 
+from sqlalchemy import select
+
+from domain.chat.message import Message, MessageRole
 from infrastructure.database.models import MessageModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyMessageRepository:
@@ -32,20 +37,16 @@ class SQLAlchemyMessageRepository:
         )
         rows = result.scalars().all()
 
-        messages = []
-
-        for orm in reversed(rows):
-            messages.append(
-                Message(
-                    id=orm.id,
-                    role=MessageRole(orm.role),
-                    content=orm.content,
-                    sources=orm.sources or [],
-                    creation_date=orm.creation_date,
-                )
+        return [
+            Message(
+                id=orm.id,
+                role=MessageRole(orm.role),
+                content=orm.content,
+                sources=orm.sources or [],
+                creation_date=orm.creation_date,
             )
-
-        return messages
+            for orm in reversed(rows)
+        ]
 
     async def list_page(
         self, conversation_id: int, limit: int, before_id: int | None = None

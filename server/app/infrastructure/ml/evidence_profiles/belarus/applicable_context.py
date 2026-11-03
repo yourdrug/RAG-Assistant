@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from copy import copy
-from typing import TYPE_CHECKING
 import logging
+from typing import TYPE_CHECKING, TypedDict
 
+from domain.identity.user_context import UserContext
 from domain.knowledge.enums import PageContentType, SearchMode
 from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.ml.evidence_profiles.belarus.applicability import act_numbers, normalize_act_number
@@ -31,9 +32,18 @@ from infrastructure.ml.evidence_profiles.belarus.scope import (
 
 
 if TYPE_CHECKING:
-    from domain.rag.ports import ChunkRetrievalRepository
-    from domain.identity.user_context import UserContext
     from langchain_core.documents import Document
+
+    from domain.identity.user_context import UserContext
+    from domain.rag.ports import ChunkRetrievalRepository
+
+
+class SubstringSearchOptions(TypedDict):
+    user: UserContext
+    document_id: int
+    limit: int
+    mode: str
+
 
 log = logging.getLogger("default")
 SCOPE_WINDOW = 32
@@ -41,7 +51,9 @@ MAX_SCOPE_LOOKUPS = 8
 MAX_AMENDMENT_LOOKUPS = 3
 
 
-async def timing_reference_scope(doc, question, chunk_search, user) -> str | None:
+async def timing_reference_scope(
+    doc: Document, question: str, chunk_search: ChunkRetrievalRepository, user: UserContext
+) -> str | None:
     text = content_with_parent_scope(doc)
     reference = timing_reference(text)
     category = listed_goods_polarities(question)
@@ -50,7 +62,7 @@ async def timing_reference_scope(doc, question, chunk_search, user) -> str | Non
         return None
 
     metadata = doc.metadata
-    options = {
+    options: SubstringSearchOptions = {
         "user": user,
         "document_id": metadata["document_id"],
         "limit": SCOPE_WINDOW,
@@ -77,10 +89,11 @@ async def timing_reference_scope(doc, question, chunk_search, user) -> str | Non
         appendices[0].chunk_index,
     )
 
-    if len(clauses) != 1:
-        return None
-
-    return "\n".join(c.content for c in (definitions[0], appendices[0], clauses[0]))
+    return (
+        "\n".join(c.content for c in (definitions[0], appendices[0], clauses[0]))
+        if len(clauses) == 1
+        else None
+    )
 
 
 async def enrich_applicable_context(
@@ -102,7 +115,8 @@ async def enrich_applicable_context(
     lookups = 0
     fields = requested_fields(question)
 
-    for doc, score in docs:
+    for original_doc, score in docs:
+        doc = original_doc
         metadata = doc.metadata
         scope = None
         timing_scope = None
@@ -136,28 +150,25 @@ async def enrich_applicable_context(
                     exc_info=True,
                 )
 
-        if scope:
-            doc = copy(doc)
-            doc.metadata = {
-                **metadata,
-                "parent_units": [*metadata.get("parent_units", []), {"content": scope}],
-            }
-
-            if timing_scope:
-                doc.metadata["verified_timing_scope"] = timing_scope
+        doc = attach_applicability_scope(doc, scope, timing_scope)
 
         result.append((doc, score))
 
     return result
 
 
-async def enrich_amendment_scope(docs, question, chunk_search, user):
+async def enrich_amendment_scope(
+    docs: list[tuple[Document, float]],
+    question: str,
+    chunk_search: ChunkRetrievalRepository,
+    user: UserContext,
+) -> list[tuple[Document, float]]:
     requested = act_numbers(question)
 
     if not amendment_requested(question):
         return docs
 
-    links: dict[tuple, list[str]] = {}
+    links: dict[tuple[int | None, int | None], list[str]] = {}
 
     for doc, _ in docs:
         metadata = doc.metadata
@@ -195,13 +206,37 @@ async def enrich_amendment_scope(docs, question, chunk_search, user):
 
     result = []
 
-    for doc, score in docs:
+    for original_doc, score in docs:
+        doc = original_doc
         target = links.get((doc.metadata.get("document_id"), doc.metadata.get("act_version_id")))
 
-        if target:
-            doc = copy(doc)
-            doc.metadata = {**doc.metadata, "verified_amended_acts": target}
+        doc = attach_amendment_targets(doc, target)
 
         result.append((doc, score))
 
     return result
+
+
+def attach_applicability_scope(doc: Document, scope: str | None, timing_scope: str | None) -> Document:
+    metadata = doc.metadata
+
+    if scope:
+        doc = copy(doc)
+        doc.metadata = {
+            **metadata,
+            "parent_units": [*metadata.get("parent_units", []), {"content": scope}],
+        }
+
+        if timing_scope:
+            doc.metadata["verified_timing_scope"] = timing_scope
+
+    return doc
+
+
+def attach_amendment_targets(doc: Document, target: list[str] | None) -> Document:
+    if not target:
+        return doc
+
+    enriched = copy(doc)
+    enriched.metadata = {**doc.metadata, "verified_amended_acts": target}
+    return enriched

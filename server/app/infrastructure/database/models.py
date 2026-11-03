@@ -6,7 +6,7 @@ Uses shared BaseModel (int PK + creation_date) and LinkedBaseModel (M2M join tab
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import (
     JSON,
@@ -48,6 +48,10 @@ from domain.knowledge.enums import (
 from domain.knowledge.index_sync import OutboxStatus
 from domain.runtime.jobs import BackgroundJobStatus
 from infrastructure.database.basemodel import BaseModel, LinkedBaseModel
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 BENCHMARK_ACTIVE_SWEEP_INDEX = "uq_benchmark_sweeps_one_active"
@@ -125,6 +129,12 @@ corpus_processes = Table(
     Column("heartbeat_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint("role IN ('api', 'worker', 'cli')"),
 )
+
+
+def jsonb_type(*, none_as_null: bool) -> JSONB:
+    """Preserve SQL NULL handling across SQLAlchemy's untyped constructor."""
+    constructor = cast("Callable[[bool], JSONB]", JSONB)
+    return constructor(none_as_null)
 
 
 class UserModel(BaseModel):
@@ -513,13 +523,12 @@ class BenchmarkQuestionModel(BaseModel):
     question: Mapped[str] = mapped_column(Text, nullable=False)
     expected_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # SQLAlchemy does not annotate the PostgreSQL JSON constructor.
     annotations: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB(none_as_null=True),  # type: ignore[no-untyped-call]
+        jsonb_type(none_as_null=True),
         nullable=True,
     )
     history: Mapped[list[dict[str, str]] | None] = mapped_column(
-        JSONB(none_as_null=True),  # type: ignore[no-untyped-call]
+        jsonb_type(none_as_null=True),
         nullable=True,
     )
     as_of_date: Mapped[date | None] = mapped_column(Date, nullable=True)

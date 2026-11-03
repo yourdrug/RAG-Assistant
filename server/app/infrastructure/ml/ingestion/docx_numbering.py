@@ -5,11 +5,20 @@ Extracted from ``docx.py`` to reduce its size and isolate the numbering concern.
 
 from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING, cast
 
-def _parse_abstract_formats(root) -> dict[str, dict[int, str]]:
+from docx.oxml.ns import qn
+
+
+if TYPE_CHECKING:
+    from docx.document import Document
+    from docx.oxml.xmlchemy import BaseOxmlElement
+    from docx.text.paragraph import Paragraph
+
+
+def _parse_abstract_formats(root: BaseOxmlElement) -> dict[str, dict[int, str]]:
     """Extract abstract numbering formats: abs_id -> {level: numFmt}."""
-    from docx.oxml.ns import qn
-
     abstract_formats: dict[str, dict[int, str]] = {}
 
     for abstract_num in root.findall(qn("w:abstractNum")):
@@ -29,17 +38,17 @@ def _parse_abstract_formats(root) -> dict[str, dict[int, str]]:
             fmt_el = lvl.find(qn("w:numFmt"))
 
             if fmt_el is not None:
-                lvl_formats[int(ilvl_raw)] = fmt_el.get(qn("w:val"), "bullet")
+                lvl_formats[int(ilvl_raw)] = str(fmt_el.get(qn("w:val"), "bullet"))
 
         abstract_formats[abs_id] = lvl_formats
 
     return abstract_formats
 
 
-def _resolve_num_formats(root, abstract_formats: dict[str, dict[int, str]]) -> dict[tuple[str, int], str]:
+def _resolve_num_formats(
+    root: BaseOxmlElement, abstract_formats: dict[str, dict[int, str]]
+) -> dict[tuple[str, int], str]:
     """Resolve (numId, ilvl) -> numFmt from w:num elements."""
-    from docx.oxml.ns import qn
-
     formats: dict[tuple[str, int], str] = {}
 
     for num in root.findall(qn("w:num")):
@@ -51,18 +60,19 @@ def _resolve_num_formats(root, abstract_formats: dict[str, dict[int, str]]) -> d
 
         abs_id = abs_ref.get(qn("w:val"))
 
-        for ilvl, fmt in abstract_formats.get(abs_id, {}).items():
+        for ilvl, fmt in abstract_formats.get(abs_id or "", {}).items():
             formats[(num_id, ilvl)] = fmt
 
     return formats
 
 
-def _get_numbering_formats(doc) -> dict[tuple[str, int], str]:
+def _get_numbering_formats(doc: Document) -> dict[tuple[str, int], str]:
     """Map (numId, ilvl) -> numFmt ('bullet', 'decimal', 'lowerLetter', ...)."""
     formats: dict[tuple[str, int], str] = {}
     try:
         numbering_part = doc.part.numbering_part
     except Exception:
+        logging.getLogger(__name__).debug("DOCX numbering unavailable", exc_info=True)
         return formats
 
     if numbering_part is None:
@@ -73,24 +83,22 @@ def _get_numbering_formats(doc) -> dict[tuple[str, int], str]:
     return _resolve_num_formats(root, abstract_formats)
 
 
-def _paragraph_list_info(paragraph) -> tuple[str, int] | None:
+def _paragraph_list_info(paragraph: Paragraph) -> tuple[str, int] | None:
     """Return (numId, ilvl) if paragraph is a list item, else None."""
-    from docx.oxml.ns import qn
+    paragraph_properties = xml_element(paragraph).find(qn("w:pPr"))
 
-    pPr = paragraph._element.find(qn("w:pPr"))
-
-    if pPr is None:
+    if paragraph_properties is None:
         return None
 
-    numPr = pPr.find(qn("w:numPr"))
+    number_properties = paragraph_properties.find(qn("w:numPr"))
 
-    if numPr is None:
+    if number_properties is None:
         return None
 
-    ilvl_el = numPr.find(qn("w:ilvl"))
-    numId_el = numPr.find(qn("w:numId"))
+    ilvl_el = number_properties.find(qn("w:ilvl"))
+    number_id_element = number_properties.find(qn("w:numId"))
     level = int(ilvl_el.get(qn("w:val"), "0")) if ilvl_el is not None else 0
-    num_id = numId_el.get(qn("w:val")) if numId_el is not None else None
+    num_id = number_id_element.get(qn("w:val")) if number_id_element is not None else None
 
     if num_id is None:
         return None
@@ -158,3 +166,9 @@ class ListNumberer:
             marker = str(n)
 
         return f"{indent}{marker}. "
+
+
+def xml_element(value: object) -> BaseOxmlElement:
+    """Narrow python-docx's XML wrapper at the library boundary."""
+    attribute = "_element"
+    return cast("BaseOxmlElement", getattr(value, attribute))

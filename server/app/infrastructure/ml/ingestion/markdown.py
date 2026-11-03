@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import html
 import re
-from pathlib import Path
-
-from infrastructure.ml.ingestion.sections import Section
+from typing import TYPE_CHECKING
 
 from domain.knowledge.enums import PageContentType
+from infrastructure.ml.ingestion.sections import Section
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 _MD_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 # Setext headers: a line of text followed immediately by a line of only
@@ -34,7 +38,7 @@ def _mask_code_fences(raw: str) -> tuple[str, list[str]]:
     """
     blocks: list[str] = []
 
-    def _replace(m: re.Match) -> str:
+    def _replace(m: re.Match[str]) -> str:
         original = m.group(0)
         blocks.append(original)
         newline_count = original.count("\n")
@@ -61,7 +65,7 @@ def _normalize_setext_headers(raw: str) -> str:
     """
     masked, blocks = _mask_code_fences(raw)
 
-    def _replace(m: re.Match) -> str:
+    def _replace(m: re.Match[str]) -> str:
         title = m.group(1).strip()
         underline = m.group(2)
         level = "#" if underline.startswith("=") else "##"
@@ -139,7 +143,7 @@ def split_markdown_tables(content: str) -> list[tuple[str, str]]:
         _flush_text_segment(current_text, segments)
 
     segments = [(ctype, _unmask_code_fences(text, blocks)) for ctype, text in segments]
-    return segments if segments else [(PageContentType.TEXT.value, content)]
+    return segments or [(PageContentType.TEXT.value, content)]
 
 
 def parse_markdown_sections(file_path: Path) -> list[Section]:
@@ -164,13 +168,10 @@ def parse_markdown_sections(file_path: Path) -> list[Section]:
     matches = list(_MD_HEADER_RE.finditer(masked))
 
     if not matches:
-        segments = split_markdown_tables(_clean_markdown_text(raw))
-        sections: list[Section] = []
-
-        for ctype, text in segments:
-            sections.append(Section(None, text, PageContentType(ctype)))
-
-        return sections
+        return [
+            Section(None, text, PageContentType(ctype))
+            for ctype, text in split_markdown_tables(_clean_markdown_text(raw))
+        ]
 
     result: list[Section] = []
 
@@ -179,8 +180,9 @@ def parse_markdown_sections(file_path: Path) -> list[Section]:
         lead = _clean_markdown_text(lead_raw)
 
         if lead:
-            for ctype, text in split_markdown_tables(lead):
-                result.append(Section(None, text, PageContentType(ctype)))
+            result.extend(
+                Section(None, text, PageContentType(ctype)) for ctype, text in split_markdown_tables(lead)
+            )
 
     # Track heading hierarchy to build breadcrumb paths, e.g. "H1 > H2 > H3".
     stack: list[tuple[int, str]] = []

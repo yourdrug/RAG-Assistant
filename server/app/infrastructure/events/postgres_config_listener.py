@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from infrastructure.database.database import DatabaseManager
 
     from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
-    from infrastructure.uow_factory import UnitOfWorkFactory
+    from application.uow.factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
 

@@ -1,20 +1,21 @@
 """Regression: repeated 2.3 splits must not evict sparse-only provision 2.2."""
 
+from typing import Any
 from unittest.mock import AsyncMock
 
-import pytest
 from langchain_core.documents import Document
+import pytest
 
 from application.search import HybridRetriever
 from domain.rag.ranking import prioritize_distinct_provisions
 from infrastructure.ml.rag.rag_reranking import rerank_documents
 
 
-def provision(text, section, document_id=22, **metadata):
+def provision(text: str, section: str, document_id: int = 22, **metadata: Any) -> Document:
     return Document(page_content=text, metadata={"document_id": document_id, "section": section, **metadata})
 
 
-def test_sparse_only_provision_survives_dense_repeated_section_at_same_budget():
+def test_sparse_only_provision_survives_dense_repeated_section_at_same_budget() -> None:
     dense = [provision(f"daily {i}", "point 2 > subpoint_num 2.3 > sentence") for i in range(30)]
     target = provision("real time", "point 2 > subpoint_num 2.2")
     docs = {str(i): (0.8, doc) for i, doc in enumerate(dense)}
@@ -33,7 +34,7 @@ def test_sparse_only_provision_survives_dense_repeated_section_at_same_budget():
 
 
 @pytest.mark.asyncio
-async def test_reranker_retains_distinct_provision_without_changing_thresholds():
+async def test_reranker_retains_distinct_provision_without_changing_thresholds() -> None:
     repeated = [provision(f"daily {i}", "point 2 > subpoint_num 2.3 > sentence") for i in range(13)]
     target = provision("real time", "point 2 > subpoint_num 2.2")
     irrelevant = provision("unrelated", "point 3")
@@ -47,7 +48,7 @@ async def test_reranker_retains_distinct_provision_without_changing_thresholds()
     assert irrelevant not in [doc for doc, _ in ranked]
 
 
-def test_scope_tables_and_unstructured_chunks_are_not_collapsed():
+def test_scope_tables_and_unstructured_chunks_are_not_collapsed() -> None:
     docs = [
         provision("a", "point 2", act_version_id=1),
         provision("b", "point 2", act_version_id=2),
@@ -59,6 +60,6 @@ def test_scope_tables_and_unstructured_chunks_are_not_collapsed():
     assert prioritize_distinct_provisions(docs) == docs
 
 
-def test_remaining_splits_fill_budget_in_score_order():
+def test_remaining_splits_fill_budget_in_score_order() -> None:
     docs = [provision(str(i), "point 2 > sentence") for i in range(3)]
     assert prioritize_distinct_provisions(docs) == docs

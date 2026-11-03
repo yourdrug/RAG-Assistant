@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-
-from typing import Any, TYPE_CHECKING
-
 import asyncio
 import re
+from typing import TYPE_CHECKING, Any
 
-from config import get_request_settings
-from infrastructure.ml.rag.prompts import SUFFICIENCY_ASSESSMENT_SYSTEM
 from application.runtime.enums import LLMProvider
-from infrastructure.ml.clients.llm_schemas import create_structured_response
-
+from config import get_request_settings
 from infrastructure.ml.clients.client_lease import client_operation
-from infrastructure.ml.clients.llm_schemas import RelevanceCheck, SufficiencyAssessment
+from infrastructure.ml.clients.llm_schemas import (
+    RelevanceCheck,
+    SufficiencyAssessment,
+    create_structured_response,
+)
+from infrastructure.ml.rag.prompts import SUFFICIENCY_ASSESSMENT_SYSTEM
 from infrastructure.ml.rag.rag_formatting import format_docs
 from infrastructure.resilience.circuit_breaker import get_breaker
+
 
 if TYPE_CHECKING:
     from application.ports.ml_clients import MLClientPort
@@ -65,11 +66,12 @@ async def check_relevance(ml_clients: MLClientPort, question: str, docs: list[An
                 timeout=get_request_settings().llm_auxiliary_timeout,
             )
         except TimeoutError as exc:
-            raise TimeoutError(
+            message = (
                 f"RAG relevance gate LLM request timed out "
                 f"(provider={get_request_settings().llm_provider}, model={model}, "
                 f"LLM_AUXILIARY_TIMEOUT={get_request_settings().llm_auxiliary_timeout}s)"
-            ) from exc
+            )
+            raise TimeoutError(message) from exc
 
     return result.is_relevant, result.reason
 

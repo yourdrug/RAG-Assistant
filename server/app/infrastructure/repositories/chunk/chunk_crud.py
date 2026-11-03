@@ -2,26 +2,20 @@
 
 from __future__ import annotations
 
-from domain.knowledge.repositories.chunk import (
-    ChunkInsertOptions,
-    ManualChunkInsertOptions,
-    DEFAULT_CHUNK_INSERT_OPTIONS,
-    DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
-)
-from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from domain.knowledge.chunk import (
-    ChunkInsert,
-    ChunkRecord,
     ChunkStats,
     extract_chunk_context,
 )
+from domain.knowledge.repositories.chunk import (
+    DEFAULT_CHUNK_INSERT_OPTIONS,
+    DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
+)
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
-from domain.shared.pagination import CursorPage
-from sqlalchemy import delete, func, select, update
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from infrastructure.database.models import ChunkModel, DocumentModel
 from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_result
 from infrastructure.repositories.chunk.chunk_pagination import (
@@ -30,6 +24,22 @@ from infrastructure.repositories.chunk.chunk_pagination import (
     paginate_backward,
     paginate_forward,
 )
+
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from domain.knowledge.chunk import (
+        ChunkInsert,
+        ChunkRecord,
+    )
+    from domain.knowledge.repositories.chunk import (
+        ChunkInsertOptions,
+        ManualChunkInsertOptions,
+    )
+    from domain.shared.pagination import CursorPage
 
 
 class SQLAlchemyChunkCrudRepository:
@@ -138,7 +148,8 @@ class SQLAlchemyChunkCrudRepository:
         orm = result.scalar_one_or_none()
 
         if orm is None:
-            raise ValueError(f"Chunk {chunk_id} not found")
+            msg = f"Chunk {chunk_id} not found"
+            raise ValueError(msg)
 
         orm.content = content
         orm.content_hash = content_hash
@@ -153,6 +164,7 @@ class SQLAlchemyChunkCrudRepository:
         content: str,
         filename: str,
         visibility: str,
+        *,
         doc_domain: str,
         options: ManualChunkInsertOptions = DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
     ) -> int:
@@ -262,9 +274,9 @@ class SQLAlchemyChunkCrudRepository:
             result = await self._session.execute(stmt)
             return paginate_forward(list(result.scalars().all()), limit, cursor)
 
-        # direction == "prev"
         if cursor is None:
-            raise ValidationError("cursor is required when direction=prev")
+            msg = "cursor is required when direction=prev"
+            raise ValidationError(msg)
 
         conditions.extend(build_cursor_backward_conditions(cursor))
         stmt = (

@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
-from infrastructure.ml.rag.utils import clean_source_name as _clean_source_name
 from infrastructure.ml.rag.document_sources import document_identity
+from infrastructure.ml.rag.utils import clean_source_name as _clean_source_name
 
 
-def _merge_list(target: list, source: list) -> None:
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from domain.rag.ranking import RetrievalDocument
+
+
+def _merge_list(target: list[str], source: list[str]) -> None:
     """Append items from source to target, preserving order and avoiding duplicates."""
     for item in source:
         if item not in target:
@@ -27,7 +34,7 @@ class SourceAccumulator:
     edited_at: str | None = None
     document_id: int | None = None
     content_hashes: list[str] = field(default_factory=list)
-    act_info: dict | None = None
+    act_info: dict[str, Any] | None = None
     title: str | None = None
     doc_type: str | None = None
     sections: set[str] = field(default_factory=set)
@@ -36,8 +43,7 @@ class SourceAccumulator:
         """Merge another accumulator into this one (take max score, union pages, etc.)."""
         self.pages.update(other.pages)
 
-        if other.max_score > self.max_score:
-            self.max_score = other.max_score
+        self.max_score = max(self.max_score, other.max_score)
 
         _merge_list(self.articles, other.articles)
 
@@ -67,10 +73,9 @@ class SourceAccumulator:
         self.sections.update(other.sections)
 
 
-def _collect_source_metadata(doc, score: float | None) -> tuple[str, SourceAccumulator]:
+def _collect_source_metadata(doc: RetrievalDocument, score: float | None) -> tuple[str, SourceAccumulator]:
     """Extract metadata from a single document into a SourceAccumulator."""
-    src = doc.metadata.get("source", "unknown")
-    clean_name = _clean_source_name(src)
+    clean_name = _clean_source_name(doc.metadata.get("source", "unknown"))
     page = doc.metadata.get("page")
     page_start = doc.metadata.get("page_start")
     page_end = doc.metadata.get("page_end")
@@ -98,7 +103,7 @@ def _collect_source_metadata(doc, score: float | None) -> tuple[str, SourceAccum
     act_number = domain_meta.get("decree_number") or domain_meta.get("act_number")
     effective_from = doc.metadata.get("effective_from")
     effective_to = doc.metadata.get("effective_to")
-    act_info: dict | None = None
+    act_info: dict[str, Any] | None = None
 
     if act_number or effective_from or effective_to:
         act_info = {
@@ -124,7 +129,7 @@ def _collect_source_metadata(doc, score: float | None) -> tuple[str, SourceAccum
     return clean_name, acc
 
 
-def _set_if(entry: dict, key: str, value, condition: bool | None = None) -> None:
+def _set_if(entry: dict[str, Any], key: str, value: object, *, condition: bool | None = None) -> None:
     """Add key to entry if value is truthy (or condition is explicitly True)."""
     if condition is None:
         if value:
@@ -133,9 +138,9 @@ def _set_if(entry: dict, key: str, value, condition: bool | None = None) -> None
         entry[key] = value
 
 
-def _build_source_entry(src: str, acc: SourceAccumulator) -> dict:
+def _build_source_entry(src: str, acc: SourceAccumulator) -> dict[str, Any]:
     """Build the entry dict for a single source from its accumulator."""
-    entry: dict = {
+    entry: dict[str, Any] = {
         "source": src,
         "pages": sorted(acc.pages) if acc.pages else [],
     }
@@ -161,7 +166,7 @@ def _build_source_entry(src: str, acc: SourceAccumulator) -> dict:
     return entry
 
 
-def _apply_act_info(entry: dict, act_info: dict | None) -> None:
+def _apply_act_info(entry: dict[str, Any], act_info: dict[str, Any] | None) -> None:
     """Add act-related fields to entry if present."""
     if not act_info:
         return
@@ -172,9 +177,9 @@ def _apply_act_info(entry: dict, act_info: dict | None) -> None:
 
 
 def _filter_sources_by_min_score(
-    sources: list[dict],
+    sources: list[dict[str, Any]],
     min_score: float | None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     if min_score is not None and sources:
         filtered = [s for s in sources if s.get("max_score", 0.0) >= min_score]
 
@@ -186,9 +191,11 @@ def _filter_sources_by_min_score(
     return sources
 
 
-def extract_sources(docs, min_score: float | None = None) -> list[dict]:
+def extract_sources(
+    docs: Sequence[RetrievalDocument | tuple[RetrievalDocument, float]], min_score: float | None = None
+) -> list[dict[str, Any]]:
     """Извлекает метаданные источников для сохранения в БД."""
-    accumulators: dict[tuple, tuple[str, int, SourceAccumulator]] = {}
+    accumulators: dict[tuple[str, object], tuple[str, int, SourceAccumulator]] = {}
 
     for item in docs:
         doc = item[0] if isinstance(item, tuple) else item

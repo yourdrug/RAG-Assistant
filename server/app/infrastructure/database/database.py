@@ -15,29 +15,34 @@ Lifecycle:
 
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any
-
-from sqlalchemy import Connection, Engine, create_engine
-from sqlalchemy.engine import URL
-from sqlalchemy.pool import NullPool
-from sqlalchemy.ext.asyncio import AsyncConnection
-
 from logging import (
     Logger,
     getLogger,
 )
+from typing import TYPE_CHECKING, Any
 
-from config import settings
-from domain.shared.exceptions import DatabaseError
+from sqlalchemy import Connection, create_engine
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
+    AsyncConnection,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
+from config import settings
+from domain.shared.exceptions import DatabaseError
 from infrastructure.database.dataclasses import DatabaseURL
 from infrastructure.database.enums import DatabaseNodeRole
+
+
+if TYPE_CHECKING:
+    from sqlalchemy import Engine
+    from sqlalchemy.ext.asyncio import (
+        AsyncEngine,
+    )
+
 
 logger: Logger = getLogger("default")
 
@@ -64,9 +69,7 @@ def configured_database_url() -> DatabaseURL:
 
 
 class DatabaseNode:
-    """
-    DatabaseNode: Class for async connection to PostgreSQL database using SQLAlchemy.
-    """
+    """DatabaseNode: Class for async connection to PostgreSQL database using SQLAlchemy."""
 
     def __init__(
         self,
@@ -74,26 +77,24 @@ class DatabaseNode:
         node_url: DatabaseURL,
         node_number: int,
     ) -> None:
-        """
-        __init__: Initialize database node.
+        """__init__: Initialize database node.
 
         Args:
             node_role (DatabaseNodeRole): Role of the database node.
             node_url (DatabaseURL): Database URL.
             node_number (int): Number of the database node.
         """
-
         self.node_role: DatabaseNodeRole = node_role
         self.node_url: DatabaseURL = node_url
         self.node_number: int = node_number
         self.async_engine: AsyncEngine | None = None
-        self.async_session_factory: async_sessionmaker | None = None
+        self.async_session_factory: async_sessionmaker[AsyncSession] | None = None
 
     async def _create_engine(
         self,
     ) -> None:
-        """
-        _create_engine: Create the async engine using the constructed database URL.
+        """_create_engine: Create the async engine using the constructed database URL.
+
         First param is the database URL.
         Second param disables SQL query logging.
         Third param forces to use SQLAlchemy 2.0+ style APIs.
@@ -101,7 +102,6 @@ class DatabaseNode:
         Fifth param allows extra connections beyond pool_size if needed.
         Sixth param sets the timezone for connections.
         """
-
         self.async_engine = create_async_engine(
             self.node_url.url,
             echo=False,
@@ -116,13 +116,12 @@ class DatabaseNode:
     async def _create_async_session_factory(
         self,
     ) -> None:
-        """
-        _create_async_session_factory: Create the async session factory using the async engine.
+        """_create_async_session_factory: Create the async session factory using the async engine.
+
         First param is the async engine.
         Second param class is the session class.
         Third param prevents attribute expiration after commit (better for async).
         """
-
         self.async_session_factory = async_sessionmaker(
             self.async_engine,
             class_=AsyncSession,
@@ -132,50 +131,36 @@ class DatabaseNode:
     async def _dispose_connections(
         self,
     ) -> None:
-        """
-        _dispose_connections: Dispose of the async engine.
-        """
-
+        """_dispose_connections: Dispose of the async engine."""
         if not self.async_engine:
-            raise DatabaseError("Async engine is not created")
+            msg = "Async engine is not created"
+            raise DatabaseError(msg)
 
         await self.async_engine.dispose()
 
     async def _delete_async_session_factory(
         self,
     ) -> None:
-        """
-        _delete_async_session_factory: Delete the async session factory.
-        """
-
+        """_delete_async_session_factory: Delete the async session factory."""
         self.async_session_factory = None
 
     async def _delete_engine(
         self,
     ) -> None:
-        """
-        _delete_engine: Delete the async engine.
-        """
-
+        """_delete_engine: Delete the async engine."""
         self.async_engine = None
 
     async def connect(
         self,
     ) -> None:
-        """
-        connect: Connect to the database using the constructed database URL.
-        """
-
+        """connect: Connect to the database using the constructed database URL."""
         await self._create_engine()
         await self._create_async_session_factory()
 
     async def disconnect(
         self,
     ) -> None:
-        """
-        disconnect: Disconnect from the database.
-        """
-
+        """disconnect: Disconnect from the database."""
         await self._dispose_connections()
         await self._delete_async_session_factory()
         await self._delete_engine()
@@ -183,55 +168,45 @@ class DatabaseNode:
     def new_session(
         self,
     ) -> AsyncSession:
-        """
-        new_session: Create a new async session using the async session factory.
+        """new_session: Create a new async session using the async session factory.
 
         Returns:
             AsyncSession: New async session.
         """
-
         if not self.async_session_factory:
-            raise DatabaseError("Async session factory is not created")
+            msg = "Async session factory is not created"
+            raise DatabaseError(msg)
 
         return self.async_session_factory()
 
     def get_role(
         self,
     ) -> str:
-        """
-        get_role: Get the role of the database node.
+        """get_role: Get the role of the database node.
 
         Returns:
             str: Role of the database node.
         """
-
         return self.node_role.value
 
     def get_number(
         self,
     ) -> int:
-        """
-        get_number: Get the number of the database node.
+        """get_number: Get the number of the database node.
 
         Returns:
             int: Number of the database node.
         """
-
         return self.node_number
 
 
 class DatabaseManager:
-    """
-    DatabaseManager: Class, that handles database in cluster mode or single mode.
-    """
+    """DatabaseManager: Class, that handles database in cluster mode or single mode."""
 
     def __init__(
         self,
     ) -> None:
-        """
-        __init__: Initialize database manager.
-        """
-
+        """__init__: Initialize database manager."""
         self.is_cluster: bool = False
         self.master_node: DatabaseNode | None = None
         self.slave_nodes: list[DatabaseNode] = []
@@ -242,10 +217,7 @@ class DatabaseManager:
     def _setup_cluster_environment(
         self,
     ) -> None:
-        """
-        _setup_cluster_environment: Setup for cluster environment.
-        """
-
+        """_setup_cluster_environment: Setup for cluster environment."""
         master_url: DatabaseURL = configured_database_url()
 
         self.master_node = DatabaseNode(
@@ -284,10 +256,7 @@ class DatabaseManager:
     def _setup_single_node_environment(
         self,
     ) -> None:
-        """
-        _setup_single_node_environment: Setup for single node environment.
-        """
-
+        """_setup_single_node_environment: Setup for single node environment."""
         master_url: DatabaseURL = configured_database_url()
 
         self.master_node = DatabaseNode(
@@ -301,10 +270,7 @@ class DatabaseManager:
     def _detect_environment(
         self,
     ) -> None:
-        """
-        _detect_environment: Detect if we're in a cluster environment or single node.
-        """
-
+        """_detect_environment: Detect if we're in a cluster environment or single node."""
         self.is_cluster = bool(settings.db_slave_hosts and settings.db_slave_ports)
 
         if self.is_cluster:
@@ -315,12 +281,10 @@ class DatabaseManager:
     def _get_next_slave(
         self,
     ) -> DatabaseNode:
-        """
-        _get_next_slave: Get next slave node using round-robin.
-        """
-
+        """_get_next_slave: Get next slave node using round-robin."""
         if not self.slave_nodes:
-            raise DatabaseError("No slave nodes available")
+            msg = "No slave nodes available"
+            raise DatabaseError(msg)
 
         slave: DatabaseNode = self.slave_nodes[self.current_slave_index]
 
@@ -331,18 +295,15 @@ class DatabaseManager:
     async def connect(
         self,
     ) -> None:
-        """
-        connect: Connect to all database nodes.
-        """
-
+        """connect: Connect to all database nodes."""
         self._detect_environment()
 
         if self.master_node:
             await self.master_node.connect()
             logger.info(
-                "Connected to master database. "
-                f"Role: {self.master_node.get_role()}; "
-                f"Number: {self.master_node.get_number()};"
+                "Connected to master database. Role: %s; Number: %s;",
+                self.master_node.get_role(),
+                self.master_node.get_number(),
             )
 
         if self.master_node is not None and self.master_node.async_engine is not None:
@@ -360,15 +321,12 @@ class DatabaseManager:
                 slave_node.get_number(),
             )
 
-        logger.info(f"Database environment: {'CLUSTER' if self.is_cluster else 'SINGLE NODE'}")
+        logger.info("Database environment: %s", "CLUSTER" if self.is_cluster else "SINGLE NODE")
 
     async def disconnect(
         self,
     ) -> None:
-        """
-        disconnect: Disconnect from all database nodes.
-        """
-
+        """disconnect: Disconnect from all database nodes."""
         if self.async_master_connection_engine is not None:
             await self.async_master_connection_engine.dispose()
             self.async_master_connection_engine = None
@@ -394,9 +352,9 @@ class DatabaseManager:
         if self.master_node is not None and self.master_node.async_engine is not None:
             await self.master_node.disconnect()
             logger.info(
-                "Disconnected from master database. "
-                f"Role: {self.master_node.get_role()}; "
-                f"Number: {self.master_node.get_number()};"
+                "Disconnected from master database. Role: %s; Number: %s;",
+                self.master_node.get_role(),
+                self.master_node.get_number(),
             )
 
     def create_master_connection_engines(self, url: URL, connect_args: dict[str, Any]) -> None:
@@ -444,7 +402,8 @@ class DatabaseManager:
             )
 
         if engine is None:
-            raise DatabaseError("Master connection engine is not created")
+            msg = "Master connection engine is not created"
+            raise DatabaseError(msg)
 
         try:
             with engine.connect() as connection:
@@ -470,7 +429,8 @@ class DatabaseManager:
             )
 
         if engine is None:
-            raise DatabaseError("Async master connection engine is not created")
+            msg = "Async master connection engine is not created"
+            raise DatabaseError(msg)
 
         try:
             async with engine.connect() as connection:
@@ -482,38 +442,35 @@ class DatabaseManager:
     def get_write_session(
         self,
     ) -> AsyncSession:
-        """
-        get_write_session: Get session for write operations (master).
+        """get_write_session: Get session for write operations (master).
 
         Returns:
             AsyncSession: Session for write operations.
         """
-
         if not self.master_node:
-            raise DatabaseError("Master database node is not available")
+            msg = "Master database node is not available"
+            raise DatabaseError(msg)
 
         return self.master_node.new_session()
 
     def get_read_session(
         self,
     ) -> AsyncSession:
-        """
-        get_read_session: Get session for read operations (slave with round-robin).
+        """get_read_session: Get session for read operations (slave with round-robin).
 
         Returns:
             AsyncSession: Session for read operations.
         """
-
         slave_node: DatabaseNode = self._get_next_slave()
 
         return slave_node.new_session()
 
     def get_session(
         self,
+        *,
         master: bool = False,
     ) -> AsyncSession:
-        """
-        get_session: Get appropriate session based on operation type.
+        """get_session: Get appropriate session based on operation type.
 
         Args:
             master (bool): True if write operation, False if read operation.
@@ -521,7 +478,6 @@ class DatabaseManager:
         Returns:
             AsyncSession: Session for read or write operations.
         """
-
         return self.get_write_session() if master else self.get_read_session()
 
 

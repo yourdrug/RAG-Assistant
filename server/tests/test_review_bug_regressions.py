@@ -59,7 +59,7 @@ async def test_container_closes_ml_registry_even_if_other_cleanup_fails(failure)
     registry = MLClientRegistry()
     embedding = SimpleNamespace(close=AsyncMock())
     retired = SimpleNamespace(close=AsyncMock())
-    registry._embeddings = embedding
+    registry.cached_embeddings = embedding
     registry._retired_clients = [retired]
     container.infrastructure.ml.ml_clients = registry
     container.infrastructure.ml.file_storage = SimpleNamespace(aclose=AsyncMock())

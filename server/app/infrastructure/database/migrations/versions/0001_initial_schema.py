@@ -64,7 +64,7 @@ def create_tables() -> None:
         sa.Column("description", sa.TEXT(), nullable=True),
         sa.Column("min_value", sa.DOUBLE_PRECISION(precision=53), nullable=True),
         sa.Column("max_value", sa.DOUBLE_PRECISION(precision=53), nullable=True),
-        sa.Column("allowed_values", postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column("allowed_values", postgresql.JSON, nullable=True),
         sa.Column("domain_key", sa.VARCHAR(length=32), nullable=True),
         sa.PrimaryKeyConstraint("id", name="config_parameters_pkey"),
         sa.UniqueConstraint(
@@ -76,8 +76,8 @@ def create_tables() -> None:
         sa.Column("id", sa.INTEGER(), autoincrement=True, nullable=False),
         sa.Column("phase", sa.TEXT(), nullable=False),
         sa.Column("write_epoch", sa.BIGINT(), server_default=sa.text("'0'::bigint"), nullable=False),
-        sa.Column("active", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("candidate", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("active", postgresql.JSONB, nullable=False),
+        sa.Column("candidate", postgresql.JSONB, nullable=True),
         sa.Column("digest", sa.TEXT(), nullable=True),
         sa.Column("owner", sa.TEXT(), nullable=True),
         sa.Column("error", sa.TEXT(), nullable=True),
@@ -235,7 +235,7 @@ def create_tables() -> None:
             nullable=False,
         ),
         sa.Column("aggregate_id", sa.INTEGER(), nullable=False),
-        sa.Column("payload", postgresql.JSON(astext_type=sa.Text()), nullable=False),
+        sa.Column("payload", postgresql.JSON, nullable=False),
         sa.Column(
             "status",
             sa.VARCHAR(length=20),
@@ -255,7 +255,8 @@ def create_tables() -> None:
         sa.Column("locked_at", postgresql.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("completed_at", postgresql.TIMESTAMP(timezone=True), nullable=True),
         sa.CheckConstraint(
-            "operation IN ('upsert_chunks', 'delete_by_document', 'delete_chunks', 'update_metadata', 'set_document_id')",
+            "operation IN ('upsert_chunks', 'delete_by_document', 'delete_chunks', "
+            "'update_metadata', 'set_document_id')",
             name="vector_store_outbox_operation_check",
         ),
         sa.CheckConstraint(
@@ -295,7 +296,7 @@ def create_tables() -> None:
         sa.Column("question", sa.TEXT(), nullable=False),
         sa.Column("expected_answer", sa.TEXT(), nullable=True),
         sa.Column("source_hint", sa.TEXT(), nullable=True),
-        sa.Column("tags", postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column("tags", postgresql.JSON, nullable=True),
         sa.Column(
             "dataset",
             sa.VARCHAR(length=100),
@@ -305,7 +306,7 @@ def create_tables() -> None:
         sa.Column("is_active", sa.BOOLEAN(), server_default=sa.text("true"), nullable=False),
         sa.Column("created_by", sa.INTEGER(), nullable=True),
         sa.Column("notes", sa.TEXT(), nullable=True),
-        sa.Column("annotations", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("annotations", postgresql.JSONB, nullable=True),
         sa.CheckConstraint(
             "annotations IS NULL OR jsonb_typeof(annotations) = 'object'::text",
             name="chk_benchmark_questions_annotations_object",
@@ -331,8 +332,8 @@ def create_tables() -> None:
             nullable=False,
         ),
         sa.Column("strategy", sa.VARCHAR(length=50), nullable=False),
-        sa.Column("search_space", postgresql.JSON(astext_type=sa.Text()), nullable=False),
-        sa.Column("objective_weights", postgresql.JSON(astext_type=sa.Text()), nullable=False),
+        sa.Column("search_space", postgresql.JSON, nullable=False),
+        sa.Column("objective_weights", postgresql.JSON, nullable=False),
         sa.Column(
             "dataset",
             sa.VARCHAR(length=100),
@@ -401,7 +402,7 @@ def create_tables() -> None:
         ),
         sa.Column("settled_at", postgresql.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("request_fingerprint", sa.TEXT(), nullable=True),
-        sa.Column("billable_units", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("billable_units", postgresql.JSONB, nullable=True),
         sa.Column("cost_source", sa.TEXT(), nullable=True),
         sa.Column("dispatch_state", sa.TEXT(), server_default=sa.text("'reserved'::text"), nullable=False),
         sa.CheckConstraint(
@@ -584,7 +585,7 @@ def create_tables() -> None:
         "benchmark_checkpoints",
         sa.Column("sweep_id", sa.INTEGER(), nullable=False),
         sa.Column("key", sa.VARCHAR(length=512), nullable=False),
-        sa.Column("payload", postgresql.JSON(astext_type=sa.Text()), nullable=False),
+        sa.Column("payload", postgresql.JSON, nullable=False),
         sa.Column(
             "updated_at", postgresql.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False
         ),
@@ -606,8 +607,8 @@ def create_tables() -> None:
             nullable=False,
         ),
         sa.Column("sweep_id", sa.INTEGER(), nullable=True),
-        sa.Column("config_json", postgresql.JSON(astext_type=sa.Text()), nullable=False),
-        sa.Column("summary_metrics", postgresql.JSON(astext_type=sa.Text()), nullable=False),
+        sa.Column("config_json", postgresql.JSON, nullable=False),
+        sa.Column("summary_metrics", postgresql.JSON, nullable=False),
         sa.Column(
             "duration_sec",
             sa.DOUBLE_PRECISION(precision=53),
@@ -621,13 +622,13 @@ def create_tables() -> None:
             server_default=sa.text("'main'::character varying"),
             nullable=False,
         ),
-        sa.Column("per_question_results", postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column("per_question_results", postgresql.JSON, nullable=True),
         sa.Column("filename", sa.VARCHAR(length=255), nullable=True),
         sa.Column("job_id", sa.INTEGER(), nullable=True),
         sa.Column("legacy_hash", sa.VARCHAR(length=64), nullable=True),
         sa.Column(
             "artifacts",
-            postgresql.JSON(astext_type=sa.Text()),
+            postgresql.JSON,
             server_default=sa.text("'{}'::json"),
             nullable=False,
         ),
@@ -651,7 +652,7 @@ def create_tables() -> None:
         sa.Column("conversation_id", sa.INTEGER(), nullable=True),
         sa.Column("question", sa.TEXT(), nullable=False),
         sa.Column("answer", sa.TEXT(), nullable=False),
-        sa.Column("sources", postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column("sources", postgresql.JSON, nullable=True),
         sa.Column("latency_ms", sa.INTEGER(), nullable=True),
         sa.Column("model_used", sa.VARCHAR(length=100), nullable=True),
         sa.Column("breadth", sa.VARCHAR(length=20), nullable=True),
@@ -683,7 +684,7 @@ def create_tables() -> None:
         sa.Column("conversation_id", sa.INTEGER(), nullable=True),
         sa.Column("role", sa.VARCHAR(length=16), nullable=False),
         sa.Column("content", sa.TEXT(), nullable=False),
-        sa.Column("sources", postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column("sources", postgresql.JSON, nullable=True),
         sa.CheckConstraint("role IN ('user', 'assistant')", name="messages_role_check"),
         sa.ForeignKeyConstraint(
             ["conversation_id"],
@@ -724,7 +725,7 @@ def create_tables() -> None:
         sa.Column("edited_by", sa.INTEGER(), nullable=True),
         sa.Column("manual", sa.BOOLEAN(), server_default=sa.text("false"), nullable=False),
         sa.Column("content_hash", sa.VARCHAR(length=16), nullable=True),
-        sa.Column("domain_metadata", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("domain_metadata", postgresql.JSONB, nullable=True),
         sa.Column("effective_from", sa.DATE(), nullable=True),
         sa.Column("effective_to", sa.DATE(), nullable=True),
         sa.Column("is_current", sa.BOOLEAN(), server_default=sa.text("true"), nullable=False),
@@ -737,7 +738,7 @@ def create_tables() -> None:
         sa.Column("doc_type", sa.VARCHAR(length=64), nullable=True),
         sa.Column(
             "context_metadata",
-            postgresql.JSONB(astext_type=sa.Text()),
+            postgresql.JSONB,
             server_default=sa.text("'{}'::jsonb"),
             nullable=False,
         ),
@@ -835,7 +836,9 @@ def create_document_indexes() -> None:
         "documents",
         [sa.literal_column("COALESCE(owner_id, 0)"), sa.literal_column("COALESCE(group_id, 0)"), "filename"],
         unique=True,
-        postgresql_where="ingestion_key IS NULL AND status IN ('pending', 'processing', 'indexing', 'done', 'failed')",
+        postgresql_where=(
+            "ingestion_key IS NULL AND status IN ('pending', 'processing', 'indexing', 'done', 'failed')"
+        ),
     )
     op.create_index(
         "ux_documents_ingestion_slot",
@@ -846,7 +849,9 @@ def create_document_indexes() -> None:
             sa.literal_column("COALESCE(group_id, 0)"),
         ],
         unique=True,
-        postgresql_where="ingestion_key IS NOT NULL AND status IN ('pending', 'processing', 'indexing', 'done', 'failed')",
+        postgresql_where=(
+            "ingestion_key IS NOT NULL AND status IN ('pending', 'processing', 'indexing', 'done', 'failed')"
+        ),
     )
     op.create_index("idx_act_versions_act_id", "act_versions", ["act_id"], unique=False)
     op.create_index(

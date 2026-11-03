@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+from sqlalchemy import func, select
 
 from domain.chat.chat_log import ChatLog
 from domain.chat.repositories import DEFAULT_CHAT_LOG_FILTER
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from infrastructure.database.models import ChatLogModel
-from typing import TYPE_CHECKING
+
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from datetime import datetime
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.sql import Select
+
     from domain.chat.repositories import ChatLogFilter
 
 
@@ -26,7 +31,7 @@ class SQLAlchemyChatLogRepository:
             conversation_id=log.conversation_id,
             question=log.question,
             answer=log.answer,
-            sources=log.sources if log.sources else None,
+            sources=log.sources or None,
             latency_ms=log.latency_ms,
             model_used=log.model_used,
             breadth=log.breadth,
@@ -49,7 +54,7 @@ class SQLAlchemyChatLogRepository:
         limit = filters.limit
         offset = filters.offset
         stmt = select(ChatLogModel).order_by(ChatLogModel.creation_date.desc())
-        stmt = self._apply_filters(
+        stmt = self.apply_filters(
             stmt,
             user_id=user_id,
             user_ids=user_ids,
@@ -70,7 +75,7 @@ class SQLAlchemyChatLogRepository:
         date_to = filters.date_to
         search = filters.search
         stmt = select(func.count()).select_from(ChatLogModel)
-        stmt = self._apply_filters(
+        stmt = self.apply_filters(
             stmt,
             user_id=user_id,
             user_ids=user_ids,
@@ -83,16 +88,16 @@ class SQLAlchemyChatLogRepository:
         return result.scalar_one()
 
     @staticmethod
-    def _apply_filters(
-        stmt,
+    def apply_filters[T: tuple[Any, ...]](
+        stmt: Select[T],
         *,
         user_id: int | None = None,
-        user_ids: list[int] | None = None,
+        user_ids: Sequence[int] | None = None,
         domain: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         search: str | None = None,
-    ):
+    ) -> Select[T]:
         if user_id is not None:
             stmt = stmt.where(ChatLogModel.user_id == user_id)
 

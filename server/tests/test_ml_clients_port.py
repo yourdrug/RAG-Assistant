@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
 from infrastructure.ml.clients.client_registry import MLClientRegistry
-from fakes import FakeMLClientRegistry
+from tests.fakes import FakeMLClientRegistry
 
 
 def test_registry_implements_ml_client_port() -> None:

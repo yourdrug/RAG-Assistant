@@ -94,7 +94,9 @@ def grid_engine(monkeypatch):
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )
     monkeypatch.setattr(engine, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
-    monkeypatch.setattr(engine, "score_config_cheap", lambda cfg, *a: {"composite_score": cfg["top_k"]})
+    monkeypatch.setattr(
+        engine, "score_config_cheap", lambda cfg, *a, **_kwargs: {"composite_score": cfg["top_k"]}
+    )
     return engine
 
 
@@ -102,7 +104,9 @@ def grid_engine(monkeypatch):
 async def test_grid_sweep_scores_sorts_and_reports_progress(grid_engine):
     progress = []
     sweep = BenchmarkSweep(search_space={"top_k": {"values": [2, 5]}}, top_n_llm=0)
-    results = await grid_engine.run_sweep(sweep, progress_callback=lambda *args: progress.append(args))
+    results = await grid_engine.run_sweep(
+        sweep, progress_callback=lambda *args, **_kwargs: progress.append(args)
+    )
     assert [r["config"]["top_k"] for r in results] == [5, 2]
     assert [(p[0], p[1]) for p in progress] == [(1, 2), (2, 2)]
 

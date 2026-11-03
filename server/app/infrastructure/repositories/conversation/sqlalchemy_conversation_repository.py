@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from sqlalchemy import JSON, Integer, case, func, literal, select, update
+
 from domain.chat.conversation import Conversation, ConversationListItem
 from domain.chat.message import MessageRole
-from sqlalchemy import Integer, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from infrastructure.database.models import ConversationModel, MessageModel
+
+
+if TYPE_CHECKING:
+    from sqlalchemy import ColumnElement
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyConversationRepository:
@@ -100,8 +106,6 @@ class SQLAlchemyConversationRepository:
         ``expected_summary``, preventing a lost update between the read (before
         the external LLM call) and this write. Returns True if applied.
         """
-        from sqlalchemy import ColumnElement, update
-
         expected_clause: ColumnElement[bool]
 
         if expected_summary is None:
@@ -130,8 +134,6 @@ class SQLAlchemyConversationRepository:
         ``document_id`` will not match — those summaries stay stale but
         are harmless (summary only affects condensation, not retrieval).
         """
-        from sqlalchemy import JSON, case, literal
-
         sources = case(
             (func.json_typeof(MessageModel.sources) == "array", MessageModel.sources),
             else_=literal([], type_=JSON),

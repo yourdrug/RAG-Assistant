@@ -1,21 +1,45 @@
 """ML snapshot switching at the real HTTP and resource ownership boundaries."""
 
+from __future__ import annotations
+
 import asyncio
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import MagicMock
 
 import httpx
+from langchain_core.documents import Document
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 import pytest
+from qdrant_client.models import Filter
 
-from config import Settings
-from application.runtime.config import ConfigParameter
-from domain.shared.exceptions import ValidationError
-from application.runtime.config import ConfigValueType
+from application.admin import ConfigService
+from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
 from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
+from config import Settings, settings
+from domain.rag.breadth import Breadth
+from domain.shared.exceptions import ValidationError
+from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import InProcessEventBus
+from infrastructure.health import system_health_probe
+from infrastructure.initialization import build_defaults, load_config_from_db
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
-from infrastructure.initialization import build_defaults
-from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
+from infrastructure.ml.rag import rag_retrieval
+from infrastructure.ml.rag.rag_prompts import condense_question
+from infrastructure.repositories.vector import qdrant_ops
+from tests.fakes import FakeUnitOfWorkFactory
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable, Coroutine
+
+    from qdrant_client.models import PointStruct
+
+    from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient
+    from tests.fakes import FakeUnitOfWork
 
 
 ENDPOINT_KEYS = (
@@ -33,14 +57,14 @@ POOL_KEYS = (
 )
 
 
-def row(key, value):
+def row(key: str, value: object) -> ConfigParameter:
     return ConfigParameter(
         key, str(value), ConfigValueType.INT if key in POOL_KEYS else ConfigValueType.STR, "ml"
     )
 
 
 @pytest.fixture
-def model():
+def model() -> Settings:
     return Settings(
         _env_file=None,
         tei_embed_url="http://tei-embed:8080",
@@ -55,16 +79,18 @@ def model():
 
 
 @pytest.mark.parametrize("key", ENDPOINT_KEYS + POOL_KEYS)
-def test_keys_have_working_dynamic_declarations(key):
+def test_keys_have_working_dynamic_declarations(key: str) -> None:
     assert key in DYNAMIC_FIELDS_MAP
 
 
 @pytest.mark.parametrize("prefix, connections, keepalive", [("embedding", 40, 20), ("rerank", 20, 10)])
-def test_factories_use_independent_effective_pool_limits(model, prefix, connections, keepalive, monkeypatch):
+def test_factories_use_independent_effective_pool_limits(
+    model: Settings, prefix: str, connections: int, keepalive: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
     captured = []
     real = httpx.AsyncClient
 
-    def client(**kwargs):
+    def client(**kwargs: Any) -> httpx.AsyncClient:
         captured.append(kwargs["limits"])
         return real(**kwargs)
 
@@ -87,7 +113,7 @@ def test_factories_use_independent_effective_pool_limits(model, prefix, connecti
         ("embedding_http_max_connections", 19),
     ],
 )
-def test_invalid_pool_snapshot_is_rejected_before_mutation(model, key, value):
+def test_invalid_pool_snapshot_is_rejected_before_mutation(model: Settings, key: str, value: int) -> None:
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
     with pytest.raises(ValidationError):
         config.apply([row(key, value)])
@@ -107,17 +133,21 @@ def test_invalid_pool_snapshot_is_rejected_before_mutation(model, key, value):
         ("ollama_base_url", "http://ollama:11434/?token=secret"),
     ],
 )
-def test_untrusted_origins_rejected_without_http_request(model, key, value):
+def test_untrusted_origins_rejected_without_http_request(model: Settings, key: str, value: str) -> None:
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
     with pytest.raises(ValidationError):
         config.validate_change(key, value)
 
 
-def wire_http(monkeypatch, handler):
+def wire_http(
+    monkeypatch: pytest.MonkeyPatch,
+    handler: Callable[[httpx.Request], httpx.Response]
+    | Callable[[httpx.Request], Coroutine[None, None, httpx.Response]],
+) -> list[httpx.AsyncClient]:
     real = httpx.AsyncClient
     pools = []
 
-    def create(**kwargs):
+    def create(**kwargs: Any) -> httpx.AsyncClient:
         result = real(**{**kwargs, "transport": httpx.MockTransport(handler)})
         pools.append(result)
         return result
@@ -126,7 +156,7 @@ def wire_http(monkeypatch, handler):
     return pools
 
 
-def successful_response(request):
+def successful_response(request: httpx.Request) -> httpx.Response:
     if request.url.path == "/info":
         return httpx.Response(
             200,
@@ -137,26 +167,35 @@ def successful_response(request):
                 "model_type": {"embedding": {"pooling": "cls"}},
             },
         )
+
     if request.url.path == "/embed":
         return httpx.Response(200, json=[[0.25] * 1024])
+
     if request.url.path == "/rerank":
         return httpx.Response(200, json=[{"index": 0, "score": 0.7}])
+
     return httpx.Response(200, json={})
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('fault', [None, 'wrong-model', 'wrong-dimension', 'offline'])
-async def test_cold_bootstrap_probes_default_encoder_before_readiness(model, monkeypatch, fault):
+@pytest.mark.parametrize("fault", [None, "wrong-model", "wrong-dimension", "offline"])
+async def test_cold_bootstrap_probes_default_encoder_before_readiness(
+    model: Settings, monkeypatch: pytest.MonkeyPatch, fault: str | None
+) -> None:
     requests = []
 
-    def handler(request):
+    def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request.url.path)
-        if fault == 'offline':
+
+        if fault == "offline":
             return httpx.Response(503)
-        if fault == 'wrong-model' and request.url.path == '/info':
-            return httpx.Response(200, json={'model_id': 'another-model'})
-        if fault == 'wrong-dimension' and request.url.path == '/embed':
+
+        if fault == "wrong-model" and request.url.path == "/info":
+            return httpx.Response(200, json={"model_id": "another-model"})
+
+        if fault == "wrong-dimension" and request.url.path == "/embed":
             return httpx.Response(200, json=[[0.1]])
+
         return successful_response(request)
 
     wire_http(monkeypatch, handler)
@@ -170,47 +209,50 @@ async def test_cold_bootstrap_probes_default_encoder_before_readiness(model, mon
                 await config.apply_async(build_defaults(), require_complete=True)
             assert not config.status().ready
             assert config.status().applied_version is None
-            assert registry._embeddings is None
+            assert registry.cached_embeddings is None
         else:
             await config.apply_async(build_defaults(), require_complete=True)
             assert config.status().ready
-            assert '/info' in requests and '/embed' in requests
-            assert await registry.embeddings().embed_query('query') == [0.25] * 1024
+            assert "/info" in requests
+            assert "/embed" in requests
+            assert await registry.embeddings().embed_query("query") == [0.25] * 1024
     finally:
         await registry.close()
 
 
 @pytest.mark.asyncio
-async def test_switch_keeps_active_request_then_closes_old_pool(model, monkeypatch):
+async def test_switch_keeps_active_request_then_closes_old_pool(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
     started, release = asyncio.Event(), asyncio.Event()
     hosts = []
 
-    async def handler(request):
+    async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/embed" and request.url.host == "tei-embed":
             started.set()
             await release.wait()
+
         hosts.append(request.url.host)
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
     monkeypatch.setattr(factories, "settings", model)
-    registry = MLClientRegistry()
-    config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+    registry, config = configured_registry(model)
     old = registry.embeddings()
     call = asyncio.create_task(old.embed_query("old call"))
     await started.wait()
     try:
         await config.apply_async([row("tei_embed_url", "http://replacement:8080")])
         assert registry.embeddings() is not old
-        assert not pools[0].is_closed
+        assert not any(pool.is_closed for pool in pools[:1])
         assert await registry.embeddings().embed_query("new call") == [0.25] * 1024
         release.set()
         assert await call == [0.25] * 1024
-        await old.close()
+        await cast("TEIEmbeddingsClient", old).close()
         assert pools[0].is_closed
         assert hosts[-1] == "tei-embed"
         await asyncio.sleep(0)
-        assert old not in registry._retired_clients
+        assert all(client is not old for client in registry._retired_clients)
     finally:
         release.set()
         await call
@@ -221,31 +263,35 @@ async def test_switch_keeps_active_request_then_closes_old_pool(model, monkeypat
 @pytest.mark.parametrize(
     "failure", ["offline", "wrong-model", "wrong-revision", "wrong-dimension", "redirect"]
 )
-async def test_failed_preparation_retains_applied_resource(model, monkeypatch, failure):
-    def handler(request):
+async def test_failed_preparation_retains_applied_resource(
+    model: Settings, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "replacement":
-            if failure == "offline":
-                return httpx.Response(503)
-            if failure == "redirect":
-                return httpx.Response(302, headers={"Location": "http://evil.example"})
+            if failure in {"offline", "redirect"}:
+                return httpx.Response(
+                    503 if failure == "offline" else 302, headers={"Location": "http://evil.example"}
+                )
+
             if request.url.path == "/info" and failure in {"wrong-model", "wrong-revision"}:
                 data = successful_response(request).json()
                 data["model_id" if failure == "wrong-model" else "model_sha"] = "wrong"
                 return httpx.Response(200, json=data)
+
             if request.url.path == "/embed" and failure == "wrong-dimension":
                 return httpx.Response(200, json=[[0.1]])
+
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
     monkeypatch.setattr(factories, "settings", model)
-    registry = MLClientRegistry()
-    config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+    registry, config = configured_registry(model)
     old = registry.embeddings()
     try:
         with pytest.raises((ValidationError, httpx.HTTPError)):
             await config.apply_async([row("tei_embed_url", "http://replacement:8080")])
         assert registry.embeddings() is old
-        assert not pools[0].is_closed
+        assert not any(pool.is_closed for pool in pools[:1])
         assert model.tei_embed_url == "http://tei-embed:8080"
         assert not config.status().ready
         assert all(pool.is_closed for pool in pools[1:])
@@ -254,11 +300,12 @@ async def test_failed_preparation_retains_applied_resource(model, monkeypatch, f
 
 
 @pytest.mark.asyncio
-async def test_repeated_pool_changes_close_retired_connections(model, monkeypatch):
+async def test_repeated_pool_changes_close_retired_connections(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pools = wire_http(monkeypatch, successful_response)
     monkeypatch.setattr(factories, "settings", model)
-    registry = MLClientRegistry()
-    config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+    registry, config = configured_registry(model)
     registry.embeddings()
     try:
         for limit in (41, 42, 43):
@@ -272,8 +319,9 @@ async def test_repeated_pool_changes_close_retired_connections(model, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_failed_reaction_keeps_clients_and_settings(model, monkeypatch):
-    from application.runtime.config import ConfigParameterChanged
+async def test_failed_reaction_keeps_clients_and_settings(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     pools = wire_http(monkeypatch, successful_response)
     monkeypatch.setattr(factories, "settings", model)
@@ -282,8 +330,9 @@ async def test_failed_reaction_keeps_clients_and_settings(model, monkeypatch):
     config = SettingsProviderConfiguration(model, bus=bus, ml_clients=registry)
     old = registry.reranker()
 
-    def fail(event):
-        raise RuntimeError("reaction failure")
+    def fail(event: object) -> None:
+        message = "reaction failure"
+        raise RuntimeError(message)
 
     bus.subscribe(ConfigParameterChanged, fail)
     try:
@@ -291,27 +340,26 @@ async def test_failed_reaction_keeps_clients_and_settings(model, monkeypatch):
             await config.apply_async([row("rerank_http_max_connections", 30)])
         assert model.rerank_http_max_connections == 20
         assert registry.reranker() is old
-        assert not pools[0].is_closed
+        assert not any(pool.is_closed for pool in pools[:1])
         assert all(pool.is_closed for pool in pools[1:])
     finally:
         await registry.close()
 
 
 @pytest.mark.asyncio
-async def test_stale_probe_cannot_publish_over_newer_database_snapshot(model, monkeypatch):
-    from fakes import FakeUnitOfWorkFactory
-    from infrastructure.initialization import load_config_from_db
+async def test_stale_probe_cannot_publish_over_newer_database_snapshot(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     factory = FakeUnitOfWorkFactory()
     await factory._uow.config_parameters.save(row("tei_rerank_url", "http://replacement:8080"))
 
-    async def handler(request):
+    async def handler(request: httpx.Request) -> httpx.Response:
         await factory._uow.config_parameters.update_value("tei_rerank_url", "http://tei-rerank:8080")
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
-    registry = MLClientRegistry()
-    config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+    registry, config = configured_registry(model)
     try:
         with pytest.raises(ValidationError, match="changed during"):
             await load_config_from_db(factory, config, require_complete=False)
@@ -322,19 +370,22 @@ async def test_stale_probe_cannot_publish_over_newer_database_snapshot(model, mo
 
 
 @pytest.mark.asyncio
-async def test_unproven_local_tei_weights_cannot_be_switched(model, monkeypatch):
-    def handler(request):
+async def test_unproven_local_tei_weights_cannot_be_switched(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
         response = successful_response(request)
+
         if request.url.path == "/info":
             data = response.json()
             data["model_sha"] = None
             return httpx.Response(200, json=data)
+
         return response
 
     wire_http(monkeypatch, handler)
     monkeypatch.setattr(factories, "settings", model)
-    registry = MLClientRegistry()
-    config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+    registry, config = configured_registry(model)
     registry.embeddings()
     try:
         with pytest.raises(ValidationError, match="revision"):
@@ -345,13 +396,12 @@ async def test_unproven_local_tei_weights_cannot_be_switched(model, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_admin_endpoint_failure_never_commits_invalid_setting(model, monkeypatch):
-    from application.admin import ConfigService
-    from fakes import FakeUnitOfWorkFactory
+async def test_admin_endpoint_failure_never_commits_invalid_setting(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
-    pools = wire_http(monkeypatch, lambda request: httpx.Response(503))
-    registry = MLClientRegistry()
-    config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+    pools = wire_http(monkeypatch, lambda _request: httpx.Response(503))
+    registry, config = configured_registry(model)
     factory = FakeUnitOfWorkFactory()
     await factory._uow.config_parameters.save(row("tei_rerank_url", model.tei_rerank_url))
     service = ConfigService(factory, config.bus, config)
@@ -359,6 +409,7 @@ async def test_admin_endpoint_failure_never_commits_invalid_setting(model, monke
         with pytest.raises((ValidationError, httpx.HTTPError)):
             await service.update_parameter("tei_rerank_url", "http://replacement:8080")
         saved = await factory._uow.config_parameters.get_by_key_and_domain("tei_rerank_url", None)
+        assert saved is not None
         assert saved.value == "http://tei-rerank:8080"
         assert all(pool.is_closed for pool in pools)
     finally:
@@ -366,10 +417,9 @@ async def test_admin_endpoint_failure_never_commits_invalid_setting(model, monke
 
 
 @pytest.mark.asyncio
-async def test_admin_probe_has_no_open_transaction_and_detects_concurrent_change(model, monkeypatch):
-    from contextlib import asynccontextmanager
-    from application.admin import ConfigService
-    from fakes import FakeUnitOfWorkFactory
+async def test_admin_probe_has_no_open_transaction_and_detects_concurrent_change(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     factory = FakeUnitOfWorkFactory()
     await factory._uow.config_parameters.save(row("tei_rerank_url", model.tei_rerank_url))
@@ -378,7 +428,7 @@ async def test_admin_probe_has_no_open_transaction_and_detects_concurrent_change
     original = factory.create
 
     @asynccontextmanager
-    async def transaction(master=False):
+    async def transaction(master: bool = False) -> AsyncIterator[FakeUnitOfWork]:
         nonlocal transactions
         transactions += 1
         try:
@@ -389,20 +439,20 @@ async def test_admin_probe_has_no_open_transaction_and_detects_concurrent_change
 
     monkeypatch.setattr(factory, "create", transaction)
 
-    async def handler(request):
+    async def handler(request: httpx.Request) -> httpx.Response:
         assert transactions == 0
         await factory._uow.config_parameters.update_value("rerank_http_max_connections", "30")
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
-    registry = MLClientRegistry()
-    config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+    registry, config = configured_registry(model)
     try:
         with pytest.raises(ValidationError, match="changed during"):
             await ConfigService(factory, config.bus, config).update_parameter(
                 "tei_rerank_url", "http://replacement:8080"
             )
         saved = await factory._uow.config_parameters.get_by_key_and_domain("tei_rerank_url", None)
+        assert saved is not None
         assert saved.value == "http://tei-rerank:8080"
         assert all(pool.is_closed for pool in pools)
     finally:
@@ -410,19 +460,17 @@ async def test_admin_probe_has_no_open_transaction_and_detects_concurrent_change
 
 
 @pytest.mark.asyncio
-async def test_health_probe_reads_applied_endpoint(model, monkeypatch):
-    from infrastructure.health import system_health_probe
+async def test_health_probe_reads_applied_endpoint(model: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
 
     hosts = []
 
-    def handler(request):
+    def handler(request: httpx.Request) -> httpx.Response:
         hosts.append(request.url.host)
         return successful_response(request)
 
     wire_http(monkeypatch, handler)
     monkeypatch.setattr(system_health_probe, "settings", model)
-    registry = MLClientRegistry()
-    config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+    registry, config = configured_registry(model)
     try:
         await config.apply_async([row("tei_rerank_url", "http://replacement:8080")])
         hosts.clear()
@@ -434,116 +482,77 @@ async def test_health_probe_reads_applied_endpoint(model, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cached_llm_family_changes_together_and_active_stream_survives(model, monkeypatch):
-    from domain.rag.breadth import Breadth
+async def test_cached_llm_family_changes_together_and_active_stream_survives(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     model.ollama_base_url = "http://old:11434"
     model.ml_internal_allowed_origins += ["http://old:11434", "http://new:11434"]
     wire_http(monkeypatch, successful_response)
     monkeypatch.setattr(factories, "settings", model)
-    started, finish = asyncio.Event(), asyncio.Event()
-    created = []
-
-    class LLM:
-        def __init__(self, endpoint):
-            self.endpoint = endpoint
-            self.root_async_client = httpx.AsyncClient()
-            self.root_client = None
-            created.append(self)
-
-        async def ainvoke(self, *args, **kwargs):
-            return self.endpoint
-
-        async def astream(self, *args, **kwargs):
-            started.set()
-            yield self.endpoint
-            await finish.wait()
-            yield self.endpoint
-
-    def llm(*args, model=None, **kwargs):
-        return LLM((model or factories.settings).ollama_base_url)
-
-    monkeypatch.setattr(factories, "create_llm", llm)
-    monkeypatch.setattr(factories, "create_fast_llm_for_auxiliary", llm)
-    monkeypatch.setattr(factories, "create_llm_for_breadth", llm)
-    registry = MLClientRegistry()
+    registry, started, finish = llm_family(model, monkeypatch)
     old = registry.llm()
-    registry.fast_llm()
-    registry.llm_for_breadth(Breadth.BROAD.value)
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
     parts = []
 
-    async def consume():
-        async for part in old.astream("question"):
-            parts.append(part)
+    async def consume() -> None:
+        parts.extend([part.content async for part in old.astream("question")])
 
     stream = asyncio.create_task(consume())
     await started.wait()
     try:
         await config.apply_async([row("ollama_base_url", "http://new:11434")])
-        assert await registry.llm().ainvoke("new") == "http://new:11434"
-        assert await registry.fast_llm().ainvoke("new") == "http://new:11434"
-        assert await registry.llm_for_breadth(Breadth.BROAD.value).ainvoke("new") == "http://new:11434"
-        assert not old.client.root_async_client.is_closed
+        assert (await registry.llm().ainvoke("new")).content == "http://new:11434"
+        assert (await registry.fast_llm().ainvoke("new")).content == "http://new:11434"
+        assert (
+            await registry.llm_for_breadth(Breadth.BROAD.value).ainvoke("new")
+        ).content == "http://new:11434"
+        assert not cast("httpx.AsyncClient", cast("SimpleNamespace", old.client).root_async_client).is_closed
         finish.set()
         await stream
         await old.close()
         assert parts == ["http://old:11434", "http://old:11434"]
-        assert old.client.root_async_client.is_closed
+        assert cast("httpx.AsyncClient", cast("SimpleNamespace", old.client).root_async_client).is_closed
     finally:
         finish.set()
         await stream
         await registry.close()
 
 
-
-
 @pytest.mark.asyncio
-async def test_upload_finishes_all_embedding_batches_on_original_snapshot(model, monkeypatch):
-    from config import settings
-    from langchain_core.documents import Document
-    from infrastructure.repositories.vector import qdrant_ops
+async def test_upload_finishes_all_embedding_batches_on_original_snapshot(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     started, finish = asyncio.Event(), asyncio.Event()
     hosts = []
 
-    async def handler(request):
+    async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/embed":
             hosts.append(request.url.host)
+
             if len(hosts) == 1:
                 started.set()
                 await finish.wait()
+
         return successful_response(request)
 
-    class Qdrant:
-        def upsert(self, collection_name, points):
-            for point in points:
-                persisted.append(point)
-
-    persisted = []
     pools = wire_http(monkeypatch, handler)
     monkeypatch.setattr(factories, "settings", model)
     monkeypatch.setattr(settings, "embed_batch_size", 1)
-    monkeypatch.setattr(qdrant_ops, "ensure_embedding_identity", lambda *args: "tei:BAAI/bge-m3:v1")
-    registry = MLClientRegistry()
-    config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+    monkeypatch.setattr(qdrant_ops, "ensure_embedding_identity", lambda *_args: "tei:BAAI/bge-m3:v1")
+    registry, config = configured_registry(model)
     old = registry.embeddings()
-    upload = asyncio.create_task(
-        qdrant_ops.upload_to_qdrant(
-            [Document(page_content=f"chunk {i}", metadata={"chunk_id": i}) for i in range(3)],
-            old,
-            client=Qdrant(),
-        )
-    )
+    upload, persisted = start_upload(cast("TEIEmbeddingsClient", old))
     await started.wait()
     try:
         await config.apply_async([row("embedding_http_max_connections", 45)])
-        assert not pools[0].is_closed
+        assert not any(pool.is_closed for pool in pools[:1])
         finish.set()
         await upload
         assert len(persisted) == 3
         assert hosts == ["tei-embed"] * 3
-        await old.close()
+        await cast("TEIEmbeddingsClient", old).close()
         assert pools[0].is_closed
     finally:
         finish.set()
@@ -552,32 +561,31 @@ async def test_upload_finishes_all_embedding_batches_on_original_snapshot(model,
 
 
 @pytest.mark.asyncio
-async def test_queued_retrieval_acquires_current_embedding_client_after_admission(model, monkeypatch):
-    from types import SimpleNamespace
-    from qdrant_client.models import Filter
-    from infrastructure.ml.rag import rag_retrieval
+async def test_queued_retrieval_acquires_current_embedding_client_after_admission(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     queued, release = asyncio.Event(), asyncio.Event()
     requests = []
 
     class Admission:
-        async def __aenter__(self):
+        async def __aenter__(self) -> None:
             queued.set()
             await release.wait()
 
-        async def __aexit__(self, *args):
+        async def __aexit__(self, *args: object) -> None:
             pass
 
-    def handler(request):
+    def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
     monkeypatch.setattr(factories, "settings", model)
-    monkeypatch.setattr(rag_retrieval, "ensure_embedding_identity", lambda *args: None)
+    monkeypatch.setattr(rag_retrieval, "ensure_embedding_identity", lambda *_args: None)
     registry = MLClientRegistry()
-    registry.corpus_resources.client = SimpleNamespace(search=lambda **kwargs: [])
-    registry.embedding_semaphore = Admission()
+    monkeypatch.setattr(registry.corpus_resources, "client", SimpleNamespace(search=lambda **_kwargs: []))
+    monkeypatch.setattr(registry, "embedding_semaphore", Admission())
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
     search = asyncio.create_task(rag_retrieval.qdrant_dense_search("query", 1, Filter(), registry))
     await queued.wait()
@@ -595,33 +603,32 @@ async def test_queued_retrieval_acquires_current_embedding_client_after_admissio
 
 
 @pytest.mark.asyncio
-async def test_auxiliary_call_waiting_for_semaphore_keeps_its_original_client(model, monkeypatch):
-    from types import SimpleNamespace
-    from langchain_core.messages import AIMessage, HumanMessage
-    from infrastructure.ml.rag.rag_prompts import condense_question
+async def test_auxiliary_call_waiting_for_semaphore_keeps_its_original_client(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     queued, release = asyncio.Event(), asyncio.Event()
 
     class Admission:
-        async def __aenter__(self):
+        async def __aenter__(self) -> None:
             queued.set()
             await release.wait()
 
-        async def __aexit__(self, *args):
+        async def __aexit__(self, *args: object) -> None:
             pass
 
     wire_http(monkeypatch, successful_response)
     monkeypatch.setattr(factories, "settings", model)
 
-    def create(model=None, *, runtime=None):
-        async def invoke(*args, **kwargs):
+    def create(model: Settings | None = None, *, runtime: object = None) -> SimpleNamespace:
+        async def invoke(*args: object, **kwargs: Any) -> AIMessage:
             return AIMessage(content="expanded question")
 
         return SimpleNamespace(ainvoke=invoke, root_async_client=httpx.AsyncClient(), root_client=None)
 
     monkeypatch.setattr(factories, "create_fast_llm_for_auxiliary", create)
     registry = MLClientRegistry()
-    registry.auxiliary_semaphore = Admission()
+    monkeypatch.setattr(registry, "auxiliary_semaphore", Admission())
     old = registry.fast_llm()
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
     call = asyncio.create_task(
@@ -630,23 +637,19 @@ async def test_auxiliary_call_waiting_for_semaphore_keeps_its_original_client(mo
     await queued.wait()
     try:
         await config.apply_async([ConfigParameter("llm_temperature", "0.2", ConfigValueType.FLOAT, "llm")])
-        assert not old.client.root_async_client.is_closed
+        assert not cast("httpx.AsyncClient", cast("SimpleNamespace", old.client).root_async_client).is_closed
         release.set()
         assert await call == "expanded question"
         await old.close()
-        assert old.client.root_async_client.is_closed
+        assert cast("httpx.AsyncClient", cast("SimpleNamespace", old.client).root_async_client).is_closed
     finally:
         release.set()
         await asyncio.gather(call, return_exceptions=True)
         await registry.close()
 
 
-
-
 @pytest.mark.asyncio
-async def test_promoted_migration_rows_show_current_metadata_and_preserve_database_value():
-    from application.admin import ConfigService
-    from fakes import FakeUnitOfWorkFactory
+async def test_promoted_migration_rows_show_current_metadata_and_preserve_database_value() -> None:
 
     factory = FakeUnitOfWorkFactory()
     saved = ConfigParameter(
@@ -664,10 +667,12 @@ async def test_promoted_migration_rows_show_current_metadata_and_preserve_databa
     assert listed[0].value == saved.value == "26"
 
 
-def test_factory_captures_one_snapshot_even_if_settings_change_during_construction(model, monkeypatch):
+def test_factory_captures_one_snapshot_even_if_settings_change_during_construction(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
     real_limits = httpx.Limits
 
-    def limits(**kwargs):
+    def limits(**kwargs: Any) -> httpx.Limits:
         model.tei_embed_url = "http://replacement:8080"
         model.tei_embed_model = "different-model"
         return real_limits(**kwargs)
@@ -679,3 +684,62 @@ def test_factory_captures_one_snapshot_even_if_settings_change_during_constructi
         assert client.embedding_identity == "tei:BAAI/bge-m3:v1"
     finally:
         asyncio.run(client.close())
+
+
+def configured_registry(model: Settings) -> tuple[MLClientRegistry, SettingsProviderConfiguration]:
+    registry = MLClientRegistry()
+    return registry, SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
+
+
+def llm_family(
+    model: Settings, monkeypatch: pytest.MonkeyPatch
+) -> tuple[MLClientRegistry, asyncio.Event, asyncio.Event]:
+    started, finish = asyncio.Event(), asyncio.Event()
+    created = []
+
+    class LLM:
+        def __init__(self, endpoint: str) -> None:
+            self.endpoint = endpoint
+            self.root_async_client = httpx.AsyncClient()
+            self.root_client = None
+            created.append(self)
+
+        async def ainvoke(self, *_args: object, **_kwargs: Any) -> AIMessage:
+            return AIMessage(content=self.endpoint)
+
+        async def astream(self, *_args: object, **_kwargs: Any) -> AsyncIterator[AIMessageChunk]:
+            started.set()
+            yield AIMessageChunk(content=self.endpoint)
+            await finish.wait()
+            yield AIMessageChunk(content=self.endpoint)
+
+    initial_settings = model
+
+    def llm(*_args: object, model: Settings | None = None, **_kwargs: Any) -> LLM:
+        return LLM((model or initial_settings).ollama_base_url)
+
+    monkeypatch.setattr(factories, "create_llm", llm)
+    monkeypatch.setattr(factories, "create_fast_llm_for_auxiliary", llm)
+    monkeypatch.setattr(factories, "create_llm_for_breadth", llm)
+    registry = MLClientRegistry()
+    registry.llm()
+    registry.fast_llm()
+    registry.llm_for_breadth(Breadth.BROAD.value)
+    return registry, started, finish
+
+
+def start_upload(old: TEIEmbeddingsClient) -> tuple[asyncio.Task[None], list[PointStruct]]:
+    class Qdrant:
+        def upsert(self, collection_name: str, points: list[PointStruct]) -> None:
+            assert collection_name
+            persisted.extend(points)
+
+    persisted: list[PointStruct] = []
+    upload = asyncio.create_task(
+        qdrant_ops.upload_to_qdrant(
+            [Document(page_content=f"chunk {i}", metadata={"chunk_id": i}) for i in range(3)],
+            old,
+            client=MagicMock(wraps=Qdrant()),
+        )
+    )
+    return upload, persisted

@@ -1,12 +1,15 @@
 """Local OCR contract, scan routing, preview parity and bounded table retries."""
 
-from collections.abc import Callable
+from __future__ import annotations
+
 import io
 from pathlib import Path
 import sys
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
-import fitz  # type: ignore[import-untyped]  # PyMuPDF does not ship typing metadata.
+from fastapi import HTTPException
+import fitz
 import httpx
 import numpy as np
 from PIL import Image
@@ -25,8 +28,12 @@ from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "services" / "ocr_vl"))
 # The standalone service is loaded from the runtime path above, outside the server package.
-import service as vl_service  # type: ignore[import-not-found]
-from tables import UNREADABLE, table_markdown  # type: ignore[import-not-found]
+import service as vl_service
+from tables import UNREADABLE, table_markdown
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 TABLE = (
@@ -47,7 +54,7 @@ def scan_pdf(path: Path) -> Path:
     image = Image.new("RGB", (100, 140), "white")
     data = io.BytesIO()
     image.save(data, "PNG")
-    with fitz.open() as document:
+    with fitz.Document() as document:
         page = document.new_page()
         page.insert_image(page.rect, stream=data.getvalue())
         # A substantial existing text layer must not mask an unread table.
@@ -192,7 +199,7 @@ def test_html_table_merged_cells_keep_column_alignment() -> None:
 @pytest.mark.asyncio
 async def test_service_rejects_non_image_and_reports_model_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     vl_service.app.state.pipeline = Mock()
-    transport = httpx.ASGITransport(app=vl_service.app)
+    transport = httpx.ASGITransport(app=cast("_ASGIApp", vl_service.app))
 
     async def run_inline(function: Callable[..., object], *args: object) -> object:
         return function(*args)
@@ -249,7 +256,7 @@ def test_service_releases_lock_on_error_and_rejects_concurrent_inference(
         vl_service.recognize(Mock(), image)
     assert vl_service.inference_lock.acquire(blocking=False)
     try:
-        with pytest.raises(vl_service.HTTPException) as error:
+        with pytest.raises(HTTPException) as error:
             vl_service.recognize(Mock(), image)
         assert error.value.status_code == 503
     finally:
@@ -290,3 +297,7 @@ def test_docx_uses_selected_local_engine(
         assert result[0].full_text == TABLE
 
     runner.assert_called_once()
+
+
+if TYPE_CHECKING:
+    from httpx._transports.asgi import _ASGIApp

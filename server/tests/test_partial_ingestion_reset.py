@@ -23,8 +23,8 @@ from domain.knowledge.chunk import Chunk
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility, SourceType
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
-from fakes import FakeUnitOfWorkFactory  # type: ignore[import-not-found]
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 @pytest.fixture

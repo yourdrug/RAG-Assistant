@@ -6,21 +6,23 @@ auto-retried LLM calls.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
-
 
 import logging
+from typing import TYPE_CHECKING
 
-import instructor
 import httpx
-from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTransport
+import instructor
 from openai import AsyncOpenAI, OpenAI
 
-from config import settings
 from application.runtime.enums import LLMProvider
+from config import settings
+from infrastructure.budget.transport import PaidAsyncTransport, PaidSyncTransport
 from infrastructure.ml.usage_capture import record_model_response
 
+
 if TYPE_CHECKING:
+    from instructor import AsyncInstructor, Instructor
+
     from infrastructure.budget.runtime import BudgetRuntime
 
 log = logging.getLogger("default")
@@ -28,13 +30,14 @@ log = logging.getLogger("default")
 
 def create_instructor_client(
     base_url: str, api_key: str = "ollama", model: str = "", *, runtime: BudgetRuntime | None = None
-):
+) -> Instructor:
     """Create a sync instructor-wrapped OpenAI client.
 
     Works with both Ollama (http://localhost:11434/v1) and OpenRouter.
     The returned client supports ``client.chat.completions.create()``
     with ``response_model=<Pydantic model>`` for structured output.
     """
+    del model
     raw_client = OpenAI(
         max_retries=0,
         base_url=base_url,
@@ -47,17 +50,18 @@ def create_instructor_client(
     client = instructor.from_openai(
         raw_client, mode=instructor.Mode.JSON if "openrouter.ai" in base_url else instructor.Mode.TOOLS
     )
-    client.on('completion:response', record_model_response)
+    client.on("completion:response", record_model_response)
     return client
 
 
 def create_async_instructor_client(
     base_url: str, api_key: str = "ollama", model: str = "", *, runtime: BudgetRuntime | None = None
-):
+) -> AsyncInstructor:
     """Create an async instructor-wrapped OpenAI client.
 
     Cached in MLClientRegistry to avoid creating new TCP connections per call.
     """
+    del model
     raw_client = AsyncOpenAI(
         max_retries=0,
         base_url=base_url,
@@ -70,11 +74,13 @@ def create_async_instructor_client(
     client = instructor.from_openai(
         raw_client, mode=instructor.Mode.JSON if "openrouter.ai" in base_url else instructor.Mode.TOOLS
     )
-    client.on('completion:response', record_model_response)
+    client.on("completion:response", record_model_response)
     return client
 
 
-def create_llm_instructor_client(model: str | None = None, *, runtime: BudgetRuntime | None = None):
+def create_llm_instructor_client(
+    model: str | None = None, *, runtime: BudgetRuntime | None = None
+) -> tuple[Instructor, str]:
     """Create a sync instructor client configured for the active LLM provider.
 
     Returns (client, model_name). If *model* is given it is used as-is;

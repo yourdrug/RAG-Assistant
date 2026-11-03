@@ -36,6 +36,7 @@ def test_online_migrations_use_transactional_manager_connection(monkeypatch: pyt
     migration_context(monkeypatch, offline=False)
     database = MagicMock()
     connection = AsyncMock()
+    connection.execution_options.return_value = connection
     database.async_master_connection.return_value.__aenter__.return_value = connection
     monkeypatch.setattr(
         import_module("infrastructure.database.database"), "DatabaseManager", lambda: database

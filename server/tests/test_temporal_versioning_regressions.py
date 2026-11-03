@@ -1,6 +1,6 @@
 """Date/versioning regressions through the real services and local Qdrant engine."""
 
-from rag_stage_fixtures import check_cache
+from tests.rag_stage_fixtures import check_cache
 
 from datetime import date
 from types import SimpleNamespace
@@ -26,14 +26,14 @@ from domain.knowledge.enums import DocumentVisibility
 from domain.knowledge.chunk import ChunkRecord
 from domain.shared.exceptions import ValidationError
 from application.rag.stream_events import MetaEvent
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 from infrastructure.ml.rag.rag_postprocess import resolve_temporal_conflicts
 from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.repositories.vector.acl import with_temporal_filter
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from presentation.api.routes.chat import _format_sse_event
 from presentation.api.schemas.chat import ChatRequest
-from test_chunk_search_acl import _capture, _eval, _where
+from tests.test_chunk_search_acl import capture, eval_tree, where_tree
 
 
 class Settings:
@@ -314,8 +314,8 @@ async def test_delayed_outbox_metadata_uses_latest_state_and_invalidates_cache()
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["exact", "icontains"])
 async def test_sql_search_enforces_dates_without_weakening_acl(mode):
-    stmt = await _capture("rules", {"id": 1, "kind": "internal"}, [], mode, None, as_of_date=date(2024, 1, 1))
-    tree = _where(stmt)
+    stmt = await capture("rules", {"id": 1, "kind": "internal"}, [], mode, None, as_of_date=date(2024, 1, 1))
+    tree = where_tree(stmt)
     row = {
         "content": " rules ",
         "visibility": "internal_public",
@@ -323,11 +323,11 @@ async def test_sql_search_enforces_dates_without_weakening_acl(mode):
         "effective_from": date(2020, 1, 1),
         "effective_to": date(2024, 1, 1),
     }
-    assert not _eval(tree, row, "rules")
+    assert not eval_tree(tree, row, "rules")
     row.update(effective_from=date(2024, 1, 1), effective_to=None)
-    assert _eval(tree, row, "rules")
+    assert eval_tree(tree, row, "rules")
     row.update(visibility="internal_private", owner_id=9)
-    assert not _eval(tree, row, "rules")
+    assert not eval_tree(tree, row, "rules")
     sql = str(stmt.compile())
     assert "LEFT OUTER JOIN act_versions" in sql
     assert "act_versions.act_id" in sql
@@ -359,7 +359,7 @@ async def test_exact_candidates_include_temporal_metadata_and_request_date():
 async def test_cache_key_changes_each_day_for_current_state_but_not_for_explicit_date(monkeypatch):
     from infrastructure.ml.rag import rag_steps
     from dataclasses import replace
-    from test_rag_pipeline import _make_rag
+    from tests.test_rag_pipeline import make_rag
 
     class Clock(date):
         current = date(2024, 1, 1)
@@ -368,7 +368,7 @@ async def test_cache_key_changes_each_day_for_current_state_but_not_for_explicit
         def today(cls):
             return cls.current
 
-    monkeypatch.setattr("infrastructure.ml.cache.keys.date", Clock)
+    monkeypatch.setattr("infrastructure.ml.cache.keys.cache_today", Clock.today)
     monkeypatch.setattr(rag_steps, "check_cache", AsyncMock(return_value=None))
     monkeypatch.setattr(rag_steps, "get_corpus_revision", AsyncMock(return_value="0"))
     ctx = SimpleNamespace(
@@ -381,7 +381,7 @@ async def test_cache_key_changes_each_day_for_current_state_but_not_for_explicit
         depth=None,
         summary=None,
     )
-    rag = _make_rag()
+    rag = make_rag()
     rag = replace(rag, features=replace(rag.features, cache_enabled=True))
     state = SimpleNamespace(ctx=ctx, query_for_search="rules", question="rules", history_messages=[], rag=rag)
     await check_cache(state)

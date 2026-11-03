@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 import logging
+from typing import TYPE_CHECKING
 
 from langchain_core.documents import Document
 
@@ -15,6 +15,7 @@ from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 
 
 if TYPE_CHECKING:
+    from domain.knowledge.chunk import ChunkRecord
     from domain.rag.context import RagContext
     from domain.rag.ports import ChunkRetrievalRepository
 
@@ -58,20 +59,41 @@ async def augment_field_candidates(
                 log.warning("Field lookup failed for document_id=%s", document_id, exc_info=True)
                 continue
 
-            for match in matches:
-                if match.document_id != document_id or match.content_type != PageContentType.TABLE.value:
-                    continue
-
-                if not (
-                    matching_field_rows(match.content, number, name)
-                    and table_message_matches(question, match.content)
-                ):
-                    continue
-
-                identity = content_hash(match.content)
-
-                if identity not in seen:
-                    result.append(Document(page_content=match.content, metadata=chunk_result_metadata(match)))
-                    seen.add(identity)
+            append_matching_fields(
+                matches,
+                document_id=document_id,
+                number=number,
+                name=name,
+                question=question,
+                seen=seen,
+                result=result,
+            )
 
     return result
+
+
+def append_matching_fields(
+    matches: list[ChunkRecord],
+    *,
+    document_id: int,
+    number: str,
+    name: str,
+    question: str,
+    seen: set[str],
+    result: list[Document],
+) -> None:
+    for match in matches:
+        if match.document_id != document_id or match.content_type != PageContentType.TABLE.value:
+            continue
+
+        if not (
+            matching_field_rows(match.content, number, name)
+            and table_message_matches(question, match.content)
+        ):
+            continue
+
+        identity = content_hash(match.content)
+
+        if identity not in seen:
+            result.append(Document(page_content=match.content, metadata=chunk_result_metadata(match)))
+            seen.add(identity)

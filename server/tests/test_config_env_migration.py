@@ -18,7 +18,7 @@ from application.runtime.config import ConfigValueType
 from domain.knowledge.enums import DocDomain
 from application.runtime.setting_keys import TARGET_DYNAMIC_SETTING_KEYS
 from infrastructure.config_migration import LEGACY_POOL_SETTING_KEYS
-from fakes import FakeConfigParameterRepository
+from tests.fakes import FakeConfigParameterRepository
 from infrastructure import config_migration
 from presentation.cli.commands import config as config_command
 

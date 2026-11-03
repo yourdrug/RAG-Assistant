@@ -1,61 +1,41 @@
 """Streaming content, bounded buffers and cancellation cleanup."""
 
+from __future__ import annotations
+
 import asyncio
-import threading
 from pathlib import Path
+import tempfile
+import threading
+from typing import Any
 
 import pytest
 
-from test_s3_storage_async import client_harness
-from infrastructure.storage import file_storage
 from infrastructure.bm25 import persistence
 from infrastructure.bm25.snapshots import LocalBM25Snapshots
+from infrastructure.storage import file_storage
+from tests.s3_fakes import Body
+from tests.test_s3_storage_async import client_harness
 
 
-class Body:
-    def __init__(self, blocks, error=None):
-        self.blocks = iter(blocks)
-        self.error = error
-        self.closed = False
-        self.read_sizes = []
-        self.started = asyncio.Event()
-        self.release = None
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *args):
-        self.closed = True
-
-    async def read(self, size):
-        self.read_sizes.append(size)
-        self.started.set()
-        if self.release is not None:
-            await self.release.wait()
-        block = next(self.blocks, None)
-        if block is not None:
-            return block
-        if self.error:
-            raise self.error
-        return b""
-
-
-def track_temp(monkeypatch, tmp_path):
-    original = file_storage.tempfile.NamedTemporaryFile
+def track_temp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[Path]:
+    original = tempfile.NamedTemporaryFile
     paths = []
 
-    def create(**kwargs):
-        result = original(dir=tmp_path, **kwargs)
+    def create(**kwargs: Any) -> tempfile._TemporaryFileWrapper[bytes]:
+        assert kwargs.pop("mode", "w+b") == "w+b"
+        result = original(mode="w+b", dir=tmp_path, **kwargs)
         paths.append(Path(result.name))
         return result
 
-    monkeypatch.setattr(file_storage.tempfile, "NamedTemporaryFile", create)
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", create)
     return paths
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("blocks", [[], [b"a" * (1024 * 1024), b"remaining"]])
-async def test_download_content_and_closed_body(monkeypatch, tmp_path, blocks):
+async def test_download_content_and_closed_body(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, blocks: list[bytes]
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
     body = Body(blocks)
     client.get_object.return_value = {"Body": body}
@@ -72,19 +52,25 @@ async def test_download_content_and_closed_body(monkeypatch, tmp_path, blocks):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["get", "read", "write", "cancel_read"])
-async def test_failed_download_closes_body_and_removes_partial_file(monkeypatch, tmp_path, failure):
+async def test_failed_download_closes_body_and_removes_partial_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
     body = Body([b"first"], error=OSError("read failed") if failure == "read" else None)
     client.get_object.return_value = {"Body": body}
     paths = track_temp(monkeypatch, tmp_path)
+
     if failure == "get":
         client.get_object.side_effect = OSError("get failed")
+
     if failure == "write":
 
-        def fail_write(*args):
-            raise OSError("write failed")
+        def fail_write(*args: Any) -> None:
+            msg = "write failed"
+            raise OSError(msg)
 
         monkeypatch.setattr(file_storage, "write_download_block", fail_write)
+
     if failure == "cancel_read":
         body.release = asyncio.Event()
         pending = asyncio.create_task(storage.download_to_temp("report.pdf"))
@@ -95,14 +81,19 @@ async def test_failed_download_closes_body_and_removes_partial_file(monkeypatch,
     else:
         with pytest.raises(OSError, match="failed"):
             await storage.download_to_temp("report.pdf")
+
     assert not any(path.exists() for path in paths)
+
     if failure != "get":
         assert body.closed
+
     await storage.aclose()
 
 
 @pytest.mark.asyncio
-async def test_cancel_thread_write_waits_before_closing_file(monkeypatch, tmp_path):
+async def test_cancel_thread_write_waits_before_closing_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
     body = Body([b"content"])
     client.get_object.return_value = {"Body": body}
@@ -110,12 +101,15 @@ async def test_cancel_thread_write_waits_before_closing_file(monkeypatch, tmp_pa
     started, release = threading.Event(), threading.Event()
     closed_during_write = []
 
-    def delayed_write(handle, block):
+    def delayed_write(handle: tempfile._TemporaryFileWrapper[bytes], block: bytes) -> None:
         started.set()
+
         if not release.wait(5):
-            raise TimeoutError("writer not released")
+            msg = "writer not released"
+            raise TimeoutError(msg)
+
         closed_during_write.append(handle.closed)
-        return handle.write(block)
+        handle.write(block)
 
     monkeypatch.setattr(file_storage, "write_download_block", delayed_write)
     pending = asyncio.create_task(storage.download_to_temp("report.pdf"))
@@ -136,7 +130,7 @@ async def test_cancel_thread_write_waits_before_closing_file(monkeypatch, tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_get_holds_semaphore_until_body_closed(monkeypatch):
+async def test_get_holds_semaphore_until_body_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     storage, client, _, _ = client_harness(monkeypatch, max_concurrent=1)
     body = Body([])
     body.release = asyncio.Event()
@@ -154,7 +148,9 @@ async def test_get_holds_semaphore_until_body_closed(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cancel_during_successful_close_removes_unreturned_file(monkeypatch, tmp_path):
+async def test_cancel_during_successful_close_removes_unreturned_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
     body = Body([b"content"])
     client.get_object.return_value = {"Body": body}
@@ -162,11 +158,14 @@ async def test_cancel_during_successful_close_removes_unreturned_file(monkeypatc
     original = file_storage.close_download
     started, release = threading.Event(), threading.Event()
 
-    def delayed_close(handle, *, remove):
+    def delayed_close(handle: tempfile._TemporaryFileWrapper[bytes], *, remove: bool) -> None:
         if not remove:
             started.set()
+
             if not release.wait(5):
-                raise TimeoutError("close not released")
+                msg = "close not released"
+                raise TimeoutError(msg)
+
         original(handle, remove=remove)
 
     monkeypatch.setattr(file_storage, "close_download", delayed_close)
@@ -183,48 +182,71 @@ async def test_cancel_during_successful_close_removes_unreturned_file(monkeypatc
     await storage.aclose()
 
 
+class CleanupFailure:
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, directory: Path, phase: str, failure: str) -> None:
+        self.monkeypatch, self.directory, self.phase, self.failure = monkeypatch, directory, phase, failure
+        self.original_create = tempfile.NamedTemporaryFile
+        self.original_unlink = Path.unlink
+        self.started, self.release = threading.Event(), threading.Event()
+        self.cleanup_attempted = threading.Event()
+        self.handles: list[tempfile._TemporaryFileWrapper[bytes]] = []
+        self.install()
+
+    def create(self, **kwargs: Any) -> tempfile._TemporaryFileWrapper[bytes]:
+        assert kwargs.pop("mode", "w+b") == "w+b"
+        handle = self.original_create(mode="w+b", dir=self.directory, **kwargs)
+        self.handles.append(handle)
+        original_close = handle.close
+
+        def close() -> None:
+            original_close()
+
+            if self.failure == "close":
+                self.cleanup_attempted.set()
+                msg = "cannot close download"
+                raise PermissionError(msg)
+
+        self.monkeypatch.setattr(handle, "close", close)
+        self.started.set()
+
+        if self.phase == "creation" and not self.release.wait(5):
+            msg = "creation not released"
+            raise TimeoutError(msg)
+
+        return handle
+
+    def unlink(self, path: Path, *args: Any, **kwargs: Any) -> None:
+        if path.parent == self.directory and self.failure == "unlink":
+            self.cleanup_attempted.set()
+            msg = "cannot remove download"
+            raise PermissionError(msg)
+
+        self.original_unlink(path, *args, **kwargs)
+
+    def remove_files(self) -> None:
+        for handle in self.handles:
+            self.original_unlink(Path(handle.name), missing_ok=True)
+
+    def install(self) -> None:
+        def unlink(path: Path, *args: Any, **kwargs: Any) -> None:
+            self.unlink(path, *args, **kwargs)
+
+        self.monkeypatch.setattr(tempfile, "NamedTemporaryFile", self.create)
+        self.monkeypatch.setattr(Path, "unlink", unlink)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["read", "creation"])
 @pytest.mark.parametrize("failure", ["close", "unlink"])
 @pytest.mark.parametrize("consumer", ["storage", "loader"])
 async def test_download_cancellation_survives_cleanup_failure(
-    monkeypatch, tmp_path, phase, failure, consumer
-):
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, phase: str, failure: str, consumer: str
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
     body = Body([])
     body.release = asyncio.Event()
     client.get_object.return_value = {"Body": body}
-    original_create = file_storage.tempfile.NamedTemporaryFile
-    original_unlink = Path.unlink
-    started, release = threading.Event(), threading.Event()
-    cleanup_attempted = threading.Event()
-    handles = []
-
-    def create(**kwargs):
-        handle = original_create(dir=tmp_path, **kwargs)
-        handles.append(handle)
-        original_close = handle.close
-
-        def close():
-            original_close()
-            if failure == "close":
-                cleanup_attempted.set()
-                raise PermissionError("cannot close download")
-
-        handle.close = close
-        started.set()
-        if phase == "creation" and not release.wait(5):
-            raise TimeoutError("creation not released")
-        return handle
-
-    def unlink(path, *args, **kwargs):
-        if path.parent == tmp_path and failure == "unlink":
-            cleanup_attempted.set()
-            raise PermissionError("cannot remove download")
-        return original_unlink(path, *args, **kwargs)
-
-    monkeypatch.setattr(file_storage.tempfile, "NamedTemporaryFile", create)
-    monkeypatch.setattr(Path, "unlink", unlink)
+    faults = CleanupFailure(monkeypatch, tmp_path, phase, failure)
     registry = LocalBM25Snapshots(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
     operation = {
         "storage": lambda: storage.download_to_temp("report.pdf"),
@@ -233,42 +255,50 @@ async def test_download_cancellation_survives_cleanup_failure(
     pending = asyncio.create_task(operation)
     try:
         if phase == "creation":
-            assert await asyncio.to_thread(started.wait, 5)
+            assert await asyncio.to_thread(faults.started.wait, 5)
         else:
             await asyncio.wait_for(body.started.wait(), 5)
+
         pending.cancel("request cancelled")
-        release.set()
+        faults.release.set()
         with pytest.raises(asyncio.CancelledError, match="request cancelled"):
             await asyncio.wait_for(pending, 5)
         assert pending.cancelled()
-        assert cleanup_attempted.is_set()
-        assert handles[0].closed
+        assert faults.cleanup_attempted.is_set()
+        assert faults.handles[0].closed
         assert body.closed
         assert storage._active == 0
-        with pytest.raises(persistence.BM25SnapshotNotReady):
+        with pytest.raises(persistence.BM25SnapshotNotReadyError):
             registry.bm25_index()
     finally:
-        release.set()
-        for handle in handles:
-            original_unlink(Path(handle.name), missing_ok=True)
+        faults.release.set()
+
+        faults.remove_files()
+
         await registry.close()
         await storage.aclose()
 
 
 @pytest.mark.asyncio
-async def test_cancelled_temp_creation_failure_preserves_cancellation(monkeypatch):
+async def test_cancelled_temp_creation_failure_preserves_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
     body = Body([])
     client.get_object.return_value = {"Body": body}
     started, release = threading.Event(), threading.Event()
 
-    def create(**kwargs):
+    def create(**kwargs: Any) -> tempfile._TemporaryFileWrapper[bytes]:
         started.set()
-        if not release.wait(5):
-            raise TimeoutError("creation not released")
-        raise PermissionError("cannot create download")
 
-    monkeypatch.setattr(file_storage.tempfile, "NamedTemporaryFile", create)
+        if not release.wait(5):
+            msg = "creation not released"
+            raise TimeoutError(msg)
+
+        msg = "cannot create download"
+        raise PermissionError(msg)
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", create)
     pending = asyncio.create_task(storage.download_to_temp("report.pdf"))
     try:
         assert await asyncio.to_thread(started.wait, 5)

@@ -6,14 +6,31 @@ for fast candidate filtering during search.
 
 from __future__ import annotations
 
+from collections import Counter
 import logging
 import math
-from collections import Counter
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
+from domain.knowledge.access_control import OwnerMatch
 from domain.shared.hashing import content_hash
 from infrastructure.bm25.tokenizer import tokenize
 
+
+if TYPE_CHECKING:
+    from domain.knowledge.access_control import VisibilityCondition
+
+
 log = logging.getLogger("default")
+
+
+class BM25Snapshot(TypedDict):
+    texts: list[str]
+    hashes: NotRequired[list[str] | None]
+    k1: NotRequired[float]
+    b: NotRequired[float]
+    doc_visibility: NotRequired[list[str | None] | None]
+    doc_owner_id: NotRequired[list[int | None] | None]
+    doc_group_id: NotRequired[list[int | None] | None]
 
 
 class BM25Index:
@@ -30,6 +47,7 @@ class BM25Index:
         hashes: list[str] | None = None,
         k1: float = 1.5,
         b: float = 0.75,
+        *,
         doc_visibility: list[str | None] | None = None,
         doc_owner_id: list[int | None] | None = None,
         doc_group_id: list[int | None] | None = None,
@@ -69,7 +87,7 @@ class BM25Index:
 
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
 
-    def _idf(self, term: str) -> float:
+    def idf(self, term: str) -> float:
         df = self.doc_freq.get(term, 0)
         return math.log((self.n_docs - df + 0.5) / (df + 0.5) + 1.0)
 
@@ -83,17 +101,17 @@ class BM25Index:
                 continue
 
             term_freq = tf[t]
-            idf = self._idf(t)
+            idf = self.idf(t)
             numerator = term_freq * (self.k1 + 1)
             denominator = term_freq + self.k1 * (1 - self.b + self.b * dl / self.avgdl)
             score += idf * numerator / denominator
 
         return score
 
-    def _doc_matches_acl(
+    def doc_matches_acl(
         self,
         doc_idx: int,
-        visibility_conditions: list,
+        visibility_conditions: list[VisibilityCondition],
         user_id: int,
         user_group_ids: list[int],
     ) -> bool:
@@ -110,12 +128,13 @@ class BM25Index:
             if cond.visibility.value != vis:
                 continue
 
-            if cond.owner_match == "self" and owner != user_id:
+            if cond.owner_match == OwnerMatch.SELF and owner != user_id:
                 continue
 
-            if cond.owner_match == "assigned":
-                if owner is None or cond.owner_ids is None or owner not in cond.owner_ids:
-                    continue
+            if cond.owner_match == OwnerMatch.ASSIGNED and (
+                owner is None or cond.owner_ids is None or owner not in cond.owner_ids
+            ):
+                continue
 
             if cond.group_match:
                 effective_groups = cond.group_ids if cond.group_ids is not None else user_group_ids
@@ -154,15 +173,14 @@ class BM25Index:
         query: str,
         k: int = 25,
         *,
-        visibility_conditions: list,
-        user_id: int,
-        user_group_ids: list[int],
+        visibility_conditions: list[VisibilityCondition] | None,
+        user_id: int | None,
+        user_group_ids: list[int] | None,
     ) -> list[tuple[str, float]]:
         """Return ACL-filtered (content_hash, score) pairs sorted by descending score."""
         if visibility_conditions is None or user_id is None or user_group_ids is None:
-            raise RuntimeError(
-                "search_with_hashes() requires visibility_conditions, user_id and user_group_ids."
-            )
+            message = "search_with_hashes() requires visibility_conditions, user_id and user_group_ids."
+            raise RuntimeError(message)
 
         self.last_survival_ratio = None
         q_tokens = tokenize(query)
@@ -182,7 +200,7 @@ class BM25Index:
         candidate_indices = {
             i
             for i in candidate_indices
-            if self._doc_matches_acl(i, visibility_conditions, user_id, user_group_ids)
+            if self.doc_matches_acl(i, visibility_conditions, user_id, user_group_ids)
         }
 
         if before_count > 0:
@@ -195,8 +213,8 @@ class BM25Index:
         scored.sort(key=lambda x: x[1], reverse=True)
         return [(self.hashes[idx], score) for idx, score in scored[:k]]
 
-    def to_dict(self) -> dict:
-        d: dict = {
+    def to_dict(self) -> BM25Snapshot:
+        d: BM25Snapshot = {
             "k1": self.k1,
             "b": self.b,
             "texts": self.texts,
@@ -212,7 +230,7 @@ class BM25Index:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict) -> BM25Index:
+    def from_dict(cls, data: BM25Snapshot) -> BM25Index:
         return cls(
             texts=data["texts"],
             hashes=data.get("hashes"),
@@ -263,13 +281,15 @@ class BM25Index:
         index: int,
         new_text: str,
         new_hash: str | None = None,
+        *,
         visibility: str | None = None,
         owner_id: int | None = None,
         group_id: int | None = None,
     ) -> None:
         """Replace text at given index. Updates all BM25 statistics."""
         if index < 0 or index >= self.n_docs:
-            raise IndexError(f"Index {index} out of range [0, {self.n_docs})")
+            message = f"Index {index} out of range [0, {self.n_docs})"
+            raise IndexError(message)
 
         old_tokens = tokenize(self.texts[index])
         new_tokens = tokenize(new_text)
@@ -351,7 +371,8 @@ class BM25Index:
     def remove_text(self, index: int) -> None:
         """Remove text at given index. Updates all BM25 statistics."""
         if index < 0 or index >= self.n_docs:
-            raise IndexError(f"Index {index} out of range [0, {self.n_docs})")
+            message = f"Index {index} out of range [0, {self.n_docs})"
+            raise IndexError(message)
 
         self.remove_tokens(index)
         removed_len = self.remove_from_lists(self.texts, self.hashes, self.doc_lens, self.token_freqs, index)

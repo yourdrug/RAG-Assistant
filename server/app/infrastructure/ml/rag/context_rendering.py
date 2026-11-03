@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from copy import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from langchain_core.documents import Document
 
 from domain.knowledge.enums import PageContentType
@@ -21,7 +23,7 @@ MAX_SECTION_LENGTH = 80
 CONTEXT_SEPARATOR = "\n\n---\n\n"
 
 
-def build_header(doc: Document, index: int) -> str:  # noqa: C901
+def build_header(doc: Document, index: int) -> str:
     """Build a formatted header line for a document chunk.
 
     All metadata fields are sanitized via ``sanitize_for_prompt`` to prevent
@@ -59,27 +61,17 @@ def build_header(doc: Document, index: int) -> str:  # noqa: C901
     if doc_date:
         parts.append(f"от {sanitize_for_prompt(str(doc_date))}")
 
-    page = doc.metadata.get("page")
-    page_start = doc.metadata.get("page_start")
-    page_end = doc.metadata.get("page_end")
-    article_number = doc.metadata.get("article_number")
-
-    if article_number:
-        parts[-1] += f", ст. {article_number}"
-    elif page_start is not None and page_end is not None and page_start != page_end:
-        parts[-1] += f" (стр. {page_start}-{page_end})"
-    elif page is not None:
-        parts[-1] += f" (стр. {page})"
+    append_location(parts, doc)
 
     return " | ".join(parts)
 
 
-def render_selected_docs(
-    docs: list[Document | tuple[Document, float]],
-) -> tuple[str, list[Document | tuple[Document, float]]]:
+def render_selected_docs[ItemT: Document | tuple[Document, float]](
+    docs: Sequence[ItemT],
+) -> tuple[str, list[ItemT]]:
     """Group an already chosen set for display and assign stable source citations."""
     parts: list[str] = []
-    selected: list[Document | tuple[Document, float]] = []
+    selected: list[ItemT] = []
 
     for citation_id, group in enumerate(group_by_document(docs), start=1):
         for position, item in enumerate(group):
@@ -93,6 +85,22 @@ def render_selected_docs(
             parts.append(f"{header}\n{content}")
             selected_doc = copy(doc)
             selected_doc.metadata = {**doc.metadata, "citation_id": citation_id}
-            selected.append((selected_doc, item[1]) if isinstance(item, tuple) else selected_doc)
+            selected.append(
+                cast("ItemT", (selected_doc, item[1]) if isinstance(item, tuple) else selected_doc)
+            )
 
     return CONTEXT_SEPARATOR.join(parts), selected
+
+
+def append_location(parts: list[str], doc: Document) -> None:
+    page = doc.metadata.get("page")
+    page_start = doc.metadata.get("page_start")
+    page_end = doc.metadata.get("page_end")
+    article_number = doc.metadata.get("article_number")
+
+    if article_number:
+        parts[-1] += f", ст. {article_number}"
+    elif page_start is not None and page_end is not None and page_start != page_end:
+        parts[-1] += f" (стр. {page_start}-{page_end})"
+    elif page is not None:
+        parts[-1] += f" (стр. {page})"

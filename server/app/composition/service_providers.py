@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from application.rag.service import RagService as ApplicationRagService
 from infrastructure.ml.rag.rag_steps import RagOperations
-from application.benchmark.sweep import SweepEngine
+from application.benchmark.sweep import SweepBenchmarkDependencies, SweepEngine
 from application.benchmark.sweep_evaluation import SweepFullEvaluator
 from infrastructure.benchmark.sweep.data import SweepDataSource
 from infrastructure.benchmark.sweep.scoring import score_stage_candidates
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from application.benchmark.sweep_ports import SweepSettingsPort, SweepSearchStrategy
     from collections.abc import Callable, AsyncIterator
     from domain.rag.ports import ChunkRetrievalRepository
-    from infrastructure.uow_factory import UnitOfWorkFactory
+    from application.uow.factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
 
@@ -63,13 +63,12 @@ def build_sweep_engine(
     runtime = runtime if runtime is not None else LiveSweepSettings()
     return SweepEngine(
         data=SweepDataSource(uow_factory, ml_clients),
-        benchmark_service=benchmark_service,
+        benchmark=SweepBenchmarkDependencies(benchmark_service, checkpoint_factory),
         runtime=runtime,
         full_evaluator=SweepFullEvaluator(runtime),
         strategies=strategies if strategies is not None else default_strategy_factories(),
         scoring=score_stage_candidates,
         corpus=corpus,
-        checkpoint_factory=checkpoint_factory,
     )
 
 

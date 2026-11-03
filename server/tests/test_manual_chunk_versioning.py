@@ -12,7 +12,7 @@ from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.index_sync import OutboxOperation
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.repositories.misc.sqlalchemy_act_version_repository import SQLAlchemyActVersionRepository
-from test_chunk_service import _make_service, _make_uow
+from tests.test_chunk_service import _make_service, _make_uow
 
 
 @pytest.mark.asyncio

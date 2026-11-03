@@ -9,8 +9,8 @@ from application.runtime.config import ConfigParameter, ConfigValueType
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from config import Settings
 from domain.shared.exceptions import ValidationError
-from fakes import FakeUnitOfWorkFactory
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 @pytest.mark.asyncio

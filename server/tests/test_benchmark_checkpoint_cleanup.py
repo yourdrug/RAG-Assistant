@@ -7,7 +7,7 @@ import pytest
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from infrastructure.worker import checkpoint_cleanup as cron
 from application.benchmark.sweep_jobs import SweepJobService
-from test_worker_sweep_lifecycle import SweepFactory, sweep_context
+from tests.test_worker_sweep_lifecycle import SweepFactory, sweep_context
 
 
 @pytest.mark.asyncio

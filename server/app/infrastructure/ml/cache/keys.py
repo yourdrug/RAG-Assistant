@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from config import get_request_settings
@@ -15,6 +15,8 @@ from infrastructure.ml.rag.prompts import build_system_prompt
 
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from application.rag.dto import PreparedQuery
     from domain.ingestion.profiles.registry import DomainProfileRegistry
 
@@ -36,7 +38,7 @@ class CacheKeyBuilder:
         q_hash = compute_question_hash(
             state.query,
             context={
-                "as_of_date": (state.request.ctx.as_of_date or date.today()).isoformat(),  # noqa: DTZ011
+                "as_of_date": (state.request.ctx.as_of_date or cache_today()).isoformat(),
                 "depth": state.request.ctx.depth,
                 "summary": state.request.ctx.summary,
                 "question": state.request.question,
@@ -81,3 +83,7 @@ def generation_identity() -> tuple[tuple[str, str | float], ...]:
         ("deepinfra_rerank_model", model.deepinfra_rerank_model),
         ("rag_retrieval_score_threshold", model.rag_retrieval_score_threshold),
     )
+
+
+def cache_today() -> date:
+    return datetime.now(UTC).astimezone().date()

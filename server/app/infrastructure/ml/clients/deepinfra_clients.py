@@ -9,16 +9,17 @@ as the TEI clients, so the rest of the codebase is provider-agnostic.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
-
 
 import logging
+from typing import TYPE_CHECKING, cast
 
 import httpx
-from infrastructure.budget.transport import PaidSyncTransport
+
 from domain.runtime.cost import BudgetError
+from infrastructure.budget.transport import PaidSyncTransport
 from infrastructure.ml.clients.managed_http import ManagedHTTPPool
 from infrastructure.ml.usage_capture import record_inference_response
+
 
 if TYPE_CHECKING:
     from infrastructure.budget.runtime import BudgetRuntime
@@ -34,8 +35,13 @@ class DeepInfraEmbeddingsClient(ManagedHTTPPool):
     embedding_identity: str
 
     def __init__(
-        self, api_key: str, base_url: str, model: str, pool_limits: httpx.Limits | None = None,
-        *, runtime: BudgetRuntime | None = None,
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        pool_limits: httpx.Limits | None = None,
+        *,
+        runtime: BudgetRuntime | None = None,
     ) -> None:
         self._api_key = api_key
         self.billable_provider = "DeepInfra embedding/rerank"
@@ -55,8 +61,8 @@ class DeepInfraEmbeddingsClient(ManagedHTTPPool):
         )
         r.raise_for_status()
         data = r.json()
-        record_inference_response(data, model=self._model, operation='embedding')
-        return data["data"][0]["embedding"]
+        record_inference_response(data, model=self._model, operation="embedding")
+        return cast("list[float]", data["data"][0]["embedding"])
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -69,7 +75,7 @@ class DeepInfraEmbeddingsClient(ManagedHTTPPool):
         )
         r.raise_for_status()
         payload = r.json()
-        record_inference_response(payload, model=self._model, operation='embedding')
+        record_inference_response(payload, model=self._model, operation="embedding")
         data = payload["data"]
         return [item["embedding"] for item in sorted(data, key=lambda x: x["index"])]
 
@@ -84,8 +90,8 @@ class DeepInfraEmbeddingsClient(ManagedHTTPPool):
             )
             r.raise_for_status()
             data = r.json()
-            record_inference_response(data, model=self._model, operation='embedding')
-            return data["data"][0]["embedding"]
+            record_inference_response(data, model=self._model, operation="embedding")
+            return cast("list[float]", data["data"][0]["embedding"])
 
 
 class DeepInfraRerankerClient(ManagedHTTPPool):
@@ -95,8 +101,13 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
     """
 
     def __init__(
-        self, api_key: str, base_url: str, model: str, pool_limits: httpx.Limits | None = None,
-        *, runtime: BudgetRuntime | None = None,
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        pool_limits: httpx.Limits | None = None,
+        *,
+        runtime: BudgetRuntime | None = None,
     ) -> None:
         self._api_key = api_key
         self.billable_provider = "DeepInfra embedding/rerank"
@@ -113,7 +124,8 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
             return []
 
         if any(pair[0] != pairs[0][0] for pair in pairs):
-            raise BudgetError("Reranking pairs must share one query")
+            message = "Reranking pairs must share one query"
+            raise BudgetError(message)
 
         query = pairs[0][0]
         documents = [p[1] for p in pairs]
@@ -125,15 +137,16 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
         )
         r.raise_for_status()
         data = r.json()
-        record_inference_response(data, model=self._model, operation='reranking')
-        return data["scores"]
+        record_inference_response(data, model=self._model, operation="reranking")
+        return cast("list[float]", data["scores"])
 
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
 
         if any(pair[0] != pairs[0][0] for pair in pairs):
-            raise BudgetError("Reranking pairs must share one query")
+            message = "Reranking pairs must share one query"
+            raise BudgetError(message)
 
         query = pairs[0][0]
         documents = [p[1] for p in pairs]
@@ -148,5 +161,5 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
             )
             r.raise_for_status()
             data = r.json()
-            record_inference_response(data, model=self._model, operation='reranking')
-            return data["scores"]
+            record_inference_response(data, model=self._model, operation="reranking")
+            return cast("list[float]", data["scores"])

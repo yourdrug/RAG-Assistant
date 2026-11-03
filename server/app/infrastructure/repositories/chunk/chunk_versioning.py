@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import date
+from typing import TYPE_CHECKING
 
 from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ChunkModel
+
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyChunkVersioningRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:
+    async def set_current_by_act_version_ids(self, act_version_ids: list[int], *, is_current: bool) -> int:
         if not act_version_ids:
             return 0
 

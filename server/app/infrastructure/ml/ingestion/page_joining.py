@@ -2,6 +2,7 @@
 
 import re
 
+
 _TRAILING_WORD_RE = re.compile(r"([^\W_]+)([-\u00ad])\s*$")
 _LEADING_WORD_RE = re.compile(r"\s*([^\W_]+)")
 _COMPOUND_WORD_RE = re.compile(r"[^\W_]+(?:-[^\W_]+)+")

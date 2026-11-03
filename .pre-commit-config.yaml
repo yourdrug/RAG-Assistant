@@ -50,7 +50,7 @@ repos:
         name: mypy
         entry: bash -c 'cd server && uv run --frozen --group development --group testing mypy'
         language: system
-        types: [python]
+        types_or: [python, pyi]
         files: ^server/
         pass_filenames: false
 

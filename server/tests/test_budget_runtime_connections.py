@@ -1,6 +1,5 @@
 """Synchronous budget reads use the configured database and fail closed."""
 
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,14 +11,15 @@ from infrastructure.database.database import DatabaseManager
 
 
 @pytest.fixture
-def runtime() -> Any:
-    return BudgetRuntime()  # type: ignore[no-untyped-call]
+def runtime() -> BudgetRuntime:
+    return BudgetRuntime()
 
 
-def test_sync_policy_reads_through_database_manager(runtime: Any) -> None:
+def test_sync_policy_reads_through_database_manager(runtime: BudgetRuntime) -> None:
     runtime.bootstrapped = True
-    runtime.database = MagicMock()
-    connection = runtime.database.master_connection.return_value.__enter__.return_value
+    database = MagicMock()
+    runtime.database = database
+    connection = database.master_connection.return_value.__enter__.return_value
     connection.execute.return_value.all.return_value = [
         ("cost_rate_limit_enabled", "true"),
         ("cost_hourly_limit", "2"),
@@ -29,21 +29,22 @@ def test_sync_policy_reads_through_database_manager(runtime: Any) -> None:
     assert policy.enabled
     assert policy.hourly_usd == "2"
     assert policy.daily_usd == "10"
-    runtime.database.master_connection.assert_called_once_with()
+    database.master_connection.assert_called_once_with()
     assert str(connection.execute.call_args_list[0].args[0]) == "SET statement_timeout = '5s'"
-    runtime.database.master_connection.return_value.__exit__.assert_called_once()
+    database.master_connection.return_value.__exit__.assert_called_once()
 
 
-def test_sync_policy_database_failure_is_not_bypassed(runtime: Any) -> None:
+def test_sync_policy_database_failure_is_not_bypassed(runtime: BudgetRuntime) -> None:
     runtime.bootstrapped = True
-    runtime.database = MagicMock()
-    runtime.database.master_connection.side_effect = ConnectionError
+    database = MagicMock()
+    runtime.database = database
+    database.master_connection.side_effect = ConnectionError
     with pytest.raises(ConnectionError):
         runtime.policy_sync()
 
 
 @pytest.mark.asyncio
-async def test_configure_uses_injected_database(runtime: Any) -> None:
+async def test_configure_uses_injected_database(runtime: BudgetRuntime) -> None:
     database = MagicMock()
     runtime.configure(AsyncMock(), MagicMock(), MagicMock(), database_manager=database)
     assert runtime.database is database

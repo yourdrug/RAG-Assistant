@@ -5,12 +5,11 @@ Production Qdrant sparse search does not subscribe to this channel.
 
 from __future__ import annotations
 
-
-import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from infrastructure.redis.redis_client import redis_client
-from typing import TYPE_CHECKING
+
 
 if TYPE_CHECKING:
     from infrastructure.bm25.snapshots import LocalBM25Snapshots
@@ -57,8 +56,6 @@ async def listen_for_bm25_invalidation(snapshots: LocalBM25Snapshots) -> None:
             if snapshots is not None:
                 snapshots.invalidate_bm25()
                 log.info("BM25 index invalidated — will reload from S3 on next access")
-    except asyncio.CancelledError:
-        raise
     finally:
         try:
             await pubsub.unsubscribe(_CHANNEL)

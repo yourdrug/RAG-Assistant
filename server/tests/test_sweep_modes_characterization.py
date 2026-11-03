@@ -1,40 +1,39 @@
 """Public benchmark contracts captured before extending evaluation modes."""
 
-from domain.identity.user_context import UserContext
-from infrastructure.benchmark.judging import context_judge
+from __future__ import annotations
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-
 from application.benchmark import compute_summary_from_results
+from config import settings
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.rag.context import RagContext
-from domain.identity.roles import UserKind
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
+from infrastructure.benchmark.judging import context_judge, evidence_judge, judge
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 
 
 @pytest.fixture(autouse=True)
-def individual_judge_mode(monkeypatch):
-    from config import settings
+def individual_judge_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
 
 
 @pytest.mark.asyncio
-async def test_case_evaluator_preserves_question_and_actual_context(monkeypatch):
-    from infrastructure.benchmark.judging import evidence_judge
-    from infrastructure.benchmark.judging import judge
+async def test_case_evaluator_preserves_question_and_actual_context(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(
         judge,
         "judge_answer_async",
         AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": 9}),
     )
-    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *a, **k: {})
-    monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *a, **kw: {"scores": {}, "details": {}})
+    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *_a, **_k: {})
+    monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *_a, **_kw: {"scores": {}, "details": {}})
     documents = [{"content": "article 17", "metadata": {"source": "law.pdf"}}]
     evidence = BenchmarkEvidence(documents, documents, "actual prompt")
     answer = BenchmarkAnswer(
@@ -55,7 +54,10 @@ async def test_case_evaluator_preserves_question_and_actual_context(monkeypatch)
     result = await BenchmarkCaseEvaluator(
         SimpleNamespace(generate=AsyncMock(return_value=answer)), "judge"
     ).evaluate(
-        1, question, 2, RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user"))
+        1,
+        question,
+        2,
+        RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)),
     )
     assert result["id"] == 17
     assert result["annotations"] == question["annotations"]
@@ -65,7 +67,7 @@ async def test_case_evaluator_preserves_question_and_actual_context(monkeypatch)
     assert result["generator_metrics"]["correctness"] == 9
 
 
-def test_summary_preserves_fragment_coverage_and_legacy_results():
+def test_summary_preserves_fragment_coverage_and_legacy_results() -> None:
     result = {
         "id": 1,
         "question": "q",

@@ -1,15 +1,21 @@
 """Configure database metadata and run asynchronous Alembic migrations."""
 
+from __future__ import annotations
+
 import asyncio
 import importlib
 import logging
 from logging.config import fileConfig
+from typing import TYPE_CHECKING
 
 from alembic import context
-from sqlalchemy.engine import Connection
 
 from infrastructure.database.basemodel import _Base as Base
 from infrastructure.database.database import DatabaseManager
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
 
 
 config = context.config
@@ -18,7 +24,7 @@ target_metadata = Base.metadata
 
 def load_model_modules() -> None:
     """Import ORM model modules so Alembic autogenerate can detect them."""
-    model_modules: tuple = ("infrastructure.database.models",)
+    model_modules: tuple[str, ...] = ("infrastructure.database.models",)
 
     for model_module in model_modules:
         try:
@@ -62,8 +68,8 @@ async def run_async_migrations() -> None:
     async with database.async_master_connection(
         connect_args={"options": "-c statement_timeout=0"}
     ) as connection:
-        await connection.execution_options(isolation_level="READ COMMITTED")
-        await connection.run_sync(do_run_migrations)
+        configured_connection = await connection.execution_options(isolation_level="READ COMMITTED")
+        await configured_connection.run_sync(do_run_migrations)
 
 
 def run_migrations_online() -> None:

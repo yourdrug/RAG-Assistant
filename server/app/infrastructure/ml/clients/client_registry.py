@@ -11,38 +11,42 @@ The registry calls factory functions on first access and caches the result.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
-
-
 import asyncio
+from contextlib import AsyncExitStack, asynccontextmanager
+from contextvars import ContextVar
 import logging
 import threading
-from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from contextvars import ContextVar
-from typing import Any
+from typing import TYPE_CHECKING, Self, cast
 
 from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
-from config import settings, request_settings
-from infrastructure.ml.clients.client_lease import client_operation
-from infrastructure.corpus.resources import CorpusResources
-from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
-from domain.shared.exceptions import SemaphoreTimeoutError
 from application.runtime.enums import LLMProvider
-
-from infrastructure.utils.async_tasks import finish_owned_task
+from config import request_settings, settings
+from domain.shared.exceptions import SemaphoreTimeoutError
+from infrastructure.corpus.resources import CorpusResources
 from infrastructure.ml.clients import factories
+from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client
+from infrastructure.ml.clients.managed_llm import ManagedInstructor, ManagedLLM
+from infrastructure.utils.async_tasks import finish_owned_task
+
 
 if TYPE_CHECKING:
-    from infrastructure.corpus.snapshot import CorpusSnapshot, BoundQdrantClient
+    from collections.abc import AsyncIterator
+    from contextlib import AbstractAsyncContextManager
+    from types import TracebackType
+
     from qdrant_client import QdrantClient
+
+    from application.ports.ml_clients import EmbeddingClientPort, RerankerClientPort
     from infrastructure.budget.runtime import BudgetRuntime
+    from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
+    from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient, DeepInfraRerankerClient
+    from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient, TEIRerankerClient
 
 log = logging.getLogger("default")
 
 
-active_request_clients: ContextVar[tuple[object, dict[str, Any]] | None] = ContextVar(
+active_request_clients: ContextVar[tuple[object, dict[str, object]] | None] = ContextVar(
     "active_request_clients", default=None
 )
 
@@ -60,18 +64,23 @@ class TimeoutSemaphore(AsyncSemaphorePort):
     async def acquire(self) -> bool:
         try:
             await asyncio.wait_for(self._sem.acquire(), timeout=self._timeout)
-        except asyncio.TimeoutError as exc:
-            raise SemaphoreTimeoutError() from exc
+        except TimeoutError as exc:
+            raise SemaphoreTimeoutError from exc
         return True
 
     def release(self) -> None:
         self._sem.release()
 
-    async def __aenter__(self) -> "TimeoutSemaphore":
+    async def __aenter__(self) -> Self:
         await self.acquire()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: TracebackType | None,
+    ) -> None:
         self.release()
 
 
@@ -101,14 +110,14 @@ class MLClientRegistry(MLClientPort):
             else CorpusResources(factories.create_qdrant_client)
         )
         self._init_lock = threading.Lock()
-        self._embeddings: Any = None
-        self._retired_clients: list[Any] = []
-        self._llm: Any = None
-        self._llm_breadth_cache: dict[str, Any] = {}
-        self._fast_llm: Any = None
-        self._reranker: Any = None
+        self.cached_embeddings: DeepInfraEmbeddingsClient | TEIEmbeddingsClient | None = None
+        self._retired_clients: list[object] = []
+        self.cached_llm: ManagedLLM | None = None
+        self.cached_llm_breadth_cache: dict[str, ManagedLLM] = {}
+        self.cached_fast_llm: ManagedLLM | None = None
+        self.cached_reranker: DeepInfraRerankerClient | TEIRerankerClient | None = None
         self._close_task: asyncio.Task[None] | None = None
-        self._instructor: Any = None
+        self.cached_instructor: ManagedInstructor | None = None
 
         # Eager init semaphores — lightweight objects, no race conditions
         self.generation_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
@@ -133,7 +142,7 @@ class MLClientRegistry(MLClientPort):
             settings.qdrant_write_max_concurrent, timeout=settings.semaphore_acquire_timeout
         )
 
-    def request_client(self, name: str) -> Any:
+    def request_client(self, name: str) -> object | None:
         active = active_request_clients.get()
         return active[1].get(name) if active is not None and active[0] is self else None
 
@@ -141,6 +150,7 @@ class MLClientRegistry(MLClientPort):
     async def request_operation(self) -> AsyncIterator[None]:
         """Pin settings and lease the client family across all request stages."""
         active = active_request_clients.get()
+
         if active is not None and active[0] is self:
             yield
             return
@@ -148,7 +158,7 @@ class MLClientRegistry(MLClientPort):
         # No suspension between snapshot and family capture: config publication is
         # synchronous on this event loop. Factories construct pools without I/O.
         model = settings.model_copy(deep=True)
-        clients = {
+        clients: dict[str, object] = {
             "embeddings": self.embeddings(),
             "reranker": self.reranker(),
             "llm": self.llm(),
@@ -160,6 +170,7 @@ class MLClientRegistry(MLClientPort):
         async with AsyncExitStack() as leases:
             for client in clients.values():
                 await leases.enter_async_context(client_operation(client))
+
             config_token = request_settings.set(model)
             client_token = active_request_clients.set((self, clients))
             try:
@@ -172,70 +183,76 @@ class MLClientRegistry(MLClientPort):
     # Accessors (lazy init via factories, thread-safe)
     # ------------------------------------------------------------------
 
-    def embeddings(self) -> Any:
+    def embeddings(self) -> EmbeddingClientPort:
         pinned = self.request_client("embeddings")
+
         if pinned is not None:
-            return pinned
+            return cast("DeepInfraEmbeddingsClient | TEIEmbeddingsClient", pinned)
 
-        if self._embeddings is None:
+        if self.cached_embeddings is None:
             with self._init_lock:
-                if self._embeddings is None:
-                    self._embeddings = factories.create_embeddings(runtime=self.budget_runtime)
+                if self.cached_embeddings is None:
+                    self.cached_embeddings = factories.create_embeddings(runtime=self.budget_runtime)
 
-        return self._embeddings
+        return self.cached_embeddings
 
-    def llm(self) -> Any:
+    def llm(self) -> ManagedLLM:
         pinned = self.request_client("llm")
+
         if pinned is not None:
-            return pinned
+            return cast("ManagedLLM", pinned)
 
-        if self._llm is None:
+        if self.cached_llm is None:
             with self._init_lock:
-                if self._llm is None:
-                    self._llm = ManagedLLM(factories.create_llm(runtime=self.budget_runtime))
+                if self.cached_llm is None:
+                    self.cached_llm = ManagedLLM(factories.create_llm(runtime=self.budget_runtime))
 
-        return self._llm
+        return self.cached_llm
 
-    def llm_for_breadth(self, breadth: str) -> Any:
+    def llm_for_breadth(self, breadth: str) -> ManagedLLM:
         pinned = self.request_client(breadth)
-        if pinned is not None:
-            return pinned
 
-        if breadth not in self._llm_breadth_cache:
+        if pinned is not None:
+            return cast("ManagedLLM", pinned)
+
+        if breadth not in self.cached_llm_breadth_cache:
             with self._init_lock:
-                if breadth not in self._llm_breadth_cache:
-                    self._llm_breadth_cache[breadth] = ManagedLLM(
+                if breadth not in self.cached_llm_breadth_cache:
+                    self.cached_llm_breadth_cache[breadth] = ManagedLLM(
                         factories.create_llm_for_breadth(breadth, runtime=self.budget_runtime)
                     )
 
-        return self._llm_breadth_cache[breadth]
+        return self.cached_llm_breadth_cache[breadth]
 
-    def fast_llm(self) -> Any:
+    def fast_llm(self) -> ManagedLLM:
         pinned = self.request_client("fast_llm")
+
         if pinned is not None:
-            return pinned
+            return cast("ManagedLLM", pinned)
 
         """Fast, lightweight LLM for auxiliary pipeline calls (condense, relevance)."""
-        if self._fast_llm is None:
+
+        if self.cached_fast_llm is None:
             with self._init_lock:
-                if self._fast_llm is None:
-                    self._fast_llm = ManagedLLM(
+                if self.cached_fast_llm is None:
+                    self.cached_fast_llm = ManagedLLM(
                         factories.create_fast_llm_for_auxiliary(runtime=self.budget_runtime)
                     )
 
-        return self._fast_llm
+        return self.cached_fast_llm
 
-    def reranker(self) -> Any:
+    def reranker(self) -> RerankerClientPort:
         pinned = self.request_client("reranker")
+
         if pinned is not None:
-            return pinned
+            return cast("DeepInfraRerankerClient | TEIRerankerClient", pinned)
 
-        if self._reranker is None:
+        if self.cached_reranker is None:
             with self._init_lock:
-                if self._reranker is None:
-                    self._reranker = factories.create_reranker(runtime=self.budget_runtime)
+                if self.cached_reranker is None:
+                    self.cached_reranker = factories.create_reranker(runtime=self.budget_runtime)
 
-        return self._reranker
+        return self.cached_reranker
 
     @property
     def corpus_snapshot(self) -> CorpusSnapshot | None:
@@ -247,43 +264,44 @@ class MLClientRegistry(MLClientPort):
     def corpus_operation(self) -> AbstractAsyncContextManager[None]:
         return self.corpus_resources.corpus_operation()
 
-    def qdrant_client(self) -> Any:
+    def qdrant_client(self) -> QdrantClient | BoundQdrantClient:
         return self.corpus_resources.qdrant_client()
 
     @property
-    def instructor_client(self) -> Any:
+    def instructor_client(self) -> object:
         """Cached async instructor client for structured LLM output (sufficiency, relevance)."""
         pinned = self.request_client("instructor")
-        if pinned is not None:
-            return pinned
 
-        if self._instructor is None:
+        if pinned is not None:
+            return cast("ManagedInstructor", pinned)
+
+        if self.cached_instructor is None:
             with self._init_lock:
-                if self._instructor is None:
+                if self.cached_instructor is None:
                     model = settings.model_copy()
 
                     if model.llm_provider == LLMProvider.OPENROUTER:
-                        self._instructor = create_async_instructor_client(
+                        instructor = create_async_instructor_client(
                             runtime=self.budget_runtime,
                             base_url=model.openrouter_base_url,
                             api_key=model.openrouter_api_key,
                         )
                     else:
-                        self._instructor = create_async_instructor_client(
+                        instructor = create_async_instructor_client(
                             runtime=self.budget_runtime,
                             base_url=f"{model.ollama_base_url}/v1",
                             api_key="ollama",
                         )
 
-                    self._instructor = ManagedInstructor(self._instructor)
+                    self.cached_instructor = ManagedInstructor(instructor)
 
-        return self._instructor
+        return self.cached_instructor
 
     # ------------------------------------------------------------------
     # Invalidation (with dependency cascades)
     # ------------------------------------------------------------------
 
-    def retire_client(self, client: Any) -> None:
+    def retire_client(self, client: object) -> None:
         self._retired_clients.append(client)
 
         if hasattr(client, "retire"):
@@ -293,7 +311,7 @@ class MLClientRegistry(MLClientPort):
             if task is not None:
                 task.add_done_callback(lambda completed: self.release_retired_client(client, completed))
 
-    def release_retired_client(self, client: Any, task: asyncio.Task[None]) -> None:
+    def release_retired_client(self, client: object, task: asyncio.Task[None]) -> None:
         if task.cancelled() or task.exception() is not None:
             log.error("Retired ML pool cleanup failed; retained for shutdown retry")
             return
@@ -301,8 +319,8 @@ class MLClientRegistry(MLClientPort):
         if client in self._retired_clients:
             self._retired_clients.remove(client)
 
-    def install_clients(self, prepared: dict[str, Any]) -> None:
-        retired: list[Any] = []
+    def install_clients(self, prepared: dict[str, object]) -> None:
+        retired: list[object] = []
         with self._init_lock:
             for attr, value in prepared.items():
                 old = getattr(self, attr)
@@ -319,32 +337,37 @@ class MLClientRegistry(MLClientPort):
         Cascades: clears all breadth-specific LLM caches and instructor client.
         """
         with self._init_lock:
-            clients = [self._llm, self._fast_llm, self._instructor, *self._llm_breadth_cache.values()]
+            clients = [
+                self.cached_llm,
+                self.cached_fast_llm,
+                self.cached_instructor,
+                *self.cached_llm_breadth_cache.values(),
+            ]
 
             for client in clients:
                 if client is not None:
                     self.retire_client(client)
 
-            self._llm = None
-            self._llm_breadth_cache.clear()
-            self._fast_llm = None
-            self._instructor = None
+            self.cached_llm = None
+            self.cached_llm_breadth_cache.clear()
+            self.cached_fast_llm = None
+            self.cached_instructor = None
         log.info("MLClientRegistry: LLM cache invalidated")
 
     def invalidate_embeddings(self) -> None:
         """Replace the embedding adapter on the next access."""
         with self._init_lock:
-            if self._embeddings is not None:
-                self.retire_client(self._embeddings)
-                self._embeddings = None
+            if self.cached_embeddings is not None:
+                self.retire_client(self.cached_embeddings)
+                self.cached_embeddings = None
         log.info("MLClientRegistry: embedding client cache invalidated")
 
     def invalidate_reranker(self) -> None:
         """Replace the reranker adapter on the next access."""
         with self._init_lock:
-            if self._reranker is not None:
-                self.retire_client(self._reranker)
-                self._reranker = None
+            if self.cached_reranker is not None:
+                self.retire_client(self.cached_reranker)
+                self.cached_reranker = None
         log.info("MLClientRegistry: reranker client cache invalidated")
 
     # ------------------------------------------------------------------
@@ -365,15 +388,15 @@ class MLClientRegistry(MLClientPort):
     async def close_clients(self) -> None:
         """Close the owned inference and corpus pools."""
         await self.corpus_resources.drain()
-        clients_to_close = [
-            self._embeddings,
-            self._reranker,
-            self._instructor,
-            self._llm,
-            self._fast_llm,
+        clients_to_close: list[object] = [
+            self.cached_embeddings,
+            self.cached_reranker,
+            self.cached_instructor,
+            self.cached_llm,
+            self.cached_fast_llm,
         ]
         clients_to_close.extend(self._retired_clients)
-        clients_to_close.extend(self._llm_breadth_cache.values())
+        clients_to_close.extend(self.cached_llm_breadth_cache.values())
 
         for client in clients_to_close:
             if client is not None and hasattr(client, "close"):
@@ -384,11 +407,11 @@ class MLClientRegistry(MLClientPort):
 
         await self.corpus_resources.close()
 
-        self._embeddings = None
-        self._reranker = None
-        self._instructor = None
-        self._llm = None
-        self._fast_llm = None
-        self._llm_breadth_cache.clear()
+        self.cached_embeddings = None
+        self.cached_reranker = None
+        self.cached_instructor = None
+        self.cached_llm = None
+        self.cached_fast_llm = None
+        self.cached_llm_breadth_cache.clear()
         self._retired_clients.clear()
         log.info("MLClientRegistry: connection pools closed")

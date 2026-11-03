@@ -2,29 +2,33 @@
 
 from __future__ import annotations
 
-from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import unfinished_document_work
-
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Unpack
 
-from config import settings
-from domain.knowledge.enums import SourceType
-from domain.knowledge.enums import DomainKey
-from domain.knowledge.document import Document, DocumentProcessingUpdate
-from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError
-from domain.knowledge.access_control import get_visibility_conditions
-from domain.knowledge.enums import DOCUMENT_SLOT_STATUSES, DocumentStatus
-from domain.identity.roles import UserKind, UserRole
-from domain.knowledge.enums import DocumentVisibility
 from sqlalchemy import and_, distinct, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
+from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.access_control import get_visibility_conditions
+from domain.knowledge.document import Document, DocumentProcessingUpdate
+from domain.knowledge.enums import (
+    DOCUMENT_SLOT_STATUSES,
+    DocumentStatus,
+    DocumentVisibility,
+    DomainKey,
+    SourceType,
+)
+from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError
 from infrastructure.database.models import DocumentModel
+from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import unfinished_document_work
 from infrastructure.repositories.sql_acl import render_visibility_conditions
-from typing import TYPE_CHECKING
+
 
 if TYPE_CHECKING:
-    from domain.knowledge.repositories.document import DocumentFilter
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from domain.knowledge.repositories.document import DocumentFilter, DocumentStatusUpdate
 
 
 class SQLAlchemyDocumentRepository:
@@ -83,34 +87,37 @@ class SQLAlchemyDocumentRepository:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id.in_(document_ids)))
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    async def update_status(
-        self,
-        document_id: int,
-        status: str | None = None,
-        error: str | None = None,
-        chunks: int | None = None,
-        chars: int | None = None,
-        warning: str | None = None,
-        quality_score: float | None = None,
-        expected_version: int | None = None,
-    ) -> bool:
+    async def update_status(self, document_id: int, **changes: Unpack[DocumentStatusUpdate]) -> bool:
         """Update document status with optional optimistic locking.
 
         If *expected_version* is given, the UPDATE only applies when the current
         version matches, preventing lost updates from concurrent workers.
         Returns True if the row was updated, False on version conflict.
         """
+        (status, error, chunks, chars, warning, quality_score, expected_version) = (
+            changes.get("status"),
+            changes.get("error"),
+            changes.get("chunks"),
+            changes.get("chars"),
+            changes.get("warning"),
+            changes.get("quality_score"),
+            changes.get("expected_version"),
+        )
         statement = (
             select(DocumentModel)
             .where(DocumentModel.id == document_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
+
         if expected_version is not None:
             statement = statement.where(DocumentModel.version == expected_version)
+
         orm = (await self._db.execute(statement)).scalar_one_or_none()
+
         if orm is None:
             return False
+
         entity = self._to_entity(orm)
         entity.apply_processing_update(
             DocumentProcessingUpdate(
@@ -166,7 +173,8 @@ class SQLAlchemyDocumentRepository:
         orm = result.scalar_one_or_none()
 
         if orm is None:
-            raise EntityNotFoundError("Document", document_id)
+            msg = "Document"
+            raise EntityNotFoundError(msg, document_id)
 
         orm.visibility = visibility.value
         orm.owner_id = owner_id
@@ -199,7 +207,7 @@ class SQLAlchemyDocumentRepository:
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
     async def find_active_slot(
-        self, owner_id: int | None, filename: str, group_id: int | None, for_update: bool = False
+        self, owner_id: int | None, filename: str, group_id: int | None, *, for_update: bool = False
     ) -> Document | None:
         conditions = [
             DocumentModel.filename == filename,
@@ -313,7 +321,7 @@ class SQLAlchemyDocumentRepository:
         )
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    async def set_has_manual_edits(self, document_id: int, value: bool) -> None:
+    async def set_has_manual_edits(self, document_id: int, *, value: bool) -> None:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
         orm = result.scalar_one_or_none()
 
@@ -433,8 +441,10 @@ class SQLAlchemyDocumentRepository:
             .execution_options(populate_existing=True)
         )
         rows = list(candidates.all())
+
         if not rows:
             return []
+
         eligible = set(
             await self._db.scalars(
                 select(DocumentModel.id).where(
@@ -443,9 +453,11 @@ class SQLAlchemyDocumentRepository:
                 )
             )
         )
+
         for orm in rows:
             if orm.id not in eligible:
                 continue
+
             entity = self._to_entity(orm)
             entity.mark_done(
                 entity.chunks or 0, entity.chars or 0, entity.warning_message, entity.quality_score
@@ -453,6 +465,7 @@ class SQLAlchemyDocumentRepository:
             orm.status = entity.status.value
             orm.indexed_at = entity.indexed_at
             orm.version += 1
+
         await self._db.flush()
         return [orm.id for orm in rows if orm.id in eligible]
 

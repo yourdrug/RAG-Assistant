@@ -12,6 +12,7 @@ import logging
 
 from domain.rag.guardrails.pii import ALL_PATTERNS
 
+
 log = logging.getLogger("default")
 
 

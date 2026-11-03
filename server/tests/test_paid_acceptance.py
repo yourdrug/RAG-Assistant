@@ -2,7 +2,8 @@
 
 import importlib.util
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,65 +12,59 @@ from domain.runtime.cost import BudgetError
 
 
 @pytest.fixture
-def acceptance():
-    path = Path(__file__).parents[2] / 'scripts' / 'billing/check_paid_accounting.py'
-    spec = importlib.util.spec_from_file_location('paid_acceptance', path)
+def acceptance() -> ModuleType:
+    path = Path(__file__).parents[2] / "scripts" / "billing/check_paid_accounting.py"
+    spec = importlib.util.spec_from_file_location("paid_acceptance", path)
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_verification_requires_every_provider_confirmation(acceptance):
-    rows = [{'operation_id': 'op', 'actual_units': 1000}]
-    with pytest.raises(BudgetError, match='Missing'):
+def test_verification_requires_every_provider_confirmation(acceptance: ModuleType) -> None:
+    rows = [{"operation_id": "op", "actual_units": 1000}]
+    with pytest.raises(BudgetError, match="Missing"):
         acceptance.verify_confirmations(rows, {})
     assert (
-        acceptance.verify_confirmations(rows, {'op': {'usd': '0.000001', 'reference': 'provider-export'}})
+        acceptance.verify_confirmations(rows, {"op": {"usd": "0.000001", "reference": "provider-export"}})
         == 1
     )
-    with pytest.raises(BudgetError, match='differs'):
-        acceptance.verify_confirmations(rows, {'op': {'usd': '0.000002', 'reference': 'provider-export'}})
-    with pytest.raises(BudgetError, match='Pending'):
+    with pytest.raises(BudgetError, match="differs"):
+        acceptance.verify_confirmations(rows, {"op": {"usd": "0.000002", "reference": "provider-export"}})
+    with pytest.raises(BudgetError, match="Pending"):
         acceptance.verify_confirmations(
-            [{'operation_id': 'op', 'actual_units': None}],
-            {'op': {'usd': '0', 'reference': 'provider-export'}},
+            [{"operation_id": "op", "actual_units": None}],
+            {"op": {"usd": "0", "reference": "provider-export"}},
         )
 
 
-def test_dispatch_requires_cap_models_and_paid_opt_in(acceptance, monkeypatch):
-    monkeypatch.setattr('sys.argv', ['check_paid_accounting', '--account', 'test', '--principal', 'user:1'])
+def test_dispatch_requires_cap_models_and_paid_opt_in(
+    acceptance: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("sys.argv", ["check_paid_accounting", "--account", "test", "--principal", "user:1"])
     with pytest.raises(SystemExit) as error:
         acceptance.arguments()
     assert error.value.code == 2
 
 
-def test_confirmation_coverage_requires_every_path_even_when_models_match(acceptance):
-    args = SimpleNamespace(embedding_model='embed', reranker_model='rerank', llm_model='m', judge_model='m')
+def test_confirmation_coverage_requires_every_path_even_when_models_match(acceptance: ModuleType) -> None:
+    args = SimpleNamespace(embedding_model="embed", reranker_model="rerank", llm_model="m", judge_model="m")
     rows = (
-        [{'provider': 'deepinfra', 'model': 'embed', 'operation': 'embedding'}] * 3
-        + [{'provider': 'deepinfra', 'model': 'rerank', 'operation': 'reranking'}] * 2
-        + [{'provider': 'openrouter', 'model': 'm', 'operation': 'llm'}] * 5
+        [{"provider": "deepinfra", "model": "embed", "operation": "embedding"}] * 3
+        + [{"provider": "deepinfra", "model": "rerank", "operation": "reranking"}] * 2
+        + [{"provider": "openrouter", "model": "m", "operation": "llm"}] * 5
     )
     acceptance.verify_coverage(rows, args)
-    with pytest.raises(BudgetError, match='missing required'):
+    with pytest.raises(BudgetError, match="missing required"):
         acceptance.verify_coverage(rows[:-1], args)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["none", "connect", "query"])
-async def test_verification_uses_manager_and_closes_resources(  # noqa: PLR0915
-    acceptance, monkeypatch, tmp_path, failure
-):
-    confirmations = tmp_path / "confirmations.json"
-    confirmations.write_text("{}")
-    args = SimpleNamespace(
-        principal="user:1", account="test", since="2026-10-22T00:00:00+00:00", confirmations=confirmations
-    )
+def verification_database(rows: list[dict[str, Any]], failure: str) -> MagicMock:
     database = MagicMock(connect=AsyncMock(), disconnect=AsyncMock())
     session = AsyncMock()
     database.get_session.return_value.__aenter__.return_value = session
     session.execute.return_value = MagicMock()
-    rows = [{"operation_id": "op"}]
     session.execute.return_value.mappings.return_value.all.return_value = rows
 
     if failure == "connect":
@@ -78,6 +73,21 @@ async def test_verification_uses_manager_and_closes_resources(  # noqa: PLR0915
     if failure == "query":
         session.execute.side_effect = ConnectionError
 
+    return database
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["none", "connect", "query"])
+async def test_verification_uses_manager_and_closes_resources(
+    acceptance: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str
+) -> None:
+    confirmations = tmp_path / "confirmations.json"
+    confirmations.write_text("{}")
+    args = SimpleNamespace(
+        principal="user:1", account="test", since="2026-10-22T00:00:00+00:00", confirmations=confirmations
+    )
+    rows: list[dict[str, Any]] = [{"operation_id": "op"}]
+    database = verification_database(rows, failure)
     redis = MagicMock(aclose=AsyncMock())
     monkeypatch.setattr(acceptance, "DatabaseManager", lambda: database)
     monkeypatch.setattr(acceptance.Redis, "from_url", lambda *_args, **_kwargs: redis)

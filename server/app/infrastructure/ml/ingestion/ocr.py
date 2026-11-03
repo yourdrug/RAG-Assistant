@@ -3,18 +3,27 @@
 from __future__ import annotations
 
 import functools
+import importlib
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-import numpy as np
 import fitz
 from langchain.schema import Document
+import numpy as np
 from PIL import Image
 
 from config import settings
 from infrastructure.ml.ingestion.ocr_vl import recognize_page
 
+
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from paddleocr import PaddleOCR
+    from surya.detection import DetectionPredictor
+    from surya.recognition import RecognitionPredictor
+
+    from application.documents.ports.diagnostics import PDFDocumentHandle
     from application.runtime.config import ConfigParameterChanged
 
 log = logging.getLogger("detailed")
@@ -35,34 +44,35 @@ def invalidate_paddle_ocr_cache(event: ConfigParameterChanged) -> None:
 
 
 @functools.lru_cache(maxsize=1)
-def get_paddle_ocr():
-    from paddleocr import PaddleOCR
+def get_paddle_ocr() -> PaddleOCR:
+    # Lazy: PaddleOCR imports heavyweight model backends.
+    backend = importlib.import_module("infrastructure.ml.ingestion.paddle_backend")
+    create = cast("Callable[[str], PaddleOCR]", backend.create_paddle_ocr)
 
     log.info("Loading PaddleOCR (lang=%s) ...", settings.ocr_lang_paddle)
-    return PaddleOCR(
-        use_angle_cls=True,
-        lang=settings.ocr_lang_paddle,
-        show_log=False,
-    )
+    return create(settings.ocr_lang_paddle)
 
 
 @functools.lru_cache(maxsize=1)
-def get_surya_predictors():
-    from surya.detection import DetectionPredictor
-    from surya.recognition import RecognitionPredictor
+def get_surya_predictors() -> tuple[RecognitionPredictor, DetectionPredictor]:
+    # Lazy: Surya imports heavyweight model backends.
+    backend = importlib.import_module("infrastructure.ml.ingestion.surya_backend")
+    create = cast(
+        "Callable[[], tuple[RecognitionPredictor, DetectionPredictor]]", backend.create_surya_predictors
+    )
 
     log.info("Loading Surya OCR ...")
-    return (RecognitionPredictor(), DetectionPredictor())
+    return create()
 
 
-def _bbox_from_points(box) -> tuple[float, float, float, float]:
+def _bbox_from_points(box: list[tuple[float, float]]) -> tuple[float, float, float, float]:
     """Convert a 4-point quadrilateral (PaddleOCR box format) to (x0, y0, x1, y1)."""
     xs = [pt[0] for pt in box]
     ys = [pt[1] for pt in box]
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _order_ocr_entries(entries: list[dict], min_confidence: float | None = None) -> list[str]:
+def _order_ocr_entries(entries: list[dict[str, Any]], min_confidence: float | None = None) -> list[str]:
     """Order OCR-recognized text lines into reading order, dropping low-confidence noise.
 
     Each entry is {"text": str, "confidence": float | None, "bbox": (x0, y0, x1, y1)}.
@@ -85,7 +95,7 @@ def _order_ocr_entries(entries: list[dict], min_confidence: float | None = None)
     row_tolerance = max(median_height * 0.6, 1.0)
 
     kept.sort(key=lambda e: (e["bbox"][1], e["bbox"][0]))
-    rows: list[list[dict]] = []
+    rows: list[list[dict[str, Any]]] = []
 
     for e in kept:
         y0 = e["bbox"][1]
@@ -111,7 +121,7 @@ def _order_ocr_entries(entries: list[dict], min_confidence: float | None = None)
     return lines
 
 
-def ocr_image_paddle(image) -> str:
+def ocr_image_paddle(image: Image.Image) -> str:
     ocr = get_paddle_ocr()
     result = ocr.ocr(np.array(image), cls=True)
     min_confidence = getattr(settings, "ocr_min_confidence", _DEFAULT_OCR_MIN_CONFIDENCE)
@@ -131,7 +141,7 @@ def ocr_image_paddle(image) -> str:
     return "\n".join(_order_ocr_entries(entries, min_confidence))
 
 
-def ocr_image_surya(image) -> str:
+def ocr_image_surya(image: Image.Image) -> str:
     rec_predictor, det_predictor = get_surya_predictors()
     predictions = rec_predictor([image], [settings.ocr_lang_surya], det_predictor)
     min_confidence = getattr(settings, "ocr_min_confidence", _DEFAULT_OCR_MIN_CONFIDENCE)
@@ -146,7 +156,7 @@ def ocr_image_surya(image) -> str:
 
         bbox = getattr(line, "bbox", None)
 
-        if bbox is None or len(bbox) < 4:
+        if bbox is None or len(bbox) < BBOX_COORDINATES:
             # No usable geometry — fall back to a synthetic strictly-increasing
             # bbox so entries without positions still preserve engine order
             # relative to each other instead of being dropped or collapsed
@@ -159,12 +169,12 @@ def ocr_image_surya(image) -> str:
     return "\n".join(_order_ocr_entries(entries, min_confidence))
 
 
-def ocr_vl_pdf_pages(doc, page_nums: list[int], filename: str) -> list[Document]:
-    results = []
+def ocr_vl_pdf_pages(doc: PDFDocumentHandle, page_nums: list[int], filename: str) -> list[Document]:
+    results: list[Document] = []
 
     for page_num in page_nums:
-        page = doc.load_page(page_num - 1)
-        pix = page.get_pixmap(dpi=settings.ocr_dpi, colorspace=fitz.csRGB, alpha=False)
+        page = cast("fitz.Page", doc.load_page(page_num - 1))
+        pix = page.get_pixmap(dpi=settings.ocr_dpi, colorspace=fitz.Colorspace(fitz.CS_RGB), alpha=False)
         image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         result = recognize_page(image)
         results.extend(
@@ -186,7 +196,7 @@ def ocr_vl_pdf_pages(doc, page_nums: list[int], filename: str) -> list[Document]
     return results
 
 
-def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
+def ocr_pdf_pages(doc: PDFDocumentHandle, page_nums: list[int], filename: str) -> dict[int, str]:
     if settings.ocr_engine == "paddleocr_vl":
         documents = ocr_vl_pdf_pages(doc, page_nums, filename)
         return {
@@ -199,7 +209,7 @@ def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
     mat = fitz.Matrix(zoom, zoom)
 
     for page_num in page_nums:
-        page = doc.load_page(page_num - 1)
+        page = cast("fitz.Page", doc.load_page(page_num - 1))
         pix = page.get_pixmap(matrix=mat)
         img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
@@ -214,3 +224,6 @@ def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
         results[page_num] = text
 
     return results
+
+
+BBOX_COORDINATES = 4

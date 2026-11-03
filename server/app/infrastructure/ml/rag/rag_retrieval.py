@@ -6,31 +6,31 @@ rag_service.py to reduce its size and isolate the retrieval I/O layer.
 
 from __future__ import annotations
 
-from typing import cast
-
-from typing import TYPE_CHECKING
-
 import asyncio
-from infrastructure.corpus.snapshot import pin_corpus_call
 import logging
 import time
+from typing import TYPE_CHECKING, NotRequired, TypedDict, Unpack, cast
+
+from langchain.schema import Document as LCDocument
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from application.search import HybridRetriever
 from config import get_request_settings
 from domain.shared.hashing import content_hash
+from infrastructure.corpus.snapshot import pin_corpus_call
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
-from infrastructure.resilience.retry import retry_on_transient
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
-from langchain.schema import Document as LCDocument
-from qdrant_client.models import FieldCondition, Filter, MatchValue
 from infrastructure.repositories.vector.sparse_vectors import sparse_query
+from infrastructure.resilience.retry import retry_on_transient
+
 
 if TYPE_CHECKING:
-    from application.ports.ml_clients import MLClientPort
-    from qdrant_client.models import ScoredPoint
-    from domain.rag.settings import RagSettings
     from qdrant_client import QdrantClient
+    from qdrant_client.models import ScoredPoint
+
+    from application.ports.ml_clients import MLClientPort
     from domain.knowledge.access_control import VisibilityCondition
+    from domain.rag.settings import RagSettings
 
 log = logging.getLogger("default")
 
@@ -53,10 +53,11 @@ async def resolve_hashes_batch(
         return {}
 
     if access_filter is None:
-        raise RuntimeError(
+        message = (
             "resolve_hashes_batch() requires access_filter for ACL enforcement. "
             "Build one via build_qdrant_filter() before calling."
         )
+        raise RuntimeError(message)
 
     client = cast("QdrantClient", ml_clients.qdrant_client())
 
@@ -68,7 +69,7 @@ async def resolve_hashes_batch(
         for h in hashes
     ]
 
-    scroll_filter = Filter(must=[access_filter, Filter(should=should_conditions)])  # type: ignore[arg-type]
+    scroll_filter = Filter(must=[access_filter, Filter(should=list(should_conditions))])
 
     async with ml_clients.qdrant_search_semaphore:
         results = await asyncio.to_thread(
@@ -109,7 +110,8 @@ async def qdrant_dense_search(
     Wrapped with ``qdrant_search_semaphore`` to cap concurrent Qdrant requests.
     """
     if access_filter is None:
-        raise RuntimeError("qdrant_dense_search() requires access_filter for ACL enforcement.")
+        message = "qdrant_dense_search() requires access_filter for ACL enforcement."
+        raise RuntimeError(message)
 
     client = cast("QdrantClient", ml_clients.qdrant_client())
     embeddings = ml_clients.embeddings()
@@ -157,7 +159,8 @@ def search_sparse_points(
 ) -> list[ScoredPoint]:
     """Return sparse hits with payload; apply the complete ACL/temporal scope before top-k."""
     if access_filter is None:
-        raise RuntimeError("Sparse search requires an ACL filter")
+        message = "Sparse search requires an ACL filter"
+        raise RuntimeError(message)
 
     vector = sparse_query(query)
 
@@ -196,30 +199,39 @@ async def qdrant_sparse_search(
     ]
 
 
+class HybridClientOptions(TypedDict):
+    ml_clients: MLClientPort
+    dense_weight: NotRequired[float | None]
+    sparse_weight: NotRequired[float | None]
+
+
 @pin_corpus_call
 async def run_hybrid_search(
     query: str,
     fetch_k: int,
     access_filter: Filter | None,
     rag: RagSettings,
-    ml_clients: MLClientPort,
-    dense_weight: float | None = None,
-    sparse_weight: float | None = None,
     *,
     visibility_conditions: list[VisibilityCondition] | None,
     user_id: int | None,
     user_group_ids: list[int] | None,
+    **options: Unpack[HybridClientOptions],
 ) -> list[LCDocument]:
     """Run Qdrant dense+sparse retrieval with identical filters and weighted RRF."""
     if access_filter is None:
-        raise RuntimeError("run_hybrid_search() requires access_filter for ACL enforcement.")
+        message = "run_hybrid_search() requires access_filter for ACL enforcement."
+        raise RuntimeError(message)
 
     if visibility_conditions is None or user_id is None or user_group_ids is None:
-        raise RuntimeError("run_hybrid_search() requires visibility_conditions, user_id and user_group_ids.")
+        message = "run_hybrid_search() requires visibility_conditions, user_id and user_group_ids."
+        raise RuntimeError(message)
 
     if not visibility_conditions:
         return []
 
+    ml_clients = options["ml_clients"]
+    dense_weight = options.get("dense_weight")
+    sparse_weight = options.get("sparse_weight")
     started = time.monotonic()
 
     if not rag.hybrid_search.enabled:

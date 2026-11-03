@@ -13,13 +13,21 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Any, cast
 
 import httpx
+
 from infrastructure.ml.clients.managed_http import ManagedHTTPPool
+
 
 log = logging.getLogger("default")
 
 TEI_TIMEOUT = 60.0
+MAX_ERROR_INDICES = 10
+
+
+class TEIResponseError(RuntimeError):
+    """TEI returned an invalid embedding response."""
 
 
 class TEIEmbeddingsClient(ManagedHTTPPool):
@@ -35,7 +43,7 @@ class TEIEmbeddingsClient(ManagedHTTPPool):
     async def embed_query(self, text: str) -> list[float]:
         r = await self.post(f"{self._base_url}/embed", json={"inputs": text})
         r.raise_for_status()
-        return r.json()[0]
+        return cast("list[float]", r.json()[0])
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -47,23 +55,27 @@ class TEIEmbeddingsClient(ManagedHTTPPool):
 
         if not isinstance(data, list):
             short = repr(data)[:200]
-            raise RuntimeError(f"TEI /embed returned unexpected type {type(data).__name__}: {short}")
+            message = f"TEI /embed returned unexpected type {type(data).__name__}: {short}"
+            raise TEIResponseError(message)
 
         none_indices = [i for i, v in enumerate(data) if v is None]
 
         if none_indices:
-            raise RuntimeError(
+            preview = none_indices[:MAX_ERROR_INDICES]
+            suffix = "..." if len(none_indices) > MAX_ERROR_INDICES else ""
+            message = (
                 f"TEI /embed returned None for {len(none_indices)}/{len(data)} texts "
-                f"(indices: {none_indices[:10]}{'...' if len(none_indices) > 10 else ''})"
+                f"(indices: {preview}{suffix})"
             )
+            raise TEIResponseError(message)
 
-        return data
+        return cast("list[list[float]]", data)
 
     def embed_query_sync(self, text: str) -> list[float]:
         with httpx.Client(timeout=TEI_TIMEOUT) as client:
             r = client.post(f"{self._base_url}/embed", json={"inputs": text})
             r.raise_for_status()
-            return r.json()[0]
+            return cast("list[float]", r.json()[0])
 
 
 class TEIRerankerClient(ManagedHTTPPool):
@@ -100,7 +112,7 @@ class TEIRerankerClient(ManagedHTTPPool):
             return self.ordered_scores(data, len(texts))
 
     @staticmethod
-    def ordered_scores(data: list[dict], count: int) -> list[float]:
+    def ordered_scores(data: list[dict[str, Any]], count: int) -> list[float]:
         """TEI ranks results; its index identifies the original input text."""
         scores: dict[int, float] = {}
 
@@ -108,16 +120,19 @@ class TEIRerankerClient(ManagedHTTPPool):
             index = item.get("index")
 
             if type(index) is not int or not 0 <= index < count or index in scores:
-                raise ValueError("Invalid or duplicate TEI rerank index")
+                message = "Invalid or duplicate TEI rerank index"
+                raise ValueError(message)
 
             score = float(item["score"])
 
             if not math.isfinite(score):
-                raise ValueError("Non-finite TEI rerank score")
+                message = "Non-finite TEI rerank score"
+                raise ValueError(message)
 
             scores[index] = score
 
         if len(scores) != count:
-            raise ValueError("Incomplete TEI rerank response")
+            message = "Incomplete TEI rerank response"
+            raise ValueError(message)
 
         return [scores[index] for index in range(count)]

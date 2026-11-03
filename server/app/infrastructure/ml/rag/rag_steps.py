@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import replace
 import logging
@@ -10,8 +9,6 @@ import time
 from typing import TYPE_CHECKING, Any, cast
 import uuid
 
-from application.chat.ports import PIIRedactorPort
-from application.ports.ml_clients import MLClientPort
 from application.rag.dto import (
     CompletedAnswer,
     ContextBudget,
@@ -20,7 +17,6 @@ from application.rag.dto import (
     RagRequest,
     RetrievalResult,
     SanitizedAnswer,
-    SourceMetadata,
     Sufficiency,
     TerminalResponse,
 )
@@ -34,9 +30,7 @@ from domain.rag.classification import (
     classify_question_breadth,
     is_out_of_domain,
 )
-from domain.rag.context import RagContext
 from domain.rag.exceptions import ContextBudgetExceededError
-from domain.rag.ports import ChunkRetrievalRepository
 from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.domain_profile.answer_policy import classify_query_domain
 from infrastructure.metrics.metrics import (
@@ -102,12 +96,21 @@ from shared import request_id_ctx
 
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable
+
     from langchain_core.messages import BaseMessage
+    from langchain_core.prompts import ChatPromptTemplate
     from langchain_core.runnables import Runnable
 
+    from application.chat.ports import PIIRedactorPort
     from application.documents import DocumentAccessPort
-    from application.ports.ml_clients import LLMMessagePort
+    from application.ports.ml_clients import LLMMessagePort, MLClientPort
+    from application.rag.dto import (
+        SourceMetadata,
+    )
     from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.rag.context import RagContext
+    from domain.rag.ports import ChunkRetrievalRepository
 
 
 MIN_HISTORY_CHARS = 3
@@ -138,10 +141,13 @@ class RagOperations:
             stack.enter_context(
                 evidence_profile_scope(EVIDENCE_PROFILES[get_request_settings().evidence_profile])
             )
+
             if isinstance(self.ml, MLClientRegistry):
                 await stack.enter_async_context(self.ml.corpus_operation())
+
             if isinstance(self.ml, MLClientRegistry):
                 await stack.enter_async_context(self.ml.request_operation())
+
             yield
 
     @staticmethod
@@ -169,9 +175,11 @@ class RagOperations:
 
     def request(self, question: str, history: list[Any], ctx: RagContext) -> RagRequest:
         req_id = request_id_ctx.get("")
+
         if not req_id:
             req_id = uuid.uuid4().hex[:12]
             request_id_ctx.set(req_id)
+
         return RagRequest(
             question,
             message_values(history_to_messages(self.prepare_history_dicts(history))),
@@ -188,6 +196,7 @@ class RagOperations:
     async def condense(self, request: RagRequest) -> PreparedQuery:
         t0 = time.monotonic()
         query = request.question
+
         if request.settings.features.condense_enabled:
             query = await condense_question(
                 cast("Runnable[Any, BaseMessage]", self.ml.fast_llm()),
@@ -195,6 +204,7 @@ class RagOperations:
                 lc_messages(request.history),
                 ml_clients=self.ml,
             )
+
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
         capture_prepared_query(query)
         return PreparedQuery(request, query)
@@ -203,20 +213,25 @@ class RagOperations:
         request = query.request
         scanner = InputScanner()
         verdict = scanner.scan(request.question)
+
         for message in request.history:
             hist = scanner.scan(message.content)
+
             if hist.blocked:
                 log.warning("Injection detected in history message: %s", hist.reason)
                 verdict = hist
                 break
+
         if verdict.blocked:
             log.warning("Input injection blocked [request_id=%s]: %s", request.request_id, verdict.reason)
             capture_completion("input_safety")
             return self.empty_response(request)
+
         if verdict.flagged:
             log.info(
                 "Input injection flagged (allowed) [request_id=%s]: %s", request.request_id, verdict.reason
             )
+
         return None
 
     def empty_response(self, request: RagRequest) -> TerminalResponse:
@@ -226,20 +241,24 @@ class RagOperations:
 
     async def lookup(self, query: PreparedQuery) -> PreparedQuery | TerminalResponse:
         request = query.request
+
         if active_evidence.get() is not None or not request.settings.features.cache_enabled:
             return query
+
         revision = await get_corpus_revision()
+
         if revision is None:
             return query
+
         # Cache identity uses the same normalized history and request scope as retrieval.
         query = replace(query, cache_revision=revision)
         q_hash, vis_hash = CacheKeyBuilder.build(query, self.domain_keys, self.domain_registry)
         query = replace(query, q_hash=q_hash, vis_hash=vis_hash, cache_revision=revision)
         cached = await check_cache(request.settings, q_hash, vis_hash, revision)
-        if cached is not None:
-            if not await cache_is_accessible(cached, self.document_access, request.ctx.to_user_context()):
-                RAG_CACHE_MISSES_TOTAL.inc()
-                return query
+
+        if cached is not None and await cache_is_accessible(
+            cached, self.document_access, request.ctx.to_user_context()
+        ):
             return TerminalResponse(
                 tuple(
                     [
@@ -254,6 +273,10 @@ class RagOperations:
                     ]
                 )
             )
+
+        if cached is not None:
+            RAG_CACHE_MISSES_TOTAL.inc()
+
         return query
 
     def retrieval_work(self, prepared: PreparedQuery, result: RetrievalResult | None = None) -> RetrievalWork:
@@ -287,6 +310,7 @@ class RagOperations:
             history_messages=lc_messages(request.history),
             query_for_search=prepared.query,
         )
+
         if result is not None:
             work.breadth = result.breadth
             work.fetch_k = result.fetch_k
@@ -298,12 +322,14 @@ class RagOperations:
             work.docs = lc_documents(result.documents)
             work.sub_queries = list(result.sub_queries)
             work.enumerate_cases = result.enumerate_cases
+
         return work
 
     async def retrieve(
         self, query: PreparedQuery, previous: RetrievalResult | None = None
     ) -> RetrievalResult:
         work = self.retrieval_work(query, previous)
+
         if previous is None:
             raw = (
                 work.ctx.depth
@@ -323,9 +349,13 @@ class RagOperations:
                 if self.domain_registry is not None
                 else classify_query_domain(query.query)
             )
+
         await RetrievalPipeline(self.ml, self.chunk_search, self.document_access).run(query.query, work)
+
         if work.breadth is None:
-            raise ValueError("Retrieval breadth is required")
+            message = "Retrieval breadth is required"
+            raise ValueError(message)
+
         return RetrievalResult(
             query,
             work.breadth,
@@ -348,6 +378,7 @@ class RagOperations:
             RAG_RELEVANCE_GATE_TOTAL.labels(result="out_of_domain").inc()
             capture_completion("out_of_domain")
             return self.empty_response(result.prepared.request)
+
         return None
 
     async def relevant(self, result: RetrievalResult) -> bool:
@@ -363,8 +394,10 @@ class RagOperations:
         t0 = time.monotonic()
         assessment = await assess_sufficiency(result.prepared.query, lc_documents(result.documents), self.ml)
         RAG_STAGE_DURATION.labels("sufficiency_assess").observe(time.monotonic() - t0)
+
         if assessment.is_sufficient:
             log.info("Self-RAG: context deemed sufficient despite relevance gate rejection")
+
         return Sufficiency(assessment.is_sufficient, assessment.suggested_refinement)
 
     def retry(self, refinement: str) -> None:
@@ -391,23 +424,22 @@ class RagOperations:
         self, result: RetrievalResult, token_counter: Callable[[list[BaseMessage]], int] | None = None
     ) -> PreparedContext:
         state = self.retrieval_work(result.prepared, result)
-        domain_keys = self.domain_keys
-        ctx = state.ctx
 
         if state.breadth is None:
-            raise ValueError("state.breadth must be set before building context")
+            message = "state.breadth must be set before building context"
+            raise ValueError(message)
 
         effective_breadth = Breadth.BROAD if state.enumerate_cases else state.breadth
 
         domain_addendum = domain_prompt_addendum(
             state.query_domain,
-            ctx,
-            domain_keys,
+            state.ctx,
+            self.domain_keys,
             self.domain_registry,
         )
         prompt = build_prompt(
             effective_breadth,
-            summary=ctx.summary,
+            summary=state.ctx.summary,
             domain_addendum=domain_addendum,
             enumerate_cases=state.enumerate_cases,
             question=state.question,
@@ -426,20 +458,7 @@ class RagOperations:
         count_tokens = token_counter or estimate_message_tokens
         history = list(state.history_messages)
 
-        while True:
-            base_messages = format_generation_messages(
-                prompt, context="", history=history, question=state.question
-            )
-            max_context_tokens = num_ctx - num_predict - count_tokens(base_messages)
-
-            if max_context_tokens > 0:
-                break
-
-            if not history:
-                raise ContextBudgetExceededError()
-
-            # Drop oldest complete user/assistant turns, preserving recent context.
-            history = history[2:]
+        history = fit_base_history(prompt, history, state.question, num_ctx - num_predict, count_tokens)
 
         input_budget = num_ctx - num_predict
 
@@ -467,14 +486,14 @@ class RagOperations:
                     continue
 
                 capture_prompt(state.docs, [], context, exclusions=exclusions, status="prepared")
-                raise ContextBudgetExceededError()
+                raise ContextBudgetExceededError
 
             messages = format_generation_messages(
                 prompt, context=context, history=history, question=state.question
             )
 
             if count_tokens(messages) > input_budget:
-                raise ContextBudgetExceededError()
+                raise ContextBudgetExceededError
 
             grounded_answer, evidence_assessment = active_evidence_profile.get().scoped_response(
                 selected, context, state.question
@@ -519,30 +538,12 @@ class RagOperations:
         answer_parts: list[str] = []
         last_chunk = None
 
-        breaker = get_breaker("llm_generate")
-
         if context.grounded_answer is not None:
             capture_prompt_delivery(sent=False)
             capture_completion("grounded_response")
             answer_parts.append(context.grounded_answer)
         else:
-            breaker.check_open()
-            capture_prompt_delivery(sent=True)
-            async with self.ml.generation_semaphore:
-                try:
-                    async for chunk in self.ml.llm_for_breadth(effective_breadth).astream(messages):
-                        last_chunk = chunk
-                        text = chunk.content
-                        if not isinstance(text, str):
-                            message = "Generation model returned non-text content"
-                            raise TypeError(message)  # noqa: TRY301 — breaker reports every generation failure.
-
-                        if text:
-                            answer_parts.append(text)
-                except Exception:
-                    await breaker.report_failure()
-                    raise
-                await breaker.report_success()
+            answer_parts, last_chunk = await self.collect_generation(messages, effective_breadth)
 
         RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
@@ -568,6 +569,7 @@ class RagOperations:
                 )
 
         usage_report = None
+
         if last_chunk is not None:
             input_tokens, output_tokens = extract_usage_from_langchain(last_chunk)
             model_name = request.model
@@ -577,9 +579,32 @@ class RagOperations:
             usage_report = UsageReport(
                 input_tokens=input_tokens, output_tokens=output_tokens, model=model_name, operation="generate"
             )
+
         return SanitizedAnswer(
             context, full_answer, usage_report, round(time.monotonic() - t0, 4) if full_answer else None
         )
+
+    async def collect_generation(
+        self, messages: list[BaseMessage], breadth: Breadth
+    ) -> tuple[list[str], LLMMessagePort | None]:
+        answer_parts: list[str] = []
+        last_chunk: LLMMessagePort | None = None
+        breaker = get_breaker("llm_generate")
+        breaker.check_open()
+        capture_prompt_delivery(sent=True)
+        async with self.ml.generation_semaphore:
+            try:
+                async for chunk in self.ml.llm_for_breadth(breadth).astream(messages):
+                    last_chunk = chunk
+                    text = generation_chunk_text(chunk)
+
+                    if text:
+                        answer_parts.append(text)
+            except Exception:
+                await breaker.report_failure()
+                raise
+            await breaker.report_success()
+        return answer_parts, last_chunk
 
     def finalize(self, answer: SanitizedAnswer) -> CompletedAnswer:
         context = answer.context
@@ -616,6 +641,7 @@ class RagOperations:
     async def store(self, completed: CompletedAnswer) -> None:
         result = completed.answer.context.retrieval
         query = result.prepared
+
         if (
             active_evidence.get() is None
             and query.request.settings.features.cache_enabled
@@ -627,7 +653,7 @@ class RagOperations:
                 query.q_hash,
                 query.vis_hash,
                 completed.answer.text,
-                [dict(source) for source in completed.sources],
+                sources=[dict(source) for source in completed.sources],
                 expected_revision=query.cache_revision,
             )
 
@@ -637,3 +663,32 @@ def capture_generation_finish(last_chunk: LLMMessagePort | None) -> None:
         metadata = getattr(last_chunk, "response_metadata", None)
         reason = metadata.get("finish_reason") if isinstance(metadata, dict) else None
         capture_prompt_delivery(sent=True, finish_reason=reason if isinstance(reason, str) else None)
+
+
+def fit_base_history(
+    prompt: ChatPromptTemplate,
+    history: list[BaseMessage],
+    question: str,
+    input_budget: int,
+    count_tokens: Callable[[list[BaseMessage]], int],
+) -> list[BaseMessage]:
+    while True:
+        base_messages = format_generation_messages(prompt, context="", history=history, question=question)
+        max_context_tokens = input_budget - count_tokens(base_messages)
+
+        if max_context_tokens > 0:
+            return history
+
+        if not history:
+            raise ContextBudgetExceededError
+
+        # Drop oldest complete user/assistant turns, preserving recent context.
+        history = history[2:]
+
+
+def generation_chunk_text(chunk: LLMMessagePort) -> str:
+    if not isinstance(chunk.content, str):
+        message = "Generation model returned non-text content"
+        raise TypeError(message)
+
+    return chunk.content

@@ -1,57 +1,74 @@
 """Document citations and regressions from the RAG pipeline review."""
 
-from domain.identity.user_context import UserContext
+from __future__ import annotations
+
 import asyncio
 from dataclasses import replace
 from datetime import date
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import fakeredis.aioredis
 import httpx
-import pytest
-import pytest_asyncio
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableLambda
+import pytest
+import pytest_asyncio
 
 from application.chat import ConversationService
-from domain.rag.exceptions import ContextBudgetExceededError
-from domain.rag.context import RagContext
-from domain.identity.user_context import CuratorScope
-from domain.rag.breadth import Breadth
+from application.rag.dto import PreparedQuery
+from composition.service_providers import create_rag_service
+from config import settings
 from domain.chat.message import MessageRole
 from domain.identity.roles import UserKind, UserRole
-from infrastructure.ml.cache import answers as answer_cache
-from infrastructure.ml.cache import keys as cache_keys
+from domain.identity.user_context import CuratorScope, UserContext
+from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
+from domain.rag.breadth import Breadth
+from domain.rag.context import RagContext
+from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.domain_profile.answer_policy import policy_for
+from infrastructure.ml.cache import answers as answer_cache, keys as cache_keys
+from infrastructure.ml.cache.answers import compute_question_hash
 from infrastructure.ml.clients.tei_clients import TEIRerankerClient
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
+from infrastructure.ml.rag.rag_prompts import update_rolling_summary
 from infrastructure.ml.rag.rag_relevance import filter_cited_documents
 from infrastructure.ml.rag.rag_reranking import rerank_documents
 from infrastructure.ml.rag.rag_sources import extract_sources
-from rag_stage_fixtures import (
+from infrastructure.redis.redis_client import redis_client
+from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+from tests.fakes import FakeUnitOfWorkFactory
+from tests.rag_stage_fixtures import (
     build_context as step_build_context,
     check_cache as step_check_cache,
     reject_ood as step_reject_ood,
+    stage_fixture,
 )
-from application.rag.dto import PreparedQuery
-from rag_stage_fixtures import stage_fixture
-from composition.service_providers import create_rag_service
-from fakes import FakeUnitOfWorkFactory
-from test_rag_pipeline import _make_rag
+from tests.test_chunk_service import _make_service, _make_uow
+from tests.test_rag_pipeline import make_rag
 
 
-def doc(text, document_id, source="same.pdf"):
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from langchain_core.prompt_values import PromptValue
+
+    from infrastructure.ml.rag.rag_steps import RagOperations
+
+
+def doc(text: str, document_id: int, source: str = "same.pdf") -> Document:
     return Document(page_content=text, metadata={"document_id": document_id, "source": source})
 
 
-def state_for(docs, **kwargs):
+def state_for(docs: list[tuple[Document, float]], **kwargs: Any) -> SimpleNamespace:
     ctx = kwargs.pop(
         "ctx", RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER))
     )
     return stage_fixture(
-        rag=kwargs.pop("rag", _make_rag()),
+        rag=kwargs.pop("rag", make_rag()),
         t_pipeline_start=0,
         question=kwargs.pop("question", "Как оформить договор?"),
         ctx=ctx,
@@ -64,7 +81,7 @@ def state_for(docs, **kwargs):
     )
 
 
-def test_prompt_groups_fragments_by_document_and_sources_keep_the_same_numbers():
+def test_prompt_groups_fragments_by_document_and_sources_keep_the_same_numbers() -> None:
     docs = [
         (doc("First condition", 10), 0.9),
         (doc("Other document", 20), 0.95),
@@ -84,7 +101,7 @@ def test_prompt_groups_fragments_by_document_and_sources_keep_the_same_numbers()
     assert filter_cited_documents("Условие согласно [999].", selected) == []
 
 
-def test_source_identity_does_not_merge_same_basename_without_document_ids():
+def test_source_identity_does_not_merge_same_basename_without_document_ids() -> None:
     docs = [
         Document(page_content="A", metadata={"source": "a/rules.pdf"}),
         Document(page_content="B", metadata={"source": "b/rules.pdf"}),
@@ -96,10 +113,12 @@ def test_source_identity_does_not_merge_same_basename_without_document_ids():
 
 
 @pytest.mark.asyncio
-async def test_tei_sorted_response_selects_the_actually_relevant_document(monkeypatch):
+async def test_tei_sorted_response_selects_the_actually_relevant_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     real_client = httpx.AsyncClient
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=[{"index": 1, "score": 0.99}, {"index": 0, "score": 0.01}])
+        lambda _request: httpx.Response(200, json=[{"index": 1, "score": 0.99}, {"index": 0, "score": 0.01}])
     )
     monkeypatch.setattr(
         httpx, "AsyncClient", lambda **kwargs: real_client(**{**kwargs, "transport": transport})
@@ -122,12 +141,14 @@ async def test_tei_sorted_response_selects_the_actually_relevant_document(monkey
         [{"index": 0, "score": float("nan")}, {"index": 1, "score": 0.5}],
     ],
 )
-def test_tei_malformed_response_fails_instead_of_misranking(response):
-    with pytest.raises(ValueError):
+def test_tei_malformed_response_fails_instead_of_misranking(
+    response: list[dict[str, int | float]] | list[dict[str, int] | dict[str, int | float]],
+) -> None:
+    with pytest.raises(ValueError, match="TEI rerank"):
         TEIRerankerClient.ordered_scores(response, 2)
 
 
-def test_complete_prompt_budget_trims_old_history_and_keeps_summary():
+def test_complete_prompt_budget_trims_old_history_and_keeps_summary() -> None:
     ctx = RagContext(
         user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
         summary="Заказчик — организация.",
@@ -146,13 +167,13 @@ def test_complete_prompt_budget_trims_old_history_and_keeps_summary():
     assert not state.history_messages
 
 
-def test_prompt_does_not_force_context_into_an_exhausted_window():
-    state = state_for([(doc("Evidence", 1), 0.9)], rag=_make_rag(llm_num_ctx_narrow=512))
+def test_prompt_does_not_force_context_into_an_exhausted_window() -> None:
+    state = state_for([(doc("Evidence", 1), 0.9)], rag=make_rag(llm_num_ctx_narrow=512))
     with pytest.raises(ContextBudgetExceededError):
         step_build_context(state, None)
 
 
-def test_exact_token_counter_is_applied_to_the_complete_formatted_prompt():
+def test_exact_token_counter_is_applied_to_the_complete_formatted_prompt() -> None:
     state = state_for([(doc("Evidence", 1), 0.9)])
     counter = MagicMock(return_value=state.rag.llm_num_ctx_narrow)
     with pytest.raises(ContextBudgetExceededError):
@@ -162,15 +183,17 @@ def test_exact_token_counter_is_applied_to_the_complete_formatted_prompt():
     assert len(messages[0].content) > 1000
 
 
-def test_all_search_paths_can_receive_the_full_curator_snapshot():
+def test_all_search_paths_can_receive_the_full_curator_snapshot() -> None:
     scope = CuratorScope(managed_internal_ids=(10,), managed_group_ids=(20,), managed_client_ids=(30,))
     ctx = RagContext(
         user=UserContext(
-            user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.CURATOR, group_ids=[2]
+            user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.CURATOR, group_ids=(2,)
         ).with_curator_scope(scope)
     )
     service = create_rag_service(MagicMock(), document_access=MagicMock())
-    state = service.preparation.retrieval_work(PreparedQuery(service.preparation.request("Q", [], ctx), "Q"))
+    state = cast("RagOperations", service.preparation).retrieval_work(
+        PreparedQuery(service.preparation.request("Q", [], ctx), "Q")
+    )
     assert state.user.group_ids == (2,)
     assert state.user.managed_internal_ids == (10,)
     assert state.user.managed_group_ids == (20,)
@@ -178,16 +201,17 @@ def test_all_search_paths_can_receive_the_full_curator_snapshot():
 
 
 @pytest.mark.asyncio
-async def test_topic_hint_does_not_override_document_evidence():
+async def test_topic_hint_does_not_override_document_evidence() -> None:
     state = state_for(
         [(doc("Алгоритм согласования договора", 1), 0.9)], query_for_search="Algorithm for LeetCode problem"
     )
     state, events = await step_reject_ood(state)
-    assert not state.terminal and events is None
+    assert not state.terminal
+    assert events is None
 
 
 @pytest.mark.asyncio
-async def test_summary_bootstrap_includes_the_history_before_it_leaves_the_window():
+async def test_summary_bootstrap_includes_the_history_before_it_leaves_the_window() -> None:
     factory = FakeUnitOfWorkFactory()
     async with factory.create(master=True) as uow:
         conv = await uow.conversations.create(1)
@@ -199,6 +223,7 @@ async def test_summary_bootstrap_includes_the_history_before_it_leaves_the_windo
         {"role": MessageRole.USER, "content": "Initial constraints"},
         {"role": MessageRole.ASSISTANT, "content": "Initial answer"},
     ]
+    assert conv.id is not None
     await service.update_rolling_summary(conv.id, "Q", "A", history)
     await asyncio.gather(*service._background_tasks)
     turns = updater.update.await_args.args[1]
@@ -209,18 +234,18 @@ async def test_summary_bootstrap_includes_the_history_before_it_leaves_the_windo
 
 
 @pytest.mark.asyncio
-async def test_long_summary_input_preserves_tails_and_batches_within_the_window(monkeypatch):
-    from langchain_core.runnables import RunnableLambda
-    from config import settings
-    from infrastructure.ml.rag.rag_prompts import update_rolling_summary
+async def test_long_summary_input_preserves_tails_and_batches_within_the_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
     monkeypatch.setattr(settings, "llm_num_ctx_narrow", 1024)
     monkeypatch.setattr(settings, "llm_num_predict_narrow", 400)
     calls = []
 
-    async def summarize(prompt):
+    async def summarize(prompt: PromptValue) -> AIMessage:
         messages = prompt.to_messages()
         assert estimate_message_tokens(messages) <= 624
+        assert isinstance(messages[-1].content, str)
         calls.append(messages[-1].content)
         return AIMessage(content="Краткое резюме.")
 
@@ -236,9 +261,9 @@ async def test_long_summary_input_preserves_tails_and_batches_within_the_window(
 
 
 @pytest_asyncio.fixture
-async def cache_redis(monkeypatch):
+async def cache_redis(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[fakeredis.aioredis.FakeRedis]:
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(answer_cache.redis_client, "_redis", redis)
+    monkeypatch.setattr(redis_client, "_redis", redis)
     try:
         yield redis
     finally:
@@ -246,30 +271,33 @@ async def cache_redis(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_late_generation_cannot_repopulate_cache_after_document_mutation(cache_redis):
+async def test_late_generation_cannot_repopulate_cache_after_document_mutation(
+    cache_redis: fakeredis.aioredis.FakeRedis,
+) -> None:
     revision = await answer_cache.get_corpus_revision()
     await answer_cache.store_cached_answer(
-        "Q", "old-key", "old answer", [], "scope", [1], expected_revision=revision
+        "Q", "old-key", "old answer", [], "scope", document_ids=[1], expected_revision=revision
     )
     await answer_cache.invalidate_by_document_ids([1])
     await answer_cache.store_cached_answer(
-        "Q", "old-key", "late old answer", [], "scope", [1], expected_revision=revision
+        "Q", "old-key", "late old answer", [], "scope", document_ids=[1], expected_revision=revision
     )
     assert await answer_cache.find_cached_answer("old-key", "scope") is None
     current = await answer_cache.get_corpus_revision()
     await answer_cache.store_cached_answer(
-        "Q", "new-key", "new answer", [], "scope", [1], expected_revision=current
+        "Q", "new-key", "new answer", [], "scope", document_ids=[1], expected_revision=current
     )
-    assert (await answer_cache.find_cached_answer("new-key", "scope", expected_revision=current))[
-        "answer"
-    ] == "new answer"
+    cached = await answer_cache.find_cached_answer("new-key", "scope", expected_revision=current)
+    assert cached is not None
+    assert cached["answer"] == "new answer"
 
 
 @pytest.mark.asyncio
-async def test_new_documents_and_config_changes_make_old_answers_miss(cache_redis, monkeypatch):
-    from config import settings
+async def test_new_documents_and_config_changes_make_old_answers_miss(
+    cache_redis: fakeredis.aioredis.FakeRedis, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
-    rag = _make_rag()
+    rag = make_rag()
     rag = replace(rag, features=replace(rag.features, cache_enabled=True))
     first = state_for([], rag=rag, query_for_search="Q")
     await step_check_cache(first)
@@ -280,7 +308,8 @@ async def test_new_documents_and_config_changes_make_old_answers_miss(cache_redi
     await answer_cache.invalidate_by_document_ids([999], cache_enabled=False)
     second = state_for([], rag=rag, query_for_search="Q")
     await step_check_cache(second)
-    assert first.q_hash != second.q_hash and not second.terminal
+    assert first.q_hash != second.q_hash
+    assert not second.terminal
     monkeypatch.setattr(settings, "llm_model", "changed-model")
     third = state_for([], rag=rag, query_for_search="Q")
     await step_check_cache(third)
@@ -289,32 +318,32 @@ async def test_new_documents_and_config_changes_make_old_answers_miss(cache_redi
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method", ["add_chunk", "edit_chunk", "delete_chunk"])
-async def test_chunk_mutations_invalidate_answers_after_the_database_transaction(method):
-    from test_chunk_service import _make_service, _make_uow
+async def test_chunk_mutations_invalidate_answers_after_the_database_transaction(method: str) -> None:
 
     uow = _make_uow()
     invalidator = SimpleNamespace(invalidate_by_document_ids=AsyncMock())
     service = _make_service(uow, cache_invalidator=invalidator)
-    transaction = service._uow_factory.create.return_value
+    transaction = cast("MagicMock", service._uow_factory.create).return_value
 
-    async def invalidate(document_ids):
+    async def invalidate(document_ids: list[int]) -> None:
         transaction.__aexit__.assert_awaited_once()
         assert document_ids == [1]
 
     invalidator.invalidate_by_document_ids.side_effect = invalidate
     params = {"document_id": 1, "user_id": 1, "user_role": UserRole.ADMIN}
+
     if method != "delete_chunk":
         params["content"] = "Условия обработки документа. " * 10
+
     if method != "add_chunk":
         params["chunk_id"] = 10
+
     await getattr(service, method)(**params)
     invalidator.invalidate_by_document_ids.assert_awaited_once_with([1])
 
 
 @pytest.mark.asyncio
-async def test_cache_invalidation_failure_keeps_outbox_pending_for_retry():
-    from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
-    from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+async def test_cache_invalidation_failure_keeps_outbox_pending_for_retry() -> None:
 
     factory = FakeUnitOfWorkFactory()
     async with factory.create(master=True) as uow:
@@ -323,29 +352,32 @@ async def test_cache_invalidation_failure_keeps_outbox_pending_for_retry():
                 operation=OutboxOperation.DELETE_CHUNKS, aggregate_id=42, payload={"chunk_ids": [7]}
             )
         )
+    assert entry.id is not None
     vector_store = AsyncMock()
     invalidator = SimpleNamespace(invalidate_by_document_ids=AsyncMock(side_effect=[OSError("offline"), 1]))
     dispatcher = OutboxDispatcher(factory, vector_store, invalidator)
     assert await dispatcher.run_once() == 1
     async with factory.create() as uow:
-        assert uow.vector_outbox._entries[entry.id].status == OutboxStatus.FAILED
+        assert uow.fake_vector_outbox._entries[entry.id].status == OutboxStatus.FAILED
     assert await dispatcher.run_once() == 1
     async with factory.create() as uow:
-        assert uow.vector_outbox._entries[entry.id].status == OutboxStatus.DONE
+        assert uow.fake_vector_outbox._entries[entry.id].status == OutboxStatus.DONE
     assert vector_store.delete_by_ids.await_count == 2
     assert invalidator.invalidate_by_document_ids.await_count == 2
 
 
 @pytest.mark.asyncio
-async def test_split_answer_policies_preserve_cache_prompt_scope(cache_redis, monkeypatch):
-    rag = _make_rag()
+async def test_split_answer_policies_preserve_cache_prompt_scope(
+    cache_redis: fakeredis.aioredis.FakeRedis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rag = make_rag()
     rag = replace(rag, features=replace(rag.features, cache_enabled=True))
     state = state_for([], rag=rag, query_for_search="Q")
     state.ctx = replace(state.ctx, as_of_date=date(2026, 1, 1))
     contexts = []
-    original_hash = cache_keys.compute_question_hash
+    original_hash = compute_question_hash
 
-    def capture_hash(question, *, context):
+    def capture_hash(question: str, *, context: dict[str, Any]) -> str:
         contexts.append(context)
         return original_hash(question, context=context)
 

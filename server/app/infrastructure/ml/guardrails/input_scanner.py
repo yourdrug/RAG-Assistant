@@ -6,8 +6,8 @@ from the RAG pipeline before text reaches the LLM.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
+import logging
 
 from domain.rag.guardrails.injection import (
     detect_injection,
@@ -15,6 +15,7 @@ from domain.rag.guardrails.injection import (
     has_flagged_injection,
     normalize_unicode,
 )
+
 
 log = logging.getLogger("default")
 

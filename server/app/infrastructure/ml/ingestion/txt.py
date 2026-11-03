@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 # Tried in order. utf-8-sig first so a BOM doesn't leak into the text as a
 # literal character. cp1251/cp1252 cover the common legacy encodings for
@@ -30,6 +35,6 @@ def _read_text_robust(file_path: Path) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def parse_txt(file_path: Path) -> tuple[str, dict]:
+def parse_txt(file_path: Path) -> tuple[str, dict[str, Any]]:
     """Parse TXT and return (text, metadata)."""
     return _read_text_robust(file_path), {}

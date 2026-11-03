@@ -1,7 +1,9 @@
 """PostgreSQL round trips and migration contracts for chunk interpretation metadata."""
 
-from domain.knowledge.repositories.chunk import ChunkInsertOptions
+from __future__ import annotations
+
 import asyncio
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import text
@@ -9,22 +11,35 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from domain.knowledge.chunk import ChunkInsert
-from domain.knowledge.enums import DocDomain
-from domain.knowledge.enums import DocumentStatus
 from domain.identity.roles import UserKind, UserRole
-from domain.knowledge.enums import SearchMode
 from domain.identity.user_context import UserContext
-from domain.knowledge.enums import DocumentVisibility
-from infrastructure.database.models import DocumentModel, UserModel
+from domain.knowledge.chunk import ChunkInsert
+from domain.knowledge.enums import (
+    DocDomain,
+    DocumentStatus,
+    DocumentVisibility,
+    SearchMode,
+)
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from infrastructure.database.database import DatabaseManager
+from infrastructure.database.models import DocumentModel, UserModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.uow_factory import UnitOfWorkFactory
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+
+TEST_HASH = "test"
+
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-async def test_document_index_lock_serializes_factories_and_releases_after_error(pg_engine):
+async def test_document_index_lock_serializes_factories_and_releases_after_error(
+    pg_engine: AsyncEngine,
+) -> None:
     database = DatabaseManager()
     database.async_master_connection_engine = create_async_engine(
         pg_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
@@ -32,13 +47,14 @@ async def test_document_index_lock_serializes_factories_and_releases_after_error
     first, second = UnitOfWorkFactory(database), UnitOfWorkFactory(database)
     acquired = asyncio.Event()
 
-    async def competing_upload():
+    async def competing_upload() -> None:
         async with second.document_index_lock(1):
             acquired.set()
 
-    async def failing_upload(group):
+    async def failing_upload(group: asyncio.TaskGroup) -> None:
         async with first.document_index_lock(1):
-            group.create_task(competing_upload())
+            competing = group.create_task(competing_upload())
+            assert not competing.done()
             with pytest.raises(TimeoutError):
                 await asyncio.wait_for(acquired.wait(), timeout=0.1)
             async with second.document_index_lock(2):
@@ -55,7 +71,7 @@ async def test_document_index_lock_serializes_factories_and_releases_after_error
         await database.async_master_connection_engine.dispose()
 
 
-async def test_batch_chunk_read_uses_committed_content_and_document_scope(pg_engine):
+async def test_batch_chunk_read_uses_committed_content_and_document_scope(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
         documents = [
@@ -89,7 +105,7 @@ async def test_batch_chunk_read_uses_committed_content_and_document_scope(pg_eng
         assert await repository.get_by_ids(document_id, []) == []
 
 
-async def test_context_round_trip_and_unauthorized_search(pg_engine):
+async def test_context_round_trip_and_unauthorized_search(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     context = {
         "parent_units": [{"content": "Only new applications are eligible."}],
@@ -102,7 +118,7 @@ async def test_context_round_trip_and_unauthorized_search(pg_engine):
         users = [
             UserModel(
                 email=f"user-{i}@example.org",
-                hashed_password="test",
+                hashed_password=TEST_HASH,
                 role=UserRole.USER.value,
                 kind=UserKind.INTERNAL.value,
             )
@@ -136,16 +152,19 @@ async def test_context_round_trip_and_unauthorized_search(pg_engine):
     async with sessions() as session:
         repository = SQLAlchemyChunkRepository(session)
         saved = await repository.get_by_id(ids[0])
+        assert saved is not None
         assert saved.context_metadata == context
         matches = await repository.search_substring("passport", allowed, mode=SearchMode.ICONTAINS.value)
-        assert len(matches) == 1 and matches[0].context_metadata == context
+        assert len(matches) == 1
+        assert matches[0].context_metadata == context
         neighbors = await repository.get_neighbors(doc.id, 0, user=allowed)
-        assert len(neighbors) == 1 and neighbors[0].context_metadata == context
+        assert len(neighbors) == 1
+        assert neighbors[0].context_metadata == context
         assert await repository.search_substring("passport", denied, mode=SearchMode.ICONTAINS.value) == []
         assert await repository.get_neighbors(doc.id, 0, user=denied) == []
 
 
-async def test_context_default_and_object_constraint(pg_engine):
+async def test_context_default_and_object_constraint(pg_engine: AsyncEngine) -> None:
 
     async with pg_engine.begin() as conn:
         doc_id = (

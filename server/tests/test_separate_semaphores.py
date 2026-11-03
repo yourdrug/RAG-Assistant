@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from pathlib import Path
+import sys
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -17,73 +18,85 @@ class TestSeparateSemaphores:
     """Verify generation and auxiliary semaphores are independent."""
 
     @pytest.mark.asyncio
-    async def test_generation_semaphore_permits(self):
+    async def test_generation_semaphore_permits(self) -> None:
         """Generation semaphore allows expected number of concurrent acquires."""
         reg = MLClientRegistry()
         sem = reg.generation_semaphore
         acquired = []
+
         for _ in range(12):
             await sem.acquire()
             acquired.append(True)
+
         # 13th acquire should timeout
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(sem.acquire(), timeout=0.05)
+
         for _ in acquired:
             sem.release()
 
     @pytest.mark.asyncio
-    async def test_auxiliary_semaphore_permits(self):
+    async def test_auxiliary_semaphore_permits(self) -> None:
         """Auxiliary semaphore allows expected number of concurrent acquires."""
         reg = MLClientRegistry()
         sem = reg.auxiliary_semaphore
         acquired = []
+
         for _ in range(4):
             await sem.acquire()
             acquired.append(True)
+
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(sem.acquire(), timeout=0.05)
+
         for _ in acquired:
             sem.release()
 
     @pytest.mark.asyncio
-    async def test_embedding_semaphore_permits(self):
+    async def test_embedding_semaphore_permits(self) -> None:
         """Embedding semaphore allows expected number of concurrent acquires."""
         reg = MLClientRegistry()
         sem = reg.embedding_semaphore
         acquired = []
+
         for _ in range(16):
             await sem.acquire()
             acquired.append(True)
+
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(sem.acquire(), timeout=0.05)
+
         for _ in acquired:
             sem.release()
 
     @pytest.mark.asyncio
-    async def test_ingestion_semaphore_permits(self):
+    async def test_ingestion_semaphore_permits(self) -> None:
         """Ingestion semaphore allows expected number of concurrent acquires."""
         reg = MLClientRegistry()
         sem = reg.ingestion_semaphore
         acquired = []
+
         for _ in range(8):
             await sem.acquire()
             acquired.append(True)
+
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(sem.acquire(), timeout=0.05)
+
         for _ in acquired:
             sem.release()
 
-    def test_semaphores_are_different_objects(self):
+    def test_semaphores_are_different_objects(self) -> None:
         reg = MLClientRegistry()
         assert reg.generation_semaphore is not reg.auxiliary_semaphore
         assert reg.embedding_semaphore is not reg.ingestion_semaphore
 
-    def test_semaphore_same_object_on_repeated_access(self):
+    def test_semaphore_same_object_on_repeated_access(self) -> None:
         reg = MLClientRegistry()
         assert reg.generation_semaphore is reg.generation_semaphore
         assert reg.auxiliary_semaphore is reg.auxiliary_semaphore
 
-    def test_semaphore_eagerly_created(self):
+    def test_semaphore_eagerly_created(self) -> None:
         """Semaphores are created in __init__, not lazily."""
         reg = MLClientRegistry()
         assert reg.generation_semaphore is not None
@@ -92,7 +105,7 @@ class TestSeparateSemaphores:
         assert reg.ingestion_semaphore is not None
 
     @pytest.mark.asyncio
-    async def test_independent_concurrency(self):
+    async def test_independent_concurrency(self) -> None:
         """Exhausting auxiliary semaphore does not block generation semaphore."""
         reg = MLClientRegistry()
         gen_sem = reg.generation_semaphore
@@ -100,6 +113,7 @@ class TestSeparateSemaphores:
 
         # Exhaust auxiliary semaphore
         acquired = []
+
         for _ in range(4):
             await aux_sem.acquire()
             acquired.append(True)
@@ -114,7 +128,7 @@ class TestSeparateSemaphores:
             aux_sem.release()
 
     @pytest.mark.asyncio
-    async def test_ingestion_independent_from_embedding(self):
+    async def test_ingestion_independent_from_embedding(self) -> None:
         """Exhausting ingestion semaphore does not block embedding semaphore."""
         reg = MLClientRegistry()
         ing_sem = reg.ingestion_semaphore
@@ -122,6 +136,7 @@ class TestSeparateSemaphores:
 
         # Exhaust ingestion semaphore
         acquired = []
+
         for _ in range(8):
             await ing_sem.acquire()
             acquired.append(True)

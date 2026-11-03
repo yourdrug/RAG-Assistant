@@ -11,7 +11,7 @@ import pytest
 from domain.shared.exceptions import ValidationError
 from infrastructure.corpus.resources import CorpusResources
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
-from infrastructure.ml.cache.answers import _cache_key
+from infrastructure.ml.cache.answers import cache_key
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 
@@ -28,16 +28,16 @@ async def test_nested_owner_and_registry_operations_keep_pair_and_namespace() ->
     old, new = corpus("old"), corpus("new")
     owner.install_corpus(old)
     async with owner.corpus_operation():
-        key = _cache_key("question", "scope")
+        key = cache_key("question", "scope")
         owner.install_corpus(new)
         async with registry.corpus_operation():
             assert registry.qdrant_client() is old
             assert registry.corpus_snapshot == old.snapshot
-            assert _cache_key("question", "scope") == key
+            assert cache_key("question", "scope") == key
         cast("Mock", old.client.close).assert_not_called()
     async with owner.corpus_operation():
         assert owner.qdrant_client() is new
-        assert _cache_key("question", "scope") != key
+        assert cache_key("question", "scope") != key
     await registry.close()
     cast("Mock", old.client.close).assert_called_once()
     cast("Mock", new.client.close).assert_called_once()

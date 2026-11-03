@@ -4,13 +4,8 @@ Focuses on: stemmer and incremental operations (add/remove).
 Core BM25/tokenizer/RRF tests live in test_hybrid_search.py.
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-
-from infrastructure.bm25.stemmer import stem_token  # noqa: E402
-from infrastructure.bm25.bm25_index import BM25Index  # noqa: E402
+from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.bm25.stemmer import stem_token
 
 
 # ---------------------------------------------------------------------------
@@ -19,20 +14,20 @@ from infrastructure.bm25.bm25_index import BM25Index  # noqa: E402
 
 
 class TestStemmer:
-    def test_russian_stemming(self):
+    def test_russian_stemming(self) -> None:
         stemmed = stem_token("маркировка")
         assert len(stemmed) < len("маркировка")
         assert stemmed == "маркировк"
 
-    def test_english_stemming(self):
+    def test_english_stemming(self) -> None:
         stemmed = stem_token("classification")
         assert stemmed == "classifica"
 
-    def test_short_word_not_stemmed(self):
+    def test_short_word_not_stemmed(self) -> None:
         assert stem_token("мир") == "мир"
         assert stem_token("cat") == "cat"
 
-    def test_unknown_language_passthrough(self):
+    def test_unknown_language_passthrough(self) -> None:
         assert stem_token("12345") == "12345"
 
 
@@ -42,14 +37,14 @@ class TestStemmer:
 
 
 class TestBM25Incremental:
-    def test_add_text(self):
+    def test_add_text(self) -> None:
         idx = BM25Index(texts=["hello world"])
         idx.add_text("foo bar baz")
         assert idx.n_docs == 2
         results = idx.search("foo")
         assert len(results) > 0
 
-    def test_remove_text(self):
+    def test_remove_text(self) -> None:
         idx = BM25Index(texts=["hello world", "foo bar"])
         idx.remove_text(0)
         assert idx.n_docs == 1
@@ -57,7 +52,7 @@ class TestBM25Incremental:
         results = idx.search("hello")
         assert len(results) == 0
 
-    def test_serialization_roundtrip_after_mutation(self):
+    def test_serialization_roundtrip_after_mutation(self) -> None:
         idx = BM25Index(texts=["alpha", "bravo"])
         idx.add_text("charlie")
         idx.remove_text(0)

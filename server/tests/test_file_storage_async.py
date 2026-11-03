@@ -1,19 +1,22 @@
 """Async metadata contract and event-loop responsiveness."""
 
+from __future__ import annotations
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from application.ingestion import IngestionRegistry
+from domain.ingestion.raw_document import RawDocument
 
 
 @pytest.mark.asyncio
-async def test_collect_entries_awaits_metadata_and_preserves_hash_and_counts():
+async def test_collect_entries_awaits_metadata_and_preserves_hash_and_counts() -> None:
     info = MagicMock(size_bytes=42, last_modified="2026-01-01T00:00:00+00:00")
     storage = MagicMock(get_file_info=AsyncMock(return_value=info))
     registry = IngestionRegistry(MagicMock(), storage)
     source = "s3://bucket/docs/отчёт.txt"
-    chunks = [MagicMock(metadata={"source": source}) for _ in range(2)]
+    chunks = [RawDocument("text", {"source": source}) for _ in range(2)]
     entries = await registry.collect_entries([], chunks, {source: 80})
     assert entries == {
         "docs/отчёт.txt": {

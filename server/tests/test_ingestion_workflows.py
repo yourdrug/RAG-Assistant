@@ -2,26 +2,30 @@
 
 from __future__ import annotations
 
-import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+import sys
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import pytest
 from langchain.schema import Document
+import pytest
 
-from application.ingestion import BatchIngestionWorkflow
-from application.ingestion import IngestionScope
-from application.ingestion import SingleFileIngestionWorkflow
+from application.ingestion import BatchIngestionWorkflow, IngestionScope, SingleFileIngestionWorkflow
 from domain.knowledge.enums import DocumentVisibility
+
+
+if TYPE_CHECKING:
+    from application.ingestion.dto import RegistryRecord
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("prefix", ["docs/sub/", "other/", "docs/"])
-async def test_empty_reset_prunes_selected_prefix_without_resetting_collection(prefix):
+async def test_empty_reset_prunes_selected_prefix_without_resetting_collection(prefix: str) -> None:
     vector_store = MagicMock(ensure_collection=AsyncMock())
     settings = MagicMock(embed_dim=384)
     loader = MagicMock(load_documents=AsyncMock(return_value=([], 0)))
@@ -35,7 +39,61 @@ async def test_empty_reset_prunes_selected_prefix_without_resetting_collection(p
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [None, "sync"])
-async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
+async def test_batch_workflow_syncs_before_recording_registry_entry(failure: str | None) -> None:
+    workflow, chunk, events, registry = batch_fixture(failure)
+    scope = IngestionScope(
+        visibility=DocumentVisibility.INTERNAL_GROUP,
+        group_id=7,
+        client_id=9,
+    )
+
+    if failure:
+        with pytest.raises(ConnectionError, match=f"{failure} unavailable"):
+            await workflow.run("docs/", reset=False, scope=scope)
+    else:
+        await workflow.run("docs/", reset=False, scope=scope)
+
+    assert chunk.metadata["visibility"] == DocumentVisibility.INTERNAL_GROUP.value
+    assert chunk.metadata["group_id"] == 7
+    assert chunk.metadata["client_id"] == 9
+    assert chunk.metadata["doc_domain"] == "general"
+    assert events == (["sync"] if failure else ["sync", "registry"])
+
+    if failure:
+        registry.persist_entries.assert_not_awaited()
+    else:
+        registry.persist_entries.assert_awaited_once_with(registry.collect_entries.return_value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sync_fails", [False, True])
+async def test_single_file_workflow_syncs_before_recording_registry_entry(sync_fails: bool) -> None:
+    workflow, chunk, events, registry = single_fixture(sync_fails)
+    action = workflow.run(
+        "docs/report.pdf",
+        scope=IngestionScope(visibility=DocumentVisibility.INTERNAL_GROUP, group_id=7, client_id=9),
+    )
+
+    if sync_fails:
+        with pytest.raises(ConnectionError, match="sync unavailable"):
+            await action
+    else:
+        await action
+
+    assert chunk.metadata["visibility"] == DocumentVisibility.INTERNAL_GROUP.value
+    assert chunk.metadata["group_id"] == 7
+    assert chunk.metadata["client_id"] == 9
+    assert events == (["sync"] if sync_fails else ["sync", "registry"])
+
+    if sync_fails:
+        registry.upsert.assert_not_awaited()
+    else:
+        registry.upsert.assert_awaited_once_with(
+            "docs/report.pdf", "42_2026-01-01 00:00:00+00:00", "s3://bucket/docs/report.pdf", 1, chars=11
+        )
+
+
+def batch_fixture(failure: str | None) -> tuple[BatchIngestionWorkflow, Document, list[str], MagicMock]:
     source = "s3://bucket/docs/report.pdf"
     document = Document(page_content="report text", metadata={"source": source})
     chunk = Document(page_content="report text", metadata={"source": source})
@@ -60,50 +118,31 @@ async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
         return_value={"report.pdf": {"hash": "hash", "source": source, "chunks": 1, "chars": 11}}
     )
 
-    async def persist_entries(entries):
+    async def persist_entries(entries: dict[str, RegistryRecord]) -> None:
         events.append("registry")
 
     registry.persist_entries = AsyncMock(side_effect=persist_entries)
     sync = MagicMock()
 
-    async def sync_documents(*args, **kwargs):
+    async def sync_documents(*args: object, **kwargs: Any) -> None:
         events.append("sync")
+
         if failure == "sync":
-            raise ConnectionError("sync unavailable")
+            message = "sync unavailable"
+            raise ConnectionError(message)
 
     sync.sync_documents_to_db = AsyncMock(side_effect=sync_documents)
     workflow = BatchIngestionWorkflow(vector_store, settings, loader, registry, sync=sync)
-    scope = IngestionScope(
-        visibility=DocumentVisibility.INTERNAL_GROUP,
-        group_id=7,
-        client_id=9,
-    )
-    if failure:
-        with pytest.raises(ConnectionError, match=f"{failure} unavailable"):
-            await workflow.run("docs/", reset=False, scope=scope)
-    else:
-        await workflow.run("docs/", reset=False, scope=scope)
-
-    assert chunk.metadata["visibility"] == DocumentVisibility.INTERNAL_GROUP.value
-    assert chunk.metadata["group_id"] == 7
-    assert chunk.metadata["client_id"] == 9
-    assert chunk.metadata["doc_domain"] == "general"
-    assert events == (["sync"] if failure else ["sync", "registry"])
-    if failure:
-        registry.persist_entries.assert_not_awaited()
-    else:
-        registry.persist_entries.assert_awaited_once_with(registry.collect_entries.return_value)
+    return workflow, chunk, events, registry
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("sync_fails", [False, True])
-async def test_single_file_workflow_syncs_before_recording_registry_entry(sync_fails):
+def single_fixture(sync_fails: bool) -> tuple[SingleFileIngestionWorkflow, Document, list[str], MagicMock]:
     file_info = SimpleNamespace(
         key="docs/report.pdf",
         filename="report.pdf",
         extension=".pdf",
         size_bytes=42,
-        last_modified=datetime(2026, 1, 1),
+        last_modified=datetime(2026, 1, 1, tzinfo=UTC),
     )
     document = Document(page_content="report text", metadata={})
     chunk = Document(page_content="report text", metadata={})
@@ -121,37 +160,20 @@ async def test_single_file_workflow_syncs_before_recording_registry_entry(sync_f
     registry.list_all = AsyncMock(return_value={})
     registry.is_indexed = AsyncMock(return_value=False)
 
-    async def upsert(*args, **kwargs):
+    async def upsert(*args: object, **kwargs: Any) -> None:
         events.append("registry")
 
     registry.upsert = AsyncMock(side_effect=upsert)
     sync = MagicMock()
 
-    async def sync_documents(*args, **kwargs):
+    async def sync_documents(*args: object, **kwargs: Any) -> None:
         events.append("sync")
+
         if sync_fails:
-            raise ConnectionError("sync unavailable")
+            message = "sync unavailable"
+            raise ConnectionError(message)
 
     sync.sync_documents_to_db = AsyncMock(side_effect=sync_documents)
 
     workflow = SingleFileIngestionWorkflow(file_storage, loader, registry, sync)
-    action = workflow.run(
-        "docs/report.pdf",
-        scope=IngestionScope(visibility=DocumentVisibility.INTERNAL_GROUP, group_id=7, client_id=9),
-    )
-    if sync_fails:
-        with pytest.raises(ConnectionError, match="sync unavailable"):
-            await action
-    else:
-        await action
-
-    assert chunk.metadata["visibility"] == DocumentVisibility.INTERNAL_GROUP.value
-    assert chunk.metadata["group_id"] == 7
-    assert chunk.metadata["client_id"] == 9
-    assert events == (["sync"] if sync_fails else ["sync", "registry"])
-    if sync_fails:
-        registry.upsert.assert_not_awaited()
-    else:
-        registry.upsert.assert_awaited_once_with(
-            "docs/report.pdf", "42_2026-01-01 00:00:00", "s3://bucket/docs/report.pdf", 1, chars=11
-        )
+    return workflow, chunk, events, registry

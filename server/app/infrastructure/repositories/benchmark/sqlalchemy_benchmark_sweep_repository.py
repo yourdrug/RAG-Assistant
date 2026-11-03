@@ -2,23 +2,32 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep, SweepEvaluationMode
-from domain.shared.exceptions import BusinessRuleViolationError
-from domain.runtime.jobs import BackgroundJobStatus
-from domain.benchmark.sweep import BenchmarkSweepStatus
-from sqlalchemy import delete, or_, func, select, update
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 
+from domain.benchmark.sweep import (
+    BenchmarkStrategy,
+    BenchmarkSweep,
+    BenchmarkSweepStatus,
+    SweepEvaluationMode,
+)
+from domain.runtime.jobs import BackgroundJobStatus
+from domain.shared.exceptions import BusinessRuleViolationError
 from infrastructure.database.models import (
     BENCHMARK_ACTIVE_SWEEP_INDEX,
     BackgroundJobModel,
-    BenchmarkSweepModel,
     BenchmarkCheckpointModel,
+    BenchmarkSweepModel,
 )
+
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SQLAlchemyBenchmarkSweepRepository:
@@ -61,9 +70,8 @@ class SQLAlchemyBenchmarkSweepRepository:
             constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
 
             if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:
-                raise BusinessRuleViolationError(
-                    "Another sweep is pending or running — cancel it or wait for it to finish"
-                ) from exc
+                msg = "Another sweep is pending or running — cancel it or wait for it to finish"
+                raise BusinessRuleViolationError(msg) from exc
 
             raise
         await self._db.refresh(orm)
@@ -78,8 +86,10 @@ class SQLAlchemyBenchmarkSweepRepository:
                 .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
+
         if orm is None:
             return
+
         entity = self.to_entity(orm)
         entity.transition_to(BenchmarkSweepStatus(status))
         orm.status = entity.status.value
@@ -109,7 +119,8 @@ class SQLAlchemyBenchmarkSweepRepository:
             constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
 
             if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:
-                raise BusinessRuleViolationError("Another sweep is already active") from exc
+                msg = "Another sweep is already active"
+                raise BusinessRuleViolationError(msg) from exc
 
             raise
         return result.rowcount == 1

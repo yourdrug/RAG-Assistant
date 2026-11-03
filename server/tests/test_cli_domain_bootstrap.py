@@ -19,7 +19,7 @@ from presentation.cli.commands import ingest
 
 def build_infrastructure(monkeypatch):
     from config import Settings
-    from fakes import FakeUnitOfWorkFactory
+    from tests.fakes import FakeUnitOfWorkFactory
     from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
 

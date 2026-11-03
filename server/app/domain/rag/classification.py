@@ -15,7 +15,7 @@ from domain.shared.exceptions import ValidationError
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
     from datetime import date
 
 
@@ -140,7 +140,7 @@ def needs_decomposition(question: str) -> bool:
 
 
 def should_enumerate_cases(
-    context_texts: list[str | None],
+    context_texts: Sequence[str | None],
 ) -> bool:
     """Detect when context contains multiple conditional/exclusive rules.
 

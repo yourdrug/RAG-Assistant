@@ -2,25 +2,28 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import logging
 import re
-from typing import TYPE_CHECKING
-from collections import Counter
-from pathlib import Path
-
-from infrastructure.ml.ingestion.table_formatting import render_table
-from infrastructure.ml.ingestion.sections import ParsedFormat, Section
-from infrastructure.ml.ingestion.structural_metadata import unit_metadata
-from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
+from typing import TYPE_CHECKING, Any
 
 from striprtf.striprtf import rtf_to_text
+
 from domain.knowledge.enums import PageContentType
-from infrastructure.ml.ingestion.rtf_walker import Segment, Table, _walk_paragraphs
+from infrastructure.ml.ingestion.rtf_walker import _walk_paragraphs
+from infrastructure.ml.ingestion.sections import ParsedFormat, Section
+from infrastructure.ml.ingestion.structural_metadata import unit_metadata
+from infrastructure.ml.ingestion.table_formatting import render_table
+from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
+
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from domain.ingestion.ports import DomainSettingsPort
-    from domain.ingestion.profiles.decree import DecreeDomainProfile
+    from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from infrastructure.ml.ingestion.rtf_walker import Paragraph, Segment, Table
 
 log = logging.getLogger(__name__)
 _DECREE_FINGERPRINT_PREFIX_CHARS = 3000
@@ -69,9 +72,9 @@ def _detect_codepage(rtf: str) -> str:
     return "cp1251"
 
 
-def _extract_rtf_info(rtf_raw: str) -> dict:
+def _extract_rtf_info(rtf_raw: str) -> dict[str, str]:
     r"""Extract author and creation date from the RTF \\info group."""
-    result: dict = {}
+    result: dict[str, Any] = {}
     m = _TITLE_GROUP_RE.search(rtf_raw)
 
     if m:
@@ -90,11 +93,11 @@ def _extract_rtf_info(rtf_raw: str) -> dict:
     return result
 
 
-def parse_rtf(file_path: Path) -> tuple[str, dict]:
+def parse_rtf(file_path: Path) -> tuple[str, dict[str, Any]]:
     """Parse RTF and return (text, metadata)."""
     raw = _read_rtf_text(file_path)
     rtf_text = rtf_to_text(raw)
-    meta: dict = {}
+    meta: dict[str, Any] = {}
     info = _extract_rtf_info(raw)
     meta.update(info)
     meta["codepage"] = _detect_codepage(raw)
@@ -183,6 +186,18 @@ def _build_heading_index(segments: list[Segment], baseline: float | None) -> tup
     return size_to_level, fallback_level
 
 
+def advance_rtf_heading(
+    paragraph: Paragraph, stack: list[tuple[int, str]], size_to_level: dict[float, int], fallback_level: int
+) -> str:
+    level = size_to_level.get(paragraph.font_size, fallback_level) if paragraph.font_size else fallback_level
+
+    while stack and stack[-1][0] >= level:
+        stack.pop()
+
+    stack.append((level, paragraph.text))
+    return " > ".join(h for _, h in stack)
+
+
 def _split_by_headings(
     segments: list[Segment],
     baseline: float | None,
@@ -195,7 +210,7 @@ def _split_by_headings(
     current_heading: str | None = None
     current_lines: list[str] = []
 
-    def flush():
+    def flush() -> None:
         content = "\n".join(current_lines).strip()
 
         if content:
@@ -212,14 +227,7 @@ def _split_by_headings(
         elif seg.paragraph:
             if _is_heading(seg, baseline):
                 flush()
-                p = seg.paragraph
-                level = size_to_level.get(p.font_size, fallback_level) if p.font_size else fallback_level
-
-                while stack and stack[-1][0] >= level:
-                    stack.pop()
-
-                stack.append((level, p.text))
-                current_heading = " > ".join(h for _, h in stack)
+                current_heading = advance_rtf_heading(seg.paragraph, stack, size_to_level, fallback_level)
                 current_lines = []
             else:
                 current_lines.append(seg.paragraph.text)
@@ -311,7 +319,7 @@ class RtfDocumentParser:
 
         return ParsedFormat([Section(None, text)], page_meta, structured=False)
 
-    def get_decree_profile(self) -> DecreeDomainProfile | None:
+    def get_decree_profile(self) -> DocumentProfile | None:
         if self._domain_registry is None or self._domain_settings is None:
             return None
 
@@ -319,7 +327,7 @@ class RtfDocumentParser:
             profile = self._domain_registry.get("decree")
         except KeyError:
             return None
-        return profile if profile.content_boundaries() else None  # type: ignore[return-value]
+        return profile if profile.content_boundaries() else None
 
     def try_parse_decree_rtf(self, file_path: Path, text: str) -> ParsedFormat | None:
         """Decree-structured RTF path; None = fall through to flat RTF parsing.

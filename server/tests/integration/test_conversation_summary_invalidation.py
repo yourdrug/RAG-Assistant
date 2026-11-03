@@ -1,5 +1,9 @@
 """PostgreSQL contract for invalidating summaries after document deletion."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 from sqlalchemy import null, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -10,10 +14,18 @@ from infrastructure.repositories.conversation.sqlalchemy_conversation_repository
     SQLAlchemyConversationRepository,
 )
 
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+
+TEST_HASH = "unused"
+
+
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-async def test_clear_summaries_only_for_assistant_citations(pg_engine):
+async def test_clear_summaries_only_for_assistant_citations(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     cases = [
         (MessageRole.ASSISTANT, [{"document_id": 7}, {"document_id": 7}], "summary", None),
@@ -27,10 +39,11 @@ async def test_clear_summaries_only_for_assistant_citations(pg_engine):
         (MessageRole.ASSISTANT, [{"document_id": 7}], None, None),
     ]
     async with sessions.begin() as session:
-        user = UserModel(email="summary-test@example.com", hashed_password="unused")
+        user = UserModel(email="summary-test@example.com", hashed_password=TEST_HASH)
         session.add(user)
         await session.flush()
         conversations = []
+
         for role, sources, summary, expected in cases:
             conversation = ConversationModel(user_id=user.id, summary=summary)
             session.add(conversation)
@@ -44,6 +57,7 @@ async def test_clear_summaries_only_for_assistant_citations(pg_engine):
                 )
             )
             conversations.append((conversation.id, expected))
+
         await session.flush()
 
         repo = SQLAlchemyConversationRepository(session)
@@ -51,7 +65,8 @@ async def test_clear_summaries_only_for_assistant_citations(pg_engine):
         assert await repo.clear_summaries_referencing(7) == 0
 
     async with sessions() as session:
-        summaries = dict(
-            (await session.execute(select(ConversationModel.id, ConversationModel.summary))).all()
-        )
+        summaries = {
+            row[0]: row[1]
+            for row in (await session.execute(select(ConversationModel.id, ConversationModel.summary))).all()
+        }
         assert summaries == dict(conversations)

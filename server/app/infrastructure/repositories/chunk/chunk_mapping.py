@@ -1,9 +1,7 @@
 """Map stored chunk rows to the repository DTO."""
 
-from domain.knowledge.enums import DomainKey
 from domain.knowledge.chunk import ChunkRecord
-from domain.knowledge.enums import DocumentVisibility
-
+from domain.knowledge.enums import DocumentVisibility, DomainKey
 from infrastructure.database.models import ChunkModel
 
 

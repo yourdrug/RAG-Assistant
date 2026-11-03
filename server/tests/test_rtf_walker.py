@@ -3,18 +3,27 @@
 Locks down current behavior BEFORE decomposing the 234-line _walk_paragraphs.
 """
 
-import sys
+from __future__ import annotations
+
 from pathlib import Path
+import sys
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from infrastructure.ml.ingestion.rtf import (  # noqa: E402
+from typing import TYPE_CHECKING
+
+from infrastructure.ml.ingestion.rtf import (
     extract_doc_title,
     extract_rtf_tables,
     parse_rtf,
     parse_rtf_sections,
 )
-from infrastructure.ml.ingestion.rtf_walker import Paragraph, Table, _walk_paragraphs  # noqa: E402
+from infrastructure.ml.ingestion.rtf_walker import _walk_paragraphs
+
+
+if TYPE_CHECKING:
+    from infrastructure.ml.ingestion.rtf_walker import Paragraph, Table
 
 
 # ---------------------------------------------------------------------------
@@ -43,13 +52,14 @@ def _tables(rtf: str) -> list[Table]:
 
 
 class TestWalkParagraphsBasic:
-    def test_single_paragraph(self):
+    def test_single_paragraph(self) -> None:
         segs = _walk_paragraphs(_rtf("Hello world"))
         paras = [s for s in segs if s.paragraph]
         assert len(paras) == 1
+        assert paras[0].paragraph is not None
         assert paras[0].paragraph.text == "Hello world"
 
-    def test_multiple_paragraphs(self):
+    def test_multiple_paragraphs(self) -> None:
         rtf = _rtf(r"First paragraph\par Second paragraph\par Third")
         paras = _paragraphs(rtf)
         assert len(paras) == 3
@@ -57,18 +67,18 @@ class TestWalkParagraphsBasic:
         assert paras[1].text == "Second paragraph"
         assert paras[2].text == "Third"
 
-    def test_paragraph_with_newlines_in_rtf(self):
+    def test_paragraph_with_newlines_in_rtf(self) -> None:
         rtf = _rtf("Line one\nLine two")
         paras = _paragraphs(rtf)
         assert len(paras) == 1
         assert "Line one" in paras[0].text
         assert "Line two" in paras[0].text
 
-    def test_empty_rtf(self):
+    def test_empty_rtf(self) -> None:
         segs = _walk_paragraphs(_rtf(""))
         assert len(segs) == 0
 
-    def test_whitespace_only(self):
+    def test_whitespace_only(self) -> None:
         segs = _walk_paragraphs(_rtf("   \t  "))
         paras = [s.paragraph for s in segs if s.paragraph]
         # Whitespace-only paragraphs are filtered out
@@ -81,19 +91,19 @@ class TestWalkParagraphsBasic:
 
 
 class TestWalkParagraphsBold:
-    def test_bold_paragraph(self):
+    def test_bold_paragraph(self) -> None:
         rtf = _rtf(r"\b Bold text\b0")
         paras = _paragraphs(rtf)
         assert len(paras) == 1
         assert paras[0].bold is True
 
-    def test_non_bold_paragraph(self):
+    def test_non_bold_paragraph(self) -> None:
         rtf = _rtf("Plain text")
         paras = _paragraphs(rtf)
         assert len(paras) == 1
         assert paras[0].bold is False
 
-    def test_mixed_bold_non_bold(self):
+    def test_mixed_bold_non_bold(self) -> None:
         # \b turns on bold, \par flushes but doesn't reset — "Plain" inherits bold
         rtf = _rtf(r"\b Bold\pard\par Plain")
         paras = _paragraphs(rtf)
@@ -108,18 +118,18 @@ class TestWalkParagraphsBold:
 
 
 class TestWalkParagraphsFontSize:
-    def test_font_size_set(self):
+    def test_font_size_set(self) -> None:
         rtf = _rtf(r"\fs28 Large text")
         paras = _paragraphs(rtf)
         assert len(paras) == 1
         assert paras[0].font_size == 14.0  # fs28 = 14 points
 
-    def test_font_size_not_set(self):
+    def test_font_size_not_set(self) -> None:
         rtf = _rtf("Plain text")
         paras = _paragraphs(rtf)
         assert paras[0].font_size is None
 
-    def test_font_size_inherited(self):
+    def test_font_size_inherited(self) -> None:
         rtf = _rtf(r"{\fs28 Bold heading\par Normal text}")
         paras = _paragraphs(rtf)
         assert len(paras) == 2
@@ -133,13 +143,13 @@ class TestWalkParagraphsFontSize:
 
 
 class TestWalkParagraphsCentering:
-    def test_centered_paragraph(self):
+    def test_centered_paragraph(self) -> None:
         rtf = _rtf(r"\qc Centered text")
         paras = _paragraphs(rtf)
         assert len(paras) == 1
         assert paras[0].centered is True
 
-    def test_centering_reset(self):
+    def test_centering_reset(self) -> None:
         rtf = _rtf(r"\qc Centered\par ql Not centered")
         paras = _paragraphs(rtf)
         assert paras[0].centered is True
@@ -152,21 +162,21 @@ class TestWalkParagraphsCentering:
 
 
 class TestWalkParagraphsGroups:
-    def test_nested_groups_preserve_state(self):
+    def test_nested_groups_preserve_state(self) -> None:
         # Bold group wraps everything — all chars are bold
         rtf = _rtf(r"{\b Bold text here}")
         paras = _paragraphs(rtf)
         assert len(paras) == 1
         assert paras[0].bold is True
 
-    def test_skip_destination(self):
+    def test_skip_destination(self) -> None:
         rtf = _rtf(r"{\fonttbl{\f0 Times New Roman;}} Real text")
         paras = _paragraphs(rtf)
         assert len(paras) == 1
         assert "fonttbl" not in paras[0].text
         assert "Real text" in paras[0].text
 
-    def test_group_pop_restores_state(self):
+    def test_group_pop_restores_state(self) -> None:
         # \b inside group, then group closes, \par separates, "Normal" is not bold
         rtf = _rtf(r"{\b Bold}\par Normal")
         paras = _paragraphs(rtf)
@@ -181,13 +191,13 @@ class TestWalkParagraphsGroups:
 
 
 class TestWalkParagraphsHexEscape:
-    def test_hex_escape_decoded(self):
+    def test_hex_escape_decoded(self) -> None:
         rtf = _rtf(r"Hello\'20World")
         paras = _paragraphs(rtf)
         assert len(paras) == 1
         assert "Hello World" in paras[0].text
 
-    def test_hex_escape_cyrillic(self):
+    def test_hex_escape_cyrillic(self) -> None:
         # \'cf\'e5\'f2 in cp1251 = "Пет"
         rtf = _rtf(r"\'cf\'e5\'f2")
         paras = _paragraphs(rtf)
@@ -201,22 +211,22 @@ class TestWalkParagraphsHexEscape:
 
 
 class TestWalkParagraphsSpecialSymbols:
-    def test_emdash(self):
+    def test_emdash(self) -> None:
         rtf = _rtf(r"Before\emdash After")
         paras = _paragraphs(rtf)
         assert "-" in paras[0].text
 
-    def test_endash(self):
+    def test_endash(self) -> None:
         rtf = _rtf(r"Before\endash After")
         paras = _paragraphs(rtf)
         assert "-" in paras[0].text
 
-    def test_nbsp(self):
+    def test_nbsp(self) -> None:
         rtf = _rtf(r"Before\~After")
         paras = _paragraphs(rtf)
         assert "\u00a0" in paras[0].text
 
-    def test_nonbreaking_hyphen(self):
+    def test_nonbreaking_hyphen(self) -> None:
         rtf = _rtf(r"Before" + "\\" + "_After")
         paras = _paragraphs(rtf)
         assert "-" in paras[0].text
@@ -228,20 +238,20 @@ class TestWalkParagraphsSpecialSymbols:
 
 
 class TestWalkParagraphsTables:
-    def test_simple_table(self):
+    def test_simple_table(self) -> None:
         rtf = _rtf(r"\intbl Cell1\cell Cell2\cell\row")
         tables = _tables(rtf)
         assert len(tables) == 1
         assert len(tables[0].rows) == 1
         assert tables[0].rows[0] == ["Cell1", "Cell2"]
 
-    def test_multi_row_table(self):
+    def test_multi_row_table(self) -> None:
         rtf = _rtf(r"\intbl A\cell B\cell\row \intbl C\cell D\cell\row")
         tables = _tables(rtf)
         assert len(tables) == 1
         assert len(tables[0].rows) == 2
 
-    def test_table_with_paragraphs(self):
+    def test_table_with_paragraphs(self) -> None:
         rtf = _rtf(r"Before\par \intbl Cell\cell\row After")
         segs = _walk_paragraphs(rtf)
         paras = [s.paragraph for s in segs if s.paragraph]
@@ -258,17 +268,17 @@ class TestWalkParagraphsTables:
 
 
 class TestWalkParagraphsControlWords:
-    def test_sect_break(self):
+    def test_sect_break(self) -> None:
         rtf = _rtf(r"Para1\sect Para2")
         paras = _paragraphs(rtf)
         assert len(paras) == 2
 
-    def test_page_break(self):
+    def test_page_break(self) -> None:
         rtf = _rtf(r"Para1\page Para2")
         paras = _paragraphs(rtf)
         assert len(paras) == 2
 
-    def test_tab_character(self):
+    def test_tab_character(self) -> None:
         rtf = _rtf(r"Col1\tab Col2")
         paras = _paragraphs(rtf)
         # \tab inserts tab but flush_paragraph normalizes whitespace to space
@@ -282,13 +292,13 @@ class TestWalkParagraphsControlWords:
 
 
 class TestParseRtf:
-    def test_extracts_text(self, tmp_path):
+    def test_extracts_text(self, tmp_path: Path) -> None:
         f = tmp_path / "test.rtf"
         f.write_text(_rtf("Hello world"), encoding="utf-8")
-        text, meta = parse_rtf(f)
+        text, _meta = parse_rtf(f)
         assert "Hello world" in text
 
-    def test_extracts_codepage(self, tmp_path):
+    def test_extracts_codepage(self, tmp_path: Path) -> None:
         f = tmp_path / "test.rtf"
         f.write_text(_rtf("text"), encoding="utf-8")
         _, meta = parse_rtf(f)
@@ -296,14 +306,14 @@ class TestParseRtf:
 
 
 class TestExtractDocTitle:
-    def test_no_title(self, tmp_path):
+    def test_no_title(self, tmp_path: Path) -> None:
         f = tmp_path / "test.rtf"
         f.write_text(_rtf("No title"), encoding="utf-8")
         assert extract_doc_title(f) is None
 
 
 class TestParseRtfSections:
-    def test_plain_text_returns_single_section(self, tmp_path):
+    def test_plain_text_returns_single_section(self, tmp_path: Path) -> None:
         f = tmp_path / "test.rtf"
         f.write_text(_rtf("Just text"), encoding="utf-8")
         sections = parse_rtf_sections(f)
@@ -312,7 +322,7 @@ class TestParseRtfSections:
 
 
 class TestExtractRtfTables:
-    def test_extracts_tables(self):
+    def test_extracts_tables(self) -> None:
         rtf = _rtf(r"\intbl A\cell B\cell\row")
         tables = extract_rtf_tables(rtf)
         assert len(tables) == 1

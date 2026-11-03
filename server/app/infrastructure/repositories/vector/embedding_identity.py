@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from typing import TYPE_CHECKING
 
 from qdrant_client.models import Distance, VectorParams
 
@@ -11,7 +12,11 @@ from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
 
-def ensure_embedding_identity(client, identity: str | None = None) -> str:
+if TYPE_CHECKING:
+    from infrastructure.repositories.vector.client_types import VectorClient
+
+
+def ensure_embedding_identity(client: VectorClient, identity: str | None = None) -> str:
     """Reject model changes and unversioned nonempty corpora before reads/writes.
 
     A separate empty collection stores the fingerprint as a named vector config.
@@ -38,10 +43,11 @@ def ensure_embedding_identity(client, identity: str | None = None) -> str:
 
     if binding not in names:
         if corpus in names and client.get_collection(corpus).points_count:
-            raise ValueError(
+            msg = (
                 f"Collection {corpus!r} contains unversioned embeddings. "
                 "Re-index into a new collection before enabling model identity validation."
             )
+            raise ValueError(msg)
 
         try:
             client.create_collection(
@@ -55,9 +61,10 @@ def ensure_embedding_identity(client, identity: str | None = None) -> str:
     vectors = client.get_collection(binding).config.params.vectors
 
     if not isinstance(vectors, dict) or set(vectors) != {fingerprint}:
-        raise ValueError(
+        msg = (
             f"Collection {corpus!r} belongs to a different embedding model. "
             "Re-index into a new collection and switch the alias after validation."
         )
+        raise ValueError(msg)
 
     return identity

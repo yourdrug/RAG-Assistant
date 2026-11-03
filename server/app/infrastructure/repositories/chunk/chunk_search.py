@@ -2,18 +2,34 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from datetime import datetime
 import re
-from datetime import date
+from typing import TYPE_CHECKING, Any
 
-from domain.knowledge.chunk import ChunkRecord
-from domain.knowledge.access_control import get_visibility_conditions
-from domain.identity.roles import UserKind, UserRole
-from domain.knowledge.enums import SearchMode
 from sqlalchemy import and_, func, or_, select, text, true
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.access_control import get_visibility_conditions
+from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.enums import SearchMode
 from infrastructure.database.models import ActVersionModel, ChunkModel
 from infrastructure.repositories.sql_acl import render_visibility_conditions
+
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from datetime import date
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.sql import Select
+    from sqlalchemy.sql.elements import ColumnElement
+
+    from domain.identity.user_context import UserContext
+
+
+MIN_SUBSTRING_LENGTH = 3
+
 
 _SEARCH_COLUMNS = (
     ChunkModel.id,
@@ -45,7 +61,7 @@ _SEARCH_COLUMNS = (
 )
 
 
-def _row_to_search_result(row) -> ChunkRecord:
+def row_to_search_result(row: Sequence[Any]) -> ChunkRecord:
     """Convert a search query row tuple to ChunkRecord."""
     effective_from = row[15]
     effective_to = row[16]
@@ -80,28 +96,30 @@ def _row_to_search_result(row) -> ChunkRecord:
 
 
 def build_acl_clauses(
-    user,
-    group_ids: list[int],
-    managed_client_ids: list[int] | None = None,
-    managed_internal_ids: list[int] | None = None,
-    managed_group_ids: list[int] | None = None,
-) -> list:
+    user: UserContext | Mapping[str, Any],
+    group_ids: Sequence[int],
+    managed_client_ids: Sequence[int] | None = None,
+    managed_internal_ids: Sequence[int] | None = None,
+    managed_group_ids: Sequence[int] | None = None,
+) -> list[ColumnElement[bool]]:
     """Build per-condition ACL clauses from user context.
 
     Each condition is an AND-group of (visibility + owner/group match).
     The full scope is the OR of all conditions.
     """
-    user_id = user.user_id if hasattr(user, "user_id") else user["id"]
-    user_kind = user.user_kind if hasattr(user, "user_kind") else user["kind"]
-    user_role_raw = user.user_role if hasattr(user, "user_role") else user.get("role", "user")
+    if isinstance(user, Mapping):
+        user_id, user_kind, user_role_raw = user["id"], user["kind"], user.get("role", UserRole.USER)
+    else:
+        user_id, user_kind, user_role_raw = user.user_id, user.user_kind, user.user_role
+
     conditions = get_visibility_conditions(
         UserKind(user_kind),
-        group_ids,
+        list(group_ids),
         for_list=False,
         user_role=UserRole(user_role_raw),
-        managed_client_ids=managed_client_ids,
-        managed_internal_ids=managed_internal_ids,
-        managed_group_ids=managed_group_ids,
+        managed_client_ids=list(managed_client_ids) if managed_client_ids is not None else None,
+        managed_internal_ids=list(managed_internal_ids) if managed_internal_ids is not None else None,
+        managed_group_ids=list(managed_group_ids) if managed_group_ids is not None else None,
     )
 
     return render_visibility_conditions(
@@ -110,11 +128,13 @@ def build_acl_clauses(
         owner_column=ChunkModel.owner_id,
         group_column=ChunkModel.group_id,
         user_id=user_id,
-        group_ids=group_ids,
+        group_ids=list(group_ids),
     )
 
 
-def build_exact_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int | None):
+def build_exact_search_stmt(
+    query: str, acl_clauses: list[ColumnElement[bool]], document_id: int | None, limit: int | None
+) -> Select[Any]:
     """Match a literal phrase at word boundaries, including text edges.
 
     PostgreSQL pg_trgm supports regex predicates as well as ILIKE.
@@ -134,7 +154,9 @@ def build_exact_search_stmt(query: str, acl_clauses: list, document_id: int | No
     return stmt
 
 
-def build_fuzzy_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int | None):
+def build_fuzzy_search_stmt(
+    query: str, acl_clauses: list[ColumnElement[bool]], document_id: int | None, limit: int | None
+) -> Select[Any]:
     """Build SELECT statement for ILIKE fuzzy search."""
     stmt = (
         select(*_SEARCH_COLUMNS)
@@ -150,8 +172,8 @@ def build_fuzzy_search_stmt(query: str, acl_clauses: list, document_id: int | No
     return stmt
 
 
-def build_temporal_clause(as_of_date: date | None):
-    effective_date = as_of_date or date.today()
+def build_temporal_clause(as_of_date: date | None) -> ColumnElement[bool]:
+    effective_date = as_of_date or datetime.now().astimezone().date()
     return and_(
         or_(ChunkModel.effective_from.is_(None), ChunkModel.effective_from <= effective_date),
         or_(ChunkModel.effective_to.is_(None), ChunkModel.effective_to > effective_date),
@@ -165,12 +187,13 @@ def build_temporal_clause(as_of_date: date | None):
 
 def build_substring_search_stmt(
     query: str,
-    user,
+    user: UserContext,
     mode: str,
     document_id: int | None,
     as_of_date: date | None,
+    *,
     limit: int | None = None,
-):
+) -> Select[Any]:
     """Share content, document, ACL and temporal predicates across both consumers."""
     acl_clauses = build_acl_clauses(
         user,
@@ -194,30 +217,32 @@ class SQLAlchemyChunkSearchRepository:
     async def search_substring(
         self,
         query: str,
-        user,
+        user: UserContext,
+        *,
         limit: int = 20,
         mode: str = "exact",
         document_id: int | None = None,
         as_of_date: date | None = None,
     ) -> list[ChunkRecord]:
-        if len(query.strip()) < 3:
+        if len(query.strip()) < MIN_SUBSTRING_LENGTH:
             return []
 
-        stmt = build_substring_search_stmt(query, user, mode, document_id, as_of_date, limit)
+        stmt = build_substring_search_stmt(query, user, mode, document_id, as_of_date, limit=limit)
         result = await self._session.execute(stmt)
-        return [_row_to_search_result(row) for row in result.all()]
+        return [row_to_search_result(row) for row in result.all()]
 
     async def search_substring_page(
         self,
         query: str,
-        user,
+        user: UserContext,
+        *,
         limit: int = 20,
         offset: int = 0,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         as_of_date: date | None = None,
     ) -> tuple[list[ChunkRecord], int]:
-        if len(query.strip()) < 3:
+        if len(query.strip()) < MIN_SUBSTRING_LENGTH:
             return [], 0
 
         # Materialize only matching IDs. Count and page use one database snapshot,
@@ -241,4 +266,4 @@ class SQLAlchemyChunkSearchRepository:
         )
         result = await self._session.execute(stmt)
         rows = result.all()
-        return [_row_to_search_result(row) for row in rows if row[0] is not None], rows[0][-1]
+        return [row_to_search_result(row) for row in rows if row[0] is not None], rows[0][-1]

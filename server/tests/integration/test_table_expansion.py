@@ -1,25 +1,35 @@
 """Real SQL table boundaries and request ACL, including backward row continuations."""
 
-from domain.knowledge.repositories.chunk import ChunkInsertOptions
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from langchain.schema import Document
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from domain.knowledge.chunk import ChunkInsert
-from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
-from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.knowledge.enums import DocumentVisibility
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS, ChunkInsert
+from domain.knowledge.enums import DocumentVisibility, PageContentType
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from infrastructure.database.models import DocumentModel, UserModel
-from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors
-from langchain.schema import Document
+from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+
+TEST_HASH = "test"
+
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-async def test_two_tables_text_limit_row_range_and_denied_document(pg_engine):
+async def test_two_tables_text_limit_row_range_and_denied_document(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     header = "| Field | Format | Condition |\n|---|---|---|"
     contents = [
@@ -33,11 +43,65 @@ async def test_two_tables_text_limit_row_range_and_denied_document(pg_engine):
         {"table_id": "table-1", "table_header": header, "table_row_start": n, "table_row_end": n}
         for n in [1, 1, 2]
     ] + [{}, {"table_id": "table-2", "table_row_start": 1, "table_row_end": 1}]
+    users, docs = await seed_table_documents(sessions, contents, contexts)
+    allowed = UserContext(users[0].id, UserKind.INTERNAL, UserRole.USER)
+    denied = UserContext(users[1].id, UserKind.INTERNAL, UserRole.USER)
+    async with sessions() as session:
+        repository = SQLAlchemyChunkRepository(session)
+        batches = await repository.get_table_batches(docs[0].id, "table-1", user=allowed)
+        assert [item.content for item in batches] == contents[:3]
+        assert await repository.get_table_batches(docs[0].id, "table-1", user=denied) == []
+        assert await repository.get_table_batches(docs[1].id, "table-1", user=allowed) == []
+        assert await repository.get_table_batches(docs[0].id, "missing", user=allowed) == []
+        assert len(await repository.get_table_batches(docs[0].id, "table-1", user=allowed, limit=1)) == 1
+
+        for limit in [0, -1, TABLE_CONTEXT_MAX_CHUNKS + 1]:
+            with pytest.raises(ValueError, match="limit"):
+                await repository.get_table_batches(docs[0].id, "table-1", user=allowed, limit=limit)
+
+        parts = await repository.get_table_batches(
+            docs[0].id,
+            "table-1",
+            user=allowed,
+            row_start=1,
+            row_end=1,
+            exclude_hashes={item.content_hash for item in batches[1:2] if item.content_hash is not None},
+        )
+        assert [part.content for part in parts] == contents[:1]
+        # Hit the second part: continuation lookup must find the preceding part too.
+        seed = Document(page_content=batches[1].content, metadata=chunk_result_metadata(batches[1]))
+        focused = await enrich_with_neighbors(
+            [(seed, 0.9)],
+            enumerate_cases=False,
+            chunk_search=repository,
+            user=allowed,
+            query="Формат поля 23?",
+        )
+        text = "\n".join(doc.page_content for doc, _ in focused)
+        assert "only after approval" in text
+        assert "except revoked approval" in text
+        assert "unrelated row" not in text
+        assert "INTERMEDIATE" not in text
+        assert "SECOND TABLE" not in text
+        full = await enrich_with_neighbors(
+            [(seed, 0.9)],
+            enumerate_cases=True,
+            chunk_search=repository,
+            user=allowed,
+            query="Перечисли все поля таблицы",
+        )
+        assert len(full) == 3
+        assert len(text) < sum(len(doc.page_content) for doc, _ in full)
+
+
+async def seed_table_documents(
+    sessions: async_sessionmaker[AsyncSession], contents: list[str], contexts: list[dict[str, Any]]
+) -> tuple[list[UserModel], list[DocumentModel]]:
     async with sessions.begin() as session:
         users = [
             UserModel(
                 email=f"table-user-{n}@example.org",
-                hashed_password="test",
+                hashed_password=TEST_HASH,
                 role=UserRole.USER.value,
                 kind=UserKind.INTERNAL.value,
             )
@@ -56,6 +120,7 @@ async def test_two_tables_text_limit_row_range_and_denied_document(pg_engine):
         session.add_all(docs)
         await session.flush()
         repository = SQLAlchemyChunkRepository(session)
+
         for doc in docs:
             await repository.bulk_insert(
                 doc.id,
@@ -72,46 +137,4 @@ async def test_two_tables_text_limit_row_range_and_denied_document(pg_engine):
                 ],
                 options=ChunkInsertOptions(owner_id=doc.owner_id),
             )
-    allowed = UserContext(users[0].id, UserKind.INTERNAL, UserRole.USER)
-    denied = UserContext(users[1].id, UserKind.INTERNAL, UserRole.USER)
-    async with sessions() as session:
-        repository = SQLAlchemyChunkRepository(session)
-        batches = await repository.get_table_batches(docs[0].id, "table-1", user=allowed)
-        assert [item.content for item in batches] == contents[:3]
-        assert await repository.get_table_batches(docs[0].id, "table-1", user=denied) == []
-        assert await repository.get_table_batches(docs[1].id, "table-1", user=allowed) == []
-        assert await repository.get_table_batches(docs[0].id, "missing", user=allowed) == []
-        assert len(await repository.get_table_batches(docs[0].id, "table-1", user=allowed, limit=1)) == 1
-        for limit in [0, -1, TABLE_CONTEXT_MAX_CHUNKS + 1]:
-            with pytest.raises(ValueError):
-                await repository.get_table_batches(docs[0].id, "table-1", user=allowed, limit=limit)
-        parts = await repository.get_table_batches(
-            docs[0].id,
-            "table-1",
-            user=allowed,
-            row_start=1,
-            row_end=1,
-            exclude_hashes={batches[1].content_hash},
-        )
-        assert [part.content for part in parts] == contents[:1]
-        # Hit the second part: continuation lookup must find the preceding part too.
-        seed = Document(page_content=batches[1].content, metadata=chunk_result_metadata(batches[1]))
-        focused = await enrich_with_neighbors(
-            [(seed, 0.9)],
-            False,
-            repository,
-            user=allowed,
-            query="Формат поля 23?",
-        )
-        text = "\n".join(doc.page_content for doc, _ in focused)
-        assert "only after approval" in text and "except revoked approval" in text
-        assert "unrelated row" not in text and "INTERMEDIATE" not in text and "SECOND TABLE" not in text
-        full = await enrich_with_neighbors(
-            [(seed, 0.9)],
-            True,
-            repository,
-            user=allowed,
-            query="Перечисли все поля таблицы",
-        )
-        assert len(full) == 3
-        assert len(text) < sum(len(doc.page_content) for doc, _ in full)
+    return users, docs

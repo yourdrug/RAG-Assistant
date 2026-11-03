@@ -9,16 +9,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
+from typing import TYPE_CHECKING, Any
 import uuid
 
-from application.ports.cache_invalidator import CacheInvalidatorPort
-from application.uow.factory import UnitOfWorkFactory
-from typing import Any
 from config import settings
-from domain.knowledge.chunk import Chunk, ChunkRecord
-from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
-from domain.knowledge.index_sync import VectorIndexWriter
+from domain.knowledge.chunk import Chunk
+from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.hashing import content_hash
+
+
+if TYPE_CHECKING:
+    from application.ports.cache_invalidator import CacheInvalidatorPort
+    from application.uow.factory import UnitOfWorkFactory
+    from domain.knowledge.chunk import ChunkRecord
+    from domain.knowledge.index_sync import VectorIndexWriter, VectorOutboxEntry
 
 
 log = logging.getLogger("default")
@@ -87,13 +91,14 @@ class OutboxDispatcher:
 
                 return result
         except Exception as e:
-            log.warning("Failed to recover stuck entries: %s", e)
+            log.warning("Failed to recover stuck entries: %s", e, exc_info=True)
             return 0
 
     async def _apply_one(self, entry: VectorOutboxEntry) -> None:
         if entry.id is None:
             message = "Only persisted outbox entries can be dispatched"
             raise ValueError(message)
+
         try:
             await self._dispatch(entry)
 
@@ -136,31 +141,35 @@ class OutboxDispatcher:
                 entry.aggregate_id,
                 entry.attempts + 1,
                 e,
+                exc_info=True,
             )
             backoff = min(_BASE_BACKOFF_SEC * (2**entry.attempts), _MAX_BACKOFF_SEC)
             async with self._uow_factory.create(master=True) as uow:
                 await uow.vector_outbox.mark_failed(entry.id, str(e), backoff_seconds=backoff)
 
     async def _dispatch(self, entry: VectorOutboxEntry) -> None:
-        if entry.operation == OutboxOperation.UPSERT_CHUNKS:
+        operation: str = entry.operation
+
+        if operation == OutboxOperation.UPSERT_CHUNKS:
             await self.apply_upsert(entry.payload, document_id=entry.aggregate_id)
-        elif entry.operation == OutboxOperation.DELETE_BY_DOCUMENT:
+        elif operation == OutboxOperation.DELETE_BY_DOCUMENT:
             await self._vector_store.delete_by_document_id(entry.payload["document_id"])
-        elif entry.operation == OutboxOperation.RENAME_DOCUMENT:
+        elif operation == OutboxOperation.RENAME_DOCUMENT:
             await self.refresh_document_filename(entry.aggregate_id)
-        elif entry.operation == OutboxOperation.DELETE_CHUNKS:
+        elif operation == OutboxOperation.DELETE_CHUNKS:
             await self._vector_store.delete_by_ids(entry.payload["chunk_ids"])
-        elif entry.operation == OutboxOperation.UPDATE_METADATA:
+        elif operation == OutboxOperation.UPDATE_METADATA:
             await self._apply_version_metadata(
                 entry.payload["act_version_id"],
                 {k: v for k, v in entry.payload.items() if k != "act_version_id"},
             )
-        elif entry.operation == OutboxOperation.SET_DOCUMENT_ID:
+        elif operation == OutboxOperation.SET_DOCUMENT_ID:
             # Legacy jobs: upserts carry document IDs. A source-wide patch would
             # steal points belonging to another assignment of the same source.
             log.debug("Skipping legacy source-wide document ID patch")
         else:
-            raise ValueError(f"Unknown outbox operation: {entry.operation}")
+            msg = f"Unknown outbox operation: {entry.operation}"
+            raise ValueError(msg)
 
     async def refresh_document_filename(self, document_id: int) -> None:
         async with self._uow_factory.create(master=True) as uow:

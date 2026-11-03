@@ -6,10 +6,9 @@ module to keep concerns separated.
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 import logging
 import time
-from infrastructure.ml.clients.client_lease import client_operation
-from collections.abc import Awaitable, Callable
 
 from langchain.schema import Document
 from qdrant_client.models import (
@@ -18,41 +17,51 @@ from qdrant_client.models import (
     Filter,
     IsNullCondition,
     MatchValue,
+    Modifier,
     PayloadField,
     PayloadSchemaType,
     PointStruct,
-    VectorParams,
-    Modifier,
     SparseVectorParams,
+    VectorParams,
 )
 
+from application.ports.ml_clients import AsyncSemaphorePort
 from config import settings
-from infrastructure.corpus.snapshot import collection_for
 from domain.shared.hashing import content_hash
+from infrastructure.corpus.snapshot import collection_for
+from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.factories import create_qdrant_client
+from infrastructure.repositories.vector.client_types import DocumentEmbeddingClient, VectorClient
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
-
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, point_vectors
+
+
+QDRANT_UPSERT_BATCH_SIZE = 500
+
 
 log = logging.getLogger("default")
 
 
-def _validate_embedding_batch(vectors, expected_count: int, expected_dimension: int) -> None:
+def validate_embedding_batch(
+    vectors: list[list[float]], expected_count: int, expected_dimension: int
+) -> None:
     if len(vectors) != expected_count:
-        raise ValueError(
+        msg = (
             "Embedding provider returned an incomplete batch "
             f"({len(vectors)} vectors for {expected_count} chunks)"
         )
+        raise ValueError(msg)
 
     for vector_index, vector in enumerate(vectors):
         if len(vector) != expected_dimension:
-            raise ValueError(
+            msg = (
                 "Embedding provider returned an invalid vector dimension "
                 f"at batch index {vector_index}: expected {expected_dimension}, got {len(vector)}"
             )
+            raise ValueError(msg)
 
 
-def _delete_internal_points(client) -> int:
+def delete_internal_points(client: VectorClient) -> int:
     """Delete CLI-ingested and public UI points, but preserve manual document chunks.
 
     Deletes points where owner_id=None AND manual != True.
@@ -80,11 +89,10 @@ def _delete_internal_points(client) -> int:
 
     info_after = client.get_collection(collection_for(client))
     total_after = info_after.points_count or 0
-    deleted = total_before - total_after
-    return deleted
+    return total_before - total_after
 
 
-def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
+def ensure_collection(client: VectorClient, vector_size: int, *, reset: bool = False) -> None:
     ensure_embedding_identity(client)
     existing = [c.name for c in client.get_collections().collections]
 
@@ -92,14 +100,15 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
         info = client.get_collection(collection_for(client))
         # Validate vector dimension matches expected size
         vectors_config = info.config.params.vectors
-        existing_dim = vectors_config.size if hasattr(vectors_config, "size") else None
+        existing_dim = getattr(vectors_config, "size", None)
 
         if existing_dim is not None and existing_dim != vector_size:
-            raise ValueError(
+            msg = (
                 f"Collection '{collection_for(client)}' has vector dimension {existing_dim}, "
                 f"but the current embedding model requires {vector_size}. "
-                f"To migrate: create a new collection with the correct dimension and re-ingest documents."
+                "To migrate: create a new collection with the correct dimension and re-ingest documents."
             )
+            raise ValueError(msg)
 
         sparse = info.config.params.sparse_vectors or {}
 
@@ -112,9 +121,8 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
                 "Smart reset: deleting CLI-ingested points (owner_id=None) from collection '%s' ...",
                 collection_for(client),
             )
-            deleted = _delete_internal_points(client)
+            deleted = delete_internal_points(client)
             log.info("Deleted %d internal points. API-uploaded points preserved.", deleted)
-            _ensure_payload_indexes(client)
         else:
             count = info.points_count or 0
             log.info(
@@ -123,8 +131,8 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
                 count,
                 existing_dim,
             )
-            _ensure_payload_indexes(client)
 
+        ensure_payload_indexes(client)
         return
 
     log.info("Creating collection '%s' (dim=%d) ...", collection_for(client), vector_size)
@@ -139,10 +147,10 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
             log.info("Collection '%s' already exists (created by concurrent process)", collection_for(client))
         else:
             raise
-    _ensure_payload_indexes(client)
+    ensure_payload_indexes(client)
 
 
-def _ensure_payload_indexes(client) -> None:
+def ensure_payload_indexes(client: VectorClient) -> None:
     """Create payload indexes on ACL and content fields for efficient filtered search."""
     acl_fields = [
         ("metadata.visibility", PayloadSchemaType.KEYWORD),
@@ -168,10 +176,12 @@ def _ensure_payload_indexes(client) -> None:
             if "already exists" in str(e):
                 log.debug("Payload index already exists: %s", field_name)
             else:
-                log.warning("Failed to create payload index %s: %s", field_name, e)
+                log.warning("Failed to create payload index %s: %s", field_name, e, exc_info=True)
 
 
-async def _upsert_with_semaphore(client, points: list, write_semaphore=None) -> None:
+async def upsert_with_semaphore(
+    client: VectorClient, points: list[PointStruct], write_semaphore: AsyncSemaphorePort | None = None
+) -> None:
     """Upsert points to Qdrant, optionally gated by a write semaphore."""
     if write_semaphore is not None:
         async with write_semaphore:
@@ -188,7 +198,7 @@ async def _upsert_with_semaphore(client, points: list, write_semaphore=None) -> 
         )
 
 
-def _tag_embedding_model(chunks, identity):
+def tag_embedding_model(chunks: list[Document], identity: str) -> list[Document]:
     for doc in chunks:
         doc.metadata["embedding_model"] = identity
 
@@ -209,10 +219,10 @@ def build_points(chunks: list[Document], vectors: list[list[float]]) -> list[Poi
 
 async def upload_to_qdrant(
     chunks: list[Document],
-    embeddings,
-    client=None,
+    embeddings: DocumentEmbeddingClient,
+    client: VectorClient | None = None,
     *,
-    write_semaphore=None,
+    write_semaphore: AsyncSemaphorePort | None = None,
     should_cancel: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
     async with client_operation(embeddings):
@@ -221,17 +231,7 @@ async def upload_to_qdrant(
         )
 
 
-async def upload_document_batches(
-    chunks: list[Document],
-    embeddings,
-    client=None,
-    *,
-    write_semaphore=None,
-    should_cancel: Callable[[], Awaitable[bool]] | None = None,
-) -> None:
-    embed_batch = settings.embed_batch_size
-    qdrant_batch = 500
-
+def filter_upload_chunks(chunks: list[Document]) -> list[Document]:
     # Filter out empty/whitespace-only chunks that would cause TEI errors
     original_count = len(chunks)
     chunks = [c for c in chunks if c.page_content.strip()]
@@ -243,6 +243,45 @@ async def upload_document_batches(
             len(chunks),
         )
 
+    return chunks
+
+
+def prepare_upload_texts(chunks: list[Document]) -> list[str]:
+    # Pre-compute all content hashes (faster than per-doc)
+    texts = [doc.page_content for doc in chunks]
+    hashes = [content_hash(t) for t in texts]
+
+    for doc, h in zip(chunks, hashes, strict=False):
+        doc.metadata["content_hash"] = h
+
+    return texts
+
+
+def log_upload_progress(done: int, total: int, t0: float) -> None:
+    elapsed = time.monotonic() - t0
+    speed = done / elapsed if elapsed > 0 else 0
+    eta = (total - done) / speed if speed > 0 else 0
+    log.info(
+        "  Progress %d/%d chunks  (%.1f c/s, ETA ~%.0fs)",
+        done,
+        total,
+        speed,
+        eta,
+    )
+
+
+async def upload_document_batches(
+    chunks: list[Document],
+    embeddings: DocumentEmbeddingClient,
+    client: VectorClient | None = None,
+    *,
+    write_semaphore: AsyncSemaphorePort | None = None,
+    should_cancel: Callable[[], Awaitable[bool]] | None = None,
+) -> None:
+    embed_batch = settings.embed_batch_size
+
+    chunks = filter_upload_chunks(chunks)
+
     if not chunks:
         log.warning("No non-empty chunks to upload — skipping Qdrant upload")
         return
@@ -252,25 +291,22 @@ async def upload_document_batches(
         "Uploading %d chunks to Qdrant (embed batch=%d, upsert batch=%d) ...",
         total,
         embed_batch,
-        qdrant_batch,
+        QDRANT_UPSERT_BATCH_SIZE,
     )
     t0 = time.monotonic()
 
-    # Pre-compute all content hashes (faster than per-doc)
-    texts = [doc.page_content for doc in chunks]
-    hashes = [content_hash(t) for t in texts]
-
-    for doc, h in zip(chunks, hashes, strict=False):
-        doc.metadata["content_hash"] = h
+    texts = prepare_upload_texts(chunks)
 
     # Reuse the caller's client when provided (avoids a new TCP pool per call)
     if client is None:
         client = create_qdrant_client()
 
-    identity = await asyncio.to_thread(
-        ensure_embedding_identity, client, getattr(embeddings, "embedding_identity", None)
+    chunks = tag_embedding_model(
+        chunks,
+        await asyncio.to_thread(
+            ensure_embedding_identity, client, getattr(embeddings, "embedding_identity", None)
+        ),
     )
-    chunks = _tag_embedding_model(chunks, identity)
 
     # Embed + upsert in sub-batches to limit peak memory and give visible progress
     pending_points: list[PointStruct] = []
@@ -293,29 +329,19 @@ async def upload_document_batches(
         batch_vectors = await embeddings.embed_documents(batch_texts)
         log.info("  Embedded in %.1fs", time.monotonic() - t_embed)
 
-        _validate_embedding_batch(batch_vectors, len(batch_chunks_slice), settings.embed_dim)
+        validate_embedding_batch(batch_vectors, len(batch_chunks_slice), settings.embed_dim)
 
         pending_points.extend(await asyncio.to_thread(build_points, batch_chunks_slice, batch_vectors))
 
-        # Flush to Qdrant when we have enough for a qdrant_batch or at the end
-        while len(pending_points) >= qdrant_batch:
-            await _upsert_with_semaphore(client, pending_points[:qdrant_batch], write_semaphore)
-            pending_points = pending_points[qdrant_batch:]
+        # Flush to Qdrant when we have enough for a QDRANT_UPSERT_BATCH_SIZE or at the end
+        while len(pending_points) >= QDRANT_UPSERT_BATCH_SIZE:
+            await upsert_with_semaphore(client, pending_points[:QDRANT_UPSERT_BATCH_SIZE], write_semaphore)
+            pending_points = pending_points[QDRANT_UPSERT_BATCH_SIZE:]
 
-        done = batch_end
-        elapsed = time.monotonic() - t0
-        speed = done / elapsed if elapsed > 0 else 0
-        eta = (total - done) / speed if speed > 0 else 0
-        log.info(
-            "  Progress %d/%d chunks  (%.1f c/s, ETA ~%.0fs)",
-            done,
-            total,
-            speed,
-            eta,
-        )
+        log_upload_progress(batch_end, total, t0)
 
     # Flush remaining points
     if pending_points:
-        await _upsert_with_semaphore(client, pending_points, write_semaphore)
+        await upsert_with_semaphore(client, pending_points, write_semaphore)
 
     log.info("Qdrant upload completed in %.1fs", time.monotonic() - t0)

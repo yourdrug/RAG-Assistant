@@ -1,4 +1,8 @@
 """Isolated local PaddleOCR-VL-1.6 service. Receives pixels, never URLs."""
+from __future__ import annotations
+from numpy.typing import NDArray
+from typing import Any, Protocol
+from collections.abc import AsyncIterator, Iterable
 
 from contextlib import asynccontextmanager
 import io
@@ -13,6 +17,16 @@ from starlette.concurrency import run_in_threadpool
 from tables import UNREADABLE, table_markdown
 
 
+class OCRPrediction(Protocol):
+    @property
+    def json(self) -> dict[str, Any]: ...
+    def get(self, key: str, default: dict[str, Any]) -> dict[str, Any]: ...
+
+
+class OCRPipeline(Protocol):
+    def predict(self, image: NDArray[np.uint8], **options: bool) -> Iterable[OCRPrediction]: ...
+
+
 log = logging.getLogger("ocr_vl")
 MAX_BYTES = 20 * 1024 * 1024
 Image.MAX_IMAGE_PIXELS = 25_000_000
@@ -20,7 +34,7 @@ inference_lock = threading.Lock()
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Heavy ML dependency belongs only to this service, not the RAG server.
     from paddleocr import PaddleOCRVL
 
@@ -38,7 +52,7 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 
-def predict_blocks(pipeline, image, *, preprocess=True):
+def predict_blocks(pipeline: OCRPipeline, image: NDArray[np.uint8], *, preprocess: bool=True) -> tuple[list[dict[str, Any]], OCRPrediction]:
     results = list(
         pipeline.predict(
             image,
@@ -51,10 +65,11 @@ def predict_blocks(pipeline, image, *, preprocess=True):
         raise ValueError("Expected one page")
     result = results[0]
     payload = result.json["res"]
-    return payload["parsing_res_list"], result
+    blocks: list[dict[str, Any]] = payload["parsing_res_list"]
+    return blocks, result
 
 
-def recognize(pipeline, image):
+def recognize(pipeline: OCRPipeline, image: NDArray[np.uint8]) -> dict[str, list[dict[str, str]]]:
     if not inference_lock.acquire(blocking=False):
         raise HTTPException(503, "OCR занят; повторите обработку позже")
     try:
@@ -93,7 +108,7 @@ def recognize(pipeline, image):
         inference_lock.release()
 
 
-def recognize_bytes(pipeline, body):
+def recognize_bytes(pipeline: OCRPipeline, body: bytes) -> dict[str, list[dict[str, str]]]:
     try:
         with Image.open(io.BytesIO(body)) as source:
             if source.width * source.height > Image.MAX_IMAGE_PIXELS:
@@ -106,12 +121,12 @@ def recognize_bytes(pipeline, body):
 
 
 @app.get("/health")
-def health():
+def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
 @app.post("/recognize")
-async def recognize_request(request: Request):
+async def recognize_request(request: Request) -> dict[str, list[dict[str, str]]]:
     if request.headers.get("content-type") != "image/png":
         raise HTTPException(415, "Ожидается PNG")
     body = bytearray()

@@ -1,34 +1,56 @@
 """Real PostgreSQL tests for concurrent claim, notification and duplicate uploads."""
 
+from __future__ import annotations
+
 import asyncio
-import os
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+import os
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import asyncpg
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.integration.uow import SessionDatabase
 
+from application.documents import DocumentCommandService
 from application.documents.delete import DocumentDeleteCommand
 from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
-from application.documents import DocumentCommandService
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.knowledge.document import Document
+from domain.knowledge.enums import GENERAL_DOMAIN_KEY, DocumentVisibility
 from domain.knowledge.index_sync import VectorOutboxEntry
 from domain.shared.exceptions import BusinessRuleViolationError
-from domain.identity.user_context import UserContext
-from infrastructure.database.models import DocumentModel, UserModel
+from infrastructure.database.models import BackgroundJobModel, DocumentModel, UserModel
 from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
     SQLAlchemyVectorOutboxRepository,
 )
 from infrastructure.repositories.document.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
+from infrastructure.repositories.misc.sqlalchemy_background_job_repository import (
+    SQLAlchemyBackgroundJobRepository,
+)
 from infrastructure.uow_factory import UnitOfWorkFactory
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from application.uow.unit_of_work import UnitOfWork
+
+
+TEST_HASH = "test"
+
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-async def test_two_claimers_skip_locks_and_rollback_restores_claim(pg_engine):
+async def test_two_claimers_skip_locks_and_rollback_restores_claim(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
         repo = SQLAlchemyVectorOutboxRepository(session)
@@ -36,7 +58,7 @@ async def test_two_claimers_skip_locks_and_rollback_restores_claim(pg_engine):
     barrier = asyncio.Barrier(2)
     claimed = asyncio.Event()
 
-    async def first():
+    async def first() -> list[VectorOutboxEntry]:
         async with sessions() as session:
             result = await SQLAlchemyVectorOutboxRepository(session).claim_batch("one", limit=1)
             await barrier.wait()
@@ -44,7 +66,7 @@ async def test_two_claimers_skip_locks_and_rollback_restores_claim(pg_engine):
             await session.rollback()
             return result
 
-    async def second():
+    async def second() -> list[VectorOutboxEntry]:
         await barrier.wait()
         async with sessions.begin() as session:
             result = await SQLAlchemyVectorOutboxRepository(session).claim_batch("two", limit=1)
@@ -60,12 +82,12 @@ async def test_two_claimers_skip_locks_and_rollback_restores_claim(pg_engine):
         assert [e.id for e in reclaimed] == [a[0].id]
 
 
-async def test_outbox_notification_arrives_only_after_commit(pg_engine):
+async def test_outbox_notification_arrives_only_after_commit(pg_engine: AsyncEngine) -> None:
     listener = await asyncpg.connect(
         os.environ["TEST_POSTGRES_URL"].replace("postgresql+asyncpg://", "postgresql://")
     )
     notified = asyncio.Event()
-    await listener.add_listener("vector_outbox_ready", lambda *args: notified.set())
+    await listener.add_listener("vector_outbox_ready", lambda *_args: notified.set())
     sessions = async_sessionmaker(pg_engine)
     try:
         async with sessions() as session:
@@ -84,70 +106,79 @@ async def test_outbox_notification_arrives_only_after_commit(pg_engine):
         await listener.close()
 
 
-async def test_three_versions_preserve_original_anchor(pg_engine):
+async def test_three_versions_preserve_original_anchor(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
         repo = SQLAlchemyDocumentRepository(session)
-        first = await repo.save(Document(filename="v1.pdf", doc_domain="general"))
-        second = await repo.save(Document(filename="v2.pdf", doc_domain="general", version_group_id=first.id))
+        first = await repo.save(Document(filename="v1.pdf", doc_domain=GENERAL_DOMAIN_KEY))
+        assert first.id is not None
+        second = await repo.save(
+            Document(filename="v2.pdf", doc_domain=GENERAL_DOMAIN_KEY, version_group_id=first.id)
+        )
+        assert second.id is not None
     async with sessions.begin() as session:
         repo = SQLAlchemyDocumentRepository(session)
         loaded = await repo.get_by_id(second.id)
+        assert loaded is not None
         third = await repo.save(
-            Document(filename="v3.pdf", doc_domain="general", version_group_id=loaded.version_group_id)
+            Document(
+                filename="v3.pdf", doc_domain=GENERAL_DOMAIN_KEY, version_group_id=loaded.version_group_id
+            )
         )
+        assert third.id is not None
     async with sessions() as session:
         loaded_third = await SQLAlchemyDocumentRepository(session).get_by_id(third.id)
+        assert loaded_third is not None
         assert loaded_third.version_group_id == first.id
 
 
-async def test_concurrent_duplicate_upload_hits_real_unique_constraint(pg_engine):
+async def test_concurrent_duplicate_upload_hits_real_unique_constraint(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
-        user = UserModel(email="race@example.org", hashed_password="test", role="user", kind="internal")
+        user = UserModel(email="race@example.org", hashed_password=TEST_HASH, role="user", kind="internal")
         session.add(user)
         await session.flush()
         user_id = user.id
-    database = MagicMock()
-    database.get_session.side_effect = lambda **kwargs: sessions()
+    database = SessionDatabase(sessions)
     real_factory = UnitOfWorkFactory(database)
     barrier = asyncio.Barrier(2)
 
     class RacingRepository(SQLAlchemyDocumentRepository):
-        async def find_active_slot(self, *args, **kwargs):
+        async def find_active_slot(self, *args: Any, **kwargs: Any) -> Document | None:
             result = await super().find_active_slot(*args, **kwargs)
             await barrier.wait()
             return result
 
-    class RacingFactory:
+    class RacingFactory(UnitOfWorkFactory):
         @asynccontextmanager
-        async def create(self, master=False):
+        async def create(self, *, master: bool = False) -> AsyncIterator[UnitOfWork]:
             async with real_factory.create(master=master) as uow:
+                assert isinstance(uow._session, AsyncSession)
                 uow.documents = RacingRepository(uow._session)
                 yield uow
 
-    context = UserContext(user_id=user_id, user_kind="internal", user_role="user", group_ids=[])
+    context = UserContext(user_id=user_id, user_kind=UserKind.INTERNAL, user_role=UserRole.USER, group_ids=())
     context_factory = MagicMock()
     context_factory.build = AsyncMock(return_value=context)
     storage = MagicMock(supported_extensions=(".pdf",))
     storage.upload_file = AsyncMock()
     storage.delete_file = AsyncMock()
-    factory = RacingFactory()
+    factory = RacingFactory(database)
     command = DocumentCommandService(
         DocumentUploadCommand(factory, storage, context_factory),
         DocumentDeleteCommand(factory, storage, context_factory),
         DocumentRenameCommand(factory, storage, context_factory),
     )
 
-    async def upload():
+    async def upload() -> object:
         return await command.upload(
             filename="race.pdf",
             file_data=b"pdf",
-            visibility="internal_private",
+            visibility=DocumentVisibility.INTERNAL_PRIVATE,
             group_id=None,
             user_id=user_id,
-            user_kind="internal",
-            user_role="user",
+            user_kind=UserKind.INTERNAL,
+            user_role=UserRole.USER,
         )
 
     results = await asyncio.wait_for(asyncio.gather(upload(), upload(), return_exceptions=True), timeout=10)
@@ -157,12 +188,7 @@ async def test_concurrent_duplicate_upload_hits_real_unique_constraint(pg_engine
         assert await session.scalar(select(func.count()).select_from(DocumentModel)) == 1
 
 
-async def test_waiting_job_heartbeat_prevents_false_stale_failure(pg_engine):
-    from datetime import UTC, datetime, timedelta
-    from infrastructure.database.models import BackgroundJobModel
-    from infrastructure.repositories.misc.sqlalchemy_background_job_repository import (
-        SQLAlchemyBackgroundJobRepository,
-    )
+async def test_waiting_job_heartbeat_prevents_false_stale_failure(pg_engine: AsyncEngine) -> None:
 
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:

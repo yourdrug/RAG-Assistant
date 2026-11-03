@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
-from domain.knowledge.chunk import ChunkRecord
-from domain.shared.pagination import encode_cursor
-from domain.shared.pagination import CursorPage
+from typing import TYPE_CHECKING
+
 from sqlalchemy import and_, or_
 
+from domain.shared.pagination import CursorPage, encode_cursor
 from infrastructure.database.models import ChunkModel
 from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_result
 
 
+if TYPE_CHECKING:
+    from sqlalchemy.sql.elements import ColumnElement
+
+    from domain.knowledge.chunk import ChunkRecord
+
+
 def build_cursor_forward_conditions(
     cursor: tuple[int, int] | None,
-) -> list:
+) -> list[ColumnElement[bool]]:
     """Build WHERE conditions for forward cursor pagination."""
     if cursor is None:
         return []
@@ -27,7 +33,7 @@ def build_cursor_forward_conditions(
     ]
 
 
-def build_cursor_backward_conditions(cursor: tuple[int, int]) -> list:
+def build_cursor_backward_conditions(cursor: tuple[int, int]) -> list[ColumnElement[bool]]:
     """Build WHERE conditions for backward cursor pagination."""
     ci, cid = cursor
     return [
@@ -38,7 +44,9 @@ def build_cursor_backward_conditions(cursor: tuple[int, int]) -> list:
     ]
 
 
-def paginate_forward(rows: list, limit: int, cursor: tuple[int, int] | None) -> CursorPage[ChunkRecord]:
+def paginate_forward(
+    rows: list[ChunkModel], limit: int, cursor: tuple[int, int] | None
+) -> CursorPage[ChunkRecord]:
     """Build CursorPage from forward-fetched rows."""
     has_extra = len(rows) > limit
     page_rows = rows[:limit]
@@ -46,16 +54,16 @@ def paginate_forward(rows: list, limit: int, cursor: tuple[int, int] | None) -> 
     prev_cur = (
         encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows and cursor is not None else None
     )
-    items = [r if isinstance(r, ChunkRecord) else to_chunk_search_result(r) for r in page_rows]
+    items = [to_chunk_search_result(r) for r in page_rows]
     return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
 
 
-def paginate_backward(rows: list, limit: int) -> CursorPage[ChunkRecord]:
+def paginate_backward(rows: list[ChunkModel], limit: int) -> CursorPage[ChunkRecord]:
     """Build CursorPage from backward-fetched rows."""
     has_extra = len(rows) > limit
     page_rows = rows[:limit]
     page_rows.reverse()
     prev_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if has_extra and page_rows else None
     next_cur = encode_cursor(page_rows[-1].chunk_index, page_rows[-1].id) if page_rows else None
-    items = [r if isinstance(r, ChunkRecord) else to_chunk_search_result(r) for r in page_rows]
+    items = [to_chunk_search_result(r) for r in page_rows]
     return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)

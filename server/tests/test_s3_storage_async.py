@@ -1,23 +1,40 @@
 """Native async S3 request, concurrency and lifecycle contracts."""
 
+from __future__ import annotations
+
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from aiobotocore.session import ClientCreatorContext
 from botocore.exceptions import ClientError
+import pytest
 
 from config import Settings, settings
 from infrastructure.storage.file_storage import S3Storage, create_storage
+from tests.s3_fakes import Body
 
 
-def client_harness(monkeypatch, *, max_concurrent=2):
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable, Coroutine
+
+    from application.ports.file_storage import FileItem
+    from infrastructure.storage.s3_types import ObjectInfo, ObjectPage
+
+
+def client_harness(
+    monkeypatch: pytest.MonkeyPatch, *, max_concurrent: int = 2
+) -> tuple[S3Storage, MagicMock, SimpleNamespace, MagicMock]:
     monkeypatch.setattr(settings, "s3_max_concurrent", max_concurrent, raising=False)
     monkeypatch.setattr(settings, "s3_bucket", "bucket")
     client = MagicMock()
+
     for name in ("head_object", "put_object", "delete_object", "copy_object", "get_object"):
         setattr(client, name, AsyncMock())
+
     context = SimpleNamespace(__aenter__=AsyncMock(return_value=client), __aexit__=AsyncMock())
     session = MagicMock(create_client=MagicMock(return_value=context))
     monkeypatch.setattr("infrastructure.storage.file_storage.get_session", lambda: session)
@@ -25,8 +42,8 @@ def client_harness(monkeypatch, *, max_concurrent=2):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_lazy_init_one_client_and_idempotent_close(monkeypatch):
-    storage, client, context, session = client_harness(monkeypatch)
+async def test_concurrent_lazy_init_one_client_and_idempotent_close(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage, _client, context, session = client_harness(monkeypatch)
     session.create_client.assert_not_called()
     await asyncio.gather(*(storage.upload_file(str(i), b"x") for i in range(10)))
     context.__aenter__.assert_awaited_once()
@@ -38,7 +55,7 @@ async def test_concurrent_lazy_init_one_client_and_idempotent_close(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_init_failure_discards_unentered_context_then_retries(monkeypatch):
+async def test_init_failure_discards_unentered_context_then_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     storage, client, context, _ = client_harness(monkeypatch)
     context.__aenter__.side_effect = [OSError("connect"), client]
     with pytest.raises(OSError, match="connect"):
@@ -51,7 +68,7 @@ async def test_init_failure_discards_unentered_context_then_retries(monkeypatch)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("code", ["404", "NoSuchKey", "NotFound", "AccessDenied", "NoSuchBucket"])
-async def test_head_maps_only_missing_key_to_none(monkeypatch, code):
+async def test_head_maps_only_missing_key_to_none(monkeypatch: pytest.MonkeyPatch, code: str) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
     error = ClientError({"Error": {"Code": code}}, "HeadObject")
     client.head_object.side_effect = error
@@ -67,11 +84,11 @@ async def test_head_maps_only_missing_key_to_none(monkeypatch, code):
 
 
 @pytest.mark.asyncio
-async def test_list_pagination_sorting_and_request_arguments(monkeypatch):
+async def test_list_pagination_sorting_and_request_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
 
-    async def pages(**kwargs):
+    async def pages(**kwargs: Any) -> AsyncIterator[ObjectPage]:
         assert kwargs == {"Bucket": "bucket", "Prefix": "docs/"}
         yield {"Contents": [{"Key": f"docs/{i:04}.txt", "Size": 1, "LastModified": now} for i in range(1000)]}
         yield {
@@ -88,6 +105,7 @@ async def test_list_pagination_sorting_and_request_arguments(monkeypatch):
     key = "docs/отчёт с пробелом.PDF"
     client.head_object.return_value = {"ContentLength": 42, "LastModified": now}
     info = await storage.get_file_info(key)
+    assert info is not None
     assert (info.key, info.size_bytes, info.last_modified, info.extension) == (
         key,
         42,
@@ -105,15 +123,17 @@ async def test_list_pagination_sorting_and_request_arguments(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_successful_rename_with_one_slot_copies_before_deleting(monkeypatch):
+async def test_successful_rename_with_one_slot_copies_before_deleting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch, max_concurrent=1)
     events = []
 
-    async def copy(**kwargs):
+    async def copy(**kwargs: Any) -> None:
         assert kwargs == {"Bucket": "bucket", "CopySource": {"Bucket": "bucket", "Key": "old"}, "Key": "new"}
         events.append("copy")
 
-    async def delete(**kwargs):
+    async def delete(**kwargs: Any) -> None:
         assert kwargs == {"Bucket": "bucket", "Key": "old"}
         events.append("delete")
 
@@ -128,24 +148,28 @@ async def test_successful_rename_with_one_slot_copies_before_deleting(monkeypatc
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("code", ["AccessDenied", "NoSuchKey"])
-async def test_copy_failure_never_deletes_source(monkeypatch, code):
+async def test_copy_failure_never_deletes_source(monkeypatch: pytest.MonkeyPatch, code: str) -> None:
     storage, client, _, _ = client_harness(monkeypatch, max_concurrent=1)
     client.copy_object.side_effect = ClientError({"Error": {"Code": code}}, "CopyObject")
+
     if code == "NoSuchKey":
         await asyncio.wait_for(storage.rename_file("missing", "new"), 2)
     else:
         with pytest.raises(ClientError):
             await storage.rename_file("old", "new")
+
     client.delete_object.assert_not_awaited()
     await storage.aclose()
 
 
 @pytest.mark.asyncio
-async def test_semaphore_cancel_and_shutdown_wait_for_active_operation(monkeypatch):
+async def test_semaphore_cancel_and_shutdown_wait_for_active_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     storage, client, context, _ = client_harness(monkeypatch, max_concurrent=1)
     started, release = asyncio.Event(), asyncio.Event()
 
-    async def put(**kwargs):
+    async def put(**kwargs: Any) -> None:
         started.set()
         await release.wait()
 
@@ -167,31 +191,30 @@ async def test_semaphore_cancel_and_shutdown_wait_for_active_operation(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_shutdown_unused_storage_does_not_initialize(monkeypatch):
+async def test_shutdown_unused_storage_does_not_initialize(monkeypatch: pytest.MonkeyPatch) -> None:
     storage, _, _, session = client_harness(monkeypatch)
     await storage.aclose()
     session.create_client.assert_not_called()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["head", "list", "get"])
-async def test_delayed_network_keeps_heartbeat_responsive(monkeypatch, operation, record_property):
-    from test_s3_storage_download import Body
+def delayed_storage_call(
+    storage: S3Storage, client: MagicMock, operation: str, release: asyncio.Event
+) -> tuple[Coroutine[Any, Any, FileItem | list[FileItem] | Path | None], asyncio.Event]:
+    started = asyncio.Event()
+    call: Coroutine[Any, Any, FileItem | list[FileItem] | Path | None]
 
-    storage, client, _, _ = client_harness(monkeypatch)
-    started, release = asyncio.Event(), asyncio.Event()
     if operation == "head":
 
-        async def delayed_head(**kwargs):
+        async def delayed_head(**kwargs: Any) -> ObjectInfo:
             started.set()
             await release.wait()
-            return {"ContentLength": 1, "LastModified": datetime(2026, 1, 1, tzinfo=timezone.utc)}
+            return {"ContentLength": 1, "LastModified": datetime(2026, 1, 1, tzinfo=UTC)}
 
         client.head_object.side_effect = delayed_head
         call = storage.get_file_info("a.txt")
     elif operation == "list":
 
-        async def delayed_pages(**kwargs):
+        async def delayed_pages(**kwargs: Any) -> AsyncIterator[ObjectPage]:
             started.set()
             await release.wait()
             yield {"Contents": []}
@@ -204,16 +227,31 @@ async def test_delayed_network_keeps_heartbeat_responsive(monkeypatch, operation
         started = body.started
         client.get_object.return_value = {"Body": body}
         call = storage.download_to_temp("a.txt")
+
+    return call, started
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["head", "list", "get"])
+async def test_delayed_network_keeps_heartbeat_responsive(
+    monkeypatch: pytest.MonkeyPatch, operation: str, record_property: Callable[[str, object], None]
+) -> None:
+
+    storage, client, _, _ = client_harness(monkeypatch)
+    release = asyncio.Event()
+    call, started = delayed_storage_call(storage, client, operation, release)
     pending = asyncio.create_task(call)
     lags = []
     try:
         await asyncio.wait_for(started.wait(), 5)
         loop = asyncio.get_running_loop()
         until = loop.time() + 1
+
         while loop.time() < until:
             due = loop.time() + 0.05
             await asyncio.sleep(0.05)
             lags.append(max(0, loop.time() - due))
+
         assert not pending.done()
         assert len(lags) >= 10
         assert max(lags) < 0.2
@@ -221,13 +259,16 @@ async def test_delayed_network_keeps_heartbeat_responsive(monkeypatch, operation
     finally:
         release.set()
     result = await pending
+
     if operation == "get":
+        assert isinstance(result, Path)
         result.unlink()
+
     await storage.aclose()
 
 
 @pytest.mark.asyncio
-async def test_closed_storage_cannot_reopen_via_client_acquisition(monkeypatch):
+async def test_closed_storage_cannot_reopen_via_client_acquisition(monkeypatch: pytest.MonkeyPatch) -> None:
     storage, _, _, session = client_harness(monkeypatch)
     await storage.aclose()
     with pytest.raises(RuntimeError, match="closed"):
@@ -237,7 +278,9 @@ async def test_closed_storage_cannot_reopen_via_client_acquisition(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [TimeoutError("S3 timeout"), asyncio.CancelledError()])
-async def test_head_timeout_or_cancellation_propagates_and_releases_slot(monkeypatch, error):
+async def test_head_timeout_or_cancellation_propagates_and_releases_slot(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch, max_concurrent=1)
     client.head_object.side_effect = error
     with pytest.raises(type(error)):
@@ -249,8 +292,9 @@ async def test_head_timeout_or_cancellation_propagates_and_releases_slot(monkeyp
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancelled", [False, True])
-async def test_real_sdk_context_failed_creation_preserves_error_and_allows_retry(monkeypatch, cancelled):
-    from aiobotocore.session import ClientCreatorContext
+async def test_real_sdk_context_failed_creation_preserves_error_and_allows_retry(
+    monkeypatch: pytest.MonkeyPatch, cancelled: bool
+) -> None:
 
     storage, client, _, session = client_harness(monkeypatch)
     client.__aenter__ = AsyncMock(return_value=client)
@@ -259,17 +303,21 @@ async def test_real_sdk_context_failed_creation_preserves_error_and_allows_retry
     failure = OSError("creation failed")
     attempts = 0
 
-    async def create():
+    async def create() -> MagicMock:
         nonlocal attempts
         attempts += 1
+
         if attempts == 1:
             if cancelled:
                 started.set()
                 await asyncio.Event().wait()
+
             raise failure
+
         return client
 
-    session.create_client.side_effect = lambda *args, **kwargs: ClientCreatorContext(create())
+    session.create_client.side_effect = lambda *_args, **_kwargs: ClientCreatorContext(create())
+
     if cancelled:
         pending = asyncio.create_task(storage.upload_file("a", b"x"))
         await asyncio.wait_for(started.wait(), 5)
@@ -277,9 +325,10 @@ async def test_real_sdk_context_failed_creation_preserves_error_and_allows_retry
         with pytest.raises(asyncio.CancelledError):
             await pending
     else:
-        with pytest.raises(OSError) as caught:
+        with pytest.raises(OSError, match="creation failed") as caught:
             await storage.upload_file("a", b"x")
         assert caught.value is failure
+
     client.__aexit__.assert_not_awaited()
     await storage.upload_file("a", b"x")
     await storage.aclose()
@@ -287,73 +336,85 @@ async def test_real_sdk_context_failed_creation_preserves_error_and_allows_retry
 
 
 @pytest.mark.asyncio
-async def test_report_multipart_bounded_and_aborted_on_error_or_cancel(monkeypatch):
+async def test_report_multipart_bounded_and_aborted_on_error_or_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
-    client.create_multipart_upload = AsyncMock(return_value={'UploadId': 'upload'})
-    client.upload_part = AsyncMock(return_value={'ETag': 'etag'})
+    client.create_multipart_upload = AsyncMock(return_value={"UploadId": "upload"})
+    client.upload_part = AsyncMock(return_value={"ETag": "etag"})
     client.complete_multipart_upload = AsyncMock()
     client.abort_multipart_upload = AsyncMock()
-    monkeypatch.setattr(settings, 'data_dir', '/proc/unavailable')
+    monkeypatch.setattr(settings, "data_dir", "/proc/unavailable")
 
-    async def chunks():
+    async def chunks() -> AsyncIterator[bytes]:
         for _ in range(12):
-            yield b'x' * 1024 * 1024
+            yield b"x" * 1024 * 1024
 
-    await storage.upload_stream('benchmarks/runs/1/report.json', chunks())
-    sizes = [len(call.kwargs['Body']) for call in client.upload_part.call_args_list]
+    await storage.upload_stream("benchmarks/runs/1/report.json", chunks())
+    sizes = [len(call.kwargs["Body"]) for call in client.upload_part.call_args_list]
     assert sizes == [5 * 1024 * 1024, 5 * 1024 * 1024, 2 * 1024 * 1024]
     client.complete_multipart_upload.assert_awaited_once()
 
-    for error in (OSError('upload failed'), asyncio.CancelledError()):
+    for error in (OSError("upload failed"), asyncio.CancelledError()):
 
-        async def broken(error=error):
-            yield b'partial'
+        async def broken(error: BaseException = error) -> AsyncIterator[bytes]:
+            yield b"partial"
             raise error
 
         with pytest.raises(type(error)):
-            await storage.upload_stream('benchmarks/runs/1/report.json', broken())
+            await storage.upload_stream("benchmarks/runs/1/report.json", broken())
+
     assert client.abort_multipart_upload.await_count == 2
     await storage.aclose()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("creation_fails", [False, True])
-async def test_cancel_during_multipart_creation_aborts_remote_upload(monkeypatch, creation_fails):
+async def test_cancel_during_multipart_creation_aborts_remote_upload(
+    monkeypatch: pytest.MonkeyPatch, creation_fails: bool
+) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
     started, release = asyncio.Event(), asyncio.Event()
 
-    async def create(**kwargs):
+    async def create(**kwargs: Any) -> dict[str, str]:
         started.set()
         await release.wait()
+
         if creation_fails:
-            raise OSError('create failed')
-        return {'UploadId': 'owned-upload'}
+            msg = "create failed"
+            raise OSError(msg)
+
+        return {"UploadId": "owned-upload"}
 
     client.create_multipart_upload = AsyncMock(side_effect=create)
     client.abort_multipart_upload = AsyncMock()
 
-    async def blocks():
-        yield b'data'
+    async def blocks() -> AsyncIterator[bytes]:
+        yield b"data"
 
-    task = asyncio.create_task(storage.upload_stream('report.json', blocks()))
+    task = asyncio.create_task(storage.upload_stream("report.json", blocks()))
     await started.wait()
     task.cancel()
     await asyncio.sleep(0)
     release.set()
     with pytest.raises(asyncio.CancelledError):
         await task
+
     if creation_fails:
         client.abort_multipart_upload.assert_not_awaited()
     else:
         client.abort_multipart_upload.assert_awaited_once_with(
-            Bucket='bucket', Key='report.json', UploadId='owned-upload'
+            Bucket="bucket", Key="report.json", UploadId="owned-upload"
         )
+
     await storage.aclose()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("legacy_backend", ["local", "s3", "typo"])
-async def test_factory_uses_s3_without_data_dir_even_with_legacy_env(monkeypatch, legacy_backend):
+async def test_factory_uses_s3_without_data_dir_even_with_legacy_env(
+    monkeypatch: pytest.MonkeyPatch, legacy_backend: str
+) -> None:
     monkeypatch.setenv("FILE_BACKEND", legacy_backend)
     configured = Settings(_env_file=None, data_dir="/proc/unavailable")
     monkeypatch.setattr("infrastructure.storage.file_storage.settings", configured)

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from application.health.ports import HealthCheckResult
 from application.health.service import HealthService
 from application.runtime.enums import HealthStatus
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 from presentation.api.dependencies import create_health_service
 from presentation.api.routes.health import router
 

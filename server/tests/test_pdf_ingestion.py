@@ -4,13 +4,32 @@ Creates real PDF files with PyMuPDF to test the full parsing pipeline.
 OCR is mocked to avoid PaddleOCR/Surya dependencies in test.
 """
 
-import sys
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import fitz
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+from infrastructure.ml.ingestion.pdf import (
+    _compute_text_quality,
+    _extract_doc_metadata,
+    _find_boilerplate_patterns,
+    _order_blocks_columnwise,
+    _select_best_text,
+    _should_ocr,
+    parse_pdf,
+    pymupdf_table_to_markdown,
+)
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from infrastructure.ml.ingestion.pdf import (
+        ClassifiedPage,
+        TextBlock,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -20,15 +39,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 def _create_pdf(path: Path, pages: list[list[str]], title: str = "") -> Path:
     """Create a PDF with given text per page."""
-    doc = fitz.open()
+    doc = fitz.Document()
+
     if title:
         doc.set_metadata({"title": title})
+
     for page_texts in pages:
         page = doc.new_page()
         y = 72
+
         for text in page_texts:
             page.insert_text((72, y), text)
             y += 30
+
     doc.save(str(path))
     doc.close()
     return path
@@ -36,7 +59,7 @@ def _create_pdf(path: Path, pages: list[list[str]], title: str = "") -> Path:
 
 def _create_table_pdf(path: Path) -> Path:
     """Create a PDF with a simple table."""
-    doc = fitz.open()
+    doc = fitz.Document()
     page = doc.new_page()
     # Insert table-like text
     page.insert_text((72, 72), "Name | Value | Count")
@@ -49,7 +72,7 @@ def _create_table_pdf(path: Path) -> Path:
 
 def _create_image_heavy_pdf(path: Path) -> Path:
     """Create a PDF with minimal text (simulates scanned page)."""
-    doc = fitz.open()
+    doc = fitz.Document()
     page = doc.new_page()
     # Very little text — should trigger OCR path
     page.insert_text((72, 72), "X")
@@ -64,8 +87,7 @@ def _create_image_heavy_pdf(path: Path) -> Path:
 
 
 class TestPymupdfTableToMarkdown:
-    def test_simple_table(self):
-        from infrastructure.ml.ingestion.pdf import pymupdf_table_to_markdown
+    def test_simple_table(self) -> None:
 
         mock_table = MagicMock()
         mock_table.extract.return_value = [["Name", "Value"], ["A", "1"], ["B", "2"]]
@@ -74,16 +96,14 @@ class TestPymupdfTableToMarkdown:
         assert "| A |" in result
         assert "---" in result
 
-    def test_empty_table(self):
-        from infrastructure.ml.ingestion.pdf import pymupdf_table_to_markdown
+    def test_empty_table(self) -> None:
 
         mock_table = MagicMock()
         mock_table.extract.return_value = []
         result = pymupdf_table_to_markdown(mock_table)
         assert result == ""
 
-    def test_single_row(self):
-        from infrastructure.ml.ingestion.pdf import pymupdf_table_to_markdown
+    def test_single_row(self) -> None:
 
         mock_table = MagicMock()
         mock_table.extract.return_value = [["Col1", "Col2"]]
@@ -93,8 +113,7 @@ class TestPymupdfTableToMarkdown:
         lines = result.strip().split("\n")
         assert len(lines) == 1  # only header
 
-    def test_exception_returns_empty(self):
-        from infrastructure.ml.ingestion.pdf import pymupdf_table_to_markdown
+    def test_exception_returns_empty(self) -> None:
 
         mock_table = MagicMock()
         mock_table.extract.side_effect = Exception("fail")
@@ -108,18 +127,16 @@ class TestPymupdfTableToMarkdown:
 
 
 class TestOrderBlocksColumnwise:
-    def test_single_column(self):
-        from infrastructure.ml.ingestion.pdf import _order_blocks_columnwise
+    def test_single_column(self) -> None:
 
-        blocks = [(10, 10, 100, 30, "Line 1"), (10, 40, 100, 60, "Line 2")]
+        blocks: list[TextBlock] = [(10, 10, 100, 30, "Line 1"), (10, 40, 100, 60, "Line 2")]
         result = _order_blocks_columnwise(blocks, 500)
         assert result == ["Line 1", "Line 2"]
 
-    def test_two_columns(self):
-        from infrastructure.ml.ingestion.pdf import _order_blocks_columnwise
+    def test_two_columns(self) -> None:
 
         # Column 1 at x=10, Column 2 at x=300 (gap > 8% of 500 = 40)
-        blocks = [
+        blocks: list[TextBlock] = [
             (10, 10, 100, 30, "Col1-Line1"),
             (300, 10, 400, 30, "Col2-Line1"),
             (10, 40, 100, 60, "Col1-Line2"),
@@ -128,15 +145,13 @@ class TestOrderBlocksColumnwise:
         result = _order_blocks_columnwise(blocks, 500)
         assert result == ["Col1-Line1", "Col1-Line2", "Col2-Line1", "Col2-Line2"]
 
-    def test_empty_blocks(self):
-        from infrastructure.ml.ingestion.pdf import _order_blocks_columnwise
+    def test_empty_blocks(self) -> None:
 
         assert _order_blocks_columnwise([], 500) == []
 
-    def test_single_block(self):
-        from infrastructure.ml.ingestion.pdf import _order_blocks_columnwise
+    def test_single_block(self) -> None:
 
-        blocks = [(10, 10, 100, 30, "only block")]
+        blocks: list[TextBlock] = [(10, 10, 100, 30, "only block")]
         result = _order_blocks_columnwise(blocks, 500)
         assert result == ["only block"]
 
@@ -147,26 +162,22 @@ class TestOrderBlocksColumnwise:
 
 
 class TestShouldOcr:
-    def test_empty_text_with_ocr_enabled(self):
-        from infrastructure.ml.ingestion.pdf import _should_ocr
+    def test_empty_text_with_ocr_enabled(self) -> None:
 
-        assert _should_ocr("", 100, True) is True
+        assert _should_ocr("", 100, ocr_enabled=True) is True
 
-    def test_short_text_with_ocr_enabled(self):
-        from infrastructure.ml.ingestion.pdf import _should_ocr
+    def test_short_text_with_ocr_enabled(self) -> None:
 
-        assert _should_ocr("hi", 100, True) is True
+        assert _should_ocr("hi", 100, ocr_enabled=True) is True
 
-    def test_long_text_not_ocr(self):
-        from infrastructure.ml.ingestion.pdf import _should_ocr
+    def test_long_text_not_ocr(self) -> None:
 
-        assert _should_ocr("x" * 200, 100, True) is False
+        assert _should_ocr("x" * 200, 100, ocr_enabled=True) is False
 
-    def test_ocr_disabled(self):
-        from infrastructure.ml.ingestion.pdf import _should_ocr
+    def test_ocr_disabled(self) -> None:
 
-        assert _should_ocr("", 100, False) is False
-        assert _should_ocr("hi", 100, False) is False
+        assert _should_ocr("", 100, ocr_enabled=False) is False
+        assert _should_ocr("hi", 100, ocr_enabled=False) is False
 
 
 # ---------------------------------------------------------------------------
@@ -175,19 +186,16 @@ class TestShouldOcr:
 
 
 class TestSelectBestText:
-    def test_no_existing(self):
-        from infrastructure.ml.ingestion.pdf import _select_best_text
+    def test_no_existing(self) -> None:
 
         assert _select_best_text(None, "ocr text") == "ocr text"
 
-    def test_ocr_much_longer(self):
-        from infrastructure.ml.ingestion.pdf import _select_best_text
+    def test_ocr_much_longer(self) -> None:
 
         result = _select_best_text("short", "a" * 100)
         assert result == "a" * 100
 
-    def test_existing_comparable(self):
-        from infrastructure.ml.ingestion.pdf import _select_best_text
+    def test_existing_comparable(self) -> None:
 
         result = _select_best_text("existing text here", "ocr")
         # existing is not 1.5x shorter than ocr, so returns cleaned existing
@@ -200,8 +208,7 @@ class TestSelectBestText:
 
 
 class TestComputeTextQuality:
-    def test_page_with_text(self):
-        from infrastructure.ml.ingestion.pdf import _compute_text_quality
+    def test_page_with_text(self) -> None:
 
         mock_page = MagicMock()
         mock_page.rect.width = 500
@@ -210,8 +217,7 @@ class TestComputeTextQuality:
         result = _compute_text_quality(mock_page)
         assert 0.0 <= result <= 1.0
 
-    def test_empty_page(self):
-        from infrastructure.ml.ingestion.pdf import _compute_text_quality
+    def test_empty_page(self) -> None:
 
         mock_page = MagicMock()
         mock_page.rect.width = 500
@@ -220,8 +226,7 @@ class TestComputeTextQuality:
         result = _compute_text_quality(mock_page)
         assert result == 0.0
 
-    def test_exception_returns_zero(self):
-        from infrastructure.ml.ingestion.pdf import _compute_text_quality
+    def test_exception_returns_zero(self) -> None:
 
         mock_page = MagicMock()
         mock_page.rect.width = -1
@@ -236,8 +241,7 @@ class TestComputeTextQuality:
 
 
 class TestExtractDocMetadata:
-    def test_with_metadata(self):
-        from infrastructure.ml.ingestion.pdf import _extract_doc_metadata
+    def test_with_metadata(self) -> None:
 
         mock_doc = MagicMock()
         mock_doc.metadata = {"title": "My Title", "author": "Author", "subject": "", "keywords": ""}
@@ -248,8 +252,7 @@ class TestExtractDocMetadata:
         assert result["page_count"] == 5
         assert "doc_subject" not in result
 
-    def test_empty_metadata(self):
-        from infrastructure.ml.ingestion.pdf import _extract_doc_metadata
+    def test_empty_metadata(self) -> None:
 
         mock_doc = MagicMock()
         mock_doc.metadata = {}
@@ -265,27 +268,25 @@ class TestExtractDocMetadata:
 
 
 class TestFindBoilerplatePatterns:
-    def test_few_pages_returns_empty(self):
-        from infrastructure.ml.ingestion.pdf import _find_boilerplate_patterns
+    def test_few_pages_returns_empty(self) -> None:
 
         # Less than _BOILERPLATE_MIN_PAGES (4)
-        classified = [
-            ([[(0, 0, 100, 20, "Header")], [], []]),
+        classified: list[ClassifiedPage] = [
+            ([(0, 0, 100, 20, "Header")], [], []),
         ]
         result = _find_boilerplate_patterns(classified)
         assert result == set()
 
-    def test_recurring_pattern_detected(self):
-        from infrastructure.ml.ingestion.pdf import _find_boilerplate_patterns
+    def test_recurring_pattern_detected(self) -> None:
 
         # 5 pages all with same header
-        header_block = [(0, 0, 100, 20, "Running Header")]
-        classified = [
-            (header_block, [[(0, 30, 100, 100, "Body text")]], []),
-            (header_block, [[(0, 30, 100, 100, "Body text")]], []),
-            (header_block, [[(0, 30, 100, 100, "Body text")]], []),
-            (header_block, [[(0, 30, 100, 100, "Body text")]], []),
-            (header_block, [[(0, 30, 100, 100, "Body text")]], []),
+        header_block: list[TextBlock] = [(0, 0, 100, 20, "Running Header")]
+        classified: list[ClassifiedPage] = [
+            (header_block, [(0, 30, 100, 100, "Body text")], []),
+            (header_block, [(0, 30, 100, 100, "Body text")], []),
+            (header_block, [(0, 30, 100, 100, "Body text")], []),
+            (header_block, [(0, 30, 100, 100, "Body text")], []),
+            (header_block, [(0, 30, 100, 100, "Body text")], []),
         ]
         result = _find_boilerplate_patterns(classified)
         assert "Running Header" in result
@@ -297,8 +298,7 @@ class TestFindBoilerplatePatterns:
 
 
 class TestParsePdf:
-    def test_simple_text_pdf(self, tmp_path):
-        from infrastructure.ml.ingestion.pdf import parse_pdf
+    def test_simple_text_pdf(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(
             tmp_path / "test.pdf",
@@ -312,8 +312,7 @@ class TestParsePdf:
         assert len(result) >= 1
         assert any("Hello world" in d.page_content for d in result)
 
-    def test_multi_page_pdf(self, tmp_path):
-        from infrastructure.ml.ingestion.pdf import parse_pdf
+    def test_multi_page_pdf(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(
             tmp_path / "multi.pdf",
@@ -332,8 +331,7 @@ class TestParsePdf:
         assert 1 in pages
         assert 2 in pages
 
-    def test_metadata_has_source(self, tmp_path):
-        from infrastructure.ml.ingestion.pdf import parse_pdf
+    def test_metadata_has_source(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(tmp_path / "meta.pdf", [["Some text content here for testing."]])
         with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
@@ -344,8 +342,7 @@ class TestParsePdf:
         assert len(result) >= 1
         assert result[0].metadata["source"] == str(pdf_path)
 
-    def test_metadata_has_text_quality(self, tmp_path):
-        from infrastructure.ml.ingestion.pdf import parse_pdf
+    def test_metadata_has_text_quality(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(tmp_path / "tq.pdf", [["Text content for quality check."]])
         with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
@@ -355,8 +352,7 @@ class TestParsePdf:
 
         assert "text_quality" in result[0].metadata
 
-    def test_metadata_has_image_info(self, tmp_path):
-        from infrastructure.ml.ingestion.pdf import parse_pdf
+    def test_metadata_has_image_info(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(tmp_path / "img.pdf", [["Image info test."]])
         with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
@@ -367,8 +363,7 @@ class TestParsePdf:
         assert "has_images" in result[0].metadata
         assert "image_count" in result[0].metadata
 
-    def test_pdf_title_in_metadata(self, tmp_path):
-        from infrastructure.ml.ingestion.pdf import parse_pdf
+    def test_pdf_title_in_metadata(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(tmp_path / "titled.pdf", [["Title test."]], title="My Document")
         with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
@@ -378,12 +373,11 @@ class TestParsePdf:
 
         assert result[0].metadata.get("doc_title") == "My Document"
 
-    def test_empty_text_pdf_returns_empty(self, tmp_path):
+    def test_empty_text_pdf_returns_empty(self, tmp_path: Path) -> None:
         """PDF with no extractable text should return empty list (no OCR)."""
-        from infrastructure.ml.ingestion.pdf import parse_pdf
 
         # Create a PDF with truly empty pages
-        doc = fitz.open()
+        doc = fitz.Document()
         doc.new_page()
         doc.save(str(tmp_path / "empty.pdf"))
         doc.close()

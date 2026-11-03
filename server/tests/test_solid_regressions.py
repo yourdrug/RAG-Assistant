@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from domain.identity.user_context import UserContext
+from domain.rag.context import RagContext
 from config import get_setting
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.benchmark.sweep import BenchmarkStrategy
@@ -25,7 +27,9 @@ def optuna_engine(monkeypatch):
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )
     monkeypatch.setattr(engine, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
-    monkeypatch.setattr(engine, "score_config_cheap", lambda cfg, *a: {"composite_score": cfg["top_k"]})
+    monkeypatch.setattr(
+        engine, "score_config_cheap", lambda cfg, *a, **_kwargs: {"composite_score": cfg["top_k"]}
+    )
     return engine
 
 
@@ -82,7 +86,7 @@ async def test_optuna_keeps_event_loop_responsive_during_scoring(optuna_engine, 
     started = threading.Event()
     released = threading.Event()
 
-    def score(cfg, *args):
+    def score(cfg, *args, **_kwargs):
         started.set()
         assert released.wait(2), "event loop was blocked during trial scoring"
         return {"composite_score": cfg["top_k"]}
@@ -135,7 +139,9 @@ async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellati
     try:
         generator = RagBenchmarkGenerator(SimpleNamespace(invoke=invoke), 7, None)
         with pytest.raises(asyncio.CancelledError):
-            await generator.generate({"question": "q"}, SimpleNamespace())
+            await generator.generate(
+                {"question": "q"}, RagContext(user=UserContext(user_id=1, user_kind="internal"))
+            )
         assert _settings_overrides.get() == inherited
     finally:
         _settings_overrides.reset(token)
@@ -173,7 +179,7 @@ async def test_version_update_rolls_back_rows_and_skips_cache_when_outbox_fails(
     from datetime import date
     from application.act_versioning import ActVersioningService
     from domain.knowledge.acts.models import ActVersion
-    from fakes import FakeUnitOfWorkFactory
+    from tests.fakes import FakeUnitOfWorkFactory
 
     factory = FakeUnitOfWorkFactory()
     cache = SimpleNamespace(invalidate_by_document_ids=AsyncMock())

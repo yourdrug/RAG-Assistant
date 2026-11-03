@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
-from application.ports.ml_clients import MLClientPort
 from config import settings
-from domain.knowledge.chunk import Chunk
 from infrastructure.corpus.snapshot import pin_corpus_call
 from infrastructure.ml.clients.factories import create_embeddings, create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
@@ -20,10 +17,13 @@ from infrastructure.repositories.vector.qdrant_ops import ensure_collection, upl
 from infrastructure.repositories.vector.sparse_vectors import point_vectors
 from infrastructure.resilience.retry import retry_on_transient
 
-if TYPE_CHECKING:
-    from qdrant_client import QdrantClient
 
-    from application.ports.ml_clients import EmbeddingClientPort
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from application.ports.ml_clients import MLClientPort
+    from domain.knowledge.chunk import Chunk
+    from infrastructure.repositories.vector.client_types import DocumentEmbeddingClient, VectorClient
 
 log = logging.getLogger("default")
 
@@ -32,20 +32,21 @@ class QdrantVectorStoreRepository:
     def __init__(self, ml_clients: MLClientPort | None = None) -> None:
         self._ml_clients = ml_clients
 
-    def get_qdrant_client(self) -> QdrantClient:
+    def get_qdrant_client(self) -> VectorClient:
         if self._ml_clients is not None:
-            return self._ml_clients.qdrant_client()
+            # The application port intentionally treats provider clients as opaque.
+            return cast("VectorClient", self._ml_clients.qdrant_client())
 
         return create_qdrant_client()
 
-    def get_embeddings(self) -> EmbeddingClientPort:
+    def get_embeddings(self) -> DocumentEmbeddingClient:
         if self._ml_clients is not None:
-            return self._ml_clients.embeddings()
+            return cast("DocumentEmbeddingClient", self._ml_clients.embeddings())
 
-        return create_embeddings()
+        return cast("DocumentEmbeddingClient", create_embeddings())
 
     @pin_corpus_call
-    async def ensure_collection(self, vector_size: int, reset: bool = False) -> None:
+    async def ensure_collection(self, vector_size: int, *, reset: bool = False) -> None:
         await asyncio.to_thread(ensure_collection, self.get_qdrant_client(), vector_size, reset=reset)
 
     @pin_corpus_call
@@ -56,7 +57,8 @@ class QdrantVectorStoreRepository:
         should_cancel: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         if self._ml_clients is None:
-            raise ValueError("ml_clients not initialized — cannot upload documents")
+            msg = "ml_clients not initialized — cannot upload documents"
+            raise ValueError(msg)
 
         lcdocs = [LCDocument(page_content=c.content, metadata=c.metadata) for c in chunks]
         async with self._ml_clients.ingestion_semaphore:
@@ -90,7 +92,7 @@ class QdrantVectorStoreRepository:
 
     @pin_corpus_call
     @retry_on_transient
-    async def upsert_point(self, point_id: int, vector: list[float], payload: dict) -> None:
+    async def upsert_point(self, point_id: int, vector: list[float], payload: dict[str, Any]) -> None:
         """Upsert a single point with deterministic ID (chunk.id)."""
         client = self.get_qdrant_client()
 
@@ -98,7 +100,8 @@ class QdrantVectorStoreRepository:
             identity = payload.get("metadata", {}).get("embedding_model")
 
             if not isinstance(identity, str) or not identity:
-                raise ValueError("Vector payload must declare its originating embedding_model")
+                msg = "Vector payload must declare its originating embedding_model"
+                raise ValueError(msg)
 
             ensure_embedding_identity(client, identity)
             point = PointStruct(
@@ -110,7 +113,7 @@ class QdrantVectorStoreRepository:
 
     @pin_corpus_call
     @retry_on_transient
-    async def get_point_payload(self, point_id: int, access_filter: Filter) -> dict | None:
+    async def get_point_payload(self, point_id: int, access_filter: Filter) -> dict[str, Any] | None:
         """Fetch a single point's payload by ID with mandatory ACL enforcement.
 
         Raises ``RuntimeError`` if *access_filter* is not provided — all callers
@@ -125,7 +128,7 @@ class QdrantVectorStoreRepository:
             ]
         )
 
-        def scroll() -> dict | None:
+        def scroll() -> dict[str, Any] | None:
             results, _ = client.scroll(
                 collection_name=settings.collection_name,
                 scroll_filter=combined_filter,
@@ -188,7 +191,9 @@ class QdrantVectorStoreRepository:
 
     @pin_corpus_call
     @retry_on_transient
-    async def update_metadata_by_act_version(self, act_version_id: int, metadata_updates: dict) -> None:
+    async def update_metadata_by_act_version(
+        self, act_version_id: int, metadata_updates: dict[str, Any]
+    ) -> None:
         """Update metadata for all points matching a given act_version_id."""
         client = self.get_qdrant_client()
 
@@ -206,7 +211,7 @@ class QdrantVectorStoreRepository:
         await asyncio.to_thread(update)
 
     @staticmethod
-    def patch_metadata(client, points_filter: Filter, metadata_updates: dict) -> None:
+    def patch_metadata(client: VectorClient, points_filter: Filter, metadata_updates: dict[str, Any]) -> None:
         """Patch only selected metadata keys without reading or replacing vectors."""
         client.set_payload(
             collection_name=settings.collection_name,

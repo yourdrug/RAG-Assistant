@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import re
 
+
+MIN_RUSSIAN_WORD_LENGTH = 5
+MIN_STEM_LENGTH = 3
+
 # Common Russian suffixes to strip for better sparse recall.
 # Ordered by length (longest first) to avoid partial matches.
 _RU_SUFFIXES = [
@@ -55,13 +59,13 @@ _RU_SUFFIXES = [
 _RU_SUFFIXES.sort(key=len, reverse=True)
 
 
-def _stem_russian(word: str) -> str:
+def stem_russian(word: str) -> str:
     """Strip common Russian suffixes to normalize word forms."""
-    if len(word) < 5:
+    if len(word) < MIN_RUSSIAN_WORD_LENGTH:
         return word
 
     for suffix in _RU_SUFFIXES:
-        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+        if word.endswith(suffix) and len(word) - len(suffix) >= MIN_STEM_LENGTH:
             return word[: -len(suffix)]
 
     return word
@@ -84,12 +88,12 @@ def stem_token(token: str) -> str:
             "ous",
             "ive",
         ]:
-            if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+            if token.endswith(suffix) and len(token) - len(suffix) >= MIN_STEM_LENGTH:
                 return token[: -len(suffix)]
 
         return token
 
     if re.match(r"[а-яё]", token):
-        return _stem_russian(token)
+        return stem_russian(token)
 
     return token

@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
-from domain.knowledge.chunk import ChunkRecord
-from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
-from sqlalchemy import and_, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING
 
+from sqlalchemy import and_, or_, select
+
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from infrastructure.database.models import ChunkModel
 from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_result
 from infrastructure.repositories.chunk.chunk_search import build_acl_clauses
+
+
+if TYPE_CHECKING:
+    from collections.abc import Set as AbstractSet
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from domain.identity.user_context import UserContext
+    from domain.knowledge.chunk import ChunkRecord
 
 
 class SQLAlchemyChunkContextRepository:
@@ -21,9 +30,9 @@ class SQLAlchemyChunkContextRepository:
         document_id: int,
         center_index: int,
         window: int = 1,
-        exclude_hashes: set[str] | None = None,
+        exclude_hashes: AbstractSet[str | None] | None = None,
         *,
-        user,
+        user: UserContext,
     ) -> list[ChunkRecord]:
         low = center_index - window
         high = center_index + window
@@ -58,9 +67,9 @@ class SQLAlchemyChunkContextRepository:
         self,
         document_id: int,
         table_id: str,
-        exclude_hashes: set[str] | None = None,
+        exclude_hashes: AbstractSet[str | None] | None = None,
         *,
-        user,
+        user: UserContext,
         limit: int = TABLE_CONTEXT_MAX_CHUNKS,
         row_start: int | None = None,
         row_end: int | None = None,
@@ -70,7 +79,8 @@ class SQLAlchemyChunkContextRepository:
             return []
 
         if limit <= 0 or limit > TABLE_CONTEXT_MAX_CHUNKS:
-            raise ValueError(f"limit must be between 1 and {TABLE_CONTEXT_MAX_CHUNKS}")
+            msg = f"limit must be between 1 and {TABLE_CONTEXT_MAX_CHUNKS}"
+            raise ValueError(msg)
 
         conditions = [
             ChunkModel.document_id == document_id,

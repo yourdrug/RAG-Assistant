@@ -1,15 +1,18 @@
 """Keep explicit table replacements interpretable after independent retrieval."""
 
+from collections.abc import Sequence
 import re
 
 from domain.knowledge.enums import PageContentType
+from domain.rag.ranking import RetrievalDocument
+
 
 REPLACEMENT_BRIDGE_RE = re.compile(r"^\s*заменить\s+позицией\s*:?\s*$", re.IGNORECASE)
 TABLE_TARGET_RE = re.compile(r"в\s+таблице\s+\d+(?:\.\d+)*", re.IGNORECASE)
 POSITION_TARGET_END_RE = re.compile(r"\bпозицию\s*:?\s*$", re.IGNORECASE)
 
 
-def attach_table_replacement_scope(docs) -> None:
+def attach_table_replacement_scope(docs: Sequence[RetrievalDocument]) -> None:
     """Attach the exact target/old/operation/new sequence to both table parts.
 
     Only adjacent sections under the same heading and source qualify. Existing

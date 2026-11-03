@@ -1,4 +1,5 @@
 """Convert model HTML tables without shifting merged cells between columns."""
+from __future__ import annotations
 
 from html.parser import HTMLParser
 import re
@@ -8,30 +9,30 @@ UNREADABLE = "[неразборчиво]"
 
 
 class TableParser(HTMLParser):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.rows = []
-        self.row = None
-        self.cell = None
+        self.rows: list[list[tuple[str, int, int]]] = []
+        self.row: list[tuple[str, int, int]] | None = None
+        self.cell: list[str] | None = None
         self.span = (1, 1)
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "tr":
             self.row = []
         elif tag in ("td", "th"):
             self.cell = []
             attributes = dict(attrs)
-            self.span = tuple(int(attributes.get(key, "1")) for key in ("rowspan", "colspan"))
+            self.span = (span_value(attributes, "rowspan"), span_value(attributes, "colspan"))
             if any(value < 1 or value > 100 for value in self.span):
                 raise ValueError("Invalid table span")
         elif tag == "br" and self.cell is not None:
             self.cell.append("\n")
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self.cell is not None:
             self.cell.append(data)
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in ("td", "th") and self.cell is not None and self.row is not None:
             self.row.append(("".join(self.cell).strip(), *self.span))
             self.cell = None
@@ -40,7 +41,7 @@ class TableParser(HTMLParser):
             self.row = None
 
 
-def table_markdown(content):
+def table_markdown(content: str) -> str:
     if "<table" not in content.lower():
         lines = [line.strip() for line in content.splitlines() if line.strip()]
         if (
@@ -54,7 +55,7 @@ def table_markdown(content):
         return ""
     parser = TableParser()
     parser.feed(content)
-    grid = {}
+    grid: dict[tuple[int, int], str] = {}
     for row_index, row in enumerate(parser.rows):
         column = 0
         for text, rowspan, colspan in row:
@@ -80,3 +81,11 @@ def table_markdown(content):
         lines.append("| " + " | ".join(cells) + " |")
     lines.insert(1, "| " + " | ".join(["---"] * width) + " |")
     return "\n".join(lines)
+
+
+def span_value(attributes: dict[str, str | None], key: str) -> int:
+    value = attributes.get(key, "1")
+    if value is None:
+        message = "Table span attribute has no value"
+        raise TypeError(message)
+    return int(value)

@@ -1,22 +1,27 @@
 """Reranker cache reuse, failure handling and sparse-candidate ACL contracts."""
 
+from __future__ import annotations
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from langchain.schema import Document
+import pytest
 from qdrant_client.models import Filter
 
+from application.benchmark.sweep_ports import SweepCancelled
 from domain.knowledge.enums import DocumentVisibility
+from infrastructure.benchmark.sweep.candidates import cache_candidates
 from infrastructure.benchmark.sweep.data import SweepDataSource
 from infrastructure.benchmark.sweep.reranking import cache_reranker_scores
-from infrastructure.benchmark.sweep.candidates import cache_candidates
-from application.benchmark.sweep_ports import SweepCancelled
+from infrastructure.ml.clients import factories
+from infrastructure.ml.rag.langchain_mapping import chunk_value
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 @pytest.mark.asyncio
-async def test_sweep_candidates_forward_acl_to_qdrant_sparse():
+async def test_sweep_candidates_forward_acl_to_qdrant_sparse() -> None:
     visibilities = list(DocumentVisibility)
     allowed = set(visibilities) - {DocumentVisibility.CLIENT_PRIVATE}
     points = [
@@ -33,9 +38,9 @@ async def test_sweep_candidates_forward_acl_to_qdrant_sparse():
     client = SimpleNamespace(search=MagicMock(return_value=points))
     clients = SimpleNamespace(
         qdrant_client=lambda: client,
-        embeddings=lambda: SimpleNamespace(embed_query_sync=lambda query: [0.1]),
+        embeddings=lambda: SimpleNamespace(embed_query_sync=lambda _query: [0.1]),
     )
-    data = SweepDataSource(None, clients)
+    data = SweepDataSource(FakeUnitOfWorkFactory(), clients)
 
     _, sparse, _ = await data.cache_candidates([{"question": "benchmark evidence"}], 10)
 
@@ -46,7 +51,7 @@ async def test_sweep_candidates_forward_acl_to_qdrant_sparse():
 
 
 @pytest.mark.asyncio
-async def test_cache_scores_each_query_once_and_keeps_query_specific_scores():
+async def test_cache_scores_each_query_once_and_keeps_query_specific_scores() -> None:
     doc = Document(page_content="text", metadata={"source": "law.pdf", "heading": "Article 17"})
     predict = AsyncMock(side_effect=[[0.4], [0.9]])
     scores = await cache_reranker_scores(
@@ -63,7 +68,7 @@ async def test_cache_scores_each_query_once_and_keeps_query_specific_scores():
 
 
 @pytest.mark.asyncio
-async def test_cache_can_be_cancelled_between_queries():
+async def test_cache_can_be_cancelled_between_queries() -> None:
     doc = Document(page_content="text")
     predict = AsyncMock(return_value=[0.4])
     cancel = AsyncMock(side_effect=[False, True])
@@ -81,14 +86,14 @@ async def test_cache_can_be_cancelled_between_queries():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [RuntimeError("reranker unavailable"), asyncio.CancelledError()])
-async def test_owned_reranker_is_closed_and_failures_propagate(monkeypatch, failure):
-    from infrastructure.ml.clients import factories
-    from infrastructure.ml.rag.langchain_mapping import chunk_value
+async def test_owned_reranker_is_closed_and_failures_propagate(
+    monkeypatch: pytest.MonkeyPatch, failure: BaseException
+) -> None:
 
     reranker = SimpleNamespace(predict=AsyncMock(side_effect=failure), close=AsyncMock())
     monkeypatch.setattr(factories, "create_reranker", lambda: reranker)
     doc = chunk_value(Document(page_content="text"))
-    data = SweepDataSource(None, None)
+    data = SweepDataSource(FakeUnitOfWorkFactory(), None)
     with pytest.raises(type(failure)):
         await data.cache_reranker_scores(
             [{"question": "q"}], {"q": [("hash", 1, doc)]}, {}, {"hash": doc}, None
@@ -98,8 +103,9 @@ async def test_owned_reranker_is_closed_and_failures_propagate(monkeypatch, fail
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("injected_clients", [False, True])
-async def test_sparse_only_payload_is_available_for_reranking(monkeypatch, injected_clients):
-    from infrastructure.ml.clients import factories
+async def test_sparse_only_payload_is_available_for_reranking(
+    monkeypatch: pytest.MonkeyPatch, injected_clients: bool
+) -> None:
 
     dense_point = SimpleNamespace(
         id="dense",
@@ -114,9 +120,10 @@ async def test_sparse_only_payload_is_available_for_reranking(monkeypatch, injec
     client = SimpleNamespace(
         search=MagicMock(side_effect=[[dense_point], [sparse_point]]), scroll=MagicMock()
     )
-    embeddings = SimpleNamespace(embed_query_sync=lambda query: [0.1])
+    embeddings = SimpleNamespace(embed_query_sync=lambda _query: [0.1])
     acl = Filter(must_not=[])
     clients = None
+
     if injected_clients:
         clients = SimpleNamespace(
             qdrant_client=lambda: client,
@@ -148,13 +155,12 @@ async def test_sparse_only_payload_is_available_for_reranking(monkeypatch, injec
 
 
 @pytest.mark.asyncio
-async def test_sparse_resolution_without_acl_fails_closed(monkeypatch):
-    from infrastructure.ml.clients import factories
+async def test_sparse_resolution_without_acl_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
 
     client = SimpleNamespace(search=MagicMock(return_value=[]), scroll=MagicMock())
     monkeypatch.setattr(factories, "create_qdrant_client", lambda: client)
     monkeypatch.setattr(
-        factories, "create_embeddings", lambda: SimpleNamespace(embed_query_sync=lambda q: [])
+        factories, "create_embeddings", lambda: SimpleNamespace(embed_query_sync=lambda _q: [])
     )
     with pytest.raises(RuntimeError, match="ACL scope"):
         await cache_candidates([{"question": "q"}], 2)

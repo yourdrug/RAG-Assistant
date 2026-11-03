@@ -14,7 +14,7 @@ from application.runtime.config import ConfigParameterChanged
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 class TestDomainSettingsAdapter:

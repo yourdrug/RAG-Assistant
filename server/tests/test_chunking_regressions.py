@@ -1,52 +1,67 @@
 """Semantic chunk boundaries and API/CLI equivalence regressions."""
 
+from __future__ import annotations
+
 import re
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
-import pytest
 from docx import Document as WordDocument
+from docx.opc.constants import RELATIONSHIP_TYPE
+from docx.opc.packuri import PackURI
+from docx.opc.part import Part
 from langchain.schema import Document
+import pytest
 
-from application.ingestion import FileMeta, SplitContext
-from application.ingestion import S3DocumentLoader
 from application.documents.content import DocumentContentProcessor
+from application.ingestion import FileMeta, S3DocumentLoader, SplitContext
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
-from domain.knowledge.enums import DocDomain
-from domain.knowledge.enums import PageContentType
+from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
     IngestionDocumentSplitter,
 )
-from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.ingestion.markdown import extract_date_from_filename
+from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
 @pytest.fixture
-def pipeline():
+def pipeline() -> tuple[LangchainDocumentParser, LangchainDocumentSplitter]:
     settings = DomainSettingsAdapter()
     values = {}
     registry = DomainProfileRegistry()
+
     for profile_type in (DecreeDomainProfile, LegalDomainProfile):
         profile = profile_type(settings)
         registry.register(profile)
+
         for default in profile.config_defaults():
             values[default.key, profile.key] = default.value
+
         values[f"{profile.key}_chunk_size", profile.key] = "1200"
         values[f"{profile.key}_chunk_overlap", profile.key] = "200"
+
     settings.replace_snapshot(values)
     return LangchainDocumentParser(registry, settings), LangchainDocumentSplitter(registry, settings)
 
 
-def normalize(text):
+def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def test_instruction_steps_that_fit_are_kept_whole(pipeline):
+def test_instruction_steps_that_fit_are_kept_whole(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
     step = "3. Заполните основные поля\n" + "Проверьте сведения о товаре. " * 11
     step += "После заполнения нажмите: Создать, Подписать с ЭЦП, Отправить."
@@ -57,7 +72,9 @@ def test_instruction_steps_that_fit_are_kept_whole(pipeline):
     assert all(len(c.page_content) <= 550 for c in chunks)
 
 
-def test_large_step_repeats_heading_without_exceeding_budget(pipeline):
+def test_large_step_repeats_heading_without_exceeding_budget(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
     text = "1. Откройте документ\nОткройте карточку.\n2. Заполните сведения\n" + "Проверьте сведения. " * 80
     chunks = splitter.split([RawDocument(text, {"source": "guide.txt"})])
@@ -67,7 +84,9 @@ def test_large_step_repeats_heading_without_exceeding_budget(pipeline):
     assert all(len(c.page_content) <= 550 for c in chunks)
 
 
-def test_short_neighboring_steps_are_packed_with_all_numbers(pipeline):
+def test_short_neighboring_steps_are_packed_with_all_numbers(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
     text = (
         "Guide\n1. Open document\nOpen the card.\n"
@@ -79,7 +98,9 @@ def test_short_neighboring_steps_are_packed_with_all_numbers(pipeline):
     assert chunks[0].metadata["step_numbers"] == ["1", "2", "3"]
 
 
-def test_subpoints_keep_parent_condition_and_distinct_numbers(pipeline):
+def test_subpoints_keep_parent_condition_and_distinct_numbers(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
     condition = "21. Только для электронных заявлений действуют следующие правила:"
     text = condition + "\n21.1. Срок подачи — пять дней.\n21.2. Подавать через личный кабинет."
@@ -92,7 +113,9 @@ def test_subpoints_keep_parent_condition_and_distinct_numbers(pipeline):
     assert "21.1." not in subpoints[1].page_content
 
 
-def test_overflow_keeps_article_marker_and_bounded_final_context(pipeline):
+def test_overflow_keeps_article_marker_and_bounded_final_context(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
     text = "Статья 15. Порядок подачи\nПорядок применяется к заявлениям. "
     text += "Заявитель представляет необходимые документы в установленном порядке " * 35 + "."
@@ -104,7 +127,7 @@ def test_overflow_keeps_article_marker_and_bounded_final_context(pipeline):
     assert not any(c.page_content.strip() in ("15", "15.") for c in chunks)
 
 
-def test_tables_keep_original_position_and_repeated_header():
+def test_tables_keep_original_position_and_repeated_header() -> None:
     rows = "\n".join(f"| item-{i} | {i} |" for i in range(20))
     docs = [
         Document(page_content="Before.", metadata={"source": "guide.md"}),
@@ -122,7 +145,9 @@ def test_tables_keep_original_position_and_repeated_header():
     assert [c.metadata["chunk_index"] for c in chunks] == [1, 2, 3, 4]
 
 
-def test_pdf_cross_page_sentence_and_chunk_page_ranges(pipeline):
+def test_pdf_cross_page_sentence_and_chunk_page_ranges(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
     docs = [
         RawDocument("Service is available only if", {"source": "guide.pdf", "page": 1}),
@@ -146,7 +171,9 @@ def test_pdf_cross_page_sentence_and_chunk_page_ranges(pipeline):
     assert all("_page_spans" not in c.metadata for c in chunks)
 
 
-def test_pdf_table_stays_a_barrier_between_text_pages(pipeline):
+def test_pdf_table_stays_a_barrier_between_text_pages(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
     docs = [
         RawDocument("Before.", {"source": "guide.pdf", "page": 1}),
@@ -160,7 +187,9 @@ def test_pdf_table_stays_a_barrier_between_text_pages(pipeline):
     assert [c.metadata.get("content_type") for c in chunks] == [None, PageContentType.TABLE.value, None]
 
 
-def test_repeated_pdf_text_still_advances_to_the_correct_page(pipeline):
+def test_repeated_pdf_text_still_advances_to_the_correct_page(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
     text = "Same sentence repeated. " * 80
     docs = [RawDocument(text, {"source": "repeat.pdf", "page": page}) for page in (1, 2)]
@@ -172,10 +201,7 @@ def test_repeated_pdf_text_still_advances_to_the_correct_page(pipeline):
     assert page_one == page_two
 
 
-@pytest.mark.parametrize("extension", [".md", ".docx", ".rtf", ".txt", ".pdf"])
-def test_api_cli_same_chunks_and_structural_metadata(tmp_path, pipeline, extension, monkeypatch):
-    parser, splitter = pipeline
-    path = tmp_path / ("download-123" + extension)
+def write_parity_fixture(path: Path, extension: str, monkeypatch: pytest.MonkeyPatch) -> None:
     if extension == ".docx":
         word = WordDocument()
         word.add_heading("Guide", 1)
@@ -186,7 +212,7 @@ def test_api_cli_same_chunks_and_structural_metadata(tmp_path, pipeline, extensi
         table.cell(0, 1).text = "Fee"
         table.cell(1, 0).text = "A"
         table.cell(1, 1).text = "5"
-        word.save(path)
+        word.save(str(path))
     elif extension == ".rtf":
         text = "Заявитель представляет документы в установленном порядке " * 40
         path.write_text(
@@ -213,15 +239,27 @@ def test_api_cli_same_chunks_and_structural_metadata(tmp_path, pipeline, extensi
             "2. Fill data\nFill all fields.\n\n| Name | Fee |\n|---|---|\n| A | 5 |",
             encoding="utf-8",
         )
+
+
+@pytest.mark.parametrize("extension", [".md", ".docx", ".rtf", ".txt", ".pdf"])
+def test_api_cli_same_chunks_and_structural_metadata(
+    tmp_path: Path,
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+    extension: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parser, splitter = pipeline
+    path = tmp_path / ("download-123" + extension)
+    write_parity_fixture(path, extension, monkeypatch)
     filename = "guide_2026-01-15" + extension
     extractor = SimpleNamespace(extract_date_from_filename=extract_date_from_filename)
     processor = DocumentContentProcessor(
         IngestionDocumentParser(parser),
         IngestionDocumentSplitter(splitter),
         extractor,
-        None,
-        text_assessor=None,
-        metrics=None,
+        MagicMock(),
+        text_assessor=MagicMock(),
+        metrics=MagicMock(),
     )
     api_docs = processor.parse_file(path, filename)
     assert all(d.metadata["source"] == filename for d in api_docs)
@@ -239,14 +277,19 @@ def test_api_cli_same_chunks_and_structural_metadata(tmp_path, pipeline, extensi
         {k: v for k, v in c.metadata.items() if k not in transport} for c in cli_chunks
     ]
     assert all(c.metadata["doc_date"] == "2026-01-15" for c in cli_chunks)
+
     if extension == ".rtf":
         assert all(len(c.page_content) <= 1200 for c in cli_chunks)
         assert not any(c.page_content.strip() == "1." for c in cli_chunks)
 
 
-def test_batch_loader_uses_each_source_domain_before_splitting(pipeline):
+def test_batch_loader_uses_each_source_domain_before_splitting(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
-    loader = S3DocumentLoader(None, None, IngestionDocumentSplitter(splitter), SimpleNamespace())
+    loader = S3DocumentLoader(
+        MagicMock(), MagicMock(), IngestionDocumentSplitter(splitter), SimpleNamespace()
+    )
     docs = [
         RawDocument("Ordinary text.", {"source": "plain.txt"}),
         RawDocument("1. Первое правило.\n2. Второе правило.", {"source": "law.txt"}),
@@ -260,7 +303,7 @@ def test_batch_loader_uses_each_source_domain_before_splitting(pipeline):
     assert all(c.metadata["doc_domain"] == DocDomain.DECREE.value for c in legal)
 
 
-def test_empty_table_with_section_does_not_become_a_prefix_only_chunk():
+def test_empty_table_with_section_does_not_become_a_prefix_only_chunk() -> None:
     docs = [
         Document(
             page_content=" \n", metadata={"section": "Fees", "content_type": PageContentType.TABLE.value}
@@ -269,7 +312,9 @@ def test_empty_table_with_section_does_not_become_a_prefix_only_chunk():
     assert split_documents(docs) == []
 
 
-def test_chapterless_article_keeps_identity_on_overflow_chunks(pipeline):
+def test_chapterless_article_keeps_identity_on_overflow_chunks(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
     _, splitter = pipeline
     text = "Статья 15. Порядок подачи\n" + "Заявитель передаёт документы в установленном порядке. " * 25
     assert len(text) < 1500
@@ -279,10 +324,7 @@ def test_chapterless_article_keeps_identity_on_overflow_chunks(pipeline):
     assert all("article 15." in c.metadata["section"] for c in chunks)
 
 
-def test_docx_generic_footnote_part_is_parsed(tmp_path):
-    from docx.opc.constants import RELATIONSHIP_TYPE
-    from docx.opc.packuri import PackURI
-    from docx.opc.part import Part
+def test_docx_generic_footnote_part_is_parsed(tmp_path: Path) -> None:
 
     word = WordDocument()
     word.add_heading("Guide", 1)
@@ -290,7 +332,7 @@ def test_docx_generic_footnote_part_is_parsed(tmp_path):
     xml = (
         b'<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
         b'<w:footnote w:id="1"><w:p><w:r><w:t>Important exception.</w:t></w:r></w:p></w:footnote>'
-        b'</w:footnotes>'
+        b"</w:footnotes>"
     )
     part = Part(
         PackURI("/word/footnotes.xml"),
@@ -300,13 +342,15 @@ def test_docx_generic_footnote_part_is_parsed(tmp_path):
     )
     word.part.relate_to(part, RELATIONSHIP_TYPE.FOOTNOTES)
     path = tmp_path / "notes.docx"
-    word.save(path)
+    word.save(str(path))
     docs = LangchainDocumentParser().parse(path)
     assert any("Important exception." in doc.page_content for doc in docs)
 
 
 @pytest.mark.asyncio
-async def test_api_content_processor_and_cli_construct_identical_final_chunks(tmp_path, pipeline):
+async def test_api_content_processor_and_cli_construct_identical_final_chunks(
+    tmp_path: Path, pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter]
+) -> None:
     parser, splitter = pipeline
     path = tmp_path / "download.md"
     path.write_text(
@@ -318,9 +362,9 @@ async def test_api_content_processor_and_cli_construct_identical_final_chunks(tm
         IngestionDocumentParser(parser),
         IngestionDocumentSplitter(splitter),
         extractor,
-        None,
-        text_assessor=None,
-        metrics=None,
+        MagicMock(),
+        text_assessor=MagicMock(),
+        metrics=MagicMock(),
     )
     ctx = SimpleNamespace(
         docs=processor.parse_file(path, filename),

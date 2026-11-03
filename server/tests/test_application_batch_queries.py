@@ -25,11 +25,10 @@ from domain.knowledge.index_sync import OutboxStatus, VectorOutboxEntry
 if TYPE_CHECKING:
     from typing import Any
 
-    from tests.fakes import FakeUnitOfWorkFactory
-
     from application.ingestion.dto import RegistryRecord
+    from tests.fakes import FakeUnitOfWorkFactory
 else:
-    from fakes import FakeUnitOfWorkFactory
+    from tests.fakes import FakeUnitOfWorkFactory
 
 
 @pytest.mark.asyncio

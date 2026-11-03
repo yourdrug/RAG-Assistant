@@ -1,6 +1,7 @@
 """Bounded table batches with repeated column headers and row identity."""
 
 import re
+from typing import Any
 
 from langchain.schema import Document
 
@@ -55,11 +56,12 @@ def _split_row(line: str, budget: int) -> list[str]:
 def table_document_chunks(doc: Document, chunk_size: int, max_rows: int) -> list[Document]:
     """Pack rows by both count and final size, including scope and headers."""
     if chunk_size <= 0 or max_rows <= 0:
-        raise ValueError("chunk_size and max_rows must be positive")
+        message = "chunk_size and max_rows must be positive"
+        raise ValueError(message)
 
     lines = doc.page_content.splitlines()
 
-    if len(lines) < 3:
+    if len(lines) < MIN_TABLE_LINES:
         return text_document_chunks(doc, chunk_size, 0)
 
     header = "\n".join(lines[:2])
@@ -70,16 +72,18 @@ def table_document_chunks(doc: Document, chunk_size: int, max_rows: int) -> list
     if row_budget <= 0:
         return text_document_chunks(Document(page_content=doc.page_content, metadata=metadata), chunk_size, 0)
 
-    return _pack_rows(lines[2:], prefix, header, metadata, row_budget, max_rows)
+    return _pack_rows(lines[2:], prefix, header, metadata, row_budget, max_rows=max_rows)
 
 
-def _pack_rows(lines: list[str], prefix: str, header: str, metadata: dict, row_budget: int, max_rows: int):
+def _pack_rows(
+    lines: list[str], prefix: str, header: str, metadata: dict[str, Any], row_budget: int, *, max_rows: int
+) -> list[Document]:
     """Keep ordinary rows intact; put each partial oversized row in its own batch."""
     chunks = []
     pending: list[str] = []
     low = high = 0
 
-    def flush():
+    def flush() -> None:
         if pending:
             content = prefix + header + "\n" + "\n".join(pending)
             chunks.append(
@@ -102,18 +106,18 @@ def _pack_rows(lines: list[str], prefix: str, header: str, metadata: dict, row_b
             flush()
             cells = _cells(line)
 
-            for part in _split_row(line, row_budget):
-                chunks.append(
-                    Document(
-                        page_content=prefix + header + "\n" + part,
-                        metadata={
-                            **metadata,
-                            "table_row_start": number,
-                            "table_row_end": number,
-                            "table_row_key": cells[0] if cells else "",
-                        },
-                    )
+            chunks.extend(
+                Document(
+                    page_content=prefix + header + "\n" + part,
+                    metadata={
+                        **metadata,
+                        "table_row_start": number,
+                        "table_row_end": number,
+                        "table_row_key": cells[0] if cells else "",
+                    },
                 )
+                for part in _split_row(line, row_budget)
+            )
 
             continue
 
@@ -128,3 +132,6 @@ def _pack_rows(lines: list[str], prefix: str, header: str, metadata: dict, row_b
 
     flush()
     return chunks
+
+
+MIN_TABLE_LINES = 3

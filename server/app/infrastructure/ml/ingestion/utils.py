@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import re
 
+
 # A line that is *only* a page number / footer marker, e.g. "12", "- 12 -",
 # "Page 12", "12/48", "стр. 12". These add noise to embeddings/search and
 # rarely help retrieval, so we drop them outright.
 _PAGE_NUMBER_RE = re.compile(
-    r"^\s*(?:[-–—]\s*)?"
+    r"^\s*(?:[-\u2013—]\s*)?"
     r"(?:(?:page|стр\.?|страница)\s*)?"
     r"\d{1,4}(?:\s*/\s*\d{1,4})?"
-    r"(?:\s*[-–—])?\s*$",
+    r"(?:\s*[-\u2013—])?\s*$",
     re.IGNORECASE,
 )
 

@@ -2,17 +2,18 @@
 markdown front matter/hashtags/date patterns, RTF metadata.
 """
 
-import sys
 from pathlib import Path
+import sys
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from langchain.schema import Document
 
-from infrastructure.ml.ingestion.splitting import (  # noqa: E402
+from infrastructure.ml.ingestion.splitting import (
     _classify_content_shape,
-    _extract_first_sentence,
     _enrich_final_chunks,
+    _extract_first_sentence,
 )
 
 
@@ -22,43 +23,43 @@ from infrastructure.ml.ingestion.splitting import (  # noqa: E402
 
 
 class TestSplittingEnrichment:
-    def test_classify_content_shape_list(self):
+    def test_classify_content_shape_list(self) -> None:
         text = "- item one\n- item two\n- item three\n- item four"
         assert _classify_content_shape(text) == "list"
 
-    def test_classify_content_shape_definition(self):
+    def test_classify_content_shape_definition(self) -> None:
         text = "Recursion — это функция которая вызывает саму себя."
         assert _classify_content_shape(text) == "definition"
 
-    def test_classify_content_shape_procedure(self):
+    def test_classify_content_shape_procedure(self) -> None:
         text = "Шаг 1: Откройте файл.\nШаг 2: Нажмите сохранить."
         assert _classify_content_shape(text) == "procedure"
 
-    def test_classify_content_shape_none(self):
+    def test_classify_content_shape_none(self) -> None:
         text = "Just regular paragraph text with no special structure."
         assert _classify_content_shape(text) is None
 
-    def test_extract_first_sentence(self):
+    def test_extract_first_sentence(self) -> None:
         text = "This is the first sentence. And this is the second."
         result = _extract_first_sentence(text)
         assert result is not None
         assert result.startswith("This is the first sentence.")
 
-    def test_extract_first_sentence_empty(self):
+    def test_extract_first_sentence_empty(self) -> None:
         assert _extract_first_sentence("") is None
 
-    def test_extract_first_sentence_no_boundary(self):
+    def test_extract_first_sentence_no_boundary(self) -> None:
         text = "No period here"
         result = _extract_first_sentence(text)
         assert result == "No period here"
 
-    def test_extract_first_sentence_truncates(self):
+    def test_extract_first_sentence_truncates(self) -> None:
         text = "A" * 300
         result = _extract_first_sentence(text)
         assert result is not None
         assert len(result) <= 200
 
-    def test_enrich_final_chunks_adds_metadata(self):
+    def test_enrich_final_chunks_adds_metadata(self) -> None:
         chunks = [
             Document(
                 page_content="Text with 2024-01-15 date and some numbers like 42.",

@@ -1,6 +1,7 @@
 """Shared retry decorator for transient I/O failures (Qdrant, HTTP, etc.)."""
 
 from __future__ import annotations
+from typing import cast
 
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,7 @@ from tenacity import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
     from collections.abc import Awaitable, Callable
 
 transient_retry = retry(
@@ -31,5 +33,7 @@ transient_retry = retry(
 )
 
 
-def retry_on_transient[**P, R](function: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
-    return transient_retry(function)
+def retry_on_transient[**P, R](
+    function: Callable[P, Awaitable[R]],
+) -> Callable[P, Coroutine[object, object, R]]:
+    return cast("Callable[P, Coroutine[object, object, R]]", transient_retry(function))

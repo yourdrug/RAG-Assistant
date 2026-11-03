@@ -13,7 +13,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.persistence import BM25SnapshotNotReady
+from infrastructure.bm25.persistence import BM25SnapshotNotReadyError
 from infrastructure.utils.async_tasks import finish_owned_task, run_sync_io
 
 
@@ -85,7 +85,7 @@ class LocalBM25Snapshots:
                 raise RuntimeError(CLOSED_MESSAGE)
 
             if not self.loaded:
-                raise BM25SnapshotNotReady(NOT_READY_MESSAGE)
+                raise BM25SnapshotNotReadyError(NOT_READY_MESSAGE)
 
             return self.index
 
@@ -97,7 +97,7 @@ class LocalBM25Snapshots:
                 raise RuntimeError(CLOSED_MESSAGE)
 
             if not self.loaded:
-                raise BM25SnapshotNotReady(NOT_READY_MESSAGE)
+                raise BM25SnapshotNotReadyError(NOT_READY_MESSAGE)
 
             if self.index is None:
                 log.warning("BM25 snapshot unavailable — starting an index for incremental updates")

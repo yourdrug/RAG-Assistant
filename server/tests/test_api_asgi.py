@@ -10,7 +10,7 @@ import pytest_asyncio
 from application.chat import ConversationService
 from application.chunks import AddChunkResult, EditChunkResult
 from domain.shared.pagination import CursorPage
-from test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
+from tests.test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
 from application.documents import DocumentDTO
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility
@@ -25,7 +25,7 @@ from main import app
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api import dependencies as deps
 from presentation.api.schemas import CurrentUser
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 @pytest_asyncio.fixture

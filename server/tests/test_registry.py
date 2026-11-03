@@ -1,11 +1,8 @@
 """Tests for file_hash utility."""
 
-import sys
-from pathlib import Path
+from __future__ import annotations
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-
-from infrastructure.storage import FileItem  # noqa: E402
+from infrastructure.storage import FileItem
 
 
 def file_hash(source: FileItem) -> str:
@@ -18,7 +15,7 @@ def file_hash(source: FileItem) -> str:
 
 
 class TestFileHash:
-    def test_fileitem_hash_contains_size_and_last_modified(self):
+    def test_fileitem_hash_contains_size_and_last_modified(self) -> None:
         item = FileItem(
             key="a.pdf",
             filename="a.pdf",
@@ -32,7 +29,7 @@ class TestFileHash:
         assert parts[0] == "1024"
         assert parts[1] == "12345"
 
-    def test_different_fileitems_different_hashes(self):
+    def test_different_fileitems_different_hashes(self) -> None:
         item1 = FileItem(
             key="a.txt",
             filename="a.txt",
@@ -49,7 +46,7 @@ class TestFileHash:
         )
         assert file_hash(item1) != file_hash(item2)
 
-    def test_same_fileitem_same_hash(self):
+    def test_same_fileitem_same_hash(self) -> None:
         item1 = FileItem(
             key="a.txt",
             filename="a.txt",
@@ -66,7 +63,7 @@ class TestFileHash:
         )
         assert file_hash(item1) == file_hash(item2)
 
-    def test_fileitem_hash(self):
+    def test_fileitem_hash(self) -> None:
         item = FileItem(
             key="a.pdf",
             filename="a.pdf",
@@ -77,7 +74,7 @@ class TestFileHash:
         h = file_hash(item)
         assert h == "1024_12345"
 
-    def test_fileitem_hash_uses_size_and_last_modified(self):
+    def test_fileitem_hash_uses_size_and_last_modified(self) -> None:
         item = FileItem(
             key="x.docx",
             filename="x.docx",

@@ -8,11 +8,12 @@ Checks the LLM's response for:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 import re
-from dataclasses import dataclass, field
 
 from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER
+
 
 log = logging.getLogger("default")
 

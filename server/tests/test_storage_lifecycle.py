@@ -1,6 +1,9 @@
 """Storage rotation and container teardown preserve in-flight requests."""
 
+from __future__ import annotations
+
 import asyncio
+from typing import TYPE_CHECKING, Never
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,29 +11,49 @@ import pytest
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
 from composition.infrastructure import InfrastructureContainer
 from config import settings
-from fakes import FakeUnitOfWorkFactory
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.storage.file_storage import LazyStorage
-from test_s3_storage_async import client_harness
-from test_s3_storage_download import Body
+from tests.fakes import FakeUnitOfWorkFactory
+from tests.s3_fakes import Body
+from tests.test_s3_storage_async import client_harness
+
+
+if TYPE_CHECKING:
+    from types import SimpleNamespace
+
+    from infrastructure.storage.file_storage import S3Storage
+
+
+def backend_with_credentials(
+    monkeypatch: pytest.MonkeyPatch, endpoint: str, access_key: str, secret_key: str
+) -> tuple[S3Storage, MagicMock, SimpleNamespace, MagicMock]:
+    monkeypatch.setattr(settings, "s3_endpoint", endpoint)
+    monkeypatch.setattr(settings, "s3_access_key", access_key)
+    monkeypatch.setattr(settings, "s3_secret_key", secret_key)
+    return client_harness(monkeypatch)
+
+
+def assert_backend_credentials(session: MagicMock, endpoint: str, access_key: str, secret_key: str) -> None:
+    kwargs = session.create_client.call_args.kwargs
+    assert kwargs["endpoint_url"] == endpoint
+    assert kwargs["aws_access_key_id"] == access_key
+    assert kwargs["aws_secret_access_key"] == secret_key
 
 
 @pytest.mark.asyncio
-async def test_rotation_retains_active_backend_and_closes_all(monkeypatch):
-    monkeypatch.setattr(settings, "s3_endpoint", "http://old-endpoint:9000")
-    monkeypatch.setattr(settings, "s3_access_key", "old-test-access")
-    monkeypatch.setattr(settings, "s3_secret_key", "old-test-secret")
-    first, first_client, first_context, first_session = client_harness(monkeypatch)
+async def test_rotation_retains_active_backend_and_closes_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    first, first_client, first_context, first_session = backend_with_credentials(
+        monkeypatch, "http://old-endpoint:9000", "old-test-access", "old-test-secret"
+    )
     body = Body([b"old"])
     body.release = asyncio.Event()
     first_client.get_object.return_value = {"Body": body}
     await first.upload_file("init", b"x")
-    monkeypatch.setattr(settings, "s3_endpoint", "http://new-endpoint:9000")
-    monkeypatch.setattr(settings, "s3_access_key", "new-test-access")
-    monkeypatch.setattr(settings, "s3_secret_key", "new-test-secret")
-    second, second_client, second_context, second_session = client_harness(monkeypatch)
+    second, second_client, second_context, second_session = backend_with_credentials(
+        monkeypatch, "http://new-endpoint:9000", "new-test-access", "new-test-secret"
+    )
     second.bucket = "new-bucket"
     backends = iter([first, second])
     monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda: next(backends))
@@ -40,14 +63,13 @@ async def test_rotation_retains_active_backend_and_closes_all(monkeypatch):
     storage.invalidate()
     await storage.upload_file("b.txt", b"new")
     second_client.put_object.assert_awaited_once_with(Bucket="new-bucket", Key="b.txt", Body=b"new")
+
     for session, endpoint, access_key, secret_key in (
         (first_session, "http://old-endpoint:9000", "old-test-access", "old-test-secret"),
         (second_session, "http://new-endpoint:9000", "new-test-access", "new-test-secret"),
     ):
-        kwargs = session.create_client.call_args.kwargs
-        assert kwargs["endpoint_url"] == endpoint
-        assert kwargs["aws_access_key_id"] == access_key
-        assert kwargs["aws_secret_access_key"] == secret_key
+        assert_backend_credentials(session, endpoint, access_key, secret_key)
+
     closing = asyncio.create_task(storage.aclose())
     await asyncio.sleep(0)
     first_context.__aexit__.assert_not_awaited()
@@ -64,7 +86,7 @@ async def test_rotation_retains_active_backend_and_closes_all(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_close_error_does_not_skip_other_backends(monkeypatch):
+async def test_close_error_does_not_skip_other_backends(monkeypatch: pytest.MonkeyPatch) -> None:
     backends = [AsyncMock(), AsyncMock()]
     backends[0].aclose.side_effect = OSError("close failure")
     choices = iter(backends)
@@ -75,13 +97,14 @@ async def test_close_error_does_not_skip_other_backends(monkeypatch):
     await storage.upload_file("second", b"x")
     with pytest.raises(OSError, match="close failure"):
         await storage.aclose()
+
     for backend in backends:
         backend.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_unused_lazy_storage_close_does_not_create_backend(monkeypatch):
-    def forbidden():
+async def test_unused_lazy_storage_close_does_not_create_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    def forbidden() -> Never:
         pytest.fail("shutdown created a backend")
 
     monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", forbidden)
@@ -89,7 +112,7 @@ async def test_unused_lazy_storage_close_does_not_create_backend(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_s3_config_is_snapshotted_per_backend(monkeypatch):
+async def test_s3_config_is_snapshotted_per_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     storage, client, _, session = client_harness(monkeypatch)
     monkeypatch.setattr(settings, "s3_bucket", "changed")
     monkeypatch.setattr(settings, "s3_region", "changed-region")
@@ -104,7 +127,9 @@ async def test_s3_config_is_snapshotted_per_backend(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("key", ["s3_bucket", "s3_endpoint", "s3_access_key", "s3_secret_key", "s3_region"])
-async def test_legacy_config_event_preserves_storage_and_bm25_reader(monkeypatch, key):
+async def test_legacy_config_event_preserves_storage_and_bm25_reader(
+    monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
     monkeypatch.setattr(settings, key, "old")
     storage = MagicMock()
     clients = MagicMock()

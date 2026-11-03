@@ -9,7 +9,7 @@ import pytest
 from application.benchmark.sweep_jobs import SweepJobService
 
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
-from fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 from application.benchmark import compute_summary_from_results
@@ -20,7 +20,7 @@ from infrastructure.benchmark.evaluation import metrics
 from infrastructure.benchmark.judging import evidence_judge
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
-from application.benchmark.sweep_evaluation import SweepFullEvaluator
+from application.benchmark.sweep_evaluation import SweepEvaluationPlan, SweepFullEvaluator
 from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 
@@ -161,13 +161,10 @@ async def test_incomplete_config_cannot_win_and_does_not_stop_remaining_configs(
     )
     results = await SweepFullEvaluator(LiveSweepSettings()).evaluate(
         [{"config": {"top_k": k}, "composite_score": 1} for k in (1, 2)],
-        2,
-        "judge",
+        SweepEvaluationPlan(2, "judge", {"faithfulness": 1}, SweepEvaluationMode.FULL),
         [],
-        {"faithfulness": 1},
         None,
         full,
-        evaluation_mode=SweepEvaluationMode.FULL,
     )
     assert full.await_count == 2
     assert results[0]["config"]["top_k"] == 2
@@ -179,7 +176,7 @@ async def test_incomplete_config_cannot_win_and_does_not_stop_remaining_configs(
 @pytest.mark.asyncio
 async def test_worker_retains_partial_sweep_for_resume_and_reports_counts(monkeypatch):
     from infrastructure.worker import sweep
-    from test_worker_sweep_lifecycle import SweepFactory, sweep_context
+    from tests.test_worker_sweep_lifecycle import SweepFactory, sweep_context
 
     factory = SweepFactory()
     results = [
@@ -205,7 +202,7 @@ async def test_worker_retains_partial_sweep_for_resume_and_reports_counts(monkey
 @pytest.mark.asyncio
 async def test_worker_never_persists_incomplete_config_as_winner():
     from domain.benchmark.sweep import BenchmarkSweep
-    from fakes import FakeUnitOfWorkFactory
+    from tests.fakes import FakeUnitOfWorkFactory
 
     factory = FakeUnitOfWorkFactory()
     factory._uow.benchmark_runs.create = AsyncMock()

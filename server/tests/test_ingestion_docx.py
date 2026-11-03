@@ -3,32 +3,43 @@
 Pure python-docx driven transformations, no OCR/Qdrant/embeddings.
 """
 
-from infrastructure.ml.ingestion.sections import Section
-from domain.knowledge.enums import PageContentType
+from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
+
+from domain.knowledge.enums import PageContentType
+from infrastructure.ml.ingestion.sections import Section
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import docx  # noqa: E402
-from docx.oxml.ns import qn  # noqa: E402
+from typing import TYPE_CHECKING
 
-from infrastructure.ml.ingestion.docx import (  # noqa: E402
+import docx
+from docx.oxml.ns import qn
+
+from infrastructure.ml.ingestion.docx import (
     _extract_document_properties,
     _extract_headers_footers,
     _extract_image_captions,
     _extract_notes,
-    _get_numbering_formats,
     _has_page_break,
-    ListNumberer,
     _paragraph_full_text,
-    _paragraph_list_info,
-    _to_roman,
     docx_table_to_markdown,
     parse_docx,
     parse_docx_sections,
 )
+from infrastructure.ml.ingestion.docx_numbering import (
+    ListNumberer,
+    _get_numbering_formats,
+    _paragraph_list_info,
+    _to_roman,
+)
+
+
+if TYPE_CHECKING:
+    from docx.document import Document as WordDocument
 
 
 # ---------------------------------------------------------------------------
@@ -36,25 +47,28 @@ from infrastructure.ml.ingestion.docx import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def _make_doc(title: str = "", author: str = "") -> docx.Document:
+def _make_doc(title: str = "", author: str = "") -> WordDocument:
     """Create a blank Document with optional core properties."""
     doc = docx.Document()
+
     if title:
         doc.core_properties.title = title
+
     if author:
         doc.core_properties.author = author
+
     return doc
 
 
-def _add_heading(doc: docx.Document, text: str, level: int = 1) -> None:
+def _add_heading(doc: WordDocument, text: str, level: int = 1) -> None:
     doc.add_heading(text, level=level)
 
 
-def _add_para(doc: docx.Document, text: str, style: str | None = None) -> None:
+def _add_para(doc: WordDocument, text: str, style: str | None = None) -> None:
     doc.add_paragraph(text, style=style)
 
 
-def _add_page_break(doc: docx.Document) -> None:
+def _add_page_break(doc: WordDocument) -> None:
     """Insert a manual page break (w:br w:type='page')."""
     p = doc.add_paragraph()
     run = p.add_run()
@@ -62,7 +76,7 @@ def _add_page_break(doc: docx.Document) -> None:
     run._element.append(br)
 
 
-def _add_hyperlink(doc: docx.Document, text: str, url: str = "https://example.com") -> None:
+def _add_hyperlink(doc: WordDocument, text: str, url: str = "https://example.com") -> None:
     """Add a paragraph containing a hyperlink (simulates real documents)."""
     p = doc.add_paragraph()
     # Build <w:hyperlink> manually since python-docx has no public API for it
@@ -76,7 +90,7 @@ def _add_hyperlink(doc: docx.Document, text: str, url: str = "https://example.co
 
 
 def _add_list_paragraph(
-    doc: docx.Document,
+    doc: WordDocument,
     text: str,
     num_id: str = "1",
     level: int = 0,
@@ -84,37 +98,40 @@ def _add_list_paragraph(
 ) -> None:
     """Add a paragraph with explicit numPr (list item)."""
     p = doc.add_paragraph(text)
+
     # Inject numbering part if absent
     if doc.part.numbering_part is None:
         pass
         # python-docx doesn't let us easily add a numbering part from scratch
         # without a template; instead we manipulate XML directly.
         # We'll rely on a different strategy: set numPr on the paragraph XML.
-    pPr = p._element.get_or_add_pPr()
-    numPr = p._element.makeelement(qn("w:numPr"), {})
+
+    paragraph_properties = p._element.get_or_add_pPr()
+    number_properties = p._element.makeelement(qn("w:numPr"), {})
     ilvl = p._element.makeelement(qn("w:ilvl"), {qn("w:val"): str(level)})
-    numId_el = p._element.makeelement(qn("w:numId"), {qn("w:val"): num_id})
-    numPr.append(ilvl)
-    numPr.append(numId_el)
-    pPr.append(numPr)
+    number_id_element = p._element.makeelement(qn("w:numId"), {qn("w:val"): num_id})
+    number_properties.append(ilvl)
+    number_properties.append(number_id_element)
+    paragraph_properties.append(number_properties)
 
 
-def _add_table(doc: docx.Document, rows: list[list[str]]) -> None:
+def _add_table(doc: WordDocument, rows: list[list[str]]) -> None:
     """Add a table with the given cell values."""
     table = doc.add_table(rows=len(rows), cols=len(rows[0]) if rows else 0)
+
     for i, row_data in enumerate(rows):
         for j, val in enumerate(row_data):
             table.rows[i].cells[j].text = val
 
 
-def _add_header_footer(doc: docx.Document, header_text: str, footer_text: str) -> None:
+def _add_header_footer(doc: WordDocument, header_text: str, footer_text: str) -> None:
     """Set header and footer on the first section."""
     section = doc.sections[0]
     section.header.paragraphs[0].text = header_text
     section.footer.paragraphs[0].text = footer_text
 
 
-def _save(doc: docx.Document, tmp_path: Path, name: str = "test.docx") -> Path:
+def _save(doc: WordDocument, tmp_path: Path, name: str = "test.docx") -> Path:
     path = tmp_path / name
     doc.save(str(path))
     return path
@@ -126,25 +143,25 @@ def _save(doc: docx.Document, tmp_path: Path, name: str = "test.docx") -> Path:
 
 
 class TestToRoman:
-    def test_1(self):
+    def test_1(self) -> None:
         assert _to_roman(1) == "I"
 
-    def test_4(self):
+    def test_4(self) -> None:
         assert _to_roman(4) == "IV"
 
-    def test_9(self):
+    def test_9(self) -> None:
         assert _to_roman(9) == "IX"
 
-    def test_14(self):
+    def test_14(self) -> None:
         assert _to_roman(14) == "XIV"
 
-    def test_42(self):
+    def test_42(self) -> None:
         assert _to_roman(42) == "XLII"
 
-    def test_1999(self):
+    def test_1999(self) -> None:
         assert _to_roman(1999) == "MCMXCIX"
 
-    def test_3999(self):
+    def test_3999(self) -> None:
         assert _to_roman(3999) == "MMMCMXCIX"
 
 
@@ -154,48 +171,48 @@ class TestToRoman:
 
 
 class TestListNumberer:
-    def test_bullet_prefix(self):
+    def test_bullet_prefix(self) -> None:
         numberer = ListNumberer({})
         assert numberer.prefix("1", 0) == "- "
 
-    def test_bullet_with_indent(self):
+    def test_bullet_with_indent(self) -> None:
         numberer = ListNumberer({})
         assert numberer.prefix("1", 2) == "    - "
 
-    def test_decimal(self):
+    def test_decimal(self) -> None:
         numberer = ListNumberer({("1", 0): "decimal"})
         assert numberer.prefix("1", 0) == "1. "
         assert numberer.prefix("1", 0) == "2. "
         assert numberer.prefix("1", 0) == "3. "
 
-    def test_lower_letter(self):
+    def test_lower_letter(self) -> None:
         numberer = ListNumberer({("1", 0): "lowerLetter"})
         assert numberer.prefix("1", 0) == "a. "
         assert numberer.prefix("1", 0) == "b. "
 
-    def test_upper_letter(self):
+    def test_upper_letter(self) -> None:
         numberer = ListNumberer({("1", 0): "upperLetter"})
         assert numberer.prefix("1", 0) == "A. "
         assert numberer.prefix("1", 0) == "B. "
 
-    def test_lower_roman(self):
+    def test_lower_roman(self) -> None:
         numberer = ListNumberer({("1", 0): "lowerRoman"})
         assert numberer.prefix("1", 0) == "i. "
         assert numberer.prefix("1", 0) == "ii. "
         assert numberer.prefix("1", 0) == "iii. "
 
-    def test_upper_roman(self):
+    def test_upper_roman(self) -> None:
         numberer = ListNumberer({("1", 0): "upperRoman"})
         assert numberer.prefix("1", 0) == "I. "
         assert numberer.prefix("1", 0) == "II. "
 
-    def test_different_num_ids_independent(self):
+    def test_different_num_ids_independent(self) -> None:
         numberer = ListNumberer({("1", 0): "decimal", ("2", 0): "decimal"})
         assert numberer.prefix("1", 0) == "1. "
         assert numberer.prefix("2", 0) == "1. "
         assert numberer.prefix("1", 0) == "2. "
 
-    def test_deeper_level_resets_parent_counters(self):
+    def test_deeper_level_resets_parent_counters(self) -> None:
         numberer = ListNumberer({("1", 0): "decimal", ("1", 1): "decimal"})
         # Going to a deeper level resets deeper (child) counters.
         assert numberer.prefix("1", 0) == "1. "
@@ -206,28 +223,30 @@ class TestListNumberer:
         # Level 1 counter should be fresh again
         assert numberer.prefix("1", 1) == "  1. "
 
-    def test_letter_wraps_at_26(self):
+    def test_letter_wraps_at_26(self) -> None:
         numberer = ListNumberer({("1", 0): "lowerLetter"})
+
         for _ in range(25):
             numberer.prefix("1", 0)
+
         assert numberer.prefix("1", 0) == "z. "
         assert numberer.prefix("1", 0) == "a. "
 
 
 # ---------------------------------------------------------------------------
-# _has_page_break
+# Explicit page breaks
 # ---------------------------------------------------------------------------
 
 
 class TestHasPageBreak:
-    def test_no_break(self, tmp_path):
+    def test_no_break(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Hello")
         _save(doc, tmp_path)
         doc2 = docx.Document(str(tmp_path / "test.docx"))
         assert _has_page_break(doc2.paragraphs[0]) is False
 
-    def test_manual_break(self, tmp_path):
+    def test_manual_break(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_page_break(doc)
         _save(doc, tmp_path)
@@ -241,14 +260,14 @@ class TestHasPageBreak:
 
 
 class TestParagraphFullText:
-    def test_plain_text(self, tmp_path):
+    def test_plain_text(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Hello world")
         _save(doc, tmp_path)
         doc2 = docx.Document(str(tmp_path / "test.docx"))
         assert _paragraph_full_text(doc2.paragraphs[0]) == "Hello world"
 
-    def test_hyperlink_text_preserved(self, tmp_path):
+    def test_hyperlink_text_preserved(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_hyperlink(doc, "Click me")
         _save(doc, tmp_path)
@@ -256,7 +275,7 @@ class TestParagraphFullText:
         text = _paragraph_full_text(doc2.paragraphs[0])
         assert "Click me" in text
 
-    def test_tab_included(self, tmp_path):
+    def test_tab_included(self, tmp_path: Path) -> None:
         doc = _make_doc()
         p = doc.add_paragraph()
         run = p.add_run()
@@ -266,7 +285,7 @@ class TestParagraphFullText:
         doc2 = docx.Document(str(tmp_path / "test.docx"))
         assert _paragraph_full_text(doc2.paragraphs[0]) == "\t"
 
-    def test_line_break_included(self, tmp_path):
+    def test_line_break_included(self, tmp_path: Path) -> None:
         doc = _make_doc()
         p = doc.add_paragraph()
         run = p.add_run("A")
@@ -284,7 +303,7 @@ class TestParagraphFullText:
 
 
 class TestGetNumberingFormats:
-    def test_plain_text_has_numbering_formats(self, tmp_path):
+    def test_plain_text_has_numbering_formats(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Plain text")
         _save(doc, tmp_path)
@@ -294,7 +313,7 @@ class TestGetNumberingFormats:
         # so the result is not empty. Just verify the structure.
         assert isinstance(result, dict)
 
-    def test_bullet_numbering(self, tmp_path):
+    def test_bullet_numbering(self, tmp_path: Path) -> None:
         doc = _make_doc()
         doc.add_paragraph("Item 1", style="List Bullet")
         doc.add_paragraph("Item 2", style="List Bullet")
@@ -304,7 +323,7 @@ class TestGetNumberingFormats:
         # At least one (numId, ilvl) should map to 'bullet'
         assert any(v == "bullet" for v in result.values())
 
-    def test_numbered_numbering(self, tmp_path):
+    def test_numbered_numbering(self, tmp_path: Path) -> None:
         doc = _make_doc()
         doc.add_paragraph("First", style="List Number")
         doc.add_paragraph("Second", style="List Number")
@@ -320,14 +339,14 @@ class TestGetNumberingFormats:
 
 
 class TestParagraphListInfo:
-    def test_regular_paragraph(self, tmp_path):
+    def test_regular_paragraph(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Hello")
         _save(doc, tmp_path)
         doc2 = docx.Document(str(tmp_path / "test.docx"))
         assert _paragraph_list_info(doc2.paragraphs[0]) is None
 
-    def test_list_paragraph(self, tmp_path):
+    def test_list_paragraph(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_list_paragraph(doc, "Item", num_id="1", level=0)
         _save(doc, tmp_path)
@@ -338,7 +357,7 @@ class TestParagraphListInfo:
         assert num_id == "1"
         assert level == 0
 
-    def test_nested_list_paragraph(self, tmp_path):
+    def test_nested_list_paragraph(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_list_paragraph(doc, "Nested item", num_id="1", level=2)
         _save(doc, tmp_path)
@@ -354,7 +373,7 @@ class TestParagraphListInfo:
 
 
 class TestExtractHeadersFooters:
-    def test_no_headers_footers(self, tmp_path):
+    def test_no_headers_footers(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Body")
         _save(doc, tmp_path)
@@ -362,7 +381,7 @@ class TestExtractHeadersFooters:
         result = _extract_headers_footers(doc2)
         assert result == {"headers": [], "footers": []}
 
-    def test_with_header_footer(self, tmp_path):
+    def test_with_header_footer(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Body")
         _add_header_footer(doc, "My Header", "My Footer")
@@ -372,7 +391,7 @@ class TestExtractHeadersFooters:
         assert result["headers"] == ["My Header"]
         assert result["footers"] == ["My Footer"]
 
-    def test_duplicate_headers_deduped(self, tmp_path):
+    def test_duplicate_headers_deduped(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Body")
         # Both sections get the same header text
@@ -391,7 +410,7 @@ class TestExtractHeadersFooters:
 
 
 class TestExtractNotes:
-    def test_no_footnotes(self, tmp_path):
+    def test_no_footnotes(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Body")
         _save(doc, tmp_path)
@@ -399,7 +418,7 @@ class TestExtractNotes:
         result = _extract_notes(doc2, "footnotes", "w:footnote")
         assert result == []
 
-    def test_no_endnotes(self, tmp_path):
+    def test_no_endnotes(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Body")
         _save(doc, tmp_path)
@@ -414,7 +433,7 @@ class TestExtractNotes:
 
 
 class TestExtractDocumentProperties:
-    def test_empty_properties(self, tmp_path):
+    def test_empty_properties(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _save(doc, tmp_path)
         doc2 = docx.Document(str(tmp_path / "test.docx"))
@@ -425,7 +444,7 @@ class TestExtractDocumentProperties:
         assert "doc_title" not in result
         assert "doc_subject" not in result
 
-    def test_title_and_author(self, tmp_path):
+    def test_title_and_author(self, tmp_path: Path) -> None:
         doc = _make_doc(title="My Title", author="John Doe")
         _save(doc, tmp_path)
         doc2 = docx.Document(str(tmp_path / "test.docx"))
@@ -433,7 +452,7 @@ class TestExtractDocumentProperties:
         assert result["doc_title"] == "My Title"
         assert result["doc_author"] == "John Doe"
 
-    def test_subject(self, tmp_path):
+    def test_subject(self, tmp_path: Path) -> None:
         doc = _make_doc()
         doc.core_properties.subject = "Engineering Report"
         _save(doc, tmp_path)
@@ -448,7 +467,7 @@ class TestExtractDocumentProperties:
 
 
 class TestExtractImageCaptions:
-    def test_no_images(self, tmp_path):
+    def test_no_images(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Text only")
         _save(doc, tmp_path)
@@ -462,7 +481,7 @@ class TestExtractImageCaptions:
 
 
 class TestDocxTableToMarkdown:
-    def test_simple_table(self, tmp_path):
+    def test_simple_table(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_table(doc, [["Name", "Age"], ["Alice", "30"], ["Bob", "25"]])
         _save(doc, tmp_path)
@@ -474,16 +493,15 @@ class TestDocxTableToMarkdown:
         assert lines[2] == "| Alice | 30 |"
         assert lines[3] == "| Bob | 25 |"
 
-    def test_empty_table(self, tmp_path):
+    def test_empty_table(self) -> None:
         # A table with 0 rows is impossible via python-docx API, but test the
-        # edge case where rows list is empty (defensive).
-        class FakeTable:
-            rows = []
-
-        md = docx_table_to_markdown(FakeTable())
+        # edge case where rows list is empty (defensive) -> None.
+        doc = docx.Document()
+        empty_table = doc.add_table(rows=0, cols=1)
+        md = docx_table_to_markdown(empty_table)
         assert md == ""
 
-    def test_single_cell_table(self, tmp_path):
+    def test_single_cell_table(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_table(doc, [["Solo"]])
         _save(doc, tmp_path)
@@ -492,7 +510,7 @@ class TestDocxTableToMarkdown:
         # Single-row table: only header line, no separator/body
         assert md == "| Solo |"
 
-    def test_pipes_escaped(self, tmp_path):
+    def test_pipes_escaped(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_table(doc, [["Col|A", "Col|B"], ["v|1", "v|2"]])
         _save(doc, tmp_path)
@@ -502,7 +520,7 @@ class TestDocxTableToMarkdown:
         assert "Col\\|B" in md
         assert "v\\|1" in md
 
-    def test_table_with_empty_cells(self, tmp_path):
+    def test_table_with_empty_cells(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_table(doc, [["A", ""], ["", "D"]])
         _save(doc, tmp_path)
@@ -512,7 +530,7 @@ class TestDocxTableToMarkdown:
         assert lines[0] == "| A |  |"
         assert lines[2] == "|  | D |"
 
-    def test_table_with_many_columns(self, tmp_path):
+    def test_table_with_many_columns(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_table(doc, [["C1", "C2", "C3", "C4"], ["1", "2", "3", "4"]])
         _save(doc, tmp_path)
@@ -529,7 +547,7 @@ class TestDocxTableToMarkdown:
 
 
 class TestParseDocx:
-    def test_returns_tuple(self, tmp_path):
+    def test_returns_tuple(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Hello")
         path = _save(doc, tmp_path)
@@ -537,27 +555,27 @@ class TestParseDocx:
         assert isinstance(result, tuple)
         assert len(result) == 2
 
-    def test_basic_text(self, tmp_path):
+    def test_basic_text(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Hello world")
         _add_para(doc, "Second paragraph")
         path = _save(doc, tmp_path)
-        text, meta = parse_docx(path)
+        text, _meta = parse_docx(path)
         assert "Hello world" in text
         assert "Second paragraph" in text
 
-    def test_page_start_end(self, tmp_path):
+    def test_page_start_end(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Page 1 content")
         _add_page_break(doc)
         _add_para(doc, "Page 2 content")
         path = _save(doc, tmp_path)
-        text, meta = parse_docx(path)
+        _text, meta = parse_docx(path)
         assert meta["page_start"] == 1
         assert meta["page_end"] == 2
         assert meta["pages"] == [1, 2]
 
-    def test_pages_single_page(self, tmp_path):
+    def test_pages_single_page(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Just one page")
         path = _save(doc, tmp_path)
@@ -566,7 +584,7 @@ class TestParseDocx:
         assert meta["page_end"] == 1
         assert meta["pages"] == [1]
 
-    def test_metadata_fields(self, tmp_path):
+    def test_metadata_fields(self, tmp_path: Path) -> None:
         doc = _make_doc(title="Test Doc", author="Alice")
         doc.core_properties.subject = "Testing"
         _add_para(doc, "Content")
@@ -578,7 +596,7 @@ class TestParseDocx:
         assert "doc_created" in meta
         assert "doc_modified" in meta
 
-    def test_tables_as_markdown(self, tmp_path):
+    def test_tables_as_markdown(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Before table")
         _add_table(doc, [["X", "Y"], ["1", "2"]])
@@ -589,7 +607,7 @@ class TestParseDocx:
         assert "|---|---|" in text
         assert "| 1 | 2 |" in text
 
-    def test_list_numbering_decimal(self, tmp_path):
+    def test_list_numbering_decimal(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_list_paragraph(doc, "First", num_id="1", level=0)
         _add_list_paragraph(doc, "Second", num_id="1", level=0)
@@ -601,7 +619,7 @@ class TestParseDocx:
         assert "Second" in text
         assert "Third" in text
 
-    def test_list_bullet(self, tmp_path):
+    def test_list_bullet(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_list_paragraph(doc, "Alpha", num_id="1", level=0)
         _add_list_paragraph(doc, "Beta", num_id="1", level=0)
@@ -611,7 +629,7 @@ class TestParseDocx:
         assert "- Alpha" in text
         assert "- Beta" in text
 
-    def test_list_with_builtin_style(self, tmp_path):
+    def test_list_with_builtin_style(self, tmp_path: Path) -> None:
         doc = _make_doc()
         doc.add_paragraph("Item A", style="List Bullet")
         doc.add_paragraph("Item B", style="List Bullet")
@@ -620,14 +638,14 @@ class TestParseDocx:
         assert "Item A" in text
         assert "Item B" in text
 
-    def test_hyperlinks_preserved(self, tmp_path):
+    def test_hyperlinks_preserved(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_hyperlink(doc, "Click here")
         path = _save(doc, tmp_path)
         text, _meta = parse_docx(path)
         assert "Click here" in text
 
-    def test_headers_footer_in_metadata(self, tmp_path):
+    def test_headers_footer_in_metadata(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Body text")
         _add_header_footer(doc, "Confidential", "Page 1")
@@ -636,7 +654,7 @@ class TestParseDocx:
         assert meta["header_text"] == "Confidential"
         assert meta["footer_text"] == "Page 1"
 
-    def test_footnotes_appended(self, tmp_path):
+    def test_footnotes_appended(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Main text")
         # We can't easily inject a footnotes part via python-docx's public API
@@ -648,7 +666,7 @@ class TestParseDocx:
         # No footnotes appended (no footnotes part in the document)
         assert "[footnote" not in text
 
-    def test_empty_paragraphs_skipped(self, tmp_path):
+    def test_empty_paragraphs_skipped(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "")
         _add_para(doc, "Real content")
@@ -657,7 +675,7 @@ class TestParseDocx:
         text, _meta = parse_docx(path)
         assert text.strip() == "Real content"
 
-    def test_multiple_tables(self, tmp_path):
+    def test_multiple_tables(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_table(doc, [["A", "B"], ["1", "2"]])
         _add_table(doc, [["C", "D"], ["3", "4"]])
@@ -666,7 +684,7 @@ class TestParseDocx:
         assert "| A | B |" in text
         assert "| C | D |" in text
 
-    def test_page_break_multiple(self, tmp_path):
+    def test_page_break_multiple(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Page 1")
         _add_page_break(doc)
@@ -684,7 +702,7 @@ class TestParseDocx:
 
 
 class TestParseDocxSections:
-    def test_returns_typed_sections(self, tmp_path):
+    def test_returns_typed_sections(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_heading(doc, "Title", level=1)
         _add_para(doc, "Content here")
@@ -693,7 +711,7 @@ class TestParseDocxSections:
         assert isinstance(sections, list)
         assert all(isinstance(s, Section) for s in sections)
 
-    def test_splits_by_headings(self, tmp_path):
+    def test_splits_by_headings(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_heading(doc, "Chapter 1", level=1)
         _add_para(doc, "Content 1")
@@ -705,7 +723,7 @@ class TestParseDocxSections:
         assert any("Chapter 1" in (h or "") for h in headings)
         assert any("Chapter 2" in (h or "") for h in headings)
 
-    def test_breadcrumb_paths(self, tmp_path):
+    def test_breadcrumb_paths(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_heading(doc, "Part 1", level=1)
         _add_heading(doc, "Section A", level=2)
@@ -716,7 +734,7 @@ class TestParseDocxSections:
         headings = [s.heading for s in sections]
         assert any(h and "Part 1 > Section A" in h for h in headings)
 
-    def test_title_style_treated_as_heading(self, tmp_path):
+    def test_title_style_treated_as_heading(self, tmp_path: Path) -> None:
         doc = _make_doc()
         doc.add_paragraph("Main Title", style="Title")
         _add_para(doc, "Body text")
@@ -725,7 +743,7 @@ class TestParseDocxSections:
         headings = [s.heading for s in sections]
         assert any(h and "Main Title" in h for h in headings)
 
-    def test_tables_appended_as_table_section(self, tmp_path):
+    def test_tables_appended_as_table_section(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_heading(doc, "Intro", level=1)
         _add_para(doc, "Intro text")
@@ -737,7 +755,7 @@ class TestParseDocxSections:
         assert len(table_sections) >= 1
         assert "| A | B |" in table_sections[0][1]
 
-    def test_footnotes_section(self, tmp_path):
+    def test_footnotes_section(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Main text")
         # _extract_notes returns [] when no footnotes part exists
@@ -747,7 +765,7 @@ class TestParseDocxSections:
         # No footnotes part in the document
         assert len(fn_sections) == 0
 
-    def test_empty_sections_filtered(self, tmp_path):
+    def test_empty_sections_filtered(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_heading(doc, "Empty Chapter", level=1)
         # No content after heading — should be flushed empty and filtered
@@ -756,12 +774,13 @@ class TestParseDocxSections:
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
         headings_and_content = list(sections)
+
         # "Empty Chapter" should not appear as a section with content
         for section in headings_and_content:
             if section.heading and "Empty Chapter" in section.heading:
                 assert section.content.strip() != ""
 
-    def test_list_items_preserved_in_sections(self, tmp_path):
+    def test_list_items_preserved_in_sections(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_heading(doc, "List Section", level=1)
         doc.add_paragraph("Item A", style="List Bullet")
@@ -772,7 +791,7 @@ class TestParseDocxSections:
         assert "Item A" in all_content
         assert "Item B" in all_content
 
-    def test_fallback_to_flat_parse(self, tmp_path):
+    def test_fallback_to_flat_parse(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Just plain text, no headings at all")
         path = _save(doc, tmp_path)
@@ -782,7 +801,7 @@ class TestParseDocxSections:
         assert sections[0].heading is None
         assert "Just plain text" in sections[0].content
 
-    def test_nested_heading_levels(self, tmp_path):
+    def test_nested_heading_levels(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_heading(doc, "H1", level=1)
         _add_para(doc, "H1 content")
@@ -798,7 +817,7 @@ class TestParseDocxSections:
         assert any("H1 > H2" in b for b in breadcrumbs)
         assert any("H1 > H2 > H3" in b for b in breadcrumbs)
 
-    def test_title_then_headings(self, tmp_path):
+    def test_title_then_headings(self, tmp_path: Path) -> None:
         doc = _make_doc()
         doc.add_paragraph("Doc Title", style="Title")
         _add_heading(doc, "Chapter 1", level=1)
@@ -808,7 +827,7 @@ class TestParseDocxSections:
         breadcrumbs = [s.heading for s in sections if s.heading]
         assert any("Doc Title > Chapter 1" in b for b in breadcrumbs)
 
-    def test_same_level_heading_resets_breadcrumb(self, tmp_path):
+    def test_same_level_heading_resets_breadcrumb(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_heading(doc, "A", level=1)
         _add_para(doc, "a content")
@@ -826,14 +845,14 @@ class TestParseDocxSections:
 
 
 class TestParseDocxEdgeCases:
-    def test_single_paragraph(self, tmp_path):
+    def test_single_paragraph(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Only one paragraph")
         path = _save(doc, tmp_path)
-        text, meta = parse_docx(path)
+        text, _meta = parse_docx(path)
         assert text.strip() == "Only one paragraph"
 
-    def test_only_page_breaks(self, tmp_path):
+    def test_only_page_breaks(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_page_break(doc)
         _add_page_break(doc)
@@ -844,7 +863,7 @@ class TestParseDocxEdgeCases:
         assert "pages" not in meta
         assert "page_start" not in meta
 
-    def test_table_before_text(self, tmp_path):
+    def test_table_before_text(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_table(doc, [["A"]])
         _add_para(doc, "After table")
@@ -853,7 +872,7 @@ class TestParseDocxEdgeCases:
         assert "| A |" in text
         assert "After table" in text
 
-    def test_multiple_page_breaks_in_sequence(self, tmp_path):
+    def test_multiple_page_breaks_in_sequence(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Start")
         _add_page_break(doc)

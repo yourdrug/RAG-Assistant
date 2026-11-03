@@ -1,12 +1,8 @@
-"""Tests for TimeoutSemaphore behavior — FINDING-002 (CRITICAL)."""
+"""Tests for timeout, permit release and cancellation of TimeoutSemaphore."""
 
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
 
@@ -18,17 +14,8 @@ class TestTimeoutSemaphoreAcquire:
     """Acquire succeeds within timeout."""
 
     @pytest.mark.asyncio
-    async def test_acquire_succeeds_when_permits_available(self):
+    async def test_acquire_succeeds_when_permits_available(self) -> None:
         sem = TimeoutSemaphore(value=2, timeout=1.0)
-        result = await sem.acquire()
-        assert result is True
-        sem.release()
-
-    @pytest.mark.asyncio
-    async def test_acquire_succeeds_after_release(self):
-        sem = TimeoutSemaphore(value=1, timeout=1.0)
-        await sem.acquire()
-        sem.release()
         result = await sem.acquire()
         assert result is True
         sem.release()
@@ -38,7 +25,7 @@ class TestTimeoutSemaphoreTimeout:
     """Acquire raises SemaphoreTimeoutError when permits are exhausted."""
 
     @pytest.mark.asyncio
-    async def test_acquire_raises_timeout_when_exhausted(self):
+    async def test_acquire_raises_timeout_when_exhausted(self) -> None:
         sem = TimeoutSemaphore(value=1, timeout=0.05)
         await sem.acquire()
         with pytest.raises(SemaphoreTimeoutError):
@@ -46,7 +33,7 @@ class TestTimeoutSemaphoreTimeout:
         sem.release()
 
     @pytest.mark.asyncio
-    async def test_acquire_raises_timeout_with_all_permits_held(self):
+    async def test_acquire_raises_timeout_with_all_permits_held(self) -> None:
         sem = TimeoutSemaphore(value=2, timeout=0.05)
         await sem.acquire()
         await sem.acquire()
@@ -56,7 +43,7 @@ class TestTimeoutSemaphoreTimeout:
         sem.release()
 
     @pytest.mark.asyncio
-    async def test_concurrent_exhaustion_raises_timeout(self):
+    async def test_concurrent_exhaustion_raises_timeout(self) -> None:
         sem = TimeoutSemaphore(value=2, timeout=0.05)
         await sem.acquire()
         await sem.acquire()
@@ -74,7 +61,7 @@ class TestTimeoutSemaphoreRelease:
     """Release correctly frees permits."""
 
     @pytest.mark.asyncio
-    async def test_release_allows_subsequent_acquire(self):
+    async def test_release_allows_subsequent_acquire(self) -> None:
         sem = TimeoutSemaphore(value=1, timeout=1.0)
         await sem.acquire()
         sem.release()
@@ -83,13 +70,13 @@ class TestTimeoutSemaphoreRelease:
         sem.release()
 
     @pytest.mark.asyncio
-    async def test_release_after_timeout_unblocks_waiting(self):
+    async def test_release_after_timeout_unblocks_waiting(self) -> None:
         sem = TimeoutSemaphore(value=1, timeout=2.0)
         await sem.acquire()
 
         unblocked = False
 
-        async def waiter():
+        async def waiter() -> None:
             nonlocal unblocked
             await sem.acquire()
             unblocked = True
@@ -107,7 +94,7 @@ class TestTimeoutSemaphoreContextManager:
     """Context manager acquires on enter, releases on exit."""
 
     @pytest.mark.asyncio
-    async def test_context_manager_acquire_and_release(self):
+    async def test_context_manager_acquire_and_release(self) -> None:
         sem = TimeoutSemaphore(value=1, timeout=1.0)
         async with sem:
             # Permit is held — inner acquire via asyncio.wait_for times out
@@ -119,18 +106,19 @@ class TestTimeoutSemaphoreContextManager:
         sem.release()
 
     @pytest.mark.asyncio
-    async def test_context_manager_releases_on_exception(self):
+    async def test_context_manager_releases_on_exception(self) -> None:
         sem = TimeoutSemaphore(value=1, timeout=1.0)
-        with pytest.raises(ValueError):
+        message = "boom"
+        with pytest.raises(ValueError, match="boom"):
             async with sem:
-                raise ValueError("boom")
+                raise ValueError(message)
         # Semaphore should be released despite exception
         result = await asyncio.wait_for(sem.acquire(), timeout=0.1)
         assert result is True
         sem.release()
 
     @pytest.mark.asyncio
-    async def test_context_manager_timeout_when_exhausted(self):
+    async def test_context_manager_timeout_when_exhausted(self) -> None:
         sem = TimeoutSemaphore(value=1, timeout=0.05)
         await sem.acquire()
         with pytest.raises(SemaphoreTimeoutError):
@@ -142,17 +130,17 @@ class TestTimeoutSemaphoreContextManager:
 class TestTimeoutSemaphoreEdgeCases:
     """Edge cases and invariants."""
 
-    def test_zero_value_semaphore(self):
+    def test_zero_value_semaphore(self) -> None:
         sem = TimeoutSemaphore(value=0, timeout=0.05)
         assert sem._sem._value == 0
 
     @pytest.mark.asyncio
-    async def test_zero_value_always_times_out(self):
+    async def test_zero_value_always_times_out(self) -> None:
         sem = TimeoutSemaphore(value=0, timeout=0.05)
         with pytest.raises(SemaphoreTimeoutError):
             await sem.acquire()
 
-    def test_initial_value_preserved(self):
+    def test_initial_value_preserved(self) -> None:
         sem = TimeoutSemaphore(value=5, timeout=1.0)
         assert sem._sem._value == 5
         assert sem._timeout == 1.0

@@ -6,19 +6,24 @@ with mocked Qdrant/BM25/embeddings to verify correct orchestration logic.
 
 from __future__ import annotations
 
-import sys
 import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
 from qdrant_client.models import FieldCondition, Filter, MatchValue, NamedSparseVector
 
 from domain.knowledge.access_control import VisibilityCondition
 from domain.knowledge.enums import DocumentVisibility
+from domain.rag.settings import (
+    FeatureToggles,
+    HybridSearchConfig,
+    RagSettings,
+    RerankConfig,
+    RetrieverConfig,
+)
+from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search, resolve_hashes_batch, run_hybrid_search
 from infrastructure.repositories.vector.acl import build_qdrant_filter
+from tests.test_rag_pipeline import make_rag
 
 
 # ---------------------------------------------------------------------------
@@ -27,8 +32,7 @@ from infrastructure.repositories.vector.acl import build_qdrant_filter
 
 
 @pytest.mark.asyncio
-async def test_resolve_hashes_batch_empty_returns_empty():
-    from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
+async def test_resolve_hashes_batch_empty_returns_empty() -> None:
 
     result = await resolve_hashes_batch([], None, MagicMock())
     assert result == {}
@@ -36,8 +40,7 @@ async def test_resolve_hashes_batch_empty_returns_empty():
 
 @pytest.mark.asyncio
 @patch("config.settings")
-async def test_resolve_hashes_batch_calls_scroll(mock_settings):
-    from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
+async def test_resolve_hashes_batch_calls_scroll(mock_settings: MagicMock) -> None:
 
     mock_settings.collection_name = "test_col"
     mock_settings.qdrant_timeout = 10
@@ -65,8 +68,7 @@ async def test_resolve_hashes_batch_calls_scroll(mock_settings):
 
 @pytest.mark.asyncio
 @patch("config.settings")
-async def test_resolve_hashes_batch_with_access_filter(mock_settings):
-    from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
+async def test_resolve_hashes_batch_with_access_filter(mock_settings: MagicMock) -> None:
 
     mock_settings.collection_name = "test_col"
     mock_settings.qdrant_timeout = 10
@@ -98,8 +100,7 @@ async def test_resolve_hashes_batch_with_access_filter(mock_settings):
 
 @pytest.mark.asyncio
 @patch("config.settings")
-async def test_qdrant_dense_search_returns_hash_score_doc_tuples(mock_settings):
-    from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
+async def test_qdrant_dense_search_returns_hash_score_doc_tuples(mock_settings: MagicMock) -> None:
 
     mock_settings.collection_name = "test_col"
     mock_settings.qdrant_timeout = 10
@@ -135,8 +136,7 @@ async def test_qdrant_dense_search_returns_hash_score_doc_tuples(mock_settings):
 
 @pytest.mark.asyncio
 @patch("config.settings")
-async def test_qdrant_dense_search_generates_hash_when_missing(mock_settings):
-    from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
+async def test_qdrant_dense_search_generates_hash_when_missing(mock_settings: MagicMock) -> None:
 
     mock_settings.collection_name = "test_col"
     mock_settings.qdrant_timeout = 10
@@ -162,7 +162,7 @@ async def test_qdrant_dense_search_generates_hash_when_missing(mock_settings):
         "query", 3, build_qdrant_filter({"id": 10, "kind": "internal", "role": "user"}, []), ml_clients
     )
 
-    h, score, doc = results[0]
+    h, _score, _doc = results[0]
     assert h is not None  # hash was generated from content
     assert len(h) > 0
 
@@ -175,15 +175,9 @@ async def test_qdrant_dense_search_generates_hash_when_missing(mock_settings):
 @pytest.mark.asyncio
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("config.settings")
-async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings, mock_metrics):
-    from domain.rag.settings import (
-        FeatureToggles,
-        HybridSearchConfig,
-        RagSettings,
-        RerankConfig,
-        RetrieverConfig,
-    )
-    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(
+    mock_settings: MagicMock, mock_metrics: MagicMock
+) -> None:
 
     mock_settings.collection_name = "test_col"
     mock_settings.qdrant_timeout = 10
@@ -230,7 +224,7 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings,
         10,
         _acl_filter,
         rag,
-        ml_clients,
+        ml_clients=ml_clients,
         visibility_conditions=[VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)],
         user_id=10,
         user_group_ids=[],
@@ -243,15 +237,9 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings,
 @pytest.mark.asyncio
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("config.settings")
-async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_metrics):
-    from domain.rag.settings import (
-        FeatureToggles,
-        HybridSearchConfig,
-        RagSettings,
-        RerankConfig,
-        RetrieverConfig,
-    )
-    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+async def test_run_hybrid_search_acl_defaults_are_mandatory(
+    mock_settings: MagicMock, mock_metrics: MagicMock
+) -> None:
 
     rag = RagSettings(
         retriever=RetrieverConfig(fetch_k=20, top_k=5, fetch_k_broad=40, top_k_broad=10),
@@ -279,17 +267,27 @@ async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_
             10,
             None,
             rag,
-            ml_clients,
+            ml_clients=ml_clients,
             visibility_conditions=[],
             user_id=10,
             user_group_ids=[],
         )
 
     for missing in ("visibility_conditions", "user_id", "user_group_ids"):
-        acl = {"visibility_conditions": [], "user_id": 10, "user_group_ids": []}
-        acl[missing] = None
+        conditions: list[VisibilityCondition] | None = [] if missing != "visibility_conditions" else None
+        uid = 10 if missing != "user_id" else None
+        groups: list[int] | None = [] if missing != "user_group_ids" else None
         with pytest.raises(RuntimeError, match="requires"):
-            await run_hybrid_search("test", 10, Filter(must=[]), rag, ml_clients, **acl)
+            await run_hybrid_search(
+                "test",
+                10,
+                Filter(must=[]),
+                rag,
+                ml_clients=ml_clients,
+                visibility_conditions=conditions,
+                user_id=uid,
+                user_group_ids=groups,
+            )
 
     ml_clients.ensure_bm25_loaded.assert_not_awaited()
 
@@ -297,15 +295,9 @@ async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_
 @pytest.mark.asyncio
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("config.settings")
-async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, mock_metrics):
-    from domain.rag.settings import (
-        FeatureToggles,
-        HybridSearchConfig,
-        RagSettings,
-        RerankConfig,
-        RetrieverConfig,
-    )
-    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+async def test_run_hybrid_search_empty_conditions_fail_closed(
+    mock_settings: MagicMock, mock_metrics: MagicMock
+) -> None:
 
     mock_settings.collection_name = "test_col"
     mock_settings.qdrant_timeout = 10
@@ -343,7 +335,7 @@ async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, moc
         10,
         Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))]),
         rag,
-        ml_clients,
+        ml_clients=ml_clients,
         visibility_conditions=[],
         user_id=10,
         user_group_ids=[],
@@ -360,15 +352,9 @@ async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, moc
 @patch("application.search.hybrid.rrf_merge")
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("config.settings")
-async def test_hybrid_search_uses_rrf_with_qdrant_sparse(mock_settings, mock_metrics, mock_rrf):
-    from domain.rag.settings import (
-        FeatureToggles,
-        HybridSearchConfig,
-        RagSettings,
-        RerankConfig,
-        RetrieverConfig,
-    )
-    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+async def test_hybrid_search_uses_rrf_with_qdrant_sparse(
+    mock_settings: MagicMock, mock_metrics: MagicMock, mock_rrf: MagicMock
+) -> None:
 
     mock_settings.collection_name = "test_col"
     mock_settings.qdrant_timeout = 10
@@ -423,7 +409,7 @@ async def test_hybrid_search_uses_rrf_with_qdrant_sparse(mock_settings, mock_met
         10,
         _acl_filter,
         rag,
-        ml_clients,
+        ml_clients=ml_clients,
         visibility_conditions=conditions,
         user_id=10,
         user_group_ids=[],
@@ -438,17 +424,17 @@ async def test_hybrid_search_uses_rrf_with_qdrant_sparse(mock_settings, mock_met
 
 
 @pytest.fixture(autouse=True)
-def mock_embedding_binding(monkeypatch):
+def mock_embedding_binding(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity", lambda *args: "test:model:v1"
+        "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity", lambda *_args: "test:model:v1"
     )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [ValueError("programming error"), asyncio.CancelledError()])
-async def test_sparse_errors_and_cancellation_propagate(monkeypatch, error):
-    from types import SimpleNamespace
-    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+async def test_sparse_errors_and_cancellation_propagate(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException
+) -> None:
 
     monkeypatch.setattr(
         "infrastructure.ml.rag.rag_retrieval.qdrant_sparse_search", AsyncMock(side_effect=error)
@@ -459,8 +445,8 @@ async def test_sparse_errors_and_cancellation_propagate(monkeypatch, error):
             "query",
             10,
             Filter(must=[]),
-            SimpleNamespace(hybrid_search=SimpleNamespace(enabled=True, bm25_fetch_k=20)),
-            MagicMock(),
+            make_rag(),
+            ml_clients=MagicMock(),
             visibility_conditions=[VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)],
             user_id=42,
             user_group_ids=[],

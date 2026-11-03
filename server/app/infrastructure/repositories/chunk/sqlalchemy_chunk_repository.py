@@ -2,23 +2,32 @@
 
 from __future__ import annotations
 
-from domain.knowledge.repositories.chunk import ChunkInsertOptions, ManualChunkInsertOptions
+from typing import TYPE_CHECKING
+
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
+from domain.knowledge.enums import SearchMode
 from domain.knowledge.repositories.chunk import (
     DEFAULT_CHUNK_INSERT_OPTIONS,
     DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
+    ChunkInsertOptions,
+    ManualChunkInsertOptions,
 )
-from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
-from collections.abc import AsyncIterator
-from datetime import date, datetime
-from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
-from domain.shared.pagination import CursorPage
-from domain.knowledge.enums import SearchMode
-from sqlalchemy.ext.asyncio import AsyncSession
-from infrastructure.repositories.chunk.chunk_crud import SQLAlchemyChunkCrudRepository
-from infrastructure.repositories.chunk.chunk_corpus import SQLAlchemyChunkCorpusRepository
 from infrastructure.repositories.chunk.chunk_context import SQLAlchemyChunkContextRepository
-from infrastructure.repositories.chunk.chunk_versioning import SQLAlchemyChunkVersioningRepository
+from infrastructure.repositories.chunk.chunk_corpus import SQLAlchemyChunkCorpusRepository
+from infrastructure.repositories.chunk.chunk_crud import SQLAlchemyChunkCrudRepository
 from infrastructure.repositories.chunk.chunk_search import SQLAlchemyChunkSearchRepository
+from infrastructure.repositories.chunk.chunk_versioning import SQLAlchemyChunkVersioningRepository
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+    from datetime import date, datetime
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from domain.identity.user_context import UserContext
+    from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
+    from domain.shared.pagination import CursorPage
 
 
 class SQLAlchemyChunkRepository:
@@ -92,6 +101,7 @@ class SQLAlchemyChunkRepository:
         content: str,
         filename: str,
         visibility: str,
+        *,
         doc_domain: str,
         options: ManualChunkInsertOptions = DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
     ) -> int:
@@ -180,7 +190,7 @@ class SQLAlchemyChunkRepository:
         window: int = 1,
         exclude_hashes: set[str] | None = None,
         *,
-        user,
+        user: UserContext,
     ) -> list[ChunkRecord]:
         return await self._context.get_neighbors(
             document_id=document_id,
@@ -192,15 +202,15 @@ class SQLAlchemyChunkRepository:
 
     async def get_table_batches(
         self,
-        document_id,
-        table_id,
-        exclude_hashes=None,
+        document_id: int,
+        table_id: str,
+        exclude_hashes: set[str] | None = None,
         *,
-        user,
-        limit=TABLE_CONTEXT_MAX_CHUNKS,
-        row_start=None,
-        row_end=None,
-    ):
+        user: UserContext,
+        limit: int = TABLE_CONTEXT_MAX_CHUNKS,
+        row_start: int | None = None,
+        row_end: int | None = None,
+    ) -> list[ChunkRecord]:
         return await self._context.get_table_batches(
             document_id,
             table_id,
@@ -211,7 +221,7 @@ class SQLAlchemyChunkRepository:
             row_end=row_end,
         )
 
-    async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:
+    async def set_current_by_act_version_ids(self, act_version_ids: list[int], *, is_current: bool) -> int:
         return await self._versioning.set_current_by_act_version_ids(
             act_version_ids=act_version_ids, is_current=is_current
         )
@@ -226,7 +236,8 @@ class SQLAlchemyChunkRepository:
     async def search_substring(
         self,
         query: str,
-        user,
+        user: UserContext,
+        *,
         limit: int = 20,
         mode: str = "exact",
         document_id: int | None = None,
@@ -239,7 +250,8 @@ class SQLAlchemyChunkRepository:
     async def search_substring_page(
         self,
         query: str,
-        user,
+        user: UserContext,
+        *,
         limit: int = 20,
         offset: int = 0,
         mode: str = SearchMode.EXACT.value,

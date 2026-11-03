@@ -5,30 +5,37 @@ _handle_s3_file, _load_documents, parse_file) BEFORE moving the file
 from infrastructure/ to application/.
 """
 
-import sys
-from datetime import datetime
+from __future__ import annotations
+
+from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import fitz
 import pytest
-from langchain.schema import Document
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-
-from domain.knowledge.enums import DocumentVisibility  # noqa: E402
-from application.ingestion import (  # noqa: E402
+from application.indexing import tag_chunks as _tag_chunks, tag_domain as _tag_domain
+from application.ingestion import (
+    BatchIngestionWorkflow,
+    DocumentSyncService,
+    IngestionRegistry,
     IngestionService,
+    S3DocumentLoader,
+    S3IngestionTargets,
+    S3UploadService,
+    SingleFileIngestionWorkflow,
 )
-from application.ingestion.registry import s3_file_hash as _s3_file_hash  # noqa: E402
-from application.ingestion import BatchIngestionWorkflow  # noqa: E402
-from application.indexing import tag_chunks as _tag_chunks, tag_domain as _tag_domain  # noqa: E402
-from application.ingestion import S3DocumentLoader  # noqa: E402
-from application.ingestion import IngestionRegistry  # noqa: E402
-from application.ingestion import DocumentSyncService  # noqa: E402
-from application.ingestion import S3IngestionTargets, S3UploadService  # noqa: E402
-from application.ingestion import SingleFileIngestionWorkflow  # noqa: E402
-from fakes import FakeUnitOfWorkFactory  # noqa: E402
+from application.ingestion.registry import s3_file_hash as _s3_file_hash
+from application.ports.file_storage import FileItem
+from config import settings as real_settings
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.enums import DocumentVisibility
+from tests.fakes import FakeUnitOfWorkFactory
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 # ---------------------------------------------------------------------------
@@ -37,9 +44,8 @@ from fakes import FakeUnitOfWorkFactory  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _restore_pdf_settings():
+def _restore_pdf_settings() -> Iterator[None]:
     """Save and restore pdf.settings to prevent test-ordering pollution."""
-    from config import settings as real_settings
 
     original_ocr_enabled = real_settings.ocr_enabled
     original_ocr_min_chars = real_settings.ocr_min_chars
@@ -48,26 +54,26 @@ def _restore_pdf_settings():
     real_settings.ocr_min_chars = original_ocr_min_chars
 
 
-def _make_file_item(**overrides) -> SimpleNamespace:
-    defaults = {
+def _make_file_item(**overrides: Any) -> FileItem:
+    defaults: dict[str, Any] = {
         "key": "docs/test.pdf",
         "filename": "test.pdf",
         "extension": ".pdf",
         "size_bytes": 1024,
-        "last_modified": datetime(2024, 1, 1),
+        "last_modified": datetime(2024, 1, 1, tzinfo=UTC),
     }
     defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+    return FileItem(**defaults)
 
 
-def _make_service(**overrides):
+def _make_service(**overrides: Any) -> IngestionService:
     mock_vector_store = MagicMock()
     mock_vector_store.ensure_collection = AsyncMock()
     mock_file_storage = MagicMock()
     mock_file_storage.supported_extensions = (".pdf", ".docx", ".txt", ".md")
     mock_file_storage.list_files = AsyncMock(return_value=[])
     mock_file_storage.get_file_info = AsyncMock(return_value=None)
-    mock_file_storage.download_to_temp = AsyncMock(return_value=Path("/tmp/test.pdf"))
+    mock_file_storage.download_to_temp = AsyncMock(return_value=Path("fixture.pdf"))
     mock_parser = MagicMock()
     mock_splitter = MagicMock()
     mock_ingestion_settings = MagicMock()
@@ -78,7 +84,7 @@ def _make_service(**overrides):
     mock_ingestion_settings.tei_embed_url = "http://localhost:8080"
     mock_ingestion_settings.qdrant_url = "http://localhost:6333"
 
-    defaults = {
+    defaults: dict[str, Any] = {
         "vector_store_repo": mock_vector_store,
         "file_storage": mock_file_storage,
         "parser": mock_parser,
@@ -129,37 +135,37 @@ def _make_service(**overrides):
 
 
 class TestTagChunks:
-    def test_tags_visibility(self):
-        chunk = Document(page_content="text", metadata={})
+    def test_tags_visibility(self) -> None:
+        chunk = RawDocument(page_content="text", metadata={})
         _tag_chunks([chunk], visibility=DocumentVisibility.INTERNAL_PUBLIC)
         assert chunk.metadata["visibility"] == "internal_public"
 
-    def test_tags_owner_and_group(self):
-        chunk = Document(page_content="text", metadata={})
+    def test_tags_owner_and_group(self) -> None:
+        chunk = RawDocument(page_content="text", metadata={})
         _tag_chunks([chunk], owner_id=42, group_id=7)
         assert chunk.metadata["owner_id"] == 42
         assert chunk.metadata["group_id"] == 7
 
-    def test_tags_client_id(self):
-        chunk = Document(page_content="text", metadata={})
+    def test_tags_client_id(self) -> None:
+        chunk = RawDocument(page_content="text", metadata={})
         _tag_chunks([chunk], client_id=99)
         assert chunk.metadata["client_id"] == 99
 
 
 class TestTagDomain:
-    def test_sets_domain(self):
-        chunk = Document(page_content="text", metadata={})
+    def test_sets_domain(self) -> None:
+        chunk = RawDocument(page_content="text", metadata={})
         _tag_domain([chunk], "legal")
         assert chunk.metadata["doc_domain"] == "legal"
 
 
 class TestS3Helpers:
-    def test_s3_file_hash(self):
-        item = _make_file_item(size_bytes=1024, last_modified=datetime(2024, 6, 15))
+    def test_s3_file_hash(self) -> None:
+        item = _make_file_item(size_bytes=1024, last_modified=datetime(2024, 6, 15, tzinfo=UTC))
         result = _s3_file_hash(item)
         assert "1024" in result
 
-    def test_s3_source_key(self):
+    def test_s3_source_key(self) -> None:
         item = _make_file_item(key="docs/test.pdf")
         svc = _make_service()
         result = svc._batch._loader.s3_source_key(item)
@@ -172,15 +178,15 @@ class TestS3Helpers:
 
 
 class TestValidateS3Key:
-    def test_valid_key(self):
+    def test_valid_key(self) -> None:
         S3IngestionTargets.validate_key("docs/file.pdf")
 
-    def test_leading_slash_raises(self):
-        with pytest.raises(ValueError):
+    def test_leading_slash_raises(self) -> None:
+        with pytest.raises(ValueError, match="S3 key"):
             S3IngestionTargets.validate_key("/docs/file.pdf")
 
-    def test_dotdot_raises(self):
-        with pytest.raises(ValueError):
+    def test_dotdot_raises(self) -> None:
+        with pytest.raises(ValueError, match="S3 key"):
             S3IngestionTargets.validate_key("docs/../file.pdf")
 
 
@@ -190,12 +196,12 @@ class TestValidateS3Key:
 
 
 class TestClassifyTextDomain:
-    def test_explicit_domain_returned(self):
+    def test_explicit_domain_returned(self) -> None:
         svc = _make_service()
         result = svc._batch._loader.classify_text_domain("text", "legal")
         assert result == "legal"
 
-    def test_auto_calls_classify_domain(self):
+    def test_auto_calls_classify_domain(self) -> None:
         svc = _make_service()
         with patch("application.ingestion.loader.classify_domain", return_value="general"):
             result = svc._batch._loader.classify_text_domain("some text", "auto")
@@ -209,18 +215,18 @@ class TestClassifyTextDomain:
 
 @pytest.mark.parametrize("component", ["_loader", "_sync"])
 class TestGetProfile:
-    def test_no_registry(self, component):
+    def test_no_registry(self, component: str) -> None:
         svc = _make_service(domain_registry=None)
         assert getattr(svc._batch, component).get_profile("legal") is None
 
-    def test_existing_profile(self, component):
+    def test_existing_profile(self, component: str) -> None:
         mock_registry = MagicMock()
         mock_profile = MagicMock()
         mock_registry.get.return_value = mock_profile
         svc = _make_service(domain_registry=mock_registry)
         assert getattr(svc._batch, component).get_profile("legal") is mock_profile
 
-    def test_missing_profile(self, component):
+    def test_missing_profile(self, component: str) -> None:
         mock_registry = MagicMock()
         mock_registry.get.side_effect = KeyError("not found")
         svc = _make_service(domain_registry=mock_registry)
@@ -233,22 +239,20 @@ class TestGetProfile:
 
 
 class TestParseFile:
-    def test_pdf_parsing(self, tmp_path):
+    def test_pdf_parsing(self, tmp_path: Path) -> None:
         pdf_path = tmp_path / "test.pdf"
         # Create a real PDF
-        import fitz
 
-        doc = fitz.open()
+        doc = fitz.Document()
         page = doc.new_page()
         page.insert_text((72, 72), "Hello world content for testing.")
         doc.save(str(pdf_path))
         doc.close()
 
         # Configure mock parser to return a list of RawDocuments
-        from domain.ingestion.raw_document import RawDocument
 
         svc = _make_service()
-        svc._batch._loader._parser.parse.return_value = [
+        cast("MagicMock", svc._batch._loader._parser.parse).return_value = [
             RawDocument(page_content="Hello world content for testing.", metadata={"source": "test"})
         ]
         file_item = _make_file_item(extension=".pdf")
@@ -256,21 +260,20 @@ class TestParseFile:
         assert result is not None
         assert len(result) >= 1
 
-    def test_unsupported_extension(self):
+    def test_unsupported_extension(self) -> None:
         svc = _make_service()
-        svc._batch._loader._parser.parse.return_value = []
+        cast("MagicMock", svc._batch._loader._parser.parse).return_value = []
         file_item = _make_file_item(extension=".xyz")
-        result = svc._batch._loader.parse_file(file_item, Path("/tmp/x.xyz"))
+        result = svc._batch._loader.parse_file(file_item, Path("fixture.xyz"))
         assert result is None
 
-    def test_txt_parsing(self, tmp_path):
-        from domain.ingestion.raw_document import RawDocument
+    def test_txt_parsing(self, tmp_path: Path) -> None:
 
         txt_path = tmp_path / "test.txt"
         txt_path.write_text("This is a test document with enough content to pass validation.")
 
         svc = _make_service()
-        svc._batch._loader._parser.parse.return_value = [
+        cast("MagicMock", svc._batch._loader._parser.parse).return_value = [
             RawDocument(
                 page_content="This is a test document with enough content to pass validation.",
                 metadata={},
@@ -281,13 +284,12 @@ class TestParseFile:
         assert result is not None
         assert len(result) == 1
 
-    def test_base_metadata_added(self, tmp_path):
-        from domain.ingestion.raw_document import RawDocument
+    def test_base_metadata_added(self, tmp_path: Path) -> None:
 
         pdf_path = tmp_path / "meta.pdf"
 
         svc = _make_service()
-        svc._batch._loader._parser.parse.return_value = [
+        cast("MagicMock", svc._batch._loader._parser.parse).return_value = [
             RawDocument(
                 page_content="Metadata test content.",
                 metadata={
@@ -306,9 +308,9 @@ class TestParseFile:
         assert "filename" in meta
         assert meta["filename"] == "test.pdf"
 
-    def test_parser_exception_returns_none(self, tmp_path):
+    def test_parser_exception_returns_none(self, tmp_path: Path) -> None:
         svc = _make_service()
-        svc._batch._loader._parser.parse.side_effect = RuntimeError("parse failed")
+        cast("MagicMock", svc._batch._loader._parser.parse).side_effect = RuntimeError("parse failed")
         file_item = _make_file_item(extension=".pdf")
         result = svc._batch._loader.parse_file(file_item, tmp_path / "bad.pdf")
         assert result is None
@@ -321,24 +323,24 @@ class TestParseFile:
 
 class TestRegistryOperations:
     @pytest.mark.asyncio
-    async def test_upsert(self):
+    async def test_upsert(self) -> None:
         svc = _make_service()
         await svc._registry.upsert("file.pdf", "hash", "src", 10, chars=500)
 
     @pytest.mark.asyncio
-    async def test_is_indexed(self):
+    async def test_is_indexed(self) -> None:
         svc = _make_service()
         result = await svc._registry.is_indexed("file.pdf", "hash")
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_list_all(self):
+    async def test_list_all(self) -> None:
         svc = _make_service()
         result = await svc._registry.list_all()
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_delete(self):
+    async def test_delete(self) -> None:
         svc = _make_service()
         await svc._registry.delete("file.pdf")
 
@@ -349,7 +351,7 @@ class TestRegistryOperations:
 
 
 class TestLogIngestConfig:
-    def test_no_error(self):
+    def test_no_error(self) -> None:
         svc = _make_service()
         svc._batch.log_config(reset=True, docs_dir="my-docs/")
         svc._batch.log_config(reset=False, docs_dir=None)
@@ -361,11 +363,11 @@ class TestLogIngestConfig:
 
 
 class TestResolveTargets:
-    def test_resolve_ingest_target(self):
+    def test_resolve_ingest_target(self) -> None:
         svc = _make_service()
         assert svc.resolve_ingest_target("docs/file.pdf") == "docs/file.pdf"
 
-    def test_resolve_docs_dir(self):
+    def test_resolve_docs_dir(self) -> None:
         svc = _make_service()
         assert svc.resolve_docs_dir("my-prefix/") == "my-prefix/"
 
@@ -377,7 +379,7 @@ class TestResolveTargets:
 
 class TestGetRegistryForceReindex:
     @pytest.mark.asyncio
-    async def test_get_registry(self):
+    async def test_get_registry(self) -> None:
         svc = _make_service()
         result = await svc.get_registry()
         assert result.total_files == 0
@@ -385,7 +387,7 @@ class TestGetRegistryForceReindex:
         assert result.files == []
 
     @pytest.mark.asyncio
-    async def test_force_reindex(self):
+    async def test_force_reindex(self) -> None:
         svc = _make_service()
         await svc.force_reindex("file.pdf")
 
@@ -397,24 +399,28 @@ class TestGetRegistryForceReindex:
 
 class TestRunFullIngestion:
     @pytest.mark.asyncio
-    async def test_no_documents_returns_early(self):
+    async def test_no_documents_returns_early(self, monkeypatch: pytest.MonkeyPatch) -> None:
         svc = _make_service()
-        svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
+        monkeypatch.setattr(svc._batch._loader._file_storage, "list_files", AsyncMock(return_value=[]))
         # Should not raise
         await svc.run_full(docs_dir="empty/", reset=False)
 
     @pytest.mark.asyncio
-    async def test_ensure_collection_called(self):
+    async def test_ensure_collection_called(self, monkeypatch: pytest.MonkeyPatch) -> None:
         svc = _make_service()
-        svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
+        monkeypatch.setattr(svc._batch._loader._file_storage, "list_files", AsyncMock(return_value=[]))
         await svc.run_full(docs_dir="empty/", reset=False)
-        svc._batch._vector_store.ensure_collection.assert_not_called()
+        cast("AsyncMock", svc._batch._vector_store.ensure_collection).assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("docs_dir", [None, "", "docs/"])
-    async def test_empty_reset_prunes_ingestion_documents(self, docs_dir):
+    async def test_empty_reset_prunes_ingestion_documents(
+        self, docs_dir: str | None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         svc = _make_service()
-        svc._batch._sync.delete_missing_sources = AsyncMock()
+        monkeypatch.setattr(svc._batch._sync, "delete_missing_sources", AsyncMock())
         await svc.run_full(docs_dir=docs_dir, reset=True)
-        svc._batch._sync.delete_missing_sources.assert_awaited_once_with("docs/", set())
-        svc._batch._vector_store.ensure_collection.assert_awaited_once_with(384, reset=False)
+        cast("AsyncMock", svc._batch._sync.delete_missing_sources).assert_awaited_once_with("docs/", set())
+        cast("AsyncMock", svc._batch._vector_store.ensure_collection).assert_awaited_once_with(
+            384, reset=False
+        )

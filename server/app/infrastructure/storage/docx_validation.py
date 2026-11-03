@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from copy import copy
-from pathlib import Path
-from typing import BinaryIO
-from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile, ZipInfo
-from zlib import error as ZlibError
+from typing import TYPE_CHECKING, BinaryIO
+from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile
+import zlib
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+    from zipfile import ZipInfo
+
 
 DOCX_MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
 DOCX_MAX_ARCHIVE_ENTRIES = 1000
@@ -18,10 +23,12 @@ ZIP_ENCRYPTED_FLAG = 0x1
 def verify_docx_entry_size(archive: ZipFile, entry: ZipInfo) -> None:
     """Check real expansion in bounded reads, including forged ZIP size fields."""
     if entry.compress_type not in (ZIP_STORED, ZIP_DEFLATED):
-        raise ValueError("DOCX ZIP compression must be stored or deflated")
+        msg = "DOCX ZIP compression must be stored or deflated"
+        raise ValueError(msg)
 
     if entry.flag_bits & ZIP_ENCRYPTED_FLAG:
-        raise ValueError("Encrypted DOCX ZIP entries are not supported")
+        msg = "Encrypted DOCX ZIP entries are not supported"
+        raise ValueError(msg)
 
     bounded_entry = copy(entry)
     # ZipExtFile truncates output to file_size. Raise that artificial boundary
@@ -33,10 +40,12 @@ def verify_docx_entry_size(archive: ZipFile, entry: ZipInfo) -> None:
             actual_size += len(data)
 
             if actual_size > entry.file_size:
-                raise ValueError("DOCX ZIP entry has inconsistent uncompressed size")
+                msg = "DOCX ZIP entry has inconsistent uncompressed size"
+                raise ValueError(msg)
 
     if actual_size != entry.file_size:
-        raise ValueError("DOCX ZIP entry has inconsistent uncompressed size")
+        msg = "DOCX ZIP entry has inconsistent uncompressed size"
+        raise ValueError(msg)
 
 
 def validate_docx_archive(source: Path | BinaryIO) -> None:
@@ -46,7 +55,8 @@ def validate_docx_archive(source: Path | BinaryIO) -> None:
             entries = archive.infolist()
 
             if len(entries) > DOCX_MAX_ARCHIVE_ENTRIES:
-                raise ValueError(f"DOCX archive exceeds {DOCX_MAX_ARCHIVE_ENTRIES} entries")
+                msg = f"DOCX archive exceeds {DOCX_MAX_ARCHIVE_ENTRIES} entries"
+                raise ValueError(msg)
 
             total_size = 0
 
@@ -54,12 +64,15 @@ def validate_docx_archive(source: Path | BinaryIO) -> None:
                 total_size += entry.file_size
 
                 if total_size > DOCX_MAX_UNCOMPRESSED_BYTES:
-                    raise ValueError("DOCX archive exceeds the maximum uncompressed size (100 MiB)")
+                    msg = "DOCX archive exceeds the maximum uncompressed size (100 MiB)"
+                    raise ValueError(msg)
 
                 if entry.file_size > DOCX_MAX_COMPRESSION_RATIO * entry.compress_size:
-                    raise ValueError("DOCX archive exceeds the maximum compression ratio (200:1)")
+                    msg = "DOCX archive exceeds the maximum compression ratio (200:1)"
+                    raise ValueError(msg)
 
             for entry in entries:
                 verify_docx_entry_size(archive, entry)
-    except (BadZipFile, ZlibError, EOFError) as exc:
-        raise ValueError("File content is not a valid ZIP-archive (.docx)") from exc
+    except (BadZipFile, zlib.error, EOFError) as exc:
+        msg = "File content is not a valid ZIP-archive (.docx)"
+        raise ValueError(msg) from exc
