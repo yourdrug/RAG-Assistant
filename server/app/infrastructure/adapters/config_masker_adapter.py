@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS, mask_value
+from application.runtime.setting_keys import SECRET_SETTING_KEYS
+from infrastructure.ml.config.config_subscribers import mask_value
 
 
 class ConfigMaskerAdapter:
@@ -10,7 +11,7 @@ class ConfigMaskerAdapter:
 
     @property
     def sensitive_keys(self) -> frozenset[str]:
-        return SENSITIVE_KEYS
+        return SECRET_SETTING_KEYS
 
     def mask_value(self, value: str | None) -> str:
         return mask_value(value)

@@ -11,23 +11,28 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from typing import Annotated
 
+from qdrant_client.models import FieldCondition, Filter, MatchValue
+from sqlalchemy import text
 import typer
+
 from config import settings
 from infrastructure.database.database import database
 from infrastructure.ml.clients.factories import create_qdrant_client
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+
 
 logger = logging.getLogger("cli")
 
 reconcile_app = typer.Typer(help="Reconcile Qdrant/Postgres document state")
 
 
-def _get_all_qdrant_doc_ids() -> set[int]:
+def get_all_qdrant_doc_ids() -> set[int]:
     """Scroll through Qdrant collection and extract unique document_ids."""
     client = create_qdrant_client()
     doc_ids: set[int] = set()
     offset = None
+
     while True:
         points, offset = client.scroll(
             collection_name=settings.collection_name,
@@ -35,20 +40,22 @@ def _get_all_qdrant_doc_ids() -> set[int]:
             limit=1000,
             with_payload=["metadata.document_id"],
         )
+
         for p in points:
             meta = p.payload or {}
             doc_id = meta.get("metadata", {}).get("document_id")
+
             if doc_id is not None:
                 doc_ids.add(int(doc_id))
+
         if offset is None:
             break
+
     return doc_ids
 
 
-async def _get_all_postgres_doc_ids() -> set[int]:
+async def get_all_postgres_doc_ids() -> set[int]:
     """Query Postgres for all document IDs with status != 'failed'."""
-    from sqlalchemy import text
-
     await database.connect()
     try:
         session = database.get_read_session()
@@ -61,10 +68,11 @@ async def _get_all_postgres_doc_ids() -> set[int]:
         await database.disconnect()
 
 
-def _delete_orphans_from_qdrant(doc_ids: set[int]) -> int:
+def delete_orphans_from_qdrant(doc_ids: set[int]) -> int:
     """Delete all Qdrant points whose document_id is in the given set."""
     client = create_qdrant_client()
     total_deleted = 0
+
     for doc_id in doc_ids:
         client.delete(
             collection_name=settings.collection_name,
@@ -73,20 +81,24 @@ def _delete_orphans_from_qdrant(doc_ids: set[int]) -> int:
             ),
         )
         total_deleted += 1
+
     return total_deleted
 
 
 @reconcile_app.command("run")
 def reconcile_run(
-    delete: bool = typer.Option(False, "--delete", help="Delete orphaned Qdrant points (dry-run by default)"),
+    *,
+    delete: Annotated[
+        bool, typer.Option("--delete", help="Delete orphaned Qdrant points (dry-run by default)")
+    ] = False,
 ) -> None:
     """Find and optionally clean up Qdrant/Postgres drift."""
     logger.info("Scanning Qdrant collection '%s' ...", settings.collection_name)
-    qdrant_ids = _get_all_qdrant_doc_ids()
+    qdrant_ids = get_all_qdrant_doc_ids()
     logger.info("Qdrant: %d unique document_ids", len(qdrant_ids))
 
     logger.info("Scanning Postgres documents ...")
-    postgres_ids = asyncio.run(_get_all_postgres_doc_ids())
+    postgres_ids = asyncio.run(get_all_postgres_doc_ids())
     logger.info("Postgres: %d active document_ids", len(postgres_ids))
 
     orphans_in_qdrant = qdrant_ids - postgres_ids
@@ -112,7 +124,7 @@ def reconcile_run(
 
     if orphans_in_qdrant and delete:
         logger.info("Deleting %d orphaned Qdrant document groups ...", len(orphans_in_qdrant))
-        deleted = _delete_orphans_from_qdrant(orphans_in_qdrant)
+        deleted = delete_orphans_from_qdrant(orphans_in_qdrant)
         logger.info("Deleted orphaned points for %d documents.", deleted)
     elif orphans_in_qdrant:
         logger.info("Dry-run: pass --delete to remove orphaned points.")

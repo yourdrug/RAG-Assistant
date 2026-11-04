@@ -1,34 +1,28 @@
-"""Singleton decorator -- ensures only one instance of a class exists.
-
-Usage::
-
-    @Singleton
-    class MyService:
-        ...
-"""
+"""Thread-safe singleton decorator."""
 
 from __future__ import annotations
 
 import threading
-from typing import Any, TypeVar
-
-T = TypeVar("T")
+from typing import TYPE_CHECKING
 
 
-def Singleton(aClass: type[T]) -> T:
-    """Turn a class into a singleton (thread-safe)."""
-    _lock = threading.Lock()
-    _instance: T | None = None
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-    class Wrapper:
-        def __call__(self, *args: Any, **kwargs: Any) -> T:
-            nonlocal _instance
 
-            if _instance is None:
-                with _lock:
-                    if _instance is None:
-                        _instance = aClass(*args, **kwargs)
+def singleton[**P, T](factory: Callable[P, T]) -> Callable[P, T]:
+    """Create the wrapped instance once, including across concurrent callers."""
+    lock = threading.Lock()
+    instance: T | None = None
 
-            return _instance
+    def get_instance(*args: P.args, **kwargs: P.kwargs) -> T:
+        nonlocal instance
 
-    return Wrapper()  # type: ignore[return-value]
+        if instance is None:
+            with lock:
+                if instance is None:
+                    instance = factory(*args, **kwargs)
+
+        return instance
+
+    return get_instance

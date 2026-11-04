@@ -114,9 +114,9 @@ async def test_metrics_only_collect_ollama_for_selected_provider(
     monkeypatch: pytest.MonkeyPatch, provider: LLMProvider
 ) -> None:
     db, qdrant, ollama = AsyncMock(), AsyncMock(), AsyncMock()
-    monkeypatch.setattr(metrics, "_collect_db_pool_metrics", db)
-    monkeypatch.setattr(metrics, "_collect_qdrant_metrics", qdrant)
-    monkeypatch.setattr(metrics, "_collect_ollama_metrics", ollama)
+    monkeypatch.setattr(metrics, "collect_db_pool_metrics", db)
+    monkeypatch.setattr(metrics, "collect_qdrant_metrics", qdrant)
+    monkeypatch.setattr(metrics, "collect_ollama_metrics", ollama)
     monkeypatch.setattr(settings, "llm_provider", provider.value)
     await metrics.collect_infra_metrics()
     db.assert_awaited_once()

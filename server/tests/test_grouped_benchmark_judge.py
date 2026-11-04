@@ -115,8 +115,10 @@ async def test_invalid_metric_preserves_siblings_and_retries_only_missing(monkey
         keys = requested_metrics(kwargs)
         calls.append(keys)
         values = {key: {"score": 8, "reason": "ok"} for key in keys}
+
         if len(keys) > 1 and "correctness" in keys:
             values["correctness"] = {"score": 20, "reason": "invalid"}
+
         return response(values)
 
     snapshots = []
@@ -363,7 +365,9 @@ async def test_result_detail_api_serializes_per_question_list():
             per_question_results=[{"id": 1, "answer": "a", "faithfulness": 0}],
         )
     )
-    result = await get_benchmark_result(7, admin=SimpleNamespace(), service=BenchmarkResultService(factory))
+    result = await get_benchmark_result(
+        run_id=7, _admin=SimpleNamespace(), service=BenchmarkResultService(factory)
+    )
     assert result.model_dump()["per_question_results"] == [{"id": 1, "answer": "a", "faithfulness": 0}]
 
 
@@ -396,6 +400,7 @@ async def test_bad_provider_responses_retry_with_safe_useful_diagnostics(monkeyp
     async def create(**kwargs):
         calls.append(kwargs)
         result = response({"faithfulness": {"score": 9, "reason": "ok"}})
+
         if len(calls) == 1:
             if kind == "empty":
                 result.choices[0].message.content = ""
@@ -405,6 +410,7 @@ async def test_bad_provider_responses_retry_with_safe_useful_diagnostics(monkeyp
                 result.choices = []
             else:
                 result.choices[0].message.content = "PRIVATE DOCUMENT TEXT"
+
         return result
 
     scores = {}
@@ -413,7 +419,9 @@ async def test_bad_provider_responses_retry_with_safe_useful_diagnostics(monkeyp
     async def save(value):
         snapshots.append(value)
 
-    await judge_requests.judge_group(JudgeClient(create), "judge", {}, ["faithfulness"], scores, save)
+    await judge_requests.judge_group(
+        JudgeClient(create), "judge", {}, ["faithfulness"], saved=scores, callback=save
+    )
     assert scores["faithfulness"]["score"] == 9
     assert len(calls) == 2
     assert calls[1]["max_tokens"] == settings.benchmark_judge_retry_tokens
@@ -430,13 +438,20 @@ async def test_group_shape_failure_recovers_metrics_individually_without_rescori
     async def create(**kwargs):
         keys = requested_metrics(kwargs)
         calls.append(keys)
+
         if len(keys) > 1:
             return response({"nested": {key: {"score": 8, "reason": "ok"} for key in keys}})
+
         return response({keys[0]: {"score": 8, "reason": "ok"}})
 
     scores = {"relevancy": {"score": 0, "reason": "valid zero"}}
     await judge_requests.judge_group(
-        JudgeClient(create), "judge", {}, ["relevancy", "faithfulness", "correctness"], scores, AsyncMock()
+        JudgeClient(create),
+        "judge",
+        {},
+        ["relevancy", "faithfulness", "correctness"],
+        saved=scores,
+        callback=AsyncMock(),
     )
     assert calls == [
         ["correctness", "faithfulness"],
@@ -504,6 +519,7 @@ async def test_structured_logs_identify_failure_without_private_content(kind, co
     raw._request_id = "provider-id"
     raw.choices[0].finish_reason = "stop"
     raw.usage.completion_tokens_details = SimpleNamespace(reasoning_tokens=7)
+
     if kind == "empty":
         raw.choices[0].message.content = ""
     elif kind == "truncated":
@@ -516,6 +532,7 @@ async def test_structured_logs_identify_failure_without_private_content(kind, co
         raw.choices = []
     else:
         raw.choices[0].message.refusal = "PRIVATE REFUSAL"
+
     ctx = judge_context.set({"case_id": "case-id", "question_id": 142, "run": 1})
     try:
         await judge_requests.judge_batch(
@@ -523,8 +540,8 @@ async def test_structured_logs_identify_failure_without_private_content(kind, co
             "judge",
             {"context": "PRIVATE CONTEXT"},
             ["faithfulness"],
-            {},
-            AsyncMock(),
+            saved={},
+            callback=AsyncMock(),
             budget=10,
             attempt=1,
         )
@@ -562,8 +579,8 @@ async def test_http_failure_logs_request_id_status_retry_after_without_provider_
         "judge",
         {},
         ["faithfulness"],
-        {},
-        AsyncMock(),
+        saved={},
+        callback=AsyncMock(),
         budget=10,
         attempt=1,
     )
@@ -602,10 +619,12 @@ async def test_parallel_cases_keep_separate_log_correlation(monkeypatch, caplog)
     requests = [event for event in events if event["event"] == "judge_request"]
     assert len(requests) == len({event["request_id"] for event in requests}) == 6
     case_ids = {}
+
     for question_id in (11, 22):
         matched = [event for event in requests if event["question_id"] == question_id]
         case_ids[question_id] = {event["case_id"] for event in matched}
         assert len(matched) == 3 and len(case_ids[question_id]) == 1
+
     assert case_ids[11].isdisjoint(case_ids[22])
     assert judge_context.get() is None
     assert len([event for event in events if event["event"] == "judge_case_completed"]) == 2

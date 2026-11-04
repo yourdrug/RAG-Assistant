@@ -1,39 +1,47 @@
 """Admin chat logs endpoint — persistent Q&A quality tracking."""
 
-from __future__ import annotations
-
-from domain.chat.repositories import ChatLogFilter
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query
 
 from application.chat import ChatLogService
 from application.identity import AssignmentService
+from domain.chat.repositories import ChatLogFilter
 from domain.identity.capabilities import Capability
 from domain.identity.roles import UserRole
-from fastapi import APIRouter, Depends, Query
-
 from presentation.api.auth_dependencies import require_capability
 from presentation.api.constants import DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET, MAX_PAGE_LIMIT
-from presentation.api.dependencies import create_chat_log_service, create_assignment_service
+from presentation.api.dependencies import create_assignment_service, create_chat_log_service
 from presentation.api.schemas import ChatLogEntry, ChatLogsResponse, CurrentUser
+
+
+@dataclass(kw_only=True)
+class ChatLogQuery:
+    user_id: Annotated[int | None, Query()] = None
+    domain: Annotated[str | None, Query()] = None
+    date_from: Annotated[datetime | None, Query()] = None
+    date_to: Annotated[datetime | None, Query()] = None
+    search: Annotated[str | None, Query()] = None
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_LIMIT)] = DEFAULT_PAGE_LIMIT
+    offset: Annotated[int, Query(ge=0)] = DEFAULT_PAGE_OFFSET
+
 
 router = APIRouter(tags=["admin-chat-logs"])
 
 
-@router.get("/admin/chat-logs", response_model=ChatLogsResponse)
+@router.get("/admin/chat-logs")
 async def list_chat_logs(
-    user_id: int | None = Query(None),
-    domain: str | None = Query(None),
-    date_from: datetime | None = Query(None),
-    date_to: datetime | None = Query(None),
-    search: str | None = Query(None),
-    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
-    offset: int = Query(DEFAULT_PAGE_OFFSET, ge=0),
-    current_user: CurrentUser = Depends(require_capability(Capability.SYSTEM_OBSERVE)),
-    service: ChatLogService = Depends(create_chat_log_service),
-    assignment_service: AssignmentService = Depends(create_assignment_service),
-):
+    *,
+    options: Annotated[ChatLogQuery, Depends()],
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.SYSTEM_OBSERVE))],
+    service: Annotated[ChatLogService, Depends(create_chat_log_service)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+) -> ChatLogsResponse:
     # Curator sees only logs of managed users (+ self); admin sees all
     user_ids_filter = None
+
     if current_user.role == UserRole.CURATOR:
         scope = await assignment_service.get_scope(current_user.id)
         managed_ids = scope["managed_client_ids"] + scope["managed_internal_ids"] + [current_user.id]
@@ -41,31 +49,31 @@ async def list_chat_logs(
 
     total = await service.count_logs(
         filters=ChatLogFilter(
-            user_id=user_id,
+            user_id=options.user_id,
             user_ids=tuple(user_ids_filter) if user_ids_filter is not None else None,
-            domain=domain,
-            date_from=date_from,
-            date_to=date_to,
-            search=search,
+            domain=options.domain,
+            date_from=options.date_from,
+            date_to=options.date_to,
+            search=options.search,
         )
     )
     logs, email_map = await service.list_logs_with_emails(
         filters=ChatLogFilter(
-            user_id=user_id,
+            user_id=options.user_id,
             user_ids=tuple(user_ids_filter) if user_ids_filter is not None else None,
-            domain=domain,
-            date_from=date_from,
-            date_to=date_to,
-            search=search,
-            limit=limit,
-            offset=offset,
+            domain=options.domain,
+            date_from=options.date_from,
+            date_to=options.date_to,
+            search=options.search,
+            limit=options.limit,
+            offset=options.offset,
         )
     )
 
     entries = [
         ChatLogEntry(
             id=log.id,
-            creation_date=log.creation_date.isoformat() if log.creation_date else "",
+            creation_date=log.creation_date.isoformat(),
             user_id=log.user_id,
             user_email=email_map.get(log.user_id) if log.user_id else None,
             conversation_id=log.conversation_id,

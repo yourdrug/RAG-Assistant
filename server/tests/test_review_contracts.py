@@ -66,7 +66,7 @@ async def test_redis_failed_ping_closes_client_and_allows_retry(monkeypatch: pyt
     healthy = MagicMock(ping=AsyncMock(), aclose=AsyncMock())
     factory = MagicMock(side_effect=[failed, healthy])
 
-    monkeypatch.setattr(aioredis, "from_url", factory)
+    monkeypatch.setattr(aioredis.Redis, "from_url", factory)
     client = RedisClient()
     with pytest.raises(OSError, match="offline"):
         await client.init()
@@ -285,7 +285,7 @@ async def test_lifespan_cleans_up_when_database_startup_fails(monkeypatch: pytes
     monkeypatch.setattr(redis_client, "init", AsyncMock())
     monkeypatch.setattr(database, "connect", AsyncMock(side_effect=OSError("database offline")))
     cleanup = AsyncMock()
-    monkeypatch.setattr(main, "_shutdown", cleanup)
+    monkeypatch.setattr(main, "shutdown_resources", cleanup)
     application = FastAPI()
     with pytest.raises(OSError, match="database offline"):
         async with main.lifespan(application):

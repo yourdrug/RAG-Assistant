@@ -1,6 +1,9 @@
 """Durable database checkpoints and deterministic benchmark identities."""
 
+from typing import Any
+
 from application.benchmark.identity import fingerprint
+from application.uow.factory import UnitOfWorkFactory
 
 
 __all__ = ["fingerprint"]
@@ -13,7 +16,7 @@ from infrastructure.benchmark.judging.prompts import INSTRUCTIONS
 
 
 class DatabaseBenchmarkCheckpoints:
-    def __init__(self, uow_factory, sweep_id: int) -> None:
+    def __init__(self, uow_factory: UnitOfWorkFactory, sweep_id: int) -> None:
         self._uow_factory = uow_factory
         self._sweep_id = sweep_id
 
@@ -26,7 +29,7 @@ class DatabaseBenchmarkCheckpoints:
             await uow.benchmark_sweeps.save_checkpoint(self._sweep_id, key, value)
 
 
-def refresh_judge_rubric(stages: dict) -> bool:
+def refresh_judge_rubric(stages: dict[str, Any]) -> bool:
     """Rejudge old checkpoints while preserving generated answers and evidence."""
     if stages.get("judge_rubric_version") == JUDGE_RUBRIC_VERSION:
         return False
@@ -38,7 +41,7 @@ def refresh_judge_rubric(stages: dict) -> bool:
     return True
 
 
-def restore_grouped_scores(stages: dict) -> dict:
+def restore_grouped_scores(stages: dict[str, Any]) -> dict[str, Any]:
 
     saved_scores = dict(stages.get("grouped_metrics", {}))
 
@@ -64,7 +67,7 @@ def restore_grouped_scores(stages: dict) -> dict:
     return saved_scores
 
 
-async def load_stages(checkpoints: BenchmarkCheckpoints | None, path: Path | None) -> dict:
+async def load_stages(checkpoints: BenchmarkCheckpoints | None, path: Path | None) -> dict[str, Any]:
     if path is None:
         return {}
 
@@ -72,10 +75,12 @@ async def load_stages(checkpoints: BenchmarkCheckpoints | None, path: Path | Non
         message = "A database checkpoint store is required for stage recovery"
         raise RuntimeError(message)
 
-    return cast("dict", await checkpoints.load(str(path)) or {})
+    return cast("dict[str, Any]", await checkpoints.load(str(path)) or {})
 
 
-async def save_stages(checkpoints: BenchmarkCheckpoints | None, path: Path | None, stages: dict) -> None:
+async def save_stages(
+    checkpoints: BenchmarkCheckpoints | None, path: Path | None, stages: dict[str, Any]
+) -> None:
     if path is not None:
         if checkpoints is None:
             message = "A database checkpoint store is required for stage recovery"

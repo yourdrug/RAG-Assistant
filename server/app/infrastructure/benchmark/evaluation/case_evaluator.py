@@ -1,41 +1,57 @@
 """Evaluate one generated benchmark answer independently of scheduling and report storage."""
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
-
-
-from infrastructure.benchmark.checkpoint import refresh_judge_rubric, load_stages, save_stages
-from infrastructure.benchmark.evaluation.case_judging import judge_generated
 
 import asyncio
+from dataclasses import asdict, dataclass
 import time
-from dataclasses import asdict
-from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
-from infrastructure.benchmark.evaluation import metrics
-from infrastructure.benchmark.judging.token_usage import judge_usage, judge_context
-from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
-from application.benchmark import BenchmarkCheckpoints
-from infrastructure.benchmark.judging.judge_rubric import JUDGE_RUBRIC_VERSION
-
 from config import settings
-from domain.rag.context import RagContext
+from domain.benchmark.evaluation import evaluate_evidence, evaluate_retrieval, evaluate_stage_evidence
 from domain.benchmark.question import validate_annotations
 from domain.benchmark.stage_reporting import diagnostic_card
-from domain.benchmark.evaluation import evaluate_evidence, evaluate_retrieval, evaluate_stage_evidence
+from infrastructure.benchmark.checkpoint import load_stages, refresh_judge_rubric, save_stages
+from infrastructure.benchmark.evaluation import metrics
 from infrastructure.benchmark.evaluation.annotation_validation import (
-    AnnotationValidator,
     question_context,
     report_annotations,
 )
-
-from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswerGenerator
+from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
+from infrastructure.benchmark.evaluation.case_judging import judge_generated
+from infrastructure.benchmark.judging.judge_rubric import JUDGE_RUBRIC_VERSION
+from infrastructure.benchmark.judging.token_usage import judge_context, judge_usage
+from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from infrastructure.ml.usage_capture import summarize_usage
 
+
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from application.benchmark import BenchmarkCheckpoints
+    from domain.rag.context import RagContext
+    from infrastructure.benchmark.evaluation.annotation_validation import (
+        AnnotationValidator,
+    )
+    from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswerGenerator
+    from infrastructure.benchmark.judging.callbacks import SaveStage
     from infrastructure.budget.runtime import BudgetRuntime
+
+
+@dataclass(frozen=True)
+class CaseRun:
+    idx: int
+    run_idx: int
+    started: float
+
+
+@dataclass(frozen=True)
+class CaseJudgement:
+    annotations: dict[str, Any] | None
+    generator_metrics: dict[str, Any]
+    context_metrics: dict[str, Any]
+    judge_metrics: dict[str, Any]
 
 
 class BenchmarkCaseEvaluator:
@@ -47,7 +63,7 @@ class BenchmarkCaseEvaluator:
         *,
         budget_runtime: BudgetRuntime | None = None,
         annotation_validator: AnnotationValidator | None = None,
-        run_manifest: dict | None = None,
+        run_manifest: dict[str, Any] | None = None,
     ) -> None:
         self.run_manifest = run_manifest
         self.annotation_validator = annotation_validator
@@ -57,8 +73,13 @@ class BenchmarkCaseEvaluator:
         self._checkpoints = checkpoints
 
     async def evaluate(
-        self, idx: int, question: dict, run_idx: int, ctx: RagContext, checkpoint_path: Path | None = None
-    ) -> dict:
+        self,
+        idx: int,
+        question: dict[str, Any],
+        run_idx: int,
+        ctx: RagContext,
+        checkpoint_path: Path | None = None,
+    ) -> dict[str, Any]:
 
         saved = await load_stages(self._checkpoints, checkpoint_path)
         context_token = judge_context.set(
@@ -101,8 +122,13 @@ class BenchmarkCaseEvaluator:
                 await save_stages(self._checkpoints, checkpoint_path, saved)
 
     async def evaluate_case(
-        self, idx: int, question: dict, run_idx: int, ctx: RagContext, checkpoint_path: Path | None = None
-    ) -> dict:
+        self,
+        idx: int,
+        question: dict[str, Any],
+        run_idx: int,
+        ctx: RagContext,
+        checkpoint_path: Path | None = None,
+    ) -> dict[str, Any]:
 
         annotations = validate_annotations(question.get("annotations"))
         started = time.monotonic()
@@ -113,6 +139,7 @@ class BenchmarkCaseEvaluator:
 
         ctx = question_context(question, ctx)
         validation = stages.get("annotation_validation")
+
         if validation is None:
             validation = (
                 await self.annotation_validator.validate(annotations, ctx)
@@ -121,32 +148,12 @@ class BenchmarkCaseEvaluator:
             )
             stages["annotation_validation"] = validation
             await save_stages(self._checkpoints, checkpoint_path, stages)
-        saved_answer = stages.get("generated")
 
-        if saved_answer is not None:
-            saved_answer = dict(saved_answer)
-            evidence = saved_answer.get("evidence")
-            saved_answer["evidence"] = BenchmarkEvidence(**evidence) if evidence is not None else None
-            generated = BenchmarkAnswer(**saved_answer)
-        else:
-            try:
-                # References are evaluator-only; even custom generators receive no labels.
-                generation_question = {
-                    key: question[key] for key in ("question", "history", "as_of_date") if key in question
-                }
-                generated = await self._generator.generate(generation_question, ctx)
-            except BaseException as error:
-                failure = getattr(error, "benchmark_evidence", None)
-                if failure is not None:
-                    stages.setdefault("failures", []).append(asdict(failure))
-                    await save_stages(self._checkpoints, checkpoint_path, stages)
-                raise
-            stages["generated"] = asdict(generated)
-            await save_stages(self._checkpoints, checkpoint_path, stages)
+        generated = await self.generate_answer(question, ctx, stages, checkpoint_path)
 
         lock = asyncio.Lock()
 
-        async def save_stage(name: str, value: dict) -> None:
+        async def save_stage(name: str, value: dict[str, Any]) -> None:
             async with lock:
                 stages[name] = value
 
@@ -171,6 +178,51 @@ class BenchmarkCaseEvaluator:
                 "annotation_status": validation["status"],
             },
         )
+        judgement = CaseJudgement(evaluation_annotations, generator_metrics, context_metrics, judge_metrics)
+        return self.report_case(question, generated, validation, judgement, CaseRun(idx, run_idx, started))
+
+    async def generate_answer(
+        self, question: dict[str, Any], ctx: RagContext, stages: dict[str, Any], checkpoint_path: Path | None
+    ) -> BenchmarkAnswer:
+        saved_answer = stages.get("generated")
+
+        if saved_answer is not None:
+            saved_answer = dict(saved_answer)
+            evidence = saved_answer.get("evidence")
+            saved_answer["evidence"] = BenchmarkEvidence(**evidence) if evidence is not None else None
+            generated = BenchmarkAnswer(**saved_answer)
+        else:
+            try:
+                # References are evaluator-only; even custom generators receive no labels.
+                generation_question = {
+                    key: question[key] for key in ("question", "history", "as_of_date") if key in question
+                }
+                generated = await self._generator.generate(generation_question, ctx)
+            except BaseException as error:
+                failure = getattr(error, "benchmark_evidence", None)
+
+                if failure is not None:
+                    stages.setdefault("failures", []).append(asdict(failure))
+                    await save_stages(self._checkpoints, checkpoint_path, stages)
+
+                raise
+            stages["generated"] = asdict(generated)
+            await save_stages(self._checkpoints, checkpoint_path, stages)
+
+        return generated
+
+    def report_case(
+        self,
+        question: dict[str, Any],
+        generated: BenchmarkAnswer,
+        validation: dict[str, Any],
+        judgement: CaseJudgement,
+        run: CaseRun,
+    ) -> dict[str, Any]:
+        evaluation_annotations = judgement.annotations
+        generator_metrics = judgement.generator_metrics
+        context_metrics = judgement.context_metrics
+        judge_metrics = judgement.judge_metrics
         evidence = generated.evidence
         evidence_metrics, diagnostics = evaluate_evidence(
             evaluation_annotations,
@@ -184,7 +236,7 @@ class BenchmarkCaseEvaluator:
             question if validation["status"] != "invalid_annotation" else {"annotations": None},
             evidence.retrieved if evidence else None,
         )
-        saved_evidence = asdict(evidence) if evidence else {"schema_version": 1}
+        saved_evidence: dict[str, Any] = asdict(evidence) if evidence else {"schema_version": 1}
         saved_evidence["annotation_validation"] = validation
         stage_evaluation = evaluate_stage_evidence(evaluation_annotations, saved_evidence, generated.answer)
         evidence_metrics.update(
@@ -213,7 +265,7 @@ class BenchmarkCaseEvaluator:
             settings.llm_model, generated.input_tokens or 0, generated.output_tokens or 0
         )
         return {
-            "id": question.get("id", str(idx)),
+            "id": question.get("id", str(run.idx)),
             "question": question["question"],
             "tags": question.get("tags") or [],
             "dataset": question.get("dataset"),
@@ -222,7 +274,7 @@ class BenchmarkCaseEvaluator:
             "stage_evaluation": stage_evaluation,
             "diagnostic_card": diagnostic_card(
                 {
-                    "id": question.get("id", str(idx)),
+                    "id": question.get("id", str(run.idx)),
                     "question": question["question"],
                     "stage_evaluation": stage_evaluation,
                 }
@@ -235,7 +287,7 @@ class BenchmarkCaseEvaluator:
             if validation["status"] != "invalid_annotation"
             else None,
             "retriever_metrics": retriever_metrics,
-            "annotations": report_annotations(annotations, validation),
+            "annotations": evaluation_annotations,
             "evidence_metrics": evidence_metrics,
             "evidence_diagnostics": diagnostics,
             "evidence": {
@@ -254,7 +306,7 @@ class BenchmarkCaseEvaluator:
             "generator_metrics": generator_metrics,
             "judge_rubric_version": JUDGE_RUBRIC_VERSION,
             "context_metrics": context_metrics,
-            "latency_sec": round(time.monotonic() - started, 2),
+            "latency_sec": round(time.monotonic() - run.started, 2),
             "rag_latency_sec": generated.rag_latency_sec,
             "rag_usage": generated.llm_usage,
             "rag_cost_usd": summarize_usage(generated.llm_usage)["cost_usd"]
@@ -266,19 +318,26 @@ class BenchmarkCaseEvaluator:
             "ttft_sec": generated.ttft_sec,
             "breadth": generated.breadth,
             "domain": generated.domain,
-            "run": run_idx,
+            "run": run.run_idx,
         }
 
 
 async def judge_validated(
-    question, generated, annotations, stages, save_stage, *, policy: dict[str, Any]
-) -> tuple[dict, dict, dict]:
+    question: dict[str, Any],
+    generated: BenchmarkAnswer,
+    annotations: dict[str, Any] | None,
+    stages: dict[str, Any],
+    save_stage: SaveStage,
+    *,
+    policy: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     if policy["annotation_status"] == "invalid_annotation":
         return (
             dict.fromkeys(("faithfulness", "relevancy", "correctness")),
             dict.fromkeys(("context_precision", "context_recall")),
             {"scores": {}, "details": {"annotation_status": "invalid_annotation"}},
         )
+
     return await judge_generated(
         question,
         generated,

@@ -3,33 +3,39 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import io
 import json
 import logging
 import math
 import os
-import tempfile
-from application.runtime.enums import MLProvider
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+import tempfile
+from typing import TYPE_CHECKING, Any
 
-from config import Settings
+
+if TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
+
+    from application.runtime.dynamic_params import DynamicParam
+    from application.uow.factory import UnitOfWorkFactory
+
 from dotenv import dotenv_values
 from dotenv.parser import parse_stream
 from pydantic import TypeAdapter
 
-from application.runtime.config import ConfigParameter
-from domain.shared.exceptions import ValidationError as DomainValidationError
-from application.runtime.config import ConfigValueType
+from application.runtime.config import ConfigParameter, ConfigValueType
 from application.runtime.dynamic_params import (
     DYNAMIC_PARAMS,
 )
+from application.runtime.enums import LLMProvider, MLProvider
 from application.runtime.setting_keys import (
     SECRET_SETTING_KEYS,
     TARGET_DYNAMIC_SETTING_KEYS,
 )
-from application.runtime.enums import LLMProvider
+from config import Settings
+from domain.shared.exceptions import ValidationError as DomainValidationError
+
 
 # Legacy names are recognized only by the offline migration parser.
 LEGACY_POOL_SETTING_KEYS: frozenset[str] = frozenset({"http_pool_max_connections", "http_pool_max_keepalive"})
@@ -42,6 +48,7 @@ POOL_KEYS = {
     "embedding_http_max_keepalive_connections": ("http_pool_max_keepalive", 1),
     "rerank_http_max_keepalive_connections": ("http_pool_max_keepalive", 2),
 }
+MIN_POOL_CONNECTIONS = 2
 LEGACY_POOL_DEFAULTS = {"http_pool_max_connections": 40, "http_pool_max_keepalive": 20}
 
 
@@ -53,18 +60,21 @@ class EnvSnapshot:
     exists: bool
 
 
-def read_snapshot(path: Path, optional: bool = False) -> EnvSnapshot:
+def read_snapshot(path: Path, *, optional: bool = False) -> EnvSnapshot:
     if path.is_symlink():
-        raise ValueError("Migration does not accept symlink env files")
+        msg = "Migration does not accept symlink env files"
+        raise ValueError(msg)
 
     exists = path.exists()
     text = path.read_text() if exists else ""
 
     if not exists and not optional:
-        raise ValueError("Env file does not exist")
+        msg = "Env file does not exist"
+        raise ValueError(msg)
 
     if any(binding.error for binding in parse_stream(io.StringIO(text))):
-        raise ValueError("Malformed env file")
+        msg = "Malformed env file"
+        raise ValueError(msg)
 
     # Do not interpolate from an unrelated process environment into a protected file.
     values = {
@@ -115,7 +125,7 @@ def protected_backup(snapshot: EnvSnapshot) -> None:
     if not snapshot.exists:
         return
 
-    descriptor, name = tempfile.mkstemp(prefix=snapshot.path.name + ".backup-", dir=snapshot.path.parent)
+    descriptor, _name = tempfile.mkstemp(prefix=snapshot.path.name + ".backup-", dir=snapshot.path.parent)
     with os.fdopen(descriptor, "w") as stream:
         stream.write(snapshot.text)
         stream.flush()
@@ -127,7 +137,8 @@ def atomic_replace(snapshot: EnvSnapshot, text: str) -> None:
     current = read_snapshot(snapshot.path, optional=True)
 
     if current.text != snapshot.text or current.exists != snapshot.exists:
-        raise ValueError("Env file changed during migration; rerun dry run")
+        msg = "Env file changed during migration; rerun dry run"
+        raise ValueError(msg)
 
     descriptor, name = tempfile.mkstemp(prefix=snapshot.path.name + ".migration-", dir=snapshot.path.parent)
     temporary = Path(name)
@@ -136,7 +147,7 @@ def atomic_replace(snapshot: EnvSnapshot, text: str) -> None:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, snapshot.path)
+        temporary.replace(snapshot.path)
         directory = os.open(snapshot.path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(directory)
@@ -151,50 +162,72 @@ def migration_parameter(key: str, raw: str) -> ConfigParameter:
     field = Settings.model_fields.get(key)
     value_type = declaration.type if declaration else (field.annotation if field else int)
     try:
-        if "${" in raw:
-            raise ValueError("Unresolved interpolation")
+        return validated_migration_parameter(key, raw, declaration, field, value_type)
 
-        if value_type is None:
-            raise ValueError("Missing parameter type")
-
-        adapter: TypeAdapter[Any] = TypeAdapter(field.rebuild_annotation() if field else value_type)
-        value = adapter.validate_json(raw) if value_type is list else adapter.validate_python(raw)
-
-        if isinstance(value, float) and not math.isfinite(value):
-            raise ValueError("Nonfinite number")
-
-        encoded = json.dumps(value) if isinstance(value, (bool, list)) else str(value)
-        entity = ConfigParameter(
-            key=key,
-            value=encoded,
-            value_type=ConfigValueType(value_type.__name__) if value_type is not list else "list",
-            category=declaration.category if declaration else "migration_pending",
-            description=declaration.description if declaration else "Pending implementation; env retained",
-            min_value=declaration.min_val if declaration else None,
-            max_value=declaration.max_val if declaration else None,
-            allowed_values=declaration.allowed if declaration else None,
-            domain_key=declaration.domain_key if declaration else None,
-        )
-        entity.validate(encoded)
-
-        if (
-            key.startswith("rate_limit_")
-            and isinstance(value, int)
-            and not isinstance(value, bool)
-            and value <= 0
-        ):
-            raise ValueError("Quota must be positive")
-
-        if key in {"max_upload_size_mb", "job_cleanup_days"} and value <= 0:
-            raise ValueError("Must be positive")
-
-        if key in {"cost_hourly_limit", "cost_daily_limit"} and value <= 0:
-            raise ValueError("Budget must be positive")
-
-        return entity
     except (ValueError, TypeError, DomainValidationError):
         # Pydantic and domain exceptions can echo the input, including credentials in URLs.
-        raise ValueError(f"Invalid legacy value: {key.upper()}") from None
+        msg = f"Invalid legacy value: {key.upper()}"
+        raise ValueError(msg) from None
+
+
+def validated_migration_parameter(
+    key: str, raw: str, declaration: DynamicParam | None, field: FieldInfo | None, value_type: type | None
+) -> ConfigParameter:
+    if "${" in raw:
+        msg = "Unresolved interpolation"
+        raise ValueError(msg)
+
+    if value_type is None:
+        msg = "Missing parameter type"
+        raise ValueError(msg)
+
+    adapter: TypeAdapter[Any] = TypeAdapter(field.rebuild_annotation() if field else value_type)
+    value = adapter.validate_json(raw) if value_type is list else adapter.validate_python(raw)
+
+    if isinstance(value, float) and not math.isfinite(value):
+        msg = "Nonfinite number"
+        raise ValueError(msg)
+
+    encoded = json.dumps(value) if isinstance(value, (bool, list)) else str(value)
+    entity = ConfigParameter(
+        key=key,
+        value=encoded,
+        value_type=ConfigValueType(value_type.__name__) if value_type is not list else "list",
+        category=declaration.category if declaration else "migration_pending",
+        description=declaration.description if declaration else "Pending implementation; env retained",
+        min_value=declaration.min_val if declaration else None,
+        max_value=declaration.max_val if declaration else None,
+        allowed_values=declaration.allowed if declaration else None,
+        domain_key=declaration.domain_key if declaration else None,
+    )
+    entity.validate(encoded)
+
+    if (
+        key.startswith("rate_limit_")
+        and isinstance(value, int)
+        and not isinstance(value, bool)
+        and value <= 0
+    ):
+        msg = "Quota must be positive"
+        raise ValueError(msg)
+
+    if key in {"max_upload_size_mb", "job_cleanup_days"} and value <= 0:
+        msg = "Must be positive"
+        raise ValueError(msg)
+
+    if key in {"cost_hourly_limit", "cost_daily_limit"} and value <= 0:
+        msg = "Budget must be positive"
+        raise ValueError(msg)
+
+    return entity
+
+
+def parse_pool_limit(raw: str | None) -> int:
+    if raw is None:
+        msg = "Missing pool limit"
+        raise ValueError(msg)
+
+    return int(raw)
 
 
 def legacy_pool_limits(values: dict[str, str | None]) -> dict[str, int]:
@@ -203,21 +236,21 @@ def legacy_pool_limits(values: dict[str, str | None]) -> dict[str, int]:
     for source in {key for key, divisor in POOL_KEYS.values()}:
         raw = values.get(source.upper(), str(LEGACY_POOL_DEFAULTS[source]))
         try:
-            if raw is None:
-                raise ValueError("Missing pool limit")
-
-            limits[source] = int(raw)
+            limits[source] = parse_pool_limit(raw)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid legacy value: {source.upper()}") from None
+            msg = f"Invalid legacy value: {source.upper()}"
+            raise ValueError(msg) from None
 
     connections = limits["http_pool_max_connections"]
     keepalive = limits["http_pool_max_keepalive"]
 
-    if connections < 2:
-        raise ValueError("Invalid legacy value: HTTP_POOL_MAX_CONNECTIONS")
+    if connections < MIN_POOL_CONNECTIONS:
+        msg = "Invalid legacy value: HTTP_POOL_MAX_CONNECTIONS"
+        raise ValueError(msg)
 
     if keepalive < 0 or keepalive > connections:
-        raise ValueError("Invalid legacy value: HTTP_POOL_MAX_KEEPALIVE")
+        msg = "Invalid legacy value: HTTP_POOL_MAX_KEEPALIVE"
+        raise ValueError(msg)
 
     return limits
 
@@ -239,7 +272,8 @@ def pool_parameters(values: dict[str, str | None]) -> list[ConfigParameter]:
         value = int(entity.value)
 
         if explicit is not None and source.upper() in values and value != derived:
-            raise ValueError(f"Legacy/new pool conflict: {key.upper()}")
+            msg = f"Legacy/new pool conflict: {key.upper()}"
+            raise ValueError(msg)
 
         result[key] = entity
 
@@ -248,9 +282,8 @@ def pool_parameters(values: dict[str, str | None]) -> list[ConfigParameter]:
         keepalive = int(result[f"{prefix}_http_max_keepalive_connections"].value)
 
         if connections <= 0 or keepalive < 0 or keepalive > connections:
-            raise ValueError(
-                f"Invalid pool limits: {prefix.upper()}_HTTP_MAX_CONNECTIONS / KEEPALIVE_CONNECTIONS"
-            )
+            msg = f"Invalid pool limits: {prefix.upper()}_HTTP_MAX_CONNECTIONS / KEEPALIVE_CONNECTIONS"
+            raise ValueError(msg)
 
     return list(result.values())
 
@@ -260,7 +293,8 @@ def secret_moves(env: EnvSnapshot, secrets: EnvSnapshot) -> dict[str, str]:
         sources = [source[key] for source in (env.values, secrets.values, os.environ) if key in source]
 
         if sources and (sources[0] is None or "${" in sources[0] or any(v != sources[0] for v in sources)):
-            raise ValueError(f"Secret source conflict or missing credential: {key}")
+            msg = f"Secret source conflict or missing credential: {key}"
+            raise ValueError(msg)
 
     return {
         key.upper(): value
@@ -317,7 +351,13 @@ def validate_storage_and_credentials(
     return s3_rows
 
 
-def report_actions(candidates, existing, s3_rows, moved, updates) -> None:
+def report_actions(
+    candidates: list[ConfigParameter],
+    existing: set[tuple[str, str | None]],
+    s3_rows: list[ConfigParameter],
+    moved: dict[str, str],
+    updates: dict[str, str],
+) -> None:
     for row in candidates:
         logger.info(
             "%s %s (scope=%s)",
@@ -337,7 +377,7 @@ def report_actions(candidates, existing, s3_rows, moved, updates) -> None:
 
 
 async def migrate_env_configuration(
-    uow_factory, env_file: Path, apply: bool = False, trim_env: bool = False
+    uow_factory: UnitOfWorkFactory, env_file: Path, *, apply: bool = False, trim_env: bool = False
 ) -> None:
     """Preserve DB values; commit before files; default to read-only action reporting.
 
@@ -346,7 +386,9 @@ async def migrate_env_configuration(
     every static override; database commit precedes removal of migrated values.
     """
     env = await asyncio.to_thread(read_snapshot, env_file)
-    secrets = await asyncio.to_thread(read_snapshot, env_file.with_name(env_file.name + ".secrets"), True)
+    secrets = await asyncio.to_thread(
+        read_snapshot, env_file.with_name(env_file.name + ".secrets"), optional=True
+    )
     moved = secret_moves(env, secrets)
     effective = {**env.values, **secrets.values, **{key.upper(): value for key, value in os.environ.items()}}
     candidates = [
@@ -387,14 +429,18 @@ async def migrate_env_configuration(
                 await uow.config_parameters.delete_by_key_and_domain(row.key, row.domain_key)
 
     if apply:
-        # Install secrets first: if the second replacement fails, the old env
-        # still contains them and the next run sees identical sources.
-        if secret_text != secrets.text:
-            await asyncio.to_thread(atomic_replace, secrets, secret_text)
-        elif secrets.exists:
-            await asyncio.to_thread(secrets.path.chmod, 0o600)
-
-        if env_text != env.text:
-            await asyncio.to_thread(atomic_replace, env, env_text)
+        await install_env_files(env, secrets, env_text, secret_text)
 
     logger.info("Configuration migration %s", "applied" if apply else "dry run; no changes")
+
+
+async def install_env_files(env: EnvSnapshot, secrets: EnvSnapshot, env_text: str, secret_text: str) -> None:
+    # Install secrets first: if the second replacement fails, the old env
+    # still contains them and the next run sees identical sources.
+    if secret_text != secrets.text:
+        await asyncio.to_thread(atomic_replace, secrets, secret_text)
+    elif secrets.exists:
+        await asyncio.to_thread(secrets.path.chmod, 0o600)
+
+    if env_text != env.text:
+        await asyncio.to_thread(atomic_replace, env, env_text)

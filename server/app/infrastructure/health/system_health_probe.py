@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
+from http import HTTPStatus
 import logging
 import time
-from contextlib import closing
 from typing import Any
 
 import httpx
+from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
+from redis.exceptions import RedisError
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
 from application.health.ports import HealthCheckResult
-from config import settings
 from application.runtime.enums import HealthStatus
+from config import settings
 from infrastructure.database.database import database
 from infrastructure.redis.redis_client import redis_client
-from qdrant_client import QdrantClient
-from sqlalchemy import text
 
 
 logger = logging.getLogger("default")
@@ -61,7 +66,7 @@ class SystemHealthProbe:
             response.raise_for_status()
             models = [model["name"] for model in response.json().get("models", [])]
             return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms, models=models)
-        except Exception as e:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
             logger.warning("Ollama health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
@@ -73,7 +78,7 @@ class SystemHealthProbe:
                 headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
             )
 
-            if response.status_code < 400:
+            if response.status_code < HTTPStatus.BAD_REQUEST:
                 return HealthCheckResult(
                     status=HealthStatus.OK.value,
                     latency_ms=latency_ms,
@@ -82,7 +87,7 @@ class SystemHealthProbe:
 
             logger.warning("OpenRouter health probe returned HTTP %s", response.status_code)
             return HealthCheckResult(status=f"error: HTTP {response.status_code}")
-        except Exception as e:
+        except (httpx.HTTPError, ValueError) as e:
             logger.warning("Openrouter health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
@@ -92,7 +97,7 @@ class SystemHealthProbe:
             await asyncio.to_thread(self.check_qdrant_sync)
             latency_ms = round((time.perf_counter() - t0) * 1000, 1)
             return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms)
-        except Exception as e:
+        except (ResponseHandlingException, UnexpectedResponse, OSError, RuntimeError, ValueError) as e:
             logger.warning("Qdrant health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
@@ -110,7 +115,7 @@ class SystemHealthProbe:
                 await session.execute(text("SELECT 1"))
             latency_ms = round((time.perf_counter() - t0) * 1000, 1)
             return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms)
-        except Exception as e:
+        except (SQLAlchemyError, OSError, RuntimeError) as e:
             logger.warning("Postgres health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
@@ -120,7 +125,7 @@ class SystemHealthProbe:
             await redis_client.async_redis.ping()
             latency_ms = round((time.perf_counter() - t0) * 1000, 1)
             return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms)
-        except Exception as e:
+        except (RedisError, OSError, RuntimeError) as e:
             logger.warning("Redis health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
@@ -148,7 +153,7 @@ class QdrantInfo:
     async def get_collections(self) -> list[dict[str, Any]]:
         try:
             return await asyncio.to_thread(self.fetch_collections)
-        except Exception as exc:
+        except (ResponseHandlingException, UnexpectedResponse, OSError, RuntimeError, ValueError) as exc:
             logger.warning("Qdrant collection probe failed (%s)", type(exc).__name__)
             return []
 
@@ -166,7 +171,7 @@ class QdrantInfo:
 
         for col in col_list.collections:
             info = client.get_collection(col.name)
-            vectors_cfg = info.config.params.vectors if info.config.params.vectors else None
+            vectors_cfg = info.config.params.vectors or None
             hnsw_cfg = info.config.hnsw_config
             vector_size = None
             vector_distance = None
@@ -195,9 +200,9 @@ class QdrantInfo:
                         if hasattr(info.optimizer_status, "value")
                         else str(info.optimizer_status)
                     ),
-                    "hnsw_m": hnsw_cfg.m if hnsw_cfg else None,
-                    "hnsw_ef_construct": hnsw_cfg.ef_construct if hnsw_cfg else None,
-                    "on_disk_payload": info.config.params.on_disk_payload if info.config.params else None,
+                    "hnsw_m": hnsw_cfg.m,
+                    "hnsw_ef_construct": hnsw_cfg.ef_construct,
+                    "on_disk_payload": info.config.params.on_disk_payload,
                     "vector_size": vector_size,
                     "distance": vector_distance,
                 }

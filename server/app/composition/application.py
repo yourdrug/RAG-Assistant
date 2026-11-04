@@ -2,22 +2,13 @@
 
 from __future__ import annotations
 
-from infrastructure.ml.config.settings_adapters import LivePreviewSettings
+import dataclasses
+from dataclasses import dataclass, field
+import logging
+from typing import TYPE_CHECKING
 
-from application.chunks import ChunkMutationService, ChunkQueryService
-from application.documents import DocumentCommandService, ManualDocumentService
-from application.documents.delete import DocumentDeleteCommand
-from application.documents.rename import DocumentRenameCommand
-from application.documents.upload import DocumentUploadCommand
-from application.identity import UserContextFactory
-from application.identity import (
-    ApiKeyService,
-    AssignmentService,
-    AuthService,
-    GroupService,
-    UserManagementService,
-)
 from application.admin import ConfigAdminService, ConfigService
+from application.admin.metrics import MetricsService
 from application.benchmark import (
     BenchmarkExportService,
     BenchmarkQuestionService,
@@ -25,40 +16,61 @@ from application.benchmark import (
     BenchmarkRunService,
     BenchmarkSweepService,
 )
-
-import logging
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
-from composition.utils import _missing_fields, _require
+from application.chat import ChatLogService, ChatService, ConversationService
+from application.chunks import ChunkMutationService, ChunkQueryService
+from application.documents import (
+    DocumentAccessService,
+    DocumentCommandService,
+    DocumentDeletionJobs,
+    DocumentQueryService,
+    ManualDocumentService,
+)
+from application.documents.delete import DocumentDeleteCommand
+from application.documents.diagnostics import PDFDiagnosticService
+from application.documents.quality_service import QualityService
+from application.documents.rename import DocumentRenameCommand
+from application.documents.upload import DocumentUploadCommand
+from application.health.service import HealthService
+from application.identity import (
+    ApiKeyService,
+    AssignmentService,
+    AuthService,
+    GroupService,
+    UserContextFactory,
+    UserManagementService,
+)
+from application.jobs.service import JobService
+from application.search import SearchService
 from composition.service_providers import create_ingestion_service, create_rag_service
+from composition.utils import missing_fields, require
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
+from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
+from infrastructure.auth.jwt_provider import JWTProvider
+from infrastructure.auth.password_hasher import BCryptPasswordHasher
+from infrastructure.events.in_process_event_bus import event_bus
+from infrastructure.ml.clients.factories import fetch_openrouter_models
+from infrastructure.ml.config.settings_adapters import (
+    LiveChatSettings,
+    LiveChunkSettings,
+    LiveConfigAdminSettings,
+    LiveHealthSettings,
+    LivePreviewSettings,
+    LiveRagSettings,
+)
+from infrastructure.ml.guardrails.pdf_adapter import (
+    FitzPDFDocument,
+    MLOcrRunner,
+    MLPageClassifier,
+    MLTextCleaner,
+)
+
 
 if TYPE_CHECKING:
-    from application.chat import ChatLogService
-    from application.chat import ChatService
-    from application.chat import ConversationService
-    from application.documents import DocumentQueryService
-    from application.documents import DocumentDeletionJobs
-    from application.health.service import HealthService
-    from application.jobs.service import JobService
-    from application.admin.metrics import MetricsService
-    from application.documents.diagnostics import PDFDiagnosticService
-    from application.documents.quality_service import QualityService
-    from application.search import SearchService
-    from application.rag.service import RagService
     from application.ingestion import IngestionService
-
+    from application.rag.service import RagService
     from composition.infrastructure import InfrastructureContainer
 
 log = logging.getLogger("default")
-
-
-def _get_openrouter_fetcher():
-    """Return the OpenRouter model fetcher function."""
-    from infrastructure.ml.clients.factories import fetch_openrouter_models
-
-    return fetch_openrouter_models
 
 
 @dataclass
@@ -73,9 +85,9 @@ class ApplicationContainer:
     auth_service: AuthService | None = field(default=None)
     user_management_service: UserManagementService | None = field(default=None)
     api_key_service: ApiKeyService | None = field(default=None)
-    document_command_service: "DocumentCommandService | None" = field(default=None)
-    document_query_service: "DocumentQueryService | None" = field(default=None)
-    document_deletion_jobs: "DocumentDeletionJobs | None" = field(default=None)
+    document_command_service: DocumentCommandService | None = field(default=None)
+    document_query_service: DocumentQueryService | None = field(default=None)
+    document_deletion_jobs: DocumentDeletionJobs | None = field(default=None)
     chunk_query_service: ChunkQueryService | None = field(default=None)
     chunk_mutation_service: ChunkMutationService | None = field(default=None)
     manual_document_service: ManualDocumentService | None = field(default=None)
@@ -103,41 +115,10 @@ class ApplicationContainer:
 
         Raises RuntimeError if InfrastructureContainer has not been initialized.
         """
-        from application.chat import ChatLogService
-        from application.chat import ChatService
-        from application.chat import ConversationService
-        from application.documents import DocumentQueryService
-        from application.documents import DocumentDeletionJobs
-        from application.health.service import HealthService
-        from application.jobs.service import JobService
-        from application.admin.metrics import MetricsService
-        from application.documents.diagnostics import PDFDiagnosticService
-        from application.documents.quality_service import QualityService
-        from application.search import SearchService
-        from infrastructure.auth.jwt_provider import JWTProvider
-        from infrastructure.auth.password_hasher import BCryptPasswordHasher
-        from infrastructure.events.in_process_event_bus import event_bus
-        from infrastructure.ml.config.settings_adapters import (
-            LiveChatSettings,
-            LiveChunkSettings,
-            LiveConfigAdminSettings,
-            LiveHealthSettings,
-            LiveRagSettings,
-        )
-        from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
-        from infrastructure.ml.guardrails.pdf_adapter import (
-            FitzPDFDocument,
-            MLOcrRunner,
-            MLPageClassifier,
-            MLTextCleaner,
-        )
-
-        uow = _require(infra.db.uow_factory, "uow_factory")
-        fs = _require(infra.ml.file_storage, "file_storage")
-        ml = _require(infra.ml.ml_clients, "ml_clients")
+        uow = require(infra.db.uow_factory, "uow_factory")
+        ml = require(infra.ml.ml_clients, "ml_clients")
 
         chunk_search = ChunkSearchAdapter(uow_factory=uow)
-        from application.documents import DocumentAccessService
 
         pii_redactor = PIIRedactorAdapter(rag_settings=LiveRagSettings())
 
@@ -154,18 +135,12 @@ class ApplicationContainer:
             domain_registry=infra.domain_registry,
         )
 
-        self.ingestion_service = _require(
+        self.ingestion_service = require(
             create_ingestion_service(infra, uow_factory=uow),
             "ingestion_service",
         )
 
-        summary_updater = _require(infra.ml.summary_updater, "summary_updater")
-        api_key_provider = _require(infra.services.api_key_provider, "api_key_provider")
-        health_probe = _require(infra.services.health_probe, "health_probe")
-        config_listener = _require(infra.events.config_listener, "config_listener")
-        metrics_registry = _require(infra.ml.metrics_registry, "metrics_registry")
-        ollama_probe = _require(infra.services.ollama_probe, "ollama_probe")
-        qdrant_info = _require(infra.services.qdrant_info, "qdrant_info")
+        summary_updater = require(infra.ml.summary_updater, "summary_updater")
 
         self.chat_log_service = ChatLogService(uow_factory=uow)
         self.conversation_service = ConversationService(
@@ -182,6 +157,15 @@ class ApplicationContainer:
             conversation_service=self.conversation_service,
             pii_redactor=pii_redactor,
         )
+        self.init_identity_and_documents(infra)
+        self.init_observability(infra)
+        self.init_catalog(infra)
+
+    def init_identity_and_documents(self, infra: InfrastructureContainer) -> None:
+        uow = require(infra.db.uow_factory, "uow_factory")
+        fs = require(infra.ml.file_storage, "file_storage")
+        api_key_provider = require(infra.services.api_key_provider, "api_key_provider")
+        user_ctx_factory = UserContextFactory()
         password_hasher = BCryptPasswordHasher()
         self.auth_service = AuthService(
             uow_factory=uow,
@@ -190,14 +174,13 @@ class ApplicationContainer:
         )
         self.user_management_service = UserManagementService(uow, password_hasher)
         self.api_key_service = ApiKeyService(uow, api_key_provider)
-        user_ctx_factory = UserContextFactory()
         self.document_command_service = DocumentCommandService(
             upload_command=DocumentUploadCommand(uow, fs, user_ctx_factory),
             delete_command=DocumentDeleteCommand(uow, fs, user_ctx_factory),
             rename_command=DocumentRenameCommand(uow, fs, user_ctx_factory),
         )
         self.document_deletion_jobs = DocumentDeletionJobs(
-            uow, _require(infra.services.job_enqueuer, "job_enqueuer")
+            uow, require(infra.services.job_enqueuer, "job_enqueuer")
         )
         self.document_query_service = DocumentQueryService(
             uow_factory=uow,
@@ -209,6 +192,15 @@ class ApplicationContainer:
             cache_invalidator=infra.services.cache_invalidator,
         )
         self.manual_document_service = ManualDocumentService(uow)
+
+    def init_observability(self, infra: InfrastructureContainer) -> None:
+        uow = require(infra.db.uow_factory, "uow_factory")
+        fs = require(infra.ml.file_storage, "file_storage")
+        health_probe = require(infra.services.health_probe, "health_probe")
+        config_listener = require(infra.events.config_listener, "config_listener")
+        metrics_registry = require(infra.ml.metrics_registry, "metrics_registry")
+        ollama_probe = require(infra.services.ollama_probe, "ollama_probe")
+        qdrant_info = require(infra.services.qdrant_info, "qdrant_info")
         self.config_service = ConfigService(
             uow_factory=uow, event_bus=event_bus, provider_configuration=infra.configuration
         )
@@ -225,7 +217,7 @@ class ApplicationContainer:
             ollama_probe=ollama_probe,
             vectordb_info=qdrant_info,
             admin_settings=LiveConfigAdminSettings(),
-            openrouter_models_fetcher=_get_openrouter_fetcher(),
+            openrouter_models_fetcher=fetch_openrouter_models,
         )
         self.pdf_diagnostic_service = PDFDiagnosticService(
             classifier=MLPageClassifier(),
@@ -237,6 +229,9 @@ class ApplicationContainer:
             settings=LivePreviewSettings(),
         )
 
+    def init_catalog(self, infra: InfrastructureContainer) -> None:
+        uow = require(infra.db.uow_factory, "uow_factory")
+        fs = require(infra.ml.file_storage, "file_storage")
         self.search_service = SearchService(uow_factory=uow)
         self.group_service = GroupService(uow_factory=uow)
         self.assignment_service = AssignmentService(uow_factory=uow)
@@ -250,11 +245,11 @@ class ApplicationContainer:
 
         # Wire rag_service into benchmark_service for full-pipeline benchmarking
         if infra.ml.benchmark_service is not None:
-            infra.ml.benchmark_service.set_rag_service(self.rag_service)
+            infra.ml.benchmark_service.set_rag_service(require(self.rag_service, "rag_service"))
 
     def validate(self) -> list[str]:
         """Return names of fields that are still ``None`` after init()."""
-        return _missing_fields(self)
+        return missing_fields(self)
 
     async def dispose(self) -> None:
         """Shutdown all application services that have explicit shutdown methods.
@@ -263,10 +258,9 @@ class ApplicationContainer:
         gets called.  Failures are logged but do not prevent remaining
         services from being cleaned up.
         """
-        import dataclasses
-
         for f in dataclasses.fields(self):
             svc = getattr(self, f.name, None)
+
             if svc is not None and hasattr(svc, "shutdown"):
                 try:
                     await svc.shutdown()

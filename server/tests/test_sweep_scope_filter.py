@@ -47,7 +47,7 @@ async def test_phase_a_honors_query_scope_exclusions(sparse_only: bool, include_
         dense,
         sparse,
         candidates,
-        {"hit_rate": 1},
+        weights={"hit_rate": 1},
         rerank_scores=scores,
         defaults=settings_snapshot(),
     )
@@ -65,7 +65,7 @@ def test_phase_a_does_not_hide_missing_scores_for_eligible_candidates() -> None:
             {"question": [("eligible", 1.0, doc)]},
             {},
             {"eligible": doc},
-            {"hit_rate": 1},
+            weights={"hit_rate": 1},
             rerank_scores={"question": {}},
             defaults=settings_snapshot(),
         )

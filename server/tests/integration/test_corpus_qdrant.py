@@ -86,7 +86,7 @@ def test_alias_switch_preserves_physical_snapshot_and_private_acl():
         client.update_collection_aliases(
             [CreateAliasOperation(create_alias=CreateAlias(collection_name=names[0], alias_name=alias))]
         )
-        old = validate_corpus(client, endpoint, alias, identity, 2, rows)
+        old = validate_corpus(client, endpoint, alias, identity, 2, rows=rows)
         bound = BoundQdrantClient(client, old)
         client.update_collection_aliases(
             [
@@ -94,13 +94,13 @@ def test_alias_switch_preserves_physical_snapshot_and_private_acl():
                 CreateAliasOperation(create_alias=CreateAlias(collection_name=names[1], alias_name=alias)),
             ]
         )
-        new = validate_corpus(client, endpoint, alias, identity, 2, rows)
+        new = validate_corpus(client, endpoint, alias, identity, 2, rows=rows)
         assert old.physical_collection == names[0]
         assert new.physical_collection == names[1]
         assert old.namespace != new.namespace
         assert bound.snapshot is old
         with pytest.raises(ValidationError, match="metadata differs"):
-            validate_corpus(client, endpoint, alias, identity, 2, [{**rows[0], "owner_id": 9}, rows[1]])
+            validate_corpus(client, endpoint, alias, identity, 2, rows=[{**rows[0], "owner_id": 9}, rows[1]])
         client.update_collection_aliases([DeleteAliasOperation(delete_alias=DeleteAlias(alias_name=alias))])
         # A pinned reader uses the physical corpus even when the alias no longer exists.
         for user_id in (7, 8, 9):

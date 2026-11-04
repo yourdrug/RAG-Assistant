@@ -71,6 +71,11 @@ class PDFDiagnosticService:
         self._preview_cache = preview_cache
 
     @property
+    def pdf_document(self) -> PDFDocumentPort:
+        """PDF operations used by the preview image endpoint."""
+        return self._pdf
+
+    @property
     def max_preview_bytes(self) -> int:
         return self.settings.preview_max_size_mb * 1024 * 1024
 

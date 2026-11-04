@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Unpack
+
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.worker.queue import (
     enqueue_benchmark as _enqueue_benchmark,
@@ -13,38 +15,18 @@ from infrastructure.worker.queue import (
 )
 
 
+if TYPE_CHECKING:
+    from application.ports.job_enqueuer import DocumentProcessingRequest
+
+
 class JobEnqueuerAdapter:
     """Thin wrapper making worker queue functions available as an injectable port."""
 
     async def enqueue_document_deletion(self, *, document_id: int, user_id: int, job_id: int) -> None:
         await enqueue_document_deletion(document_id=document_id, user_id=user_id, job_id=job_id)
 
-    async def enqueue_document_processing(
-        self,
-        *,
-        document_id: int,
-        storage_key: str,
-        filename: str,
-        visibility: str,
-        owner_id: int | None,
-        group_id: int | None,
-        replace_id: int | None,
-        job_id: int,
-        doc_domain: str | None = None,
-        principal_id: int | None = None,
-    ) -> None:
-        await _enqueue_document_processing(
-            document_id=document_id,
-            storage_key=storage_key,
-            filename=filename,
-            visibility=visibility,
-            owner_id=owner_id,
-            group_id=group_id,
-            replace_id=replace_id,
-            job_id=job_id,
-            doc_domain=doc_domain,
-            principal_id=principal_id,
-        )
+    async def enqueue_document_processing(self, **request: Unpack[DocumentProcessingRequest]) -> None:
+        await _enqueue_document_processing(**request)
 
     async def enqueue_ingest(
         self,

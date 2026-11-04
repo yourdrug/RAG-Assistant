@@ -9,78 +9,92 @@ Organized into sub-containers for Single Responsibility:
 
 from __future__ import annotations
 
-from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
-from infrastructure.benchmark.evaluation.annotation_validation import AnnotationValidator
-
-import logging
 from dataclasses import dataclass, field
 from functools import partial
+import logging
+from typing import TYPE_CHECKING
 
-from config import settings
-from infrastructure.events.postgres_config_listener import PostgresConfigListener
-from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
-from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
-from infrastructure.ml.config.settings_adapters import LivePreviewSettings
-from infrastructure.budget.ledger import PostgresRedisBudget
-from application.budget import BudgetAdminService
-from infrastructure.benchmark.executor import BenchmarkExecutor
+from prometheus_client import Counter
+
 from application.benchmark import BenchmarkService
-from infrastructure.budget.runtime import BudgetRuntime
+from application.budget import BudgetAdminService
+from application.documents import DocumentPreviewStrategy, PreviewCache
+from application.runtime.config import ConfigParameterChanged
+from composition.utils import missing_fields, require
+from config import settings
+from domain.ingestion.ports import DomainSettingsPort
+from domain.ingestion.profiles.registry import DomainProfileRegistry
+from infrastructure.adapters.action_logger_adapter import ActionLoggerAdapter
+from infrastructure.adapters.cache_invalidator_adapter import CacheInvalidatorAdapter
+from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
+from infrastructure.adapters.config_masker_adapter import ConfigMaskerAdapter
+from infrastructure.adapters.job_enqueuer_adapter import JobEnqueuerAdapter
+from infrastructure.adapters.log_buffer_adapter import LogBufferAdapter
+from infrastructure.auth.api_key_provider import api_key_provider
+from infrastructure.benchmark.evaluation.annotation_validation import AnnotationValidator
+from infrastructure.benchmark.executor import BenchmarkExecutor
+from infrastructure.benchmark.judging.clients import close_judge_clients
+from infrastructure.benchmark.reporting.benchmark_history_adapter import BenchmarkHistoryAdapter
+from infrastructure.budget.ledger import PostgresRedisBudget
 from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
+from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.corpus.control import PostgresCorpusControl
 from infrastructure.corpus.resources import CorpusResources
-from infrastructure.ml.clients.factories import create_qdrant_client
-from infrastructure.rate_limit.limiter import DynamicRateLimiter
-from infrastructure.redis.redis_client import redis_client
-
-from infrastructure.ml.clients.client_registry import MLClientRegistry
-from infrastructure.storage import LazyStorage
-from typing import TYPE_CHECKING, Any
-
-from composition.utils import _missing_fields, _require
-from application.runtime.config import ConfigParameterChanged
-from infrastructure.events.in_process_event_bus import event_bus
+from infrastructure.database.database import DatabaseManager
 from infrastructure.domain_profile import register_all_profiles
-from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from infrastructure.initialization import seed_domain_config_defaults, seed_config_defaults
-from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
-from infrastructure.benchmark.judging.clients import close_judge_clients
-from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
+from infrastructure.events.in_process_event_bus import event_bus
+from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
+from infrastructure.events.postgres_config_listener import PostgresConfigListener
+from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
+from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
+from infrastructure.initialization import seed_config_defaults, seed_domain_config_defaults
+from infrastructure.metrics.metrics import HTTP_REQUESTS_TOTAL
+from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
+from infrastructure.metrics.prometheus_adapter import PrometheusMetricsRegistry
+from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.ml.clients.factories import create_qdrant_client
 from infrastructure.ml.config.config_subscribers import (
     audit_log_config_change,
 )
+from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+from infrastructure.ml.config.settings_adapters import LivePreviewSettings
+from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
+from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
+from infrastructure.ml.ingestion import get_paddle_ocr, get_surya_predictors
+from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
+from infrastructure.ml.langchain_document_parser import (
+    LangchainDocumentParser,
+    LangchainDocumentSplitter,
+)
+from infrastructure.ml.preview.factory import PreviewStrategyFactory
+from infrastructure.rate_limit.idempotency import IdempotencyStore
+from infrastructure.rate_limit.limiter import DynamicRateLimiter
+from infrastructure.redis.redis_client import redis_client
+from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+from infrastructure.repositories.vector.qdrant_vector_store_repository import (
+    QdrantVectorStoreRepository,
+)
+from infrastructure.storage import LazyStorage
+from infrastructure.uow_factory import UnitOfWorkFactory
+
 
 if TYPE_CHECKING:
-    from domain.knowledge.index_sync import VectorIndexWriter
-    from domain.rag.ports import VectorSearch
+    from collections.abc import Callable
+
     from qdrant_client.models import Filter
-    from application.ports.action_logger import ActionLoggerPort
-    from application.identity import ApiKeyProviderPort
+
+    from application.admin import ConfigMaskerPort, LogBufferPort
     from application.benchmark import BenchmarkHistoryPort
+    from application.documents import PreviewStrategyFactoryPort
+    from application.identity import ApiKeyProviderPort
+    from application.ports.action_logger import ActionLoggerPort
     from application.ports.cache_invalidator import CacheInvalidatorPort
-    from application.admin import ConfigMaskerPort
     from application.ports.http_metrics import HttpMetricsPort
     from application.ports.idempotency_store import IdempotencyStorePort
     from application.ports.job_enqueuer import JobEnqueuerPort
-    from application.admin import LogBufferPort
-    from application.documents import PreviewStrategyFactoryPort
-    from application.documents import PreviewCache
-    from infrastructure.database.database import DatabaseManager
-    from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
-    from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
-    from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
-    from infrastructure.ml.langchain_document_parser import (
-        LangchainDocumentParser,
-        LangchainDocumentSplitter,
-    )
-    from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
-    from infrastructure.metrics.prometheus_adapter import PrometheusMetricsRegistry
-    from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
-    from infrastructure.repositories.vector.qdrant_vector_store_repository import (
-        QdrantVectorStoreRepository,
-    )
-    from infrastructure.uow_factory import UnitOfWorkFactory
+    from domain.knowledge.index_sync import VectorIndexWriter
+    from domain.rag.ports import VectorSearch
 
 log = logging.getLogger("default")
 
@@ -98,13 +112,11 @@ class DatabaseContainer:
     uow_factory: UnitOfWorkFactory | None = field(default=None)
     config_broadcaster: PostgresConfigBroadcaster | None = field(default=None)
 
-    def init(self, database_manager: DatabaseManager) -> None:
-        from infrastructure.database.database import DatabaseManager as DBM
-        from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
-        from infrastructure.uow_factory import UnitOfWorkFactory
+    def init(self, database_manager: object) -> None:
 
-        if not isinstance(database_manager, DBM):
-            raise TypeError(f"Expected DatabaseManager, got {type(database_manager).__name__}")
+        if not isinstance(database_manager, DatabaseManager):
+            msg = f"Expected DatabaseManager, got {type(database_manager).__name__}"
+            raise TypeError(msg)
 
         self.database = database_manager
         self.config_broadcaster = PostgresConfigBroadcaster()
@@ -115,11 +127,11 @@ class DatabaseContainer:
 
     @property
     def db(self) -> DatabaseManager:
-        return _require(self.database, "database")
+        return require(self.database, "database")
 
     @property
     def uow(self) -> UnitOfWorkFactory:
-        return _require(self.uow_factory, "uow_factory")
+        return require(self.uow_factory, "uow_factory")
 
 
 @dataclass
@@ -146,18 +158,6 @@ class MLContainer:
         domain_settings: DomainSettingsAdapter | None = None,
         budget_runtime: BudgetRuntime | None = None,
     ) -> None:
-        from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
-        from infrastructure.ml.langchain_document_parser import (
-            LangchainDocumentParser,
-            LangchainDocumentSplitter,
-        )
-        from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
-        from infrastructure.metrics.prometheus_adapter import PrometheusMetricsRegistry
-        from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
-        from infrastructure.repositories.vector.qdrant_vector_store_repository import (
-            QdrantVectorStoreRepository,
-        )
-        from application.documents import PreviewCache
 
         self.file_storage = LazyStorage()
         resources = CorpusResources(create_qdrant_client)
@@ -191,10 +191,6 @@ class MLContainer:
         # Clear OCR/lru_cache caches — import may fail if optional deps
         # (paddleocr, surya) are not installed.
         try:
-            from infrastructure.ml.ingestion import get_paddle_ocr, get_surya_predictors
-        except ImportError:
-            return
-        try:
             get_paddle_ocr.cache_clear()
             get_surya_predictors.cache_clear()
         except Exception:
@@ -202,11 +198,11 @@ class MLContainer:
 
     @property
     def clients(self) -> MLClientRegistry:
-        return _require(self.ml_clients, "ml_clients")
+        return require(self.ml_clients, "ml_clients")
 
     @property
     def vector_store(self) -> QdrantVectorStoreRepository:
-        return _require(self.vector_store_repo, "vector_store_repo")
+        return require(self.vector_store_repo, "vector_store_repo")
 
     @property
     def vector_index_writer(self) -> VectorIndexWriter:
@@ -218,7 +214,7 @@ class MLContainer:
 
     @property
     def storage(self) -> LazyStorage:
-        return _require(self.file_storage, "file_storage")
+        return require(self.file_storage, "file_storage")
 
 
 @dataclass
@@ -256,6 +252,7 @@ class EventContainer:
         """Stop listeners and close dispatcher."""
         if self.config_listener is not None:
             await self.config_listener.stop()
+
         if self.outbox_listener is not None:
             await self.outbox_listener.stop()
 
@@ -263,13 +260,23 @@ class EventContainer:
 class PreviewStrategyFactoryAdapter:
     """Instance adapter for PreviewStrategyFactory (static methods)."""
 
-    def for_extension(self, extension: str, **kwargs):
-        from infrastructure.ml.preview.factory import PreviewStrategyFactory
+    def for_extension(
+        self,
+        extension: str,
+        *,
+        diag_service: object | None = None,
+        domain_registry: DomainProfileRegistry | None = None,
+        domain_settings: DomainSettingsPort | None = None,
+    ) -> DocumentPreviewStrategy:
 
-        return PreviewStrategyFactory.for_extension(extension, **kwargs)
+        return PreviewStrategyFactory.for_extension(
+            extension,
+            diag_service=diag_service,
+            domain_registry=domain_registry,
+            domain_settings=domain_settings,
+        )
 
     def supported_extensions(self) -> set[str]:
-        from infrastructure.ml.preview.factory import PreviewStrategyFactory
 
         return PreviewStrategyFactory.supported_extensions()
 
@@ -277,7 +284,7 @@ class PreviewStrategyFactoryAdapter:
 class HttpMetricsAdapter:
     """Adapter wrapping a prometheus_client Counter behind HttpMetricsPort."""
 
-    def __init__(self, counter: Any) -> None:
+    def __init__(self, counter: Counter) -> None:
         self._counter = counter
 
     def inc_requests(self, *, handler: str, method: str, status: str) -> None:
@@ -303,16 +310,6 @@ class ServiceContainer:
     http_metrics: HttpMetricsPort | None = field(default=None)
 
     def init(self) -> None:
-        from infrastructure.auth.api_key_provider import api_key_provider
-        from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
-        from infrastructure.adapters.action_logger_adapter import ActionLoggerAdapter
-        from infrastructure.adapters.cache_invalidator_adapter import CacheInvalidatorAdapter
-        from infrastructure.adapters.job_enqueuer_adapter import JobEnqueuerAdapter
-        from infrastructure.adapters.config_masker_adapter import ConfigMaskerAdapter
-        from infrastructure.adapters.log_buffer_adapter import LogBufferAdapter
-        from infrastructure.benchmark.reporting.benchmark_history_adapter import BenchmarkHistoryAdapter
-        from infrastructure.rate_limit.idempotency import IdempotencyStore
-        from infrastructure.redis.redis_client import redis_client
 
         self.health_probe = SystemHealthProbe()
         self.ollama_probe = OllamaProbe(health_probe=self.health_probe)
@@ -327,25 +324,23 @@ class ServiceContainer:
         self.benchmark_history = BenchmarkHistoryAdapter()
         self.idempotency_store = IdempotencyStore(redis=redis_client.async_redis)
 
-        from infrastructure.metrics.metrics import HTTP_REQUESTS_TOTAL
-
         self.http_metrics = HttpMetricsAdapter(HTTP_REQUESTS_TOTAL)
 
     @property
     def health(self) -> SystemHealthProbe:
-        return _require(self.health_probe, "health_probe")
+        return require(self.health_probe, "health_probe")
 
     @property
     def ollama(self) -> OllamaProbe:
-        return _require(self.ollama_probe, "ollama_probe")
+        return require(self.ollama_probe, "ollama_probe")
 
     @property
     def vectordb(self) -> QdrantInfo:
-        return _require(self.qdrant_info, "qdrant_info")
+        return require(self.qdrant_info, "qdrant_info")
 
     @property
     def api_keys(self) -> ApiKeyProviderPort:
-        return _require(self.api_key_provider, "api_key_provider")
+        return require(self.api_key_provider, "api_key_provider")
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +372,7 @@ class InfrastructureContainer:
     budget_runtime: BudgetRuntime = field(default_factory=BudgetRuntime, repr=False)
     budget_admin: BudgetAdminService | None = field(default=None, repr=False)
     configuration: SettingsProviderConfiguration | None = field(default=None, repr=False)
-    _config_handlers: list[Any] = field(default_factory=list, repr=False)
+    _config_handlers: list[Callable[[ConfigParameterChanged], None]] = field(default_factory=list, repr=False)
 
     def init(self, database_manager: DatabaseManager) -> None:
         """Create all infrastructure-layer objects.
@@ -431,24 +426,34 @@ class InfrastructureContainer:
     async def bootstrap_configuration(self, role: str = "cli") -> None:
         """Load required configuration for API, worker and ML CLI."""
         if self.configuration is None or self.events.config_listener is None:
-            raise RuntimeError("Configuration must be initialized before bootstrap")
+            msg = "Configuration must be initialized before bootstrap"
+            raise RuntimeError(msg)
+
         await seed_config_defaults(self.db.uow)
-        await seed_domain_config_defaults(self.db.uow, self.domain_registry)
-        if (
-            self.budget_admin is not None
-            and self.budget_runtime.service is not None
-            and self.budget_runtime.service.ledger is self.budget_admin.repository
-        ):
+        await seed_domain_config_defaults(self.db.uow, require(self.domain_registry, "domain_registry"))
+
+        if self.owns_budget_runtime():
             self.budget_runtime.bootstrapped = True
 
         await self.events.config_listener.synchronize(require_complete=True)
+
         if self.corpus_control is None:
-            raise RuntimeError("Corpus control must be initialized")
+            msg = "Corpus control must be initialized"
+            raise RuntimeError(msg)
+
         await self.corpus_control.start(role)
+
+    def owns_budget_runtime(self) -> bool:
+        if self.budget_admin is None or self.budget_runtime.service is None:
+            return False
+
+        ledger: object = self.budget_runtime.service.ledger
+        return ledger is self.budget_admin.repository
 
     def subscribe_config_events(self) -> None:
         if self._config_handlers:
             return
+
         for handler in (
             self.request_configuration_sync,
             self.invalidate_config_clients,
@@ -461,21 +466,27 @@ class InfrastructureContainer:
     def unsubscribe_config_events(self) -> None:
         for handler in self._config_handlers:
             event_bus.unsubscribe(ConfigParameterChanged, handler)
+
         self._config_handlers.clear()
 
-    def request_configuration_sync(self, event: ConfigParameterChanged) -> None:
+    def request_configuration_sync(self, _event: ConfigParameterChanged) -> None:
         if self.configuration is not None and not self.configuration.applying:
             if self.events.config_listener is None:
-                raise RuntimeError("Config listener must be initialized")
+                msg = "Config listener must be initialized"
+                raise RuntimeError(msg)
+
             self.events.config_listener.schedule_sync()
 
     def invalidate_config_clients(self, event: ConfigParameterChanged) -> None:
         # Only the coordinator's validated snapshot can invalidate resources.
         if self.configuration is None or not self.configuration.applying:
             return
+
         ml = self.ml.clients
+
         if self.configuration.switching_clients:
             return
+
         if event.key in {
             "llm_provider",
             "llm_model",
@@ -488,19 +499,26 @@ class InfrastructureContainer:
             "openrouter_model",
         }:
             ml.invalidate_llm()
+
         if event.key in {"ml_provider", "deepinfra_embed_model"}:
             ml.invalidate_embeddings()
+
         if event.key in {"ml_provider", "deepinfra_rerank_model"}:
             ml.invalidate_reranker()
 
     def init_rate_limit(self) -> None:
         """Keep an adapter even when disabled so DB settings can enable it later."""
         self.rate_limit = DynamicRateLimiter(redis_client.async_redis, settings)
+
         if settings.forwarded_allow_ips.strip() == "127.0.0.1":
             log.warning(
                 "Rate limiting is enabled but FORWARDED_ALLOW_IPS=127.0.0.1 — behind a reverse "
                 "proxy all clients share the proxy IP bucket (login limit). See server/.env.example."
             )
+
+    def reset_initialization(self) -> None:
+        self.unsubscribe_config_events()
+        self._initialized = False
 
     def validate(self) -> list[str]:
         """Return list of missing dependency names (empty = all good).
@@ -509,15 +527,25 @@ class InfrastructureContainer:
         can drift out of sync with the actual field definitions.
         """
         issues: list[str] = []
+
         for prefix, sub in (
             ("db", self.db),
             ("ml", self.ml),
             ("services", self.services),
             ("events", self.events),
         ):
-            for name in _missing_fields(sub):
-                issues.append(f"{prefix}.{name}")
+            issues.extend(f"{prefix}.{name}" for name in missing_fields(sub))
+
         return issues
+
+    async def close_billing_and_corpus(self) -> None:
+        if self.owns_budget_runtime():
+            self.budget_runtime.bootstrapped = False
+
+        if self.corpus_control is not None:
+            await self.corpus_control.close()
+
+        await close_judge_clients(runtime=self.budget_runtime)
 
     async def dispose(self) -> None:
         """Tear down all resources in reverse order.
@@ -527,15 +555,7 @@ class InfrastructureContainer:
         the future, add ``self.db.dispose()`` here.
         """
         try:
-            if (
-                self.budget_admin is not None
-                and self.budget_runtime.service is not None
-                and self.budget_runtime.service.ledger is self.budget_admin.repository
-            ):
-                self.budget_runtime.bootstrapped = False
-            if self.corpus_control is not None:
-                await self.corpus_control.close()
-            await close_judge_clients(runtime=self.budget_runtime)
+            await self.close_billing_and_corpus()
         finally:
             try:
                 if self.rate_limit is not None:

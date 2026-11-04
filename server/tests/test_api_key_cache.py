@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from application.identity import ApiKeyService
+from application.identity.dto import ApiKeyAuthResult
+from domain.identity.roles import UserKind, UserRole
 from domain.shared.exceptions import AuthenticationError
 from infrastructure.auth.api_key_provider import ApiKeyProvider
 from presentation.api.auth_dependencies import authenticate_via_api_key
@@ -70,3 +72,32 @@ async def test_redis_failure_falls_back_to_rejecting_database_lookup(cache: Cach
     with pytest.raises(AuthenticationError):
         await authenticate_via_api_key("invalid-key", service, provider)
     service.get_user_by_api_key_hash.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_valid_key_round_trips_user_data_through_json_cache(cache: Cache) -> None:
+    provider, _, entries = cache
+    service = AsyncMock(spec=ApiKeyService)
+    service.get_user_by_api_key_hash.return_value = ApiKeyAuthResult(
+        api_key_id=42,
+        id=7,
+        email="client@example.test",
+        role=UserRole.USER,
+        kind=UserKind.CLIENT,
+        is_active=True,
+    )
+
+    first = await authenticate_via_api_key("valid-key", service, provider)
+    second = await authenticate_via_api_key("valid-key", service, provider)
+    assert first == second
+    assert second.api_key_id == 42
+    assert second.id == 7
+    assert second.kind == UserKind.CLIENT
+    service.get_user_by_api_key_hash.assert_awaited_once_with(provider.hash_key("valid-key"))
+    service.touch_api_key_last_used.assert_awaited_once_with(42)
+
+    entries.clear()
+    service.get_user_by_api_key_hash.return_value = None
+    with pytest.raises(AuthenticationError, match="Invalid or revoked"):
+        await authenticate_via_api_key("valid-key", service, provider)
+    assert service.get_user_by_api_key_hash.await_count == 2

@@ -11,6 +11,7 @@ Or use the re-exports from this module for convenience:
 from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 
+
 __all__ = [
     "BCryptPasswordHasher",
     "JWTProvider",

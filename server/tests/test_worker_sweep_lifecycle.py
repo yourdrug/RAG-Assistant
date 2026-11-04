@@ -10,10 +10,10 @@ import pytest
 
 from application.benchmark.sweep_jobs import SweepJobService
 from composition import worker as worker_composition
+from composition.cli.commands import worker
 from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus
 from infrastructure.benchmark.sweep.strategies import EnumeratedSweepStrategy
 from infrastructure.worker import sweep
-from presentation.cli.commands import worker
 
 
 @pytest.mark.asyncio

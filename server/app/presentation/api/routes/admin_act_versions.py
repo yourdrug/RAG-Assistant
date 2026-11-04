@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from application.ports.rate_limit import RateLimitPolicyName
 from application.act_versioning import ActVersioningService
-
+from application.ports.rate_limit import RateLimitPolicyName
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_act_versioning_service
+from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import (
     ActVersionListResponse,
     ActVersionReviewItem,
@@ -19,6 +19,8 @@ from presentation.api.schemas import (
     ActVersionUpdateResponse,
     CurrentUser,
 )
+from presentation.api.schemas.admin_act_versions import ActSummary
+
 
 logger = logging.getLogger("default")
 
@@ -27,12 +29,13 @@ router = APIRouter(tags=["admin-act-versions"])
 
 @router.get("/admin/act-versions", response_model=ActVersionListResponse)
 async def list_act_versions(
+    *,
     review: str | None = None,
-    limit: int = Query(default=100, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    admin: CurrentUser = Depends(require_admin),
-    service: ActVersioningService = Depends(create_act_versioning_service),
-):
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[ActVersioningService, Depends(create_act_versioning_service)],
+) -> ActVersionListResponse:
     """List act versions pending review (date_source='extracted' or act_id IS NULL)."""
     if review not in ("pending", "all"):
         return ActVersionListResponse(versions=[], total=0)
@@ -67,7 +70,7 @@ async def list_act_versions(
         ],
         total=total,
         next_offset=(offset + len(versions) if review == "all" and offset + len(versions) < total else None),
-        acts=acts,
+        acts=[ActSummary.model_validate(act) for act in acts],
     )
 
 
@@ -77,11 +80,12 @@ async def list_act_versions(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def update_act_version(
+    *,
     version_id: int,
     body: ActVersionUpdateRequest,
-    admin: CurrentUser = Depends(require_admin),
-    service: ActVersioningService = Depends(create_act_versioning_service),
-):
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[ActVersioningService, Depends(create_act_versioning_service)],
+) -> ActVersionUpdateResponse:
     """Update act version dates/linkage. Sets date_source='manual'."""
     await service.update_version(
         version_id=version_id,

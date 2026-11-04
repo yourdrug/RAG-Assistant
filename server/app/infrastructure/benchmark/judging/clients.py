@@ -1,24 +1,22 @@
 """Own synchronous and asynchronous benchmark judge HTTP clients."""
 
-from infrastructure.budget.runtime import BudgetRuntime
-from openai import AsyncOpenAI
-from infrastructure.budget.transport import PaidAsyncTransport
-
 import asyncio
 import threading
-import instructor
+
 import httpx
-from infrastructure.budget.transport import PaidSyncTransport
-from openai import OpenAI
-from typing import Any
-from config import settings
+import instructor
+from openai import AsyncOpenAI, OpenAI
+
 from application.runtime.enums import LLMProvider
+from config import settings
+from infrastructure.benchmark.judging.token_usage import record_judge_usage
+from infrastructure.budget.runtime import BudgetRuntime
+from infrastructure.budget.transport import PaidAsyncTransport, PaidSyncTransport
 from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
-from infrastructure.benchmark.judging.token_usage import record_judge_usage
 
 
-_judge_client_cache: dict[tuple[BudgetRuntime | None, str, str, str], Any] = {}
+_judge_client_cache: dict[tuple[BudgetRuntime | None, str, str, str], ManagedSyncInstructor] = {}
 
 
 _judge_client_lock = threading.Lock()
@@ -39,7 +37,7 @@ def get_judge_model() -> str:
     return FAST_OPENROUTER_MODEL
 
 
-def get_judge_client(model: str, *, runtime: BudgetRuntime | None = None):
+def get_judge_client(model: str, *, runtime: BudgetRuntime | None = None) -> ManagedSyncInstructor:
     """Get or create a cached instructor client for the judge model.
 
     Thread-safe: first call creates the client, subsequent calls return the cached

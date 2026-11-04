@@ -8,23 +8,27 @@ periodically by the Scheduler (``infrastructure.scheduler``).
 
 from __future__ import annotations
 
-from qdrant_client import QdrantClient
-
 import asyncio
+from http import HTTPStatus
 import logging
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import httpx
-from application.ports.ml_clients import MLClientPort
-from config import settings
-from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
-from application.runtime.enums import LLMProvider
 from prometheus_client import Counter, Gauge, Histogram
-from sqlalchemy.pool import QueuePool
 
+from application.runtime.enums import LLMProvider
+from config import settings
 from infrastructure.database.database import database
 from infrastructure.ml.clients import factories
+from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
 from infrastructure.ml.usage_capture import extract_usage_from_langchain  # noqa: F401
+
+
+if TYPE_CHECKING:
+    from qdrant_client import QdrantClient
+    from sqlalchemy.pool import QueuePool
+
+    from application.ports.ml_clients import MLClientPort
 
 
 log = logging.getLogger("default")
@@ -283,8 +287,6 @@ LLM_TOKEN_USAGE = Counter(
     "rag_llm_tokens_total",
     "LLM token usage (input + output)",
     ["model", "direction", "operation"],
-    # direction: "input" | "output"
-    # operation: "generate" | "condense" | "decompose" | "relevance_gate" | "judge"
 )
 
 
@@ -335,21 +337,21 @@ def record_rag_answer(
 # ---------------------------------------------------------------------------
 
 
-async def _collect_db_pool_metrics() -> None:
+async def collect_db_pool_metrics() -> None:
     engine = database.master_node.async_engine if database.master_node else None
 
     if engine is None:
         return
 
-    pool = cast(QueuePool, engine.pool)
+    pool: QueuePool = cast("QueuePool", engine.pool)
     DB_POOL_IN_USE.set(pool.checkedout())
     DB_POOL_IDLE.set(pool.checkedin())
     DB_POOL_OVERFLOW.set(pool.overflow())
 
 
-async def _collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
+async def collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
     client = (
-        cast(QdrantClient, ml_clients.qdrant_client())
+        cast("QdrantClient", ml_clients.qdrant_client())
         if ml_clients is not None
         else factories.create_qdrant_client()
     )
@@ -358,12 +360,12 @@ async def _collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
     QDRANT_POINTS.set(info.points_count or 0)
 
 
-async def _collect_ollama_metrics() -> None:
+async def collect_ollama_metrics() -> None:
     async with httpx.AsyncClient(timeout=3) as http:
         # /api/ps returns actually loaded models with real VRAM usage
         r = await http.get(f"{settings.ollama_base_url}/api/ps")
 
-        if r.status_code == 200:
+        if r.status_code == HTTPStatus.OK:
             data = r.json()
 
             for model in data.get("models", []):
@@ -375,15 +377,15 @@ async def _collect_ollama_metrics() -> None:
 async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
     """Update infrastructure gauges. Called periodically from lifespan."""
     try:
-        await _collect_db_pool_metrics()
+        await collect_db_pool_metrics()
     except Exception as e:
-        log.warning("Failed to collect DB pool metrics: %s", e)
+        log.warning("Failed to collect DB pool metrics: %s", e, exc_info=True)
     try:
-        await _collect_qdrant_metrics(ml_clients)
+        await collect_qdrant_metrics(ml_clients)
     except Exception as e:
-        log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e)
+        log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e, exc_info=True)
     try:
         if settings.llm_provider == LLMProvider.OLLAMA:
-            await _collect_ollama_metrics()
+            await collect_ollama_metrics()
     except Exception as e:
-        log.warning("Failed to collect Ollama metrics: [%s] %s", type(e).__name__, e)
+        log.warning("Failed to collect Ollama metrics: [%s] %s", type(e).__name__, e, exc_info=True)

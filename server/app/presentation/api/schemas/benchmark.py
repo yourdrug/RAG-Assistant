@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS, validate_objective_weights
-
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from domain.benchmark.question import DEFAULT_DATASET
-from domain.benchmark.question import validate_annotations, validate_history
-from domain.benchmark.sweep import BenchmarkStrategy
-from domain.benchmark.sweep import SweepEvaluationMode, validate_sweep_mode
+from domain.benchmark.question import DEFAULT_DATASET, validate_annotations, validate_history
+from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS, validate_objective_weights
+from domain.benchmark.sweep import BenchmarkStrategy, SweepEvaluationMode, validate_sweep_mode
 
 
 # ---------------------------------------------------------------------------
@@ -37,10 +35,10 @@ class BenchmarkResponse(BaseModel):
 
 
 class BenchmarkResultSummary(BaseModel):
-    artifacts: dict = Field(default_factory=dict)
+    artifacts: dict[str, Any] = Field(default_factory=dict)
     id: int
-    config_json: dict
-    summary_metrics: dict
+    config_json: dict[str, Any]
+    summary_metrics: dict[str, Any]
     duration_sec: float
     llm_evaluated: bool
     dataset: str
@@ -51,7 +49,7 @@ class BenchmarkResultSummary(BaseModel):
 class BenchmarkResultDetail(BaseModel):
     id: int
     summary: BenchmarkResultSummary
-    per_question_results: list[dict] | None = None
+    per_question_results: list[dict[str, Any]] | None = None
 
 
 class BenchmarkResultsListResponse(BaseModel):
@@ -70,7 +68,7 @@ class BenchmarkQuestionCreate(BaseModel):
     question: str = Field(..., min_length=1, max_length=5000)
     expected_answer: str | None = None
     source_hint: str | None = None
-    annotations: dict | None = None
+    annotations: dict[str, Any] | None = None
 
     _validate_annotations = field_validator("annotations")(validate_annotations)
     history: list[dict[str, str]] | None = None
@@ -88,7 +86,7 @@ class BenchmarkQuestionUpdate(BaseModel):
     question: str | None = None
     expected_answer: str | None = None
     source_hint: str | None = None
-    annotations: dict | None = None
+    annotations: dict[str, Any] | None = None
 
     _validate_annotations = field_validator("annotations")(validate_annotations)
     history: list[dict[str, str]] | None = None
@@ -105,7 +103,7 @@ class BenchmarkQuestionResponse(BaseModel):
     question: str
     expected_answer: str | None = None
     source_hint: str | None = None
-    annotations: dict | None = None
+    annotations: dict[str, Any] | None = None
 
     _validate_annotations = field_validator("annotations")(validate_annotations)
     history: list[dict[str, str]] | None = None
@@ -146,8 +144,8 @@ class SweepCreateRequest(BaseModel):
         BenchmarkStrategy.GRID,
         description="Search strategy.",
     )
-    search_space: dict
-    objective_weights: dict[str, float] = Field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
+    search_space: dict[str, Any]
+    objective_weights: dict[str, float] = Field(default_factory=DEFAULT_OBJECTIVE_WEIGHTS.copy)
     dataset: str = DEFAULT_DATASET
     top_n_llm: int = Field(3, ge=0, le=20)
     evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
@@ -158,8 +156,11 @@ class SweepCreateRequest(BaseModel):
     def validate_judge_model(cls, value: str | None) -> str | None:
         if value is not None:
             value = value.strip()
+
             if not value:
-                raise ValueError("judge_model must not be blank")
+                message = "judge_model must not be blank"
+                raise ValueError(message)
+
         return value
 
     @field_validator("objective_weights")
@@ -180,8 +181,8 @@ class SweepResponse(BaseModel):
     id: int
     status: str
     strategy: str
-    search_space: dict
-    objective_weights: dict
+    search_space: dict[str, Any]
+    objective_weights: dict[str, Any]
     dataset: str
     top_n_llm: int
     evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
@@ -206,8 +207,8 @@ class SweepsListResponse(BaseModel):
 class BenchmarkRunResponse(BaseModel):
     id: int
     sweep_id: int | None = None
-    config_json: dict
-    summary_metrics: dict
+    config_json: dict[str, Any]
+    summary_metrics: dict[str, Any]
     duration_sec: float
     llm_evaluated: bool
     dataset: str
@@ -233,7 +234,7 @@ class RunApplyResponse(BaseModel):
 
 class RunCompareResponse(BaseModel):
     runs: list[BenchmarkRunResponse]
-    diff: dict
+    diff: dict[str, Any]
 
 
 class RegressionCheckResult(BaseModel):
@@ -261,8 +262,8 @@ class RegressionCheckResponse(BaseModel):
 class BenchmarkHistoryPoint(BaseModel):
     run_id: int
     creation_date: datetime | None = None
-    metrics: dict
-    config_summary: dict
+    metrics: dict[str, Any]
+    config_summary: dict[str, Any]
     dataset: str
     llm_evaluated: bool
 

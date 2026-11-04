@@ -1,24 +1,27 @@
 """Benchmark judge — LLM-as-judge scoring with structured output."""
 
-from infrastructure.benchmark.judging.clients import get_judge_model, get_judge_client
-from infrastructure.benchmark.judging.prompts import FAITHFULNESS_PROMPT, RELEVANCY_PROMPT, CORRECTNESS_PROMPT
-
 import asyncio
-import logging
 import json
+import logging
+from typing import Any, Unpack, cast
 
 from instructor.core.exceptions import IncompleteOutputException
-from openai import APIConnectionError, RateLimitError, InternalServerError
+from openai import APIConnectionError, InternalServerError, RateLimitError
 from pydantic import ValidationError
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from config import settings
-from infrastructure.budget.runtime import BudgetRuntime
 from application.runtime.enums import LLMProvider
-
-from infrastructure.ml.clients.llm_schemas import JudgeScore
+from config import settings
+from infrastructure.benchmark.judging.callbacks import AsyncMetricOptions
+from infrastructure.benchmark.judging.clients import get_judge_client, get_judge_model
+from infrastructure.benchmark.judging.prompts import CORRECTNESS_PROMPT, FAITHFULNESS_PROMPT, RELEVANCY_PROMPT
+from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.ml.clients.client_lease import sync_client_operation
+from infrastructure.ml.clients.llm_schemas import JudgeScore
+from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
 
+
+__all__ = ["get_judge_client", "get_judge_model"]
 
 logger = logging.getLogger("default")
 
@@ -27,7 +30,7 @@ JUDGE_EXPANDED_OUTPUT_TOKENS = 8192
 
 
 def judge_with_structured_output(
-    client,
+    client: ManagedSyncInstructor,
     prompt: str,
     model: str,
 ) -> JudgeScore:
@@ -42,24 +45,27 @@ def judge_with_structured_output(
 
         for attempt, budget in enumerate((initial_budget, retry_budget)):
             try:
-                return client.chat.completions.create(
-                    model=model,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_model=JudgeScore,
-                    max_tokens=budget,
-                    timeout=settings.llm_auxiliary_timeout,
-                    max_retries=Retrying(
-                        retry=retry_if_exception_type(
-                            (
-                                APIConnectionError,
-                                RateLimitError,
-                                InternalServerError,
-                                ValidationError,
-                                json.JSONDecodeError,
-                            )
+                return cast(
+                    "JudgeScore",
+                    client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        response_model=JudgeScore,
+                        max_tokens=budget,
+                        timeout=settings.llm_auxiliary_timeout,
+                        max_retries=Retrying(
+                            retry=retry_if_exception_type(
+                                (
+                                    APIConnectionError,
+                                    RateLimitError,
+                                    InternalServerError,
+                                    ValidationError,
+                                    json.JSONDecodeError,
+                                )
+                            ),
+                            stop=stop_after_attempt(2 if attempt == 0 else 1),
+                            wait=wait_exponential(multiplier=1, max=3),
                         ),
-                        stop=stop_after_attempt(2 if attempt == 0 else 1),
-                        wait=wait_exponential(multiplier=1, max=3),
                     ),
                 )
             except IncompleteOutputException:
@@ -73,7 +79,8 @@ def judge_with_structured_output(
                     retry_budget,
                 )
 
-        raise RuntimeError("Judge output budget exhausted")
+        message = "Judge output budget exhausted"
+        raise RuntimeError(message)
 
 
 # ---------------------------------------------------------------------------
@@ -86,10 +93,9 @@ def judge_answer(
     answer: str,
     context: str,
     expected_answer: str | None = None,
-    judge_llm=None,
     *,
     runtime: BudgetRuntime | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Run judge LLM synchronously with structured output (instructor only)."""
     model = get_judge_model()
     prompts = {
@@ -113,7 +119,12 @@ def judge_answer(
             scores[key] = max(0.0, min(10.0, result.score))
             scores[f"{key}_reason"] = result.reason
         except Exception as exc:
-            logger.warning("Judge structured output failed for %s: %s", key, exc)
+            logger.warning(
+                "Judge structured output failed for %s: %s",
+                key,
+                type(exc).__name__,
+                exc_info=(RuntimeError, RuntimeError(type(exc).__name__), exc.__traceback__),
+            )
             scores[key] = None
             scores[f"{key}_reason"] = f"[Ошибка вызова судьи: {exc}]"
             scores[f"{key}_error"] = str(exc)
@@ -130,13 +141,11 @@ async def judge_answer_async(
     answer: str,
     context: str,
     expected_answer: str | None = None,
-    judge_llm=None,
     *,
     judge_model: str | None = None,
     runtime: BudgetRuntime | None = None,
-    saved_metrics: dict | None = None,
-    metric_callback=None,
-) -> dict:
+    **options: Unpack[AsyncMetricOptions],
+) -> dict[str, Any]:
     """Judge answer quality with structured output (instructor + timeout)."""
     model = judge_model or get_judge_model()
     prompts = {
@@ -159,7 +168,8 @@ async def judge_answer_async(
                 timeout=settings.llm_auxiliary_timeout * 3 + 3,
             )
 
-    scores = dict(saved_metrics or {})
+    scores = dict(options.get("saved_metrics") or {})
+    metric_callback = options.get("metric_callback")
 
     for key, prompt in prompts.items():
         if scores.get(key) is not None:
@@ -173,7 +183,12 @@ async def judge_answer_async(
         except Exception as exc:
             # Each metric is independent: provider failures are missing data,
             # never a numerical score, and must not discard sibling results.
-            logger.warning("Judge failed for %s: %s", key, exc)
+            logger.warning(
+                "Judge failed for %s: %s",
+                key,
+                type(exc).__name__,
+                exc_info=(RuntimeError, RuntimeError(type(exc).__name__), exc.__traceback__),
+            )
             scores[key] = None
             scores[f"{key}_error"] = str(exc)
             scores[f"{key}_reason"] = f"[Error: {exc}]"

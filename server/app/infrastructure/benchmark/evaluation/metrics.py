@@ -1,25 +1,28 @@
 """Benchmark metrics — retriever metrics, context precision/recall, summary."""
 
+from collections.abc import Iterable
 import logging
 from pathlib import Path
+from typing import Any, cast
 
-from application.benchmark.summary import summarize_benchmark_results
 from langchain.schema import Document
 
+from application.benchmark.summary import summarize_benchmark_results
 from infrastructure.benchmark.evaluation.source_hints import (
     matches_source_hints,
     parse_source_hints,
 )
 
+
 logger = logging.getLogger("default")
 
 
-def _extract_source_name(doc: Document) -> str:
+def extract_source_name(doc: Document) -> str:
     """Extract clean source name from document metadata."""
     filename = doc.metadata.get("filename", "")
 
     if filename:
-        return filename
+        return cast("str", filename)
 
     source = doc.metadata.get("source", "")
 
@@ -32,7 +35,7 @@ def _extract_source_name(doc: Document) -> str:
 def compute_retriever_metrics(
     docs_with_scores: list[tuple[Document, float]],
     source_hint: str | None,
-) -> dict:
+) -> dict[str, Any]:
     scores_list = [s for _, s in docs_with_scores]
     avg_sim = sum(scores_list) / len(scores_list) if scores_list else 0.0
 
@@ -43,7 +46,7 @@ def compute_retriever_metrics(
             "hit_rate": None,
             "mrr": None,
             "avg_similarity": round(avg_sim, 4),
-            "retrieved_sources": [_extract_source_name(d) for d, _ in docs_with_scores],
+            "retrieved_sources": [extract_source_name(d) for d, _ in docs_with_scores],
         }
 
     hit_rate = 0
@@ -64,10 +67,8 @@ def compute_retriever_metrics(
         "hit_rate": hit_rate,
         "mrr": round(mrr, 4),
         "avg_similarity": round(avg_sim, 4),
-        "retrieved_sources": [_extract_source_name(d) for d, _ in docs_with_scores],
+        "retrieved_sources": [extract_source_name(d) for d, _ in docs_with_scores],
     }
-
-
 
 
 # LLM pricing per 1M tokens (USD). Ollama = 0 (self-hosted).
@@ -87,11 +88,11 @@ def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> floa
     return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
 
 
-def compute_summary_metrics(results: list[dict]) -> dict:
+def compute_summary_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Build persisted metrics using the shared benchmark aggregation."""
     return summarize_benchmark_results(results)
 
 
-def _safe_avg(vals) -> float:
+def safe_avg(vals: Iterable[float]) -> float:
     vals = list(vals)
     return round(sum(vals) / len(vals), 4) if vals else 0

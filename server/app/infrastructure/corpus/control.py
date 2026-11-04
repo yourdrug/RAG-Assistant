@@ -28,17 +28,19 @@ from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.corpus.validation import corpus_digest, validate_corpus, validate_corpus_binding
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from infrastructure.corpus.repository import CorpusRow
+    from infrastructure.corpus.resources import CorpusResources
     from infrastructure.database.database import DatabaseManager
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
-    from infrastructure.corpus.resources import CorpusResources
 
 log = logging.getLogger("default")
+CORPUS_HEARTBEAT_TTL_SECONDS = 15
 
 
 class PostgresCorpusControl:
@@ -86,7 +88,7 @@ class PostgresCorpusControl:
                     settings.collection_name,
                     configured_embedding_identity(),
                     settings.embed_dim,
-                    rows,
+                    rows=rows,
                 )
                 return replace(verified, generation=str(uuid4()))
 
@@ -110,15 +112,18 @@ class PostgresCorpusControl:
             state = await self.read_state()
 
         if state is None:
-            raise ValidationError("Corpus journal is not initialized")
+            message = "Corpus journal is not initialized"
+            raise ValidationError(message)
 
         active = CorpusSnapshot(**state["active"])
 
         if (settings.qdrant_url, settings.collection_name) != (active.endpoint, active.alias):
-            raise ValidationError("Saved Qdrant settings differ from the durable corpus journal")
+            message = "Saved Qdrant settings differ from the durable corpus journal"
+            raise ValidationError(message)
 
         if active.embedding_identity != configured_embedding_identity():
-            raise ValidationError("Active corpus embedding identity differs from the configured encoder")
+            message = "Active corpus embedding identity differs from the configured encoder"
+            raise ValidationError(message)
 
         raw = raw_corpus_client(active.endpoint)
         try:
@@ -147,7 +152,8 @@ class PostgresCorpusControl:
         rows = await self.chunks()
 
         if corpus_digest(rows) != expected_digest:
-            raise ValidationError("PostgreSQL corpus changed during preparation")
+            message = "PostgreSQL corpus changed during preparation"
+            raise ValidationError(message)
 
         validate_corpus_endpoint(candidate.endpoint, settings.qdrant_url)
         raw = raw_corpus_client(candidate.endpoint)
@@ -161,8 +167,7 @@ class PostgresCorpusControl:
                 settings.embed_dim,
             )
 
-            if verified.physical_collection != candidate.physical_collection:
-                raise ValidationError("Qdrant alias changed during preparation")
+            validate_prepared_alias(verified, candidate)
 
             return BoundQdrantClient(raw, candidate, self.write_guard)
         except BaseException:
@@ -174,7 +179,8 @@ class PostgresCorpusControl:
             state = await self.read_state()
 
             if state is None:
-                raise ValidationError("Corpus journal is not initialized")
+                message = "Corpus journal is not initialized"
+                raise ValidationError(message)
 
             active = CorpusSnapshot(**state["active"])
 
@@ -212,25 +218,12 @@ class PostgresCorpusControl:
             current = self.resources.corpus_snapshot
 
             if current is None or current.generation != candidate.generation:
-                if self.prepared is None or self.prepared.snapshot != candidate:
-                    if self.prepared is not None:
-                        await asyncio.to_thread(self.prepared.close)
-
-                    self.prepared = None
-
-                    if state["phase"] == CorpusPhase.COMMITTING:
-                        # The durable active journal is the admission proof; the old
-                        # preparation digest can be stale after subsequent ingestion.
-                        self.prepared = BoundQdrantClient(
-                            raw_corpus_client(candidate.endpoint), candidate, self.write_guard
-                        )
-                    else:
-                        self.prepared = await self.prepare(candidate, state["digest"])
+                prepared = await self.prepare_candidate(state, candidate)
 
                 prepared_id = candidate.generation
 
                 if state["phase"] == CorpusPhase.COMMITTING:
-                    self.install(self.prepared)
+                    self.install(prepared)
                     self.prepared = None
 
                     if self.listener is not None:
@@ -246,6 +239,24 @@ class PostgresCorpusControl:
             self.error = "Corpus preparation/application failed"
             log.exception("Corpus preparation/application failed")
         return prepared_id
+
+    async def prepare_candidate(self, state: CorpusRow, candidate: CorpusSnapshot) -> BoundQdrantClient:
+        if self.prepared is None or self.prepared.snapshot != candidate:
+            if self.prepared is not None:
+                await asyncio.to_thread(self.prepared.close)
+
+            self.prepared = None
+
+            if state["phase"] == CorpusPhase.COMMITTING:
+                # The durable active journal is the admission proof; the old
+                # preparation digest can be stale after subsequent ingestion.
+                self.prepared = BoundQdrantClient(
+                    raw_corpus_client(candidate.endpoint), candidate, self.write_guard
+                )
+            else:
+                self.prepared = await self.prepare(candidate, state["digest"])
+
+        return self.prepared
 
     async def participants(self) -> list[CorpusRow]:
         return await self.repository.participants()
@@ -281,7 +292,7 @@ class PostgresCorpusControl:
             or self.task.done()
             or self.error
             or self.last_sync is None
-            or monotonic() - self.last_sync >= 15
+            or monotonic() - self.last_sync >= CORPUS_HEARTBEAT_TTL_SECONDS
         ):
             return False
 
@@ -310,45 +321,16 @@ class PostgresCorpusControl:
         validate_corpus_endpoint(endpoint, settings.qdrant_url)
 
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,255}", collection):
-            raise ValidationError("Invalid Qdrant collection or alias")
+            message = "Invalid Qdrant collection or alias"
+            raise ValidationError(message)
 
         guards = AsyncExitStack()
         committed = False
         try:
-            state = await self.read_state()
-
-            if state is None or state["phase"] not in {CorpusPhase.ACTIVE, CorpusPhase.FAILED}:
-                raise ValidationError("A corpus switch is already pending; inspect its status")
-
-            if state["active"]["generation"] != expected_generation:
-                raise ValidationError("Corpus generation changed; refresh before switching")
-
-            participants = [p for p in await self.participants() if p["alive"]]
-
-            if {p["role"] for p in participants} != {"api", "worker"} or any(
-                p["error"] or p["applied_generation"] != expected_generation for p in participants
-            ):
-                raise ValidationError("Both API and worker must be ready before switching")
-
-            rows, config_rows = await self.repository.switch_inputs()
-            raw = raw_corpus_client(endpoint)
-            try:
-                snapshot = await asyncio.to_thread(
-                    validate_corpus,
-                    raw,
-                    endpoint,
-                    collection,
-                    configured_embedding_identity(),
-                    settings.embed_dim,
-                    rows,
-                )
-                snapshot = replace(snapshot, generation=str(uuid4()))
-            finally:
-                await asyncio.to_thread(raw.close)
+            state, participants = await self.switch_state(expected_generation)
+            snapshot, rows, config_rows = await self.probe_switch(endpoint, collection)
             await guards.enter_async_context(corpus_switch_guard(self.database))
-            latest_state = await self.read_state()
-            if latest_state is None:
-                raise ValidationError("Corpus journal is not initialized")
+            latest_state = require_journal(await self.read_state())
             validate_switch_version(latest_state, state, expected_generation)
             digest = corpus_digest(rows)
             await self.repository.begin_prepare(snapshot, digest, self.process_id)
@@ -357,18 +339,7 @@ class PostgresCorpusControl:
             await self.commit_switch(snapshot, digest, config_rows)
             committed = True
 
-            for _ in range(30):
-                await self.tick()
-                state = await self.read_state()
-
-                if state is not None and state["phase"] == CorpusPhase.ACTIVE:
-                    return await self.status()
-
-                await asyncio.sleep(0.5)
-
-            raise ValidationError(
-                "Corpus committed; writes remain fenced until API/worker readiness recovers"
-            )
+            return await self.finish_switch()
         except BaseException:
             if not committed:
                 await self.repository.fail_prepare(self.process_id)
@@ -376,6 +347,60 @@ class PostgresCorpusControl:
             raise
         finally:
             await guards.aclose()
+
+    async def switch_state(self, expected_generation: str) -> tuple[CorpusRow, list[CorpusRow]]:
+        state = await self.read_state()
+
+        if state is None or state["phase"] not in {CorpusPhase.ACTIVE, CorpusPhase.FAILED}:
+            message = "A corpus switch is already pending; inspect its status"
+            raise ValidationError(message)
+
+        if state["active"]["generation"] != expected_generation:
+            message = "Corpus generation changed; refresh before switching"
+            raise ValidationError(message)
+
+        participants = [p for p in await self.participants() if p["alive"]]
+
+        if {p["role"] for p in participants} != {"api", "worker"} or any(
+            p["error"] or p["applied_generation"] != expected_generation for p in participants
+        ):
+            message = "Both API and worker must be ready before switching"
+            raise ValidationError(message)
+
+        return state, participants
+
+    async def probe_switch(
+        self, endpoint: str, collection: str
+    ) -> tuple[CorpusSnapshot, list[CorpusRow], Sequence[Any]]:
+        rows, config_rows = await self.repository.switch_inputs()
+        raw = raw_corpus_client(endpoint)
+        try:
+            snapshot = await asyncio.to_thread(
+                validate_corpus,
+                raw,
+                endpoint,
+                collection,
+                configured_embedding_identity(),
+                settings.embed_dim,
+                rows=rows,
+            )
+            snapshot = replace(snapshot, generation=str(uuid4()))
+        finally:
+            await asyncio.to_thread(raw.close)
+        return snapshot, rows, config_rows
+
+    async def finish_switch(self) -> dict[str, Any]:
+        for _ in range(30):
+            await self.tick()
+            state = await self.read_state()
+
+            if state is not None and state["phase"] == CorpusPhase.ACTIVE:
+                return await self.status()
+
+            await asyncio.sleep(0.5)
+
+        message = "Corpus committed; writes remain fenced until API/worker readiness recovers"
+        raise ValidationError(message)
 
     async def commit_switch(self, snapshot: CorpusSnapshot, digest: str, config_rows: Sequence[Any]) -> None:
         return await self.repository.commit_switch(snapshot, digest, config_rows, self.process_id)
@@ -389,14 +414,16 @@ class PostgresCorpusControl:
                 pid not in participants or not participants[pid]["alive"] or participants[pid]["error"]
                 for pid in required
             ):
-                raise ValidationError("Serving process unavailable or failed corpus preparation")
+                message = "Serving process unavailable or failed corpus preparation"
+                raise ValidationError(message)
 
             if all(participants[pid]["prepared_generation"] == generation for pid in required):
                 return
 
             await asyncio.sleep(0.5)
 
-        raise ValidationError("Serving processes did not prepare the corpus before timeout")
+        message = "Serving processes did not prepare the corpus before timeout"
+        raise ValidationError(message)
 
     async def close(self) -> None:
         if self.task is not None:
@@ -409,3 +436,17 @@ class PostgresCorpusControl:
             self.prepared = None
 
         await self.repository.remove_process(self.process_id)
+
+
+def validate_prepared_alias(verified: CorpusSnapshot, candidate: CorpusSnapshot) -> None:
+    if verified.physical_collection != candidate.physical_collection:
+        message = "Qdrant alias changed during preparation"
+        raise ValidationError(message)
+
+
+def require_journal(state: CorpusRow | None) -> CorpusRow:
+    if state is None:
+        message = "Corpus journal is not initialized"
+        raise ValidationError(message)
+
+    return state

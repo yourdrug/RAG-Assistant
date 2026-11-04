@@ -11,6 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+
 _UNMATCHED = "unmatched"
 
 
@@ -23,6 +24,8 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         status = str(response.status_code)
         container = getattr(request.app.state, "container", None)
         http_metrics = getattr(getattr(container, "infrastructure", None), "http_metrics", None)
+
         if http_metrics is not None:
             http_metrics.inc_requests(handler=handler, method=method, status=status)
+
         return response

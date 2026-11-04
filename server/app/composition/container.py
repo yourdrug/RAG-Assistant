@@ -9,15 +9,16 @@ Implementation lives in:
 from __future__ import annotations
 
 import dataclasses
-import logging
 from dataclasses import dataclass, field
+import logging
 from typing import TYPE_CHECKING, Any
 
+from application.runtime.enums import AppStage
 from composition.application import ApplicationContainer
 from composition.infrastructure import InfrastructureContainer
 from composition.worker import worker_dependencies
 from config import settings
-from application.runtime.enums import AppStage
+
 
 if TYPE_CHECKING:
     from infrastructure.database.database import DatabaseManager
@@ -50,9 +51,9 @@ class Container:
         Rolls back infrastructure resources if application init fails.
         """
         if self._initialized:
-            raise RuntimeError(
-                "Container.init() must be called exactly once. Second call detected — this is a bug."
-            )
+            msg = "Container.init() must be called exactly once. Second call detected — this is a bug."
+            raise RuntimeError(msg)
+
         self.infrastructure.init(database_manager)
         try:
             self.application.init(self.infrastructure)
@@ -61,22 +62,28 @@ class Container:
             self.unsubscribe_config_events()
             # Use synchronous dispose since application was never fully initialized
             # and infrastructure.dispose() has no awaitable work for DB cleanup.
-            self.infrastructure._initialized = False
+            self.infrastructure.reset_initialization()
             raise
         self._initialized = True
 
         issues = self.infrastructure.validate()
+
         if issues:
-            msg = "Infrastructure validation issues: %s" % issues
+            msg = f"Infrastructure validation issues: {issues}"
+
             if settings.stage == AppStage.PROD:
                 raise RuntimeError(msg)
+
             log.warning(msg)
 
         app_issues = self.application.validate()
+
         if app_issues:
-            msg = "Application validation issues: %s" % app_issues
+            msg = f"Application validation issues: {app_issues}"
+
             if settings.stage == AppStage.PROD:
                 raise RuntimeError(msg)
+
             log.warning(msg)
 
         log.info(

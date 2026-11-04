@@ -14,26 +14,32 @@ Lifecycle:
 
 from __future__ import annotations
 
-import logging
 from collections import defaultdict
-from collections.abc import Callable
+import logging
+from typing import TYPE_CHECKING, cast
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 
 log = logging.getLogger("default")
 
 
 class InProcessEventBus:
     def __init__(self) -> None:
-        self._handlers: dict[type, list[Callable]] = defaultdict(list)
+        self._handlers: dict[type, list[Callable[[object], None]]] = defaultdict(list)
 
-    def subscribe(self, event_type: type, handler: Callable) -> None:
-        self._handlers[event_type].append(handler)
+    def subscribe[Event](self, event_type: type[Event], handler: Callable[[Event], None]) -> None:
+        # The event-type key preserves the relationship erased in this heterogeneous registry.
+        self._handlers[event_type].append(cast("Callable[[object], None]", handler))
         log.debug(
             "Subscribed %s -> %s",
             event_type.__name__,
             getattr(handler, "__qualname__", handler),
         )
 
-    def unsubscribe(self, event_type: type, handler: Callable) -> None:
+    def unsubscribe[Event](self, event_type: type[Event], handler: Callable[[Event], None]) -> None:
         """Remove an owned subscription without disturbing other containers."""
         handlers = self._handlers.get(event_type, [])
 

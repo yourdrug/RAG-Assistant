@@ -20,7 +20,7 @@ from application.runtime.setting_keys import TARGET_DYNAMIC_SETTING_KEYS
 from infrastructure.config_migration import LEGACY_POOL_SETTING_KEYS
 from tests.fakes import FakeConfigParameterRepository
 from infrastructure import config_migration
-from presentation.cli.commands import config as config_command
+from composition.cli.commands import config as config_command
 
 
 class MigrationRepository(FakeConfigParameterRepository):
@@ -411,7 +411,7 @@ def test_cli_defaults_to_dry_run_and_accepts_apply(migration_env, monkeypatch, a
     args = ["migrate-env", "--env-file", str(path)] + (["--apply"] if apply else [])
     result = CliRunner().invoke(config_command.config_app, args)
     assert result.exit_code == 0, result.output
-    run.assert_awaited_once_with(path, apply, False)
+    run.assert_awaited_once_with(path, apply=apply, trim_env=False)
 
 
 def test_cli_failure_does_not_echo_database_exception(migration_env, monkeypatch, caplog):
@@ -434,7 +434,7 @@ async def test_cli_disconnects_after_migration_failure(migration_env, monkeypatc
         config_command, "migrate_env_configuration", AsyncMock(side_effect=ValueError("blocked"))
     )
     with pytest.raises(ValueError, match="blocked"):
-        await config_command.run_env_migration(path, False)
+        await config_command.run_env_migration(path, apply=False)
     disconnect.assert_awaited_once()
 
 
@@ -556,4 +556,4 @@ def test_cli_accepts_final_trim_without_applying(migration_env, monkeypatch):
         config_command.config_app, ["migrate-env", "--env-file", str(path), "--trim-env"]
     )
     assert result.exit_code == 0, result.output
-    run.assert_awaited_once_with(path, False, True)
+    run.assert_awaited_once_with(path, apply=False, trim_env=True)

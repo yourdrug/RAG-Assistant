@@ -2,27 +2,28 @@
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Callable
 from functools import wraps
-from typing import Any
+import logging
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Coroutine
 
 logger = logging.getLogger("default")
 
 
-def handle_exceptions(func: Callable) -> Callable:
+def handle_exceptions[**P, R](
+    func: Callable[P, Awaitable[R]],
+) -> Callable[P, Coroutine[object, object, R | None]]:
     """Log exceptions without crashing the caller."""
 
     @wraps(func)
-    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R | None:
         try:
             return await func(*args, **kwargs)
-        except Exception as e:
-            logger.exception(
-                "Job %s failed: [%s] %s",
-                func.__name__,
-                type(e).__name__,
-                e,
-            )
+        except Exception:
+            logger.exception("Job %s failed", func.__name__)
+            return None
 
     return wrapper

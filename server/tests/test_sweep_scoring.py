@@ -35,7 +35,7 @@ def score_documents(
         {"article 17?": [(str(i), 1, doc) for i, doc in enumerate(documents)]},
         {},
         {str(i): doc for i, doc in enumerate(documents)},
-        {"hit_rate": 0.5, "mrr": 0.5},
+        weights={"hit_rate": 0.5, "mrr": 0.5},
         rerank_scores=rerank_scores,
         defaults=settings_snapshot(),
     )

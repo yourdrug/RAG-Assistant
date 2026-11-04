@@ -139,9 +139,7 @@ async def test_restart_and_lost_notify_load_latest_writer_snapshot(configuration
     assert configuration.settings.llm_model == "first"
     await factory._uow.config_parameters.update_value("llm_model", "latest")
     # Delayed/duplicate old NOTIFY must reread the writer, never replay stale values.
-    listener.on_notify(
-        '{"key":"llm_model","new_value":"stale","value_type":"str"}'
-    )
+    listener.on_notify('{"key":"llm_model","new_value":"stale","value_type":"str"}')
     await asyncio.gather(*listener.transport.background_tasks)
     assert configuration.settings.llm_model == "latest"
     configuration.settings.llm_model = "restarted-process-default"
@@ -200,11 +198,13 @@ async def test_concurrent_resync_cannot_replay_an_older_snapshot(configuration):
         nonlocal calls
         calls += 1
         result = await original()
+
         if calls == 1:
             # Return independent rows to model READ COMMITTED snapshots.
             result = [row("llm_model", "old")]
             started.set()
             await release.wait()
+
         return result
 
     factory._uow.config_parameters.get_all = get_all
@@ -222,7 +222,7 @@ async def test_concurrent_resync_cannot_replay_an_older_snapshot(configuration):
 async def test_worker_bootstrap_failure_closes_resources(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from presentation.cli.commands import worker
+    from composition.cli.commands import worker
 
     closed = []
 
@@ -252,7 +252,7 @@ async def test_worker_bootstrap_failure_closes_resources(monkeypatch):
 async def test_cli_bootstrap_failure_does_not_run_action_and_closes_resources(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from presentation.cli.commands import ingest
+    from composition.cli.commands import ingest
 
     closed = []
 
@@ -321,17 +321,21 @@ async def test_readiness_rejects_failed_configuration_snapshot(configuration, co
         if corpus_ready is not None
         else None,
     )
+
     if corpus_ready is not None:
         configuration.apply([row("llm_model", "ready-model")])
+
     result = await service.check()
+
     if corpus_ready is True:
         assert result.status == HealthStatus.HEALTHY.value
     else:
         assert result.status == HealthStatus.DEGRADED.value
         check = "corpus" if corpus_ready is False else "configuration"
         assert result.checks[check].status.startswith("error")
+
     response = Response()
-    await ready(response, service)
+    await ready(response=response, health_service=service)
     assert response.status_code == (200 if corpus_ready is True else 503)
 
 
@@ -388,6 +392,7 @@ def test_missing_snapshot_key_after_bootstrap_does_not_silently_keep_stale_value
     from domain.ingestion.profiles.general import GeneralDomainProfile
 
     pairs = {(item.key, item.domain_key) for item in complete}
+
     for profile in (LegalDomainProfile(), DecreeDomainProfile(), GeneralDomainProfile()):
         for default in profile.config_defaults():
             if (default.key, profile.key) not in pairs:
@@ -400,6 +405,7 @@ def test_missing_snapshot_key_after_bootstrap_does_not_silently_keep_stale_value
                         domain_key=profile.key,
                     )
                 )
+
     configuration.apply(complete, require_complete=True)
     with pytest.raises(ValidationError):
         configuration.apply([item for item in complete if item.key != "llm_model"])
@@ -411,7 +417,7 @@ def test_missing_snapshot_key_after_bootstrap_does_not_silently_keep_stale_value
 async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database(monkeypatch, malformed):
     from unittest.mock import AsyncMock
     from tests.test_cli_domain_bootstrap import build_infrastructure
-    from presentation.cli.commands import config, ingest
+    from composition.cli.commands import config, ingest
 
     infra, bus = build_infrastructure(monkeypatch)
     infra.corpus_control = AsyncMock()
@@ -428,6 +434,7 @@ async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database
     monkeypatch.setattr(ingest.database, "disconnect", AsyncMock())
     monkeypatch.setattr(ingest.redis_client, "init", AsyncMock())
     monkeypatch.setattr(ingest.redis_client, "aclose", AsyncMock())
+
     if malformed:
         with pytest.raises(ValidationError):
             await config.run_config_resync()
@@ -437,18 +444,19 @@ async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database
         assert status.ready
         assert infra.configuration.settings.llm_model == "cli-db-model"
         assert infra.domain_settings.get("fingerprint_min_articles", "legal") == "9"
+
     assert not infra._initialized
     assert not bus._handlers[ConfigParameterChanged]
 
 
-@pytest.mark.parametrize('daily', [5, 10, 14401])
+@pytest.mark.parametrize("daily", [5, 10, 14401])
 def test_incompatible_chat_quotas_rejected_before_application(configuration, daily):
     configuration.settings.rate_limit_chat_per_minute = 10
     previous = configuration.settings.rate_limit_chat_per_day
-    with pytest.raises(ValidationError, match='quota'):
-        configuration.validate_change('rate_limit_chat_per_day', str(daily))
-    with pytest.raises(ValidationError, match='quota'):
-        configuration.apply([row('rate_limit_chat_per_day', str(daily), ConfigValueType.INT)])
+    with pytest.raises(ValidationError, match="quota"):
+        configuration.validate_change("rate_limit_chat_per_day", str(daily))
+    with pytest.raises(ValidationError, match="quota"):
+        configuration.apply([row("rate_limit_chat_per_day", str(daily), ConfigValueType.INT)])
     assert configuration.settings.rate_limit_chat_per_day == previous
 
 
@@ -458,16 +466,16 @@ async def test_config_service_rejects_chat_quota_against_saved_snapshot(configur
 
     factory = FakeUnitOfWorkFactory()
     async with factory.create() as uow:
-        await uow.config_parameters.save(row('rate_limit_chat_per_minute', '10', ConfigValueType.INT))
-        await uow.config_parameters.save(row('rate_limit_chat_per_day', '100', ConfigValueType.INT))
+        await uow.config_parameters.save(row("rate_limit_chat_per_minute", "10", ConfigValueType.INT))
+        await uow.config_parameters.save(row("rate_limit_chat_per_day", "100", ConfigValueType.INT))
     # Validation must use durable rows, even when this replica is behind.
     configuration.settings.rate_limit_chat_per_minute = 1
     service = ConfigService(factory, configuration.bus, configuration)
-    with pytest.raises(ValidationError, match='quota'):
-        await service.update_parameter('rate_limit_chat_per_day', '5')
+    with pytest.raises(ValidationError, match="quota"):
+        await service.update_parameter("rate_limit_chat_per_day", "5")
     async with factory.create() as uow:
-        saved = await uow.config_parameters.get_by_key('rate_limit_chat_per_day')
-        assert saved.value == '100'
+        saved = await uow.config_parameters.get_by_key("rate_limit_chat_per_day")
+        assert saved.value == "100"
 
 
 @pytest.mark.asyncio
@@ -477,42 +485,42 @@ async def test_budget_policy_is_durable_before_bootstrap_probes(monkeypatch):
     session = AsyncMock()
     session.execute.return_value = MagicMock()
     session.execute.return_value.all.return_value = [
-        ('cost_rate_limit_enabled', 'true'),
-        ('cost_hourly_limit', '1'),
-        ('cost_daily_limit', '5'),
+        ("cost_rate_limit_enabled", "true"),
+        ("cost_hourly_limit", "1"),
+        ("cost_daily_limit", "5"),
     ]
     factory = MagicMock()
     factory.return_value.__aenter__ = AsyncMock(return_value=session)
     ledger = object()
-    catalog = SimpleNamespace(contract=AsyncMock(side_effect=BudgetError('Unknown price; paid call blocked')))
+    catalog = SimpleNamespace(contract=AsyncMock(side_effect=BudgetError("Unknown price; paid call blocked")))
     runtime.configure(ledger, factory, catalog)
     infra.budget_admin = SimpleNamespace(repository=ledger)
     infra.budget_runtime = runtime
-    monkeypatch.setattr(settings, 'cost_rate_limit_enabled', False)
+    monkeypatch.setattr(settings, "cost_rate_limit_enabled", False)
 
     post = AsyncMock()
     monkeypatch.setattr(
         managed_http,
-        'PaidAsyncTransport',
+        "PaidAsyncTransport",
         lambda **kwargs: PaidAsyncTransport(
             runtime=runtime, transport=managed_http.httpx.MockTransport(post)
         ),
     )
 
     class BillablePool(managed_http.ManagedHTTPPool):
-        billable_provider = 'deepinfra'
+        billable_provider = "deepinfra"
 
     pool = BillablePool(10, managed_http.httpx.Limits())
 
     async def prepare(**kwargs):
-        await pool.post('https://api.deepinfra.com/v1/inference/model', json={'queries': ['probe']})
+        await pool.post("https://api.deepinfra.com/v1/inference/model", json={"queries": ["probe"]})
 
     infra.events.config_listener.synchronize = prepare
     try:
-        with pytest.raises(BudgetError, match='paid call blocked'):
+        with pytest.raises(BudgetError, match="paid call blocked"):
             await infra.bootstrap_configuration()
         post.assert_not_awaited()
-        catalog.contract.assert_awaited_once_with('deepinfra', 'model')
+        catalog.contract.assert_awaited_once_with("deepinfra", "model")
         infra.corpus_control.start.assert_not_awaited()
     finally:
         await pool.close()

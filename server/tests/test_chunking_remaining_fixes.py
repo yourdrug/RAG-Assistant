@@ -239,15 +239,17 @@ async def test_stream_reports_context_budget_error_without_answer_or_sources() -
         raise ContextBudgetExceededError
 
     response = await chat_stream(
-        ChatRequest(question="Укажите порядок подачи заявления."),
-        MagicMock(is_disconnected=AsyncMock(return_value=False)),
+        req=ChatRequest(question="Укажите порядок подачи заявления."),
+        request=MagicMock(is_disconnected=AsyncMock(return_value=False)),
         current_user=CurrentUser(
             id=12, email="user@example.test", is_active=True, kind=UserKind.INTERNAL, role=UserRole.USER
         ),
         chat_service=MagicMock(stream_chat=stream_chat),
         log=MagicMock(),
     )
-    events = "".join([event async for event in response.body_iterator])
+    events = "".join(
+        [event if isinstance(event, str) else bytes(event).decode() async for event in response.body_iterator]
+    )
     assert "event: error" in events
     assert ContextBudgetExceededError.code in events
     assert "Уточните вопрос" in events

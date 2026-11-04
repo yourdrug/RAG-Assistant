@@ -74,15 +74,15 @@ class SweepDataPort(Protocol):
 
 
 class SweepScoringPort(Protocol):
-    def __call__(  # noqa: PLR0913, PLR0917 - scoring cached candidates needs all cache inputs.
+    def __call__(  # noqa: PLR0913 - scoring cached candidates needs all cache inputs.
         self,
         config: dict[str, Any],
         questions: list[dict[str, Any]],
         dense_cache: DenseCache,
         sparse_cache: SparseCache,
         all_candidates: CandidateCache,
-        weights: dict[str, Any],
         *,
+        weights: dict[str, Any],
         rerank_scores: RerankerCache,
         defaults: dict[str, Any],
     ) -> dict[str, Any]: ...

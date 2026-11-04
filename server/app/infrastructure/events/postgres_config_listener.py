@@ -12,20 +12,19 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from infrastructure.initialization import load_config_from_db
 from infrastructure.events.postgres_listener import PostgresListener
-
+from infrastructure.initialization import load_config_from_db
 from infrastructure.metrics.metrics import (
     CONFIG_LISTENER_CONNECTED,
     CONFIG_NOTIFY_RECEIVED_TOTAL,
     CONFIG_RESYNC_TOTAL,
 )
 
-if TYPE_CHECKING:
-    from infrastructure.database.database import DatabaseManager
 
-    from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+if TYPE_CHECKING:
     from application.uow.factory import UnitOfWorkFactory
+    from infrastructure.database.database import DatabaseManager
+    from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 
 log = logging.getLogger("default")
 
@@ -73,7 +72,7 @@ class PostgresConfigListener:
             self.configuration.failed()
             log.exception("Configuration snapshot resync failed")
 
-    async def synchronize(self, *, require_complete=False) -> None:
+    async def synchronize(self, *, require_complete: bool = False) -> None:
         # Lock covers fetch + apply; an older concurrent fetch cannot apply last.
         async with self._sync_lock:
             await load_config_from_db(
@@ -85,7 +84,7 @@ class PostgresConfigListener:
     def schedule_sync(self) -> None:
         self.transport.schedule(self.resync(trigger="notify"))
 
-    def on_notify(self, payload: str) -> None:
+    def on_notify(self, _payload: str) -> None:
         CONFIG_NOTIFY_RECEIVED_TOTAL.inc()
         self.schedule_sync()
 

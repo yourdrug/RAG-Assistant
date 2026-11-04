@@ -8,8 +8,10 @@ returns the payload dict or raises ``jwt.InvalidTokenError``.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import jwt
+
 from config import settings
 
 
@@ -25,5 +27,7 @@ class JWTProvider:
         }
         return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
-    def decode_token(self, token: str) -> dict:
-        return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+    def decode_token(self, token: str) -> dict[str, Any]:
+        return cast(
+            "dict[str, Any]", jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        )

@@ -64,7 +64,7 @@ def test_mode_survives_api_dto_and_response(mode: SweepEvaluationMode) -> None:
     body = SweepCreateRequest(search_space={}, evaluation_mode=mode, top_n_llm=0)
     dto = sweep_create_to_dto(body)
     assert dto.evaluation_mode == mode
-    saved = BenchmarkSweep(id=1, evaluation_mode=dto.evaluation_mode)
+    saved = BenchmarkSweep(id=1, evaluation_mode=SweepEvaluationMode(dto.evaluation_mode))
     assert sweep_to_response(saved).evaluation_mode == mode
     assert SweepCreateRequest(search_space={}).evaluation_mode == SweepEvaluationMode.FAST
 
@@ -83,7 +83,7 @@ def test_tpe_request_preserves_strategy_through_dto_and_response() -> None:
     dto = sweep_create_to_dto(body)
     assert dto.strategy == BenchmarkStrategy.OPTUNA_TPE
     assert body.model_dump(mode="json")["strategy"] == BenchmarkStrategy.OPTUNA_TPE.value
-    saved = BenchmarkSweep(id=1, strategy=dto.strategy)
+    saved = BenchmarkSweep(id=1, strategy=BenchmarkStrategy(dto.strategy))
     assert sweep_to_response(saved).strategy == BenchmarkStrategy.OPTUNA_TPE.value
 
 
@@ -257,7 +257,7 @@ async def test_a_and_b_share_fragment_scoring_even_when_legacy_source_is_a_hit(
         {case["question"]: [("h", 1, doc)]},
         {},
         {"h": doc},
-        {"hit_rate": 1},
+        weights={"hit_rate": 1},
         defaults=settings_snapshot(),
     )
     evidence = BenchmarkEvidence([document(text)], [document(text)], text)

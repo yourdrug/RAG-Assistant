@@ -835,8 +835,8 @@ async def run_grouped_case() -> None:
             "m",
             {"question": "q", "answer": "a"},
             ["relevancy"],
-            saved,
-            checkpoint,
+            saved=saved,
+            callback=checkpoint,
             budget=10,
             attempt=1,
         )

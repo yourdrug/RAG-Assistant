@@ -3,22 +3,25 @@
 import hashlib
 import json
 import logging
+from typing import Any
 
+from openai.types.chat import ChatCompletion
 from pydantic import ValidationError
 
 from infrastructure.benchmark.judging.token_usage import judge_context
+
 
 logger = logging.getLogger("default")
 
 
 class JudgeResponseError(ValueError):
-    def __init__(self, code: str, message: str, details: dict | None = None) -> None:
+    def __init__(self, code: str, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.details = details or {}
 
 
-def response_metadata(response) -> dict:
+def response_metadata(response: ChatCompletion) -> dict[str, Any]:
     choice = response.choices[0] if response.choices else None
     usage = getattr(response, "usage", None)
     details = getattr(usage, "completion_tokens_details", None)
@@ -39,7 +42,7 @@ def response_metadata(response) -> dict:
     }
 
 
-def failure_metadata(exc: Exception) -> dict:
+def failure_metadata(exc: Exception) -> dict[str, Any]:
     response = getattr(exc, "response", None)
     return {
         **(exc.details if isinstance(exc, JudgeResponseError) else {}),
@@ -53,7 +56,7 @@ def failure_metadata(exc: Exception) -> dict:
     }
 
 
-def log_judge_event(event: dict, *, warning: bool = False) -> None:
+def log_judge_event(event: dict[str, Any], *, warning: bool = False) -> None:
     record = {**(judge_context.get() or {}), **event}
     logger.log(
         logging.WARNING if warning else logging.INFO,

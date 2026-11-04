@@ -1,32 +1,31 @@
 """Judge one generated answer, reusing successful checkpoint scores."""
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
 import asyncio
-from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
-from infrastructure.benchmark.judging import judge
-from infrastructure.benchmark.judging import grouped_judge
-from infrastructure.benchmark.judging import evidence_judge
-from config import settings
+from typing import TYPE_CHECKING, Any
 
-from infrastructure.benchmark.judging import context_judge
+from config import settings
 from infrastructure.benchmark.checkpoint import restore_grouped_scores
+from infrastructure.benchmark.judging import context_judge, evidence_judge, grouped_judge, judge
+
 
 if TYPE_CHECKING:
+    from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
+    from infrastructure.benchmark.judging.callbacks import SaveStage
     from infrastructure.budget.runtime import BudgetRuntime
 
 
 async def judge_generated(
-    question: dict,
+    question: dict[str, Any],
     generated: BenchmarkAnswer,
-    annotations: dict,
-    stages: dict,
-    save_stage,
+    annotations: dict[str, Any] | None,
+    stages: dict[str, Any],
+    save_stage: SaveStage,
     *,
     judge_model: str,
     runtime: BudgetRuntime | None = None,
-) -> tuple[dict, dict, dict]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
     if settings.benchmark_judge_grouped_enabled:
         saved_scores = restore_grouped_scores(stages)
@@ -41,7 +40,7 @@ async def judge_generated(
             callback=lambda value: save_stage("grouped_metrics", value),
         )
 
-        def metric_values(keys: tuple[str, ...]) -> dict:
+        def metric_values(keys: tuple[str, ...]) -> dict[str, Any]:
             values = {}
 
             for key in keys:
@@ -78,7 +77,7 @@ async def judge_generated(
         )
         loop = asyncio.get_running_loop()
 
-        def save_sync(name: str, value: dict) -> None:
+        def save_sync(name: str, value: dict[str, Any]) -> None:
             asyncio.run_coroutine_threadsafe(save_stage(name, value), loop).result()
 
         context_metrics = (

@@ -8,17 +8,20 @@ cached in a bounded LRU; eviction drops only the process-local bucket.
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections import OrderedDict
+import logging
 from time import time_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pyrate_limiter import BucketFactory, Rate, RateItem, RedisBucket
 
-from application.ports.rate_limit import RateLimitPolicy, RateLimitPolicyName
+from application.ports.rate_limit import RateLimitPolicyName
+
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
+
+    from application.ports.rate_limit import RateLimitPolicy
 
 logger = logging.getLogger("default")
 
@@ -55,9 +58,9 @@ return {-1, -1}
 
 
 class ServerTimedRedisBucket(RedisBucket):
-    async def now(self):
+    async def now(self) -> int:
         # Background expiry must use the same clock as admission across hosts.
-        seconds, microseconds = await self.redis.time()
+        seconds, microseconds = cast("tuple[int, int]", await self.redis.time())
         return seconds * 1000 + microseconds // 1000
 
 
@@ -73,7 +76,8 @@ class RedisBucketFactory(BucketFactory):
         max_buckets: int,
     ) -> None:
         if max_buckets < 1:
-            raise ValueError(f"max_buckets must be >= 1, got {max_buckets}")
+            msg = f"max_buckets must be >= 1, got {max_buckets}"
+            raise ValueError(msg)
 
         self.buckets: OrderedDict[str, RedisBucket] = OrderedDict()
 
@@ -100,14 +104,14 @@ class RedisBucketFactory(BucketFactory):
                 self.buckets.move_to_end(item.name)
                 return cached
 
-            policy = self._resolve_policy(item.name)
+            policy = self.resolve_policy(item.name)
             key = f"{self._key_prefix}{item.name}"
             rates = [Rate(spec.limit, spec.interval_ms) for spec in policy.rates]
             script_hash = await self._redis.script_load(SERVER_TIME_ADMISSION)
             bucket = ServerTimedRedisBucket(rates, self._redis, key, script_hash)
             self.schedule_leak(bucket)
             self.buckets[item.name] = bucket
-            await self._evict_overflow()
+            await self.evict_overflow()
             return bucket
 
     async def aclose(self) -> None:
@@ -126,19 +130,20 @@ class RedisBucketFactory(BucketFactory):
 
     async def refresh_key_ttl(self, item_name: str) -> None:
         """Keep an active principal's key alive for the widest policy window."""
-        policy = self._resolve_policy(item_name)
+        policy = self.resolve_policy(item_name)
         widest_ms = max(spec.interval_ms for spec in policy.rates)
         ttl_sec = max(1, (widest_ms * _TTL_WINDOW_MULTIPLIER) // _MS_PER_SECOND)
         await self._redis.expire(f"{self._key_prefix}{item_name}", ttl_sec)
 
-    def _resolve_policy(self, item_name: str) -> RateLimitPolicy:
+    def resolve_policy(self, item_name: str) -> RateLimitPolicy:
         policy_name = item_name.partition(":")[0]
         try:
             return self._policies[RateLimitPolicyName(policy_name)]
         except (KeyError, ValueError) as exc:
-            raise ValueError(f"Unknown rate limit policy in item name: {item_name!r}") from exc
+            msg = f"Unknown rate limit policy in item name: {item_name!r}"
+            raise ValueError(msg) from exc
 
-    async def _evict_overflow(self) -> None:
+    async def evict_overflow(self) -> None:
         while len(self.buckets) > self._max_buckets:
-            item_name, bucket = self.buckets.popitem(last=False)
+            _item_name, bucket = self.buckets.popitem(last=False)
             self.dispose(bucket)

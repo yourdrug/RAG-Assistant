@@ -8,24 +8,42 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Any, NotRequired, Protocol, TypedDict, Unpack, runtime_checkable
 
-from application.benchmark import BenchmarkQuestionCreateDTO, SweepCreateDTO
-from domain.knowledge.enums import DocumentStatus
 from fastapi import HTTPException
 
+from application.benchmark import BenchmarkQuestionCreateDTO, SweepCreateDTO
+from application.benchmark.dto import BenchmarkResultSummary as ResultSummary
+from application.documents.dto import UploadOptions
+from domain.benchmark.question import BenchmarkQuestion
+from domain.benchmark.run import BenchmarkRun
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.ingestion.preview import DryRunPageResult as PreviewPage
+from domain.knowledge.enums import DocumentStatus
 from presentation.api.constants import (
-    JobType,
     PAGE_PREVIEW_MAX_CHARS,
     QUALITY_BAD_RATIO_THRESHOLD,
+    JobType,
 )
+from presentation.api.schemas import (
+    BenchmarkQuestionCreate,
+    BenchmarkQuestionResponse,
+    BenchmarkResultSummary,
+    BenchmarkRunResponse,
+    DryRunPageResult,
+    DryRunResponse,
+    SweepCreateRequest,
+    SweepResponse,
+)
+
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from fastapi import UploadFile
+
     from application.documents import DocumentDTO
     from application.ports.action_logger import ActionLoggerPort
-    from fastapi import UploadFile
 
 logger = logging.getLogger("default")
 
@@ -45,10 +63,13 @@ class UploadResult(TypedDict):
 # ---------------------------------------------------------------------------
 
 
-def filter_sources(sources: list | None, *, exclude_keys: frozenset[str]) -> list | None:
+def filter_sources(
+    sources: list[dict[str, Any]] | None, *, exclude_keys: frozenset[str]
+) -> list[dict[str, Any]] | None:
     """Remove internal metadata keys (e.g. ``_confidence``) from source dicts."""
     if not sources:
         return None
+
     return [s for s in sources if not any(k in s for k in exclude_keys)]
 
 
@@ -65,14 +86,8 @@ class UploadableService(Protocol):
         file_data: bytes,
         visibility: str,
         group_id: int | None,
-        user_id: int,
-        user_kind: str,
-        user_role: str,
-        client_id: int | None = ...,
-        rename_on_conflict: bool = ...,
-        doc_domain: str | None = ...,
-        replaces_document_id: int | None = ...,
-    ) -> "DocumentDTO": ...
+        **options: Unpack[UploadOptions],
+    ) -> DocumentDTO: ...
 
 
 @runtime_checkable
@@ -80,45 +95,53 @@ class JobServiceProtocol(Protocol):
     async def create_job(self, job_type: str, *, related_id: int | None = None) -> int: ...
 
 
+class UploadRequest(TypedDict):
+    file_data: bytes
+    filename: str
+    visibility: str
+    group_id: int | None
+    client_id: int | None
+    user_id: int
+    user_kind: str
+    user_role: str
+    rename_on_conflict: bool
+    doc_domain: str | None
+    replaces_document_id: NotRequired[int | None]
+
+
 async def upload_and_enqueue(
     *,
-    file_data: bytes,
-    filename: str,
-    visibility: str,
-    group_id: int | None,
-    client_id: int | None,
-    user_id: int,
-    user_kind: str,
-    user_role: str,
-    rename_on_conflict: bool,
-    doc_domain: str | None,
-    replaces_document_id: int | None = None,
     document_service: UploadableService,
     job_service: JobServiceProtocol,
-    enqueue_fn: "Callable[..., Awaitable[None]]",
+    enqueue_fn: Callable[..., Awaitable[None]],
     action_name: str,
-    log_fn: "ActionLoggerPort | None" = None,
+    log_fn: ActionLoggerPort | None = None,
+    **upload: Unpack[UploadRequest],
 ) -> UploadResult:
     """Shared upload → job-create → enqueue logic used by multiple routes.
 
     Returns a dict with ``document_id``, ``filename``, and ``status``.
     """
     result = await document_service.upload(
-        filename=filename,
-        file_data=file_data,
-        visibility=visibility,
-        group_id=group_id,
-        client_id=client_id,
-        user_id=user_id,
-        user_kind=user_kind,
-        user_role=user_role,
-        rename_on_conflict=rename_on_conflict,
-        doc_domain=doc_domain,
-        replaces_document_id=replaces_document_id,
+        filename=upload["filename"],
+        file_data=upload["file_data"],
+        visibility=upload["visibility"],
+        group_id=upload["group_id"],
+        client_id=upload["client_id"],
+        user_id=upload["user_id"],
+        user_kind=upload["user_kind"],
+        user_role=upload["user_role"],
+        rename_on_conflict=upload["rename_on_conflict"],
+        doc_domain=upload["doc_domain"],
+        replaces_document_id=upload.get("replaces_document_id"),
     )
 
     if log_fn is not None:
-        log_fn(action_name, user_id=user_id, details={"filename": filename, "visibility": visibility})
+        log_fn(
+            action_name,
+            user_id=upload["user_id"],
+            details={"filename": upload["filename"], "visibility": upload["visibility"]},
+        )
 
     job_id = await job_service.create_job(JobType.DOCUMENT_PROCESSING, related_id=result.id)
 
@@ -126,18 +149,18 @@ async def upload_and_enqueue(
         document_id=result.id,
         storage_key=result.storage_key or "",
         filename=result.filename,
-        visibility=visibility,
+        visibility=upload["visibility"],
         owner_id=result.owner_id,
-        group_id=group_id,
+        group_id=upload["group_id"],
         replace_id=result.replace_id,
-        doc_domain=doc_domain,
+        doc_domain=upload["doc_domain"],
         job_id=job_id,
-        principal_id=user_id,
+        principal_id=upload["user_id"],
     )
 
     return {
         "document_id": result.id,
-        "filename": filename,
+        "filename": upload["filename"],
         "status": DocumentStatus.PROCESSING.value,
     }
 
@@ -151,17 +174,23 @@ async def read_upload_with_limit(file: UploadFile, max_bytes: int) -> bytes:
     """Read file content in chunks up to max_bytes; raise 413 if exceeded."""
     chunks: list[bytes] = []
     total = 0
+
     while True:
         chunk = await file.read(CHUNK_READ_SIZE)
+
         if not chunk:
             break
+
         total += len(chunk)
+
         if total > max_bytes:
             raise HTTPException(
                 status_code=413,
                 detail=f"File too large: >{max_bytes / 1024 / 1024:.0f} MB limit",
             )
+
         chunks.append(chunk)
+
     return b"".join(chunks)
 
 
@@ -179,8 +208,10 @@ def validate_data_path_within_dir(path_str: str, data_dir: str) -> str:
     """
     resolved = Path(path_str).resolve()
     data_root = Path(data_dir).resolve()
+
     if not str(resolved).startswith(str(data_root) + "/") and resolved != data_root:
         raise HTTPException(status_code=400, detail="Path must be within the data directory")
+
     return str(resolved)
 
 
@@ -189,11 +220,14 @@ def validate_data_path_within_dir(path_str: str, data_dir: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def compute_quality_warning(page_results: list, types_count: dict, warning_prefix: str) -> str | None:
+def compute_quality_warning(
+    page_results: list[PreviewPage], types_count: dict[str, int], warning_prefix: str
+) -> str | None:
     """Compute quality warning from page analysis results."""
     total = len(page_results)
     bad = types_count.get("scan", 0) + types_count.get("garbled", 0) + types_count.get("empty", 0)
     bad_ratio = bad / total if total else 0.0
+
     if bad_ratio > QUALITY_BAD_RATIO_THRESHOLD:
         return (
             f"{warning_prefix}: {types_count.get('scan', 0)} scan + "
@@ -201,27 +235,25 @@ def compute_quality_warning(page_results: list, types_count: dict, warning_prefi
             f"{types_count.get('empty', 0)} empty "
             f"out of {total} units ({bad_ratio:.0%} bad)"
         )
+
     return None
+
+
+class DryRunOptions(TypedDict, total=False):
+    preview_id: str | None
+    suggestion: str | None
+    image_available: bool
 
 
 def build_dry_run_response(
     filename: str,
-    page_results: list,
-    types_count: dict,
+    page_results: list[PreviewPage],
+    types_count: dict[str, int],
     total_chars: int,
     warning: str | None,
-    *,
-    preview_id: str | None = None,
-    suggestion: str | None = None,
-    image_available: bool = False,
-) -> Any:
-    """Build DryRunResponse from page analysis results.
-
-    Imports ``DryRunResponse`` and ``DryRunPageResult`` from schemas to avoid
-    circular imports at module level.
-    """
-    from presentation.api.schemas import DryRunPageResult, DryRunResponse
-
+    **options: Unpack[DryRunOptions],
+) -> DryRunResponse:
+    """Build the public preview response from page analysis results."""
     total_pages = len(page_results)
     bad = types_count.get("scan", 0) + types_count.get("garbled", 0) + types_count.get("empty", 0)
     bad_ratio = bad / total_pages if total_pages else 0.0
@@ -240,7 +272,7 @@ def build_dry_run_response(
                 full_text=p.full_text,
                 problem_spans=p.problem_spans,
                 previous_type=p.previous_type,
-                image_available=image_available and p.unit_kind == "page",
+                image_available=options.get("image_available", False) and p.unit_kind == "page",
                 unit_kind=p.unit_kind,
                 label=p.label,
             )
@@ -251,8 +283,8 @@ def build_dry_run_response(
         warning=warning,
         full_text_preview=full_text_preview,
         summary=types_count,
-        preview_id=preview_id,
-        suggestion=suggestion,
+        preview_id=options.get("preview_id"),
+        suggestion=options.get("suggestion"),
     )
 
 
@@ -261,7 +293,7 @@ def build_dry_run_response(
 # ---------------------------------------------------------------------------
 
 
-def question_create_to_dto(body: Any) -> Any:
+def question_create_to_dto(body: BenchmarkQuestionCreate) -> BenchmarkQuestionCreateDTO:
     """Map ``BenchmarkQuestionCreate`` schema → ``BenchmarkQuestionCreateDTO``."""
     return BenchmarkQuestionCreateDTO(
         question=body.question,
@@ -277,7 +309,7 @@ def question_create_to_dto(body: Any) -> Any:
     )
 
 
-def sweep_create_to_dto(body: Any) -> Any:
+def sweep_create_to_dto(body: SweepCreateRequest) -> SweepCreateDTO:
     """Map ``SweepCreateRequest`` schema → ``SweepCreateDTO``."""
     return SweepCreateDTO(
         strategy=body.strategy,
@@ -290,12 +322,12 @@ def sweep_create_to_dto(body: Any) -> Any:
     )
 
 
-def question_to_response(q: Any) -> Any:
+def question_to_response(q: BenchmarkQuestion) -> BenchmarkQuestionResponse:
     """Map ``BenchmarkQuestion`` entity → ``BenchmarkQuestionResponse`` schema."""
-    from presentation.api.schemas import BenchmarkQuestionResponse
-
     if q.id is None:
-        raise RuntimeError("BenchmarkQuestion saved with None id")
+        message = "BenchmarkQuestion saved with None id"
+        raise RuntimeError(message)
+
     return BenchmarkQuestionResponse(
         id=q.id,
         question=q.question,
@@ -313,12 +345,12 @@ def question_to_response(q: Any) -> Any:
     )
 
 
-def run_to_response(r: Any) -> Any:
+def run_to_response(r: BenchmarkRun) -> BenchmarkRunResponse:
     """Map ``BenchmarkRun`` entity → ``BenchmarkRunResponse`` schema."""
-    from presentation.api.schemas import BenchmarkRunResponse
-
     if r.id is None:
-        raise RuntimeError("BenchmarkRun saved with None id")
+        message = "BenchmarkRun saved with None id"
+        raise RuntimeError(message)
+
     return BenchmarkRunResponse(
         id=r.id,
         sweep_id=r.sweep_id,
@@ -332,12 +364,12 @@ def run_to_response(r: Any) -> Any:
     )
 
 
-def sweep_to_response(s: Any, *, job_id: int | None = None) -> Any:
+def sweep_to_response(s: BenchmarkSweep, *, job_id: int | None = None) -> SweepResponse:
     """Map ``BenchmarkSweep`` entity → ``SweepResponse`` schema."""
-    from presentation.api.schemas import SweepResponse
-
     if s.id is None:
-        raise RuntimeError("BenchmarkSweep saved with None id")
+        message = "BenchmarkSweep saved with None id"
+        raise RuntimeError(message)
+
     return SweepResponse(
         id=s.id,
         status=s.status,
@@ -356,10 +388,8 @@ def sweep_to_response(s: Any, *, job_id: int | None = None) -> Any:
     )
 
 
-def summary_to_response(s: Any) -> Any:
+def summary_to_response(s: ResultSummary) -> BenchmarkResultSummary:
     """Map ``BenchmarkResultSummary`` DTO → ``BenchmarkResultSummary`` schema."""
-    from presentation.api.schemas import BenchmarkResultSummary
-
     return BenchmarkResultSummary(
         id=s.id,
         config_json=s.config_json,
@@ -371,3 +401,11 @@ def summary_to_response(s: Any) -> Any:
         creation_date=s.creation_date,
         artifacts=s.artifacts,
     )
+
+
+def persisted_id(value: int | None) -> int:
+    if value is None:
+        message = "Cannot serialize an entity without a persisted ID"
+        raise RuntimeError(message)
+
+    return value

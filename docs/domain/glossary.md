@@ -1,0 +1,30 @@
+# Глоссарий
+
+Термины описывают текущие модели и контракты. Имена полей сохранены для поиска в коде.
+
+| Термин | Определение | Соответствие коду | Неоднозначности |
+|---|---|---|---|
+| Документ | Учётная единица контента с ID, состоянием обработки, метаданными доступа и связью с исходником. | [Document](../../server/app/domain/knowledge/document.py), `source_path`, `source_type`, `status`. | Не равен одному чанку или нормативному акту. Бывает файловым и ручным (`SourceType`). |
+| Нормативный акт | Идентичность акта: тип, номер, заголовок, орган и дата принятия. | [RegulatoryAct](../../server/app/domain/knowledge/acts/models.py). | Один акт может иметь несколько редакций; дата акта и дата начала действия редакции различаются. |
+| Редакция | Связь документа с актом и интервалом действия; содержит происхождение и проверку дат. | [ActVersion](../../server/app/domain/knowledge/acts/models.py), [ActVersionTimeline](../../server/app/domain/knowledge/acts/timeline.py). | `act_id=None` допускает ожидание ручной привязки. `is_current` определяется временной шкалой, а не последним временем загрузки. Граница `effective_to` исключающая. |
+| Цепочка документов | Группа связанных документов, закреплённая за опорным документом. | `Document.version_group_id` в [модели документа](../../server/app/domain/knowledge/document.py), подготовка группы при [upload](../../server/app/application/documents/upload.py). | Это группировка документов, а не сама временная шкала `ActVersionTimeline`. |
+| Счётчик конкурентных изменений | Числовая версия записи для обнаружения конкурирующих обновлений. | `Document.version`, `expected_version` в [репозитории](../../server/app/infrastructure/repositories/document/sqlalchemy_document_repository.py). | Не номер редакции акта, не `version_group_id`, не версия приложения. |
+| Источник ответа | Агрегированные метаданные документа, из которого взяты фрагменты контекста ответа: имя, страницы, ID, хеши чанков и другие доступные атрибуты. | [extract_sources](../../server/app/infrastructure/ml/rag/rag_sources.py), финализация в [rag_steps](../../server/app/infrastructure/ml/rag/rag_steps.py), `SourcesEvent` → `MetaEvent`, `ChatResponse.sources`. | `source` — поле имени исходника; элемент `sources` агрегирует несколько фрагментов одного документа. Это не весь результат retrieval и не независимое доказательство истинности ответа. |
+| Видимость | Класс доступа документа с учётом владельца или группы. | [DocumentVisibility](../../server/app/domain/knowledge/enums.py): `internal_public`, `internal_group`, `internal_private`, `client_private`. | Видимость сама по себе не решает доступ: нужны kind, role, user ID, группы и назначения куратора. `internal_public` не означает анонимный доступ. |
+| Область поиска | Множество документов, доступных текущему контексту пользователя именно для RAG-поиска. | [get_visibility_conditions / is_in_search_scope](../../server/app/domain/knowledge/access_control.py), `for_list=False`. | Не равна выдаче списка (`for_list=True`): ADMIN может видеть `CLIENT_PRIVATE` в списке без включения в свой поиск. Область куратора ограничивается назначениями. |
+| Чанк | Фрагмент текста документа, полученный при разбиении и используемый для индексации и поиска. | [`Chunk`](../../server/app/domain/knowledge/chunk.py), [`ChunkRepository`](../../server/app/domain/knowledge/repositories/chunk.py). | Один документ обычно содержит много чанков. Поисковый результат может ссылаться на чанк, а источник ответа агрегируется по документу. |
+| Индексация | Синхронизация сохранённых чанков и метаданных с поисковым индексом. | [`DocumentStatus`](../../server/app/domain/knowledge/enums.py): `indexing`; операции в [indexing pipeline](../../server/app/application/indexing/pipeline.py). | `indexing` — этап после разбора и сохранения чанков; документ может оставаться в этом статусе, пока применяются операции векторного outbox. |
+| Vector outbox | Очередь надёжной доставки изменений чанков из транзакционной БД во внешний векторный индекс. | [`VectorOutboxEntry`](../../server/app/domain/knowledge/index_sync.py) и [indexing pipeline](../../server/app/application/indexing/pipeline.py). | Запись чанков и постановка операций в outbox фиксируются вместе. Счётчики `outbox_pending` и `outbox_failed` показывают незавершённую или ошибочную синхронизацию. |
+| Retrieval | Поиск кандидатов и их ранжирование для контекста ответа. | [RAG pipeline](../architecture/rag-pipeline.md), реализации в `infrastructure/ml/rag/`. | Retrieval возвращает кандидатов, но сам по себе не подтверждает полноту или истинность ответа. |
+| Reranker | Модель, которая повторно оценивает и упорядочивает найденные retrieval-кандидаты. | `rerank_documents()` в `infrastructure/ml/rag/rag_reranking.py`. | Работает после первичного поиска; результат зависит от кандидатов, переданных ему на вход. |
+| Benchmark-набор | Именованная подборка вопросов и эталонных меток для повторяемой оценки RAG. | [`BenchmarkQuestion`](../../server/app/domain/benchmark/question.py), `dataset`. | Набор полезен для сравнения изменений при неизменных вопросах, метках и условиях запуска. |
+| Evidence gate | Проверка, достаточно ли найденного свидетельства для ответа по вопросу. | Этапы проверки в [RAG pipeline](../architecture/rag-pipeline.md). | При недостаточном свидетельстве система может уточнить поиск ограниченное число раз или вернуть ответ «не найдено»; наличие retrieval-кандидатов не гарантирует генерацию ответа. |
+
+Источники формируются из выбранных документов контекста (с резервным использованием
+retrieval-документов); включённый citation filter оставляет процитированные документы.
+При ответе «не найдено» список пуст. Извлечение объединяет фрагменты по идентичности
+документа и упорядочивает записи по `citation_id`. Через ChatService метаданные сохраняются
+с ответом и попадают в [API чата](../../server/app/presentation/api/routes/chat.py):
+в SSE — событие `done`, в sync — поле `sources`.
+[Схема API](../../server/app/presentation/api/schemas/chat.py) допускает `sources=null`;
+SSE-представление пустого списка также может быть `null`.

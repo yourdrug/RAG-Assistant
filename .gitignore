@@ -15,15 +15,10 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# Результаты бенчмарка
-docs/
-!docs/
-docs/*
-!docs/operations/
-docs/operations/*
-!docs/operations/embedding-migration.md
-!docs/operations/configuration.md
-!docs/operations/configuration-plan.md
+# Локальные планы и сырые результаты бенчмарка
+docs/work/*
+!docs/work/README.md
+/docs/quality/artifacts/
 
 # IDE / OS
 .DS_Store

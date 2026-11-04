@@ -11,6 +11,7 @@ import pytest
 from qdrant_client.models import Filter
 
 from application.benchmark.sweep_ports import SweepCancelled
+from domain.knowledge.access_control import VisibilityCondition
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.benchmark.sweep.candidates import cache_candidates
 from infrastructure.benchmark.sweep.data import SweepDataSource
@@ -79,7 +80,7 @@ async def test_cache_can_be_cancelled_between_queries() -> None:
             {},
             {"hash": doc},
             SimpleNamespace(predict=predict),
-            cancel,
+            should_cancel=cancel,
         )
     predict.assert_awaited_once()
 
@@ -139,7 +140,7 @@ async def test_sparse_only_payload_is_available_for_reranking(
         2,
         ml_clients=clients,
         access_filter=acl,
-        visibility_conditions=[object()],
+        visibility_conditions=[VisibilityCondition(DocumentVisibility.INTERNAL_PUBLIC)],
         user_id=0,
         user_group_ids=[],
     )

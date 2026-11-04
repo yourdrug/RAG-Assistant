@@ -10,23 +10,27 @@ Principles:
 from __future__ import annotations
 
 from logging import Logger, getLogger
+from typing import Any
+
+from fastapi import status
+from fastapi.exceptions import RequestValidationError
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from domain.shared.exceptions import (
+    AppClientError,
+    AppServerError,
     AuthenticationError,
     BusinessRuleViolationError,
-    AppClientError,
     DatabaseError,
     EntityNotFoundError,
     PermissionDeniedError,
     RateLimitExceededError,
     SemaphoreTimeoutError,
-    AppServerError,
     ValidationError,
 )
-from fastapi import status
-from fastapi.exceptions import HTTPException, RequestValidationError
-from fastapi.requests import Request
-from fastapi.responses import JSONResponse
+
 
 logger: Logger = getLogger("default")
 
@@ -60,14 +64,18 @@ _SERVER_STATUS_MAP: dict[type[AppServerError], int] = {
 # ---------------------------------------------------------------------------
 
 
-def _json(data: dict, status_code: int, headers: dict[str, str] | None = None) -> JSONResponse:
+def json_response(
+    data: dict[str, Any], status_code: int, headers: dict[str, str] | None = None
+) -> JSONResponse:
     return JSONResponse(content=data, status_code=status_code, headers=headers)
 
 
-def _error(message: str, errors: dict | None = None) -> dict:
-    result: dict = {"message": message}
+def error_envelope(message: str, errors: dict[str, Any] | None = None) -> dict[str, Any]:
+    result: dict[str, Any] = {"message": message}
+
     if errors:
         result["errors"] = errors
+
     return result
 
 
@@ -82,19 +90,21 @@ async def handle_client_exception(request: Request, exc: Exception) -> JSONRespo
         return await handle_unexpected_exception(request, exc)
 
     status_code = status.HTTP_400_BAD_REQUEST
+
     for exc_type, code in _CLIENT_STATUS_MAP.items():
         if isinstance(exc, exc_type):
             status_code = code
             break
 
     headers: dict[str, str] | None = None
+
     if isinstance(exc, RateLimitExceededError):
         headers = {
             "Retry-After": str(exc.retry_after_sec),
             "X-RateLimit-Limit": str(exc.limit),
         }
 
-    return _json(exc.as_dict(), status_code, headers)
+    return json_response(exc.as_dict(), status_code, headers)
 
 
 # ---------------------------------------------------------------------------
@@ -107,9 +117,10 @@ async def handle_server_exception(request: Request, exc: Exception) -> JSONRespo
     if not isinstance(exc, AppServerError):
         return await handle_unexpected_exception(request, exc)
 
-    logger.error("Server exception: %s", exc, exc_info=True)
+    logger.error("Server exception: %s", exc, exc_info=exc)
 
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+
     for exc_type, code in _SERVER_STATUS_MAP.items():
         if isinstance(exc, exc_type):
             status_code = code
@@ -118,7 +129,7 @@ async def handle_server_exception(request: Request, exc: Exception) -> JSONRespo
     # AppServerError details can contain driver messages, SQL, parameters or
     # schema names. Keep the full exception in server logs and return only a
     # stable public error envelope.
-    return _json(_error("Внутренняя ошибка сервера"), status_code)
+    return json_response(error_envelope("Внутренняя ошибка сервера"), status_code)
 
 
 # ---------------------------------------------------------------------------
@@ -128,20 +139,22 @@ async def handle_server_exception(request: Request, exc: Exception) -> JSONRespo
 
 async def handle_http_exception(request: Request, exc: Exception) -> JSONResponse:
     """Handle standard FastAPI HTTPException."""
-    if not isinstance(exc, HTTPException):
+    if not isinstance(exc, StarletteHTTPException):
         return await handle_unexpected_exception(request, exc)
 
-    _AUTH_MESSAGES = {
+    auth_messages = {
         "Not authenticated": "Не авторизован",
         "Invalid authentication credentials": "Неверные учетные данные",
     }
 
-    if isinstance(exc.detail, dict):
-        content = _error(exc.detail.get("message", "Ошибка запроса"), exc.detail.get("errors", exc.detail))
-    else:
-        content = _error(_AUTH_MESSAGES.get(exc.detail, exc.detail))
+    detail: object = exc.detail
 
-    return _json(content, exc.status_code, exc.headers)
+    if isinstance(detail, dict):
+        content = error_envelope(detail.get("message", "Ошибка запроса"), detail.get("errors", exc.detail))
+    else:
+        content = error_envelope(auth_messages.get(exc.detail, exc.detail))
+
+    return json_response(content, exc.status_code, exc.headers)
 
 
 async def handle_validation_exception(request: Request, exc: Exception) -> JSONResponse:
@@ -149,7 +162,7 @@ async def handle_validation_exception(request: Request, exc: Exception) -> JSONR
     if not isinstance(exc, RequestValidationError):
         return await handle_unexpected_exception(request, exc)
 
-    _MESSAGES = {
+    messages = {
         "missing": "Обязательное поле",
         "extra_forbidden": "Запрещено добавлять лишние поля",
         "int_parsing": "Должно быть целым числом",
@@ -170,22 +183,24 @@ async def handle_validation_exception(request: Request, exc: Exception) -> JSONR
         "value_error": "Некорректное значение: {error}",
     }
 
-    errors: dict = {}
+    errors: dict[str, str] = {}
+
     for error in exc.errors():
         if "loc" not in error or not error["loc"]:
             continue
+
         field = str(error["loc"][-1])
-        tmpl = _MESSAGES.get(error.get("type", ""), error.get("msg", "Ошибка"))
+        tmpl = messages.get(error.get("type", ""), error.get("msg", "Ошибка"))
         try:
             errors[field] = tmpl.format(**error.get("ctx", {}))
         except (KeyError, IndexError):
             errors[field] = error.get("msg", "Ошибка")
 
-    content = _error("Ошибка валидации", errors) if errors else _error("Ошибка валидации")
-    return _json(content, status.HTTP_422_UNPROCESSABLE_ENTITY)
+    content = error_envelope("Ошибка валидации", errors) if errors else error_envelope("Ошибка валидации")
+    return json_response(content, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
 
-async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
+async def handle_unexpected_exception(_request: Request, exc: Exception) -> JSONResponse:
     """Fallback for unhandled exceptions."""
-    logger.error("Unhandled exception: %s", exc, exc_info=True)
-    return _json(_error("Internal Server Error"), status.HTTP_500_INTERNAL_SERVER_ERROR)
+    logger.error("Unhandled exception: %s", exc, exc_info=exc)
+    return json_response(error_envelope("Internal Server Error"), status.HTTP_500_INTERNAL_SERVER_ERROR)

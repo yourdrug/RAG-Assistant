@@ -21,8 +21,10 @@ from presentation.api.schemas.benchmark import BenchmarkQuestionCreate, Benchmar
 @pytest.mark.parametrize("state", [True, False, None])
 async def test_create_preserves_active_state(fake_uow_factory, state):
     payload = {"question": "Из скольких частей состоит электронный документ?"}
+
     if state is not None:
         payload["is_active"] = state
+
     body = BenchmarkQuestionCreate.model_validate(payload)
     service = BenchmarkQuestionService(fake_uow_factory)
 
@@ -49,7 +51,7 @@ async def test_import_persists_active_inactive_and_default_questions(fake_uow_fa
     fake_uow_factory._uow.benchmark_questions = SQLAlchemyBenchmarkQuestionRepository(session)
 
     result = await import_questions(
-        body, admin=SimpleNamespace(id=1), service=BenchmarkQuestionService(fake_uow_factory)
+        body=body, admin=SimpleNamespace(id=1), service=BenchmarkQuestionService(fake_uow_factory)
     )
 
     assert result.imported == 3
@@ -72,7 +74,7 @@ async def test_export_retains_active_state_for_reimport():
         )
     )
 
-    exported = await export_questions(dataset=DEFAULT_DATASET, admin=SimpleNamespace(id=1), service=service)
+    exported = await export_questions(dataset=DEFAULT_DATASET, _admin=SimpleNamespace(id=1), service=service)
     imported = BenchmarkQuestionsImportRequest.model_validate({"questions": exported})
 
     assert [question.is_active for question in imported.questions] == [True, False]

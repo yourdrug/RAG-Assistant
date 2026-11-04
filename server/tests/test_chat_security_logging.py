@@ -29,10 +29,11 @@ async def test_chat_routes_log_only_question_length():
         )
     )
 
-    await chat_stream(req, MagicMock(), current_user=user, chat_service=service, log=action_log)
-    await chat_sync(req, current_user=user, chat_service=service, log=action_log)
+    await chat_stream(req=req, request=MagicMock(), current_user=user, chat_service=service, log=action_log)
+    await chat_sync(req=req, current_user=user, chat_service=service, log=action_log)
 
     assert action_log.call_count == 2
+
     for call in action_log.call_args_list:
         details = call.kwargs["details"]
         assert details["question_chars"] == len(req.question)

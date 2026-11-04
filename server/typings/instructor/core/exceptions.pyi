@@ -3,3 +3,5 @@
 class InstructorError(Exception): ...
 
 InstructorRetryException: type[InstructorError]
+
+IncompleteOutputException: type[InstructorError]

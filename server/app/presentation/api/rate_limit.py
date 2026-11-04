@@ -16,13 +16,14 @@ from __future__ import annotations
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from application.ports.rate_limit import RateLimiterPort, RateLimitPolicyName
-from domain.shared.exceptions import RateLimitExceededError
 from fastapi import Depends, Request
 
+from application.ports.rate_limit import RateLimiterPort, RateLimitPolicyName
+from domain.shared.exceptions import RateLimitExceededError
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_rate_limiter
 from presentation.api.schemas import CurrentUser
+
 
 _IP_SCOPED = frozenset({RateLimitPolicyName.LOGIN})
 
@@ -39,6 +40,7 @@ def rate_limit(
         ) -> None:
             if limiter is None:
                 return
+
             await _enforce(limiter, policy, f"ip:{_client_ip(request)}")
 
         # Expose the policy for the route-coverage test (rendering/markup only).
@@ -51,6 +53,7 @@ def rate_limit(
     ) -> None:
         if limiter is None:
             return
+
         await _enforce(limiter, policy, f"user:{current_user.kind}:{current_user.id}")
 
     _dep_user.rate_limit_policy = policy  # type: ignore[attr-defined]
@@ -59,6 +62,7 @@ def rate_limit(
 
 async def _enforce(limiter: RateLimiterPort, policy: RateLimitPolicyName, principal: str) -> None:
     decision = await limiter.check(policy, principal)
+
     if not decision.allowed:
         raise RateLimitExceededError(
             retry_after_sec=decision.retry_after_sec,

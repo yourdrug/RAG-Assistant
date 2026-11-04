@@ -143,11 +143,11 @@ class TestComputeSummaryMetrics:
     def test_unknown_cost_does_not_become_zero_in_total(self):
         from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
-        results = [{**_result(), 'cost_usd': 0.02}, {**_result(), 'cost_usd': None}]
+        results = [{**_result(), "cost_usd": 0.02}, {**_result(), "cost_usd": None}]
         summary = compute_summary_metrics(results)
-        assert summary['total_cost_usd'] is None
-        assert summary['known_cost_usd'] == 0.02
-        assert summary['cost_complete'] is False
+        assert summary["total_cost_usd"] is None
+        assert summary["known_cost_usd"] == 0.02
+        assert summary["cost_complete"] is False
 
     def test_basic_summary(self):
         from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
@@ -202,47 +202,47 @@ class TestComputeSummaryMetrics:
 
 
 # ---------------------------------------------------------------------------
-# _extract_source_name
+# extract_source_name
 # ---------------------------------------------------------------------------
 
 
 class TestExtractSourceName:
     def test_from_filename(self):
-        from infrastructure.benchmark.evaluation.metrics import _extract_source_name
+        from infrastructure.benchmark.evaluation.metrics import extract_source_name
 
         doc = _doc("text", filename="report.pdf")
-        assert _extract_source_name(doc) == "report.pdf"
+        assert extract_source_name(doc) == "report.pdf"
 
     def test_from_source_path(self):
-        from infrastructure.benchmark.evaluation.metrics import _extract_source_name
+        from infrastructure.benchmark.evaluation.metrics import extract_source_name
 
         doc = _doc("text", source="/path/to/report.pdf")
-        assert _extract_source_name(doc) == "report.pdf"
+        assert extract_source_name(doc) == "report.pdf"
 
     def test_no_metadata(self):
-        from infrastructure.benchmark.evaluation.metrics import _extract_source_name
+        from infrastructure.benchmark.evaluation.metrics import extract_source_name
 
         doc = Document(page_content="text", metadata={})
-        assert _extract_source_name(doc) == "?"
+        assert extract_source_name(doc) == "?"
 
 
 # ---------------------------------------------------------------------------
-# _safe_avg
+# safe_avg
 # ---------------------------------------------------------------------------
 
 
 class TestSafeAvg:
     def test_normal(self):
-        from infrastructure.benchmark.evaluation.metrics import _safe_avg
+        from infrastructure.benchmark.evaluation.metrics import safe_avg
 
-        assert _safe_avg([1.0, 2.0, 3.0]) == 2.0
+        assert safe_avg([1.0, 2.0, 3.0]) == 2.0
 
     def test_empty(self):
-        from infrastructure.benchmark.evaluation.metrics import _safe_avg
+        from infrastructure.benchmark.evaluation.metrics import safe_avg
 
-        assert _safe_avg([]) == 0
+        assert safe_avg([]) == 0
 
     def test_single(self):
-        from infrastructure.benchmark.evaluation.metrics import _safe_avg
+        from infrastructure.benchmark.evaluation.metrics import safe_avg
 
-        assert _safe_avg([5.0]) == 5.0
+        assert safe_avg([5.0]) == 5.0

@@ -7,8 +7,8 @@ Fail-open: backend errors are logged/counted and the request is allowed.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
+import logging
 from typing import TYPE_CHECKING
 
 from pyrate_limiter import Limiter
@@ -16,8 +16,6 @@ from redis.exceptions import RedisError
 
 from application.ports.rate_limit import (
     RateLimitDecision,
-    RateLimitPolicy,
-    RateLimitPolicyName,
 )
 from infrastructure.metrics.metrics import (
     RATE_LIMIT_BACKEND_ERRORS_TOTAL,
@@ -25,10 +23,16 @@ from infrastructure.metrics.metrics import (
 )
 from infrastructure.rate_limit.bucket_factory import RedisBucketFactory
 from infrastructure.rate_limit.policies import build_policies
-from config import Settings
+
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
+
+    from application.ports.rate_limit import (
+        RateLimitPolicy,
+        RateLimitPolicyName,
+    )
+    from config import Settings
 
 logger = logging.getLogger("default")
 
@@ -48,7 +52,8 @@ class PyrateRateLimiter:
         fail_open: bool,
     ) -> None:
         if not policies:
-            raise ValueError("policies must not be empty")
+            msg = "policies must not be empty"
+            raise ValueError(msg)
 
         self._policies = policies
         self._fail_open = fail_open
@@ -63,7 +68,8 @@ class PyrateRateLimiter:
         policy = self._policies.get(policy_name)
 
         if policy is None:
-            raise ValueError(f"Unknown rate limit policy: {policy_name!r}")
+            msg = f"Unknown rate limit policy: {policy_name!r}"
+            raise ValueError(msg)
 
         item_name = f"{policy_name.value}:{principal}"
         try:
@@ -89,27 +95,27 @@ class PyrateRateLimiter:
 
         if not allowed:
             RATE_LIMIT_EXCEEDED_TOTAL.labels(policy=policy_name.value).inc()
-            limit, retry_after_sec = await self._resolve_violation(item_name, policy, policy_name)
+            limit, retry_after_sec = await self.resolve_violation(item_name, policy, policy_name)
             return RateLimitDecision(
                 allowed=False,
                 retry_after_sec=retry_after_sec,
                 limit=limit,
             )
 
-        await self._refresh_ttl(item_name)
+        await self.refresh_ttl(item_name)
         return RateLimitDecision(allowed=True, limit=self._tightest_limit[policy_name])
 
     async def aclose(self) -> None:
         """Close the factory and await its process-owned background expiry task."""
         await self._factory.aclose()
 
-    async def _refresh_ttl(self, item_name: str) -> None:
+    async def refresh_ttl(self, item_name: str) -> None:
         try:
             await self._factory.refresh_key_ttl(item_name)
         except _BACKEND_ERRORS as exc:  # best-effort TTL refresh must not fail the request
             logger.debug("Rate limit TTL refresh failed for %s: %s", item_name, exc)
 
-    async def _resolve_violation(
+    async def resolve_violation(
         self,
         item_name: str,
         policy: RateLimitPolicy,
@@ -134,10 +140,11 @@ class PyrateRateLimiter:
                 return fallback
 
             retry_after_sec = max(1, failing_rate.interval // 1000)
-            return failing_rate.limit, retry_after_sec
         except Exception:  # never let diagnostics break the deny path
             logger.debug("Could not resolve violated rate for %s", item_name, exc_info=True)
             return fallback
+        else:
+            return failing_rate.limit, retry_after_sec
 
 
 @dataclass(eq=False)
@@ -157,7 +164,7 @@ class DynamicRateLimiter:
     def __init__(self, redis: Redis, settings: Settings) -> None:
         self._redis = redis
         self._settings = settings
-        self._signature: tuple | None = None
+        self._signature: tuple[tuple[RateLimitPolicy, ...], bool] | None = None
         self._current: LimiterGeneration | None = None
         self._generations: set[LimiterGeneration] = set()
 
@@ -188,7 +195,8 @@ class DynamicRateLimiter:
         generation = self._current
 
         if generation is None:
-            raise RuntimeError("Rate limiter generation unavailable")
+            msg = "Rate limiter generation unavailable"
+            raise RuntimeError(msg)
 
         generation.users += 1
         try:

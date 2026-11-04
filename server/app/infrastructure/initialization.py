@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import TYPE_CHECKING
 
-from config import Settings, settings
+
+if TYPE_CHECKING:
+    from application.uow.factory import UnitOfWorkFactory
+
 from application.runtime.config import ConfigParameter
+from application.runtime.dynamic_params import DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
+from config import Settings, settings
+from domain.identity.roles import UserKind, UserRole
 from domain.ingestion.profiles.registry import DomainProfileRegistry
+from infrastructure.auth.password_hasher import BCryptPasswordHasher
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from application.runtime.dynamic_params import DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
-from domain.identity.roles import UserKind, UserRole
-from infrastructure.auth.password_hasher import BCryptPasswordHasher
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+
 
 logger = logging.getLogger("default")
 
@@ -28,7 +34,11 @@ def build_defaults() -> list[ConfigParameter]:
         if raw is None:
             raw = declaration.min_val if declaration.min_val is not None else 0.0
 
-        scoped_default = PROFILE_CONFIG_DEFAULTS.get((declaration.key, declaration.domain_key))
+        scoped_default = (
+            PROFILE_CONFIG_DEFAULTS.get((declaration.key, declaration.domain_key))
+            if declaration.domain_key is not None
+            else None
+        )
         value = (
             scoped_default.value
             if scoped_default is not None
@@ -51,7 +61,7 @@ def build_defaults() -> list[ConfigParameter]:
     return result
 
 
-async def bootstrap_admin(uow_factory) -> None:
+async def bootstrap_admin(uow_factory: UnitOfWorkFactory) -> None:
     if not settings.admin_email or not settings.admin_password:
         logger.warning("ADMIN_EMAIL/ADMIN_PASSWORD are not set; default admin is not created")
         return
@@ -66,7 +76,7 @@ async def bootstrap_admin(uow_factory) -> None:
         )
 
 
-async def seed_config_defaults(uow_factory) -> None:
+async def seed_config_defaults(uow_factory: UnitOfWorkFactory) -> None:
     async with uow_factory.create(master=True) as uow:
         await uow.config_parameters.lock_configuration()
         existing = await uow.config_parameters.get_all()
@@ -87,7 +97,9 @@ async def seed_config_defaults(uow_factory) -> None:
                 await uow.config_parameters.update_category(entity.key, entity.category, entity.domain_key)
 
 
-async def seed_domain_config_defaults(uow_factory, registry) -> None:
+async def seed_domain_config_defaults(
+    uow_factory: UnitOfWorkFactory, registry: DomainProfileRegistry
+) -> None:
     async with uow_factory.create(master=True) as uow:
         await uow.config_parameters.lock_configuration()
         existing = await uow.config_parameters.get_all()
@@ -112,7 +124,12 @@ async def seed_domain_config_defaults(uow_factory, registry) -> None:
                 )
 
 
-async def load_config_from_db(uow_factory, configuration=None, *, require_complete=True) -> None:
+async def load_config_from_db(
+    uow_factory: UnitOfWorkFactory,
+    configuration: SettingsProviderConfiguration | None = None,
+    *,
+    require_complete: bool = True,
+) -> None:
     async with uow_factory.create(master=True) as uow:
         rows = await uow.config_parameters.get_all()
 
@@ -124,7 +141,7 @@ async def load_config_from_db(uow_factory, configuration=None, *, require_comple
 
     version = configuration.snapshot_version(rows)
 
-    async def verify_snapshot():
+    async def verify_snapshot() -> bool:
         async with uow_factory.create(master=True) as uow:
             latest = await uow.config_parameters.get_all()
         return configuration.snapshot_version(latest) == version

@@ -17,7 +17,7 @@ from infrastructure.worker.outcomes import job_error_message
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 
     from application.uow.factory import UnitOfWorkFactory
 
@@ -108,10 +108,10 @@ async def run_tracked_job(
 
 def job(
     *, per_principal: bool = False, max_tries: int = MAX_JOB_TRIES
-) -> Callable[[Callable[..., Awaitable[None]]], Callable[..., Awaitable[None]]]:
+) -> Callable[[Callable[..., Awaitable[None]]], Callable[..., Coroutine[Any, Any, None]]]:
     """Apply the worker lifecycle once, excluding admission waits from retries."""
 
-    def decorate(function: Callable[..., Awaitable[None]]) -> Callable[..., Awaitable[None]]:
+    def decorate(function: Callable[..., Awaitable[None]]) -> Callable[..., Coroutine[Any, Any, None]]:
         @wraps(function)
         async def run(
             ctx: dict[str, Any],

@@ -429,7 +429,9 @@ services:
       - backend
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2024-09-22T00-33-43Z
+    image: rag-minio:RELEASE.2024-09-22T00-33-43Z
+    build:
+      context: ./docker/minio
     logging: *bounded-logging
     hostname: minio
     container_name: rag-minio
@@ -464,7 +466,7 @@ services:
           create_host_path: true
           selinux: Z
     healthcheck:
-      test: [ "CMD", "mc", "ready", "local" ]
+      test: [ "CMD", "curl", "--silent", "--fail", "http://localhost:9000/minio/health/ready" ]
       interval: 10s
       timeout: 5s
       retries: 10

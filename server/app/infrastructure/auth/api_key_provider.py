@@ -15,8 +15,12 @@ import hashlib
 import json
 import logging
 import secrets
+from typing import Any, cast
+
+from redis.exceptions import RedisError
 
 from infrastructure.redis.redis_client import redis_client
+
 
 logger = logging.getLogger("default")
 
@@ -56,7 +60,7 @@ class ApiKeyProvider:
     # Public cache API
     # ------------------------------------------------------------------
 
-    async def get_cached(self, key_hash: str):
+    async def get_cached(self, key_hash: str) -> object:
         """Return a cached value, None for known-invalid keys, or MISS if absent."""
         try:
             raw = await redis_client.async_redis.get(f"{_REDIS_CACHE_PREFIX}{key_hash}")
@@ -67,12 +71,12 @@ class ApiKeyProvider:
             if raw == _CACHE_MISS_SENTINEL:
                 return None
 
-            return json.loads(raw)
-        except Exception:
+            return cast("object", json.loads(raw))
+        except (RedisError, OSError, RuntimeError, ValueError, TypeError, KeyError):
             logger.warning("Redis GET failed for api_key cache, treating as MISS")
             return MISS
 
-    async def set_cached(self, key_hash: str, value: dict | None) -> None:
+    async def set_cached(self, key_hash: str, value: dict[str, Any] | None) -> None:
         """Store value in cache with TTL.
 
         None values (cache misses for invalid keys) are stored as a sentinel
@@ -98,7 +102,7 @@ class ApiKeyProvider:
                     int(_CACHE_TTL_SECONDS),
                     key_hash,
                 )
-        except Exception:
+        except (RedisError, OSError, RuntimeError, ValueError, TypeError, KeyError):
             logger.warning("Redis SETEX failed for api_key cache")
 
     async def invalidate_by_id(self, api_key_id: int) -> None:
@@ -123,7 +127,7 @@ class ApiKeyProvider:
             logger.info(
                 "ApiKeyProvider: revoked key id=%d, published to %s", api_key_id, _REDIS_REVOKED_CHANNEL
             )
-        except Exception:
+        except (RedisError, OSError, RuntimeError, ValueError, TypeError, KeyError):
             logger.warning("Redis invalidation failed for api_key id=%d", api_key_id)
 
 

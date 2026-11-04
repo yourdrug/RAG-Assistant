@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
 
 from config import _settings_overrides, get_setting, settings
 from infrastructure.benchmark.checkpoint import fingerprint
 
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+
 class LiveSweepSettings:
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, Any]:
         return settings_snapshot()
 
     @property
@@ -21,7 +26,7 @@ class LiveSweepSettings:
         return int(get_setting("retriever_top_k"))
 
     @contextmanager
-    def override(self, config: dict):
+    def override(self, config: dict[str, Any]) -> Iterator[None]:
         mapping = {
             "top_k": "retriever_top_k",
             "fetch_k": "retriever_fetch_k",
@@ -42,7 +47,7 @@ class LiveSweepSettings:
             _settings_overrides.reset(token)
 
 
-def settings_snapshot() -> dict:
+def settings_snapshot() -> dict[str, Any]:
     return {
         name: get_setting(name)
         for name in type(settings).model_fields

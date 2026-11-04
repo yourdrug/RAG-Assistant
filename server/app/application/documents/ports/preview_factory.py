@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from application.documents.ports.preview import DocumentPreviewStrategy
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 
 @runtime_checkable
@@ -18,8 +20,8 @@ class PreviewStrategyFactoryPort(Protocol):
         extension: str,
         *,
         diag_service: object | None = None,
-        domain_registry: object | None = None,
-        domain_settings: object | None = None,
+        domain_registry: DomainProfileRegistry | None = None,
+        domain_settings: DomainSettingsPort | None = None,
     ) -> DocumentPreviewStrategy: ...
 
     def supported_extensions(self) -> set[str]: ...

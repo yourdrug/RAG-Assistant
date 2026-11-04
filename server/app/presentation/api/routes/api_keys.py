@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
-from application.ports.rate_limit import RateLimitPolicyName
-from application.identity import ApiKeyService
-from domain.identity.roles import UserKind, UserRole
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
 
+from application.identity import ApiKeyService
+from application.ports.action_logger import ActionLoggerPort
+from application.ports.rate_limit import RateLimitPolicyName
+from domain.identity.roles import UserKind, UserRole
 from presentation.api.auth_dependencies import get_current_user, require_admin
-from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_action_logger, create_api_key_service
+from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import (
     ApiKeyCreateRequest,
     ApiKeyCreateResponse,
-    ApiKeyRevokeResponse,
     ApiKeyResponse,
+    ApiKeyRevokeResponse,
     CurrentUser,
 )
+
 
 router = APIRouter(prefix="/clients", tags=["api-keys"])
 
@@ -27,6 +31,7 @@ def _check_client_access(current_user: CurrentUser, client_user_id: int) -> None
         current_user.kind == UserKind.CLIENT and current_user.id == client_user_id
     ):
         return
+
     raise HTTPException(status_code=403, detail="Forbidden")
 
 
@@ -36,12 +41,13 @@ def _check_client_access(current_user: CurrentUser, client_user_id: int) -> None
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def issue_api_key(
+    *,
     client_user_id: int,
     req: ApiKeyCreateRequest,
-    admin: CurrentUser = Depends(require_admin),
-    api_key_service: ApiKeyService = Depends(create_api_key_service),
-    log=Depends(create_action_logger),
-):
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+    api_key_service: Annotated[ApiKeyService, Depends(create_api_key_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> ApiKeyCreateResponse:
     result = await api_key_service.issue_api_key(client_user_id, name=req.name)
     log("api_key.create", user_id=admin.id, details={"client_user_id": client_user_id, "name": req.name})
     return ApiKeyCreateResponse(key=result.api_key, key_prefix=result.key_prefix, name=result.name)
@@ -49,10 +55,11 @@ async def issue_api_key(
 
 @router.get("/{client_user_id}/api-keys", response_model=list[ApiKeyResponse])
 async def list_api_keys(
+    *,
     client_user_id: int,
-    current_user: CurrentUser = Depends(get_current_user),
-    api_key_service: ApiKeyService = Depends(create_api_key_service),
-):
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    api_key_service: Annotated[ApiKeyService, Depends(create_api_key_service)],
+) -> list[ApiKeyResponse]:
     _check_client_access(current_user, client_user_id)
     keys = await api_key_service.list_api_keys(client_user_id)
     return [
@@ -75,12 +82,13 @@ async def list_api_keys(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def revoke_api_key(
+    *,
     client_user_id: int,
     api_key_id: int,
-    current_user: CurrentUser = Depends(get_current_user),
-    api_key_service: ApiKeyService = Depends(create_api_key_service),
-    log=Depends(create_action_logger),
-):
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    api_key_service: Annotated[ApiKeyService, Depends(create_api_key_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> ApiKeyRevokeResponse:
     _check_client_access(current_user, client_user_id)
     await api_key_service.revoke_api_key(api_key_id, client_user_id=client_user_id)
     log("api_key.revoke", user_id=current_user.id, details={"api_key_id": api_key_id})

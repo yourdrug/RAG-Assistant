@@ -7,14 +7,13 @@ that must bypass read replicas.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
-from application.uow import UnitOfWork, UnitOfWorkRepositories
-from application.runtime.config import ConfigParameterChanged
 from sqlalchemy import text
 
-from infrastructure.database.database import DatabaseManager
+from application.runtime.config import ConfigParameterChanged
+from application.uow import UnitOfWork, UnitOfWorkRepositories
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
@@ -71,13 +70,22 @@ from infrastructure.repositories.user.sqlalchemy_user_repository import (
 )
 
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from infrastructure.database.database import DatabaseManager
+    from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
+
+
 class UnitOfWorkFactory:
     """Factory for creating Unit of Work instances.
 
     Each call to create() yields a new UoW with a fresh async session.
     """
 
-    def __init__(self, database: DatabaseManager, config_broadcaster=None) -> None:
+    def __init__(
+        self, database: DatabaseManager, config_broadcaster: PostgresConfigBroadcaster | None = None
+    ) -> None:
         self._database = database
         self._config_broadcaster = config_broadcaster
 
@@ -134,11 +142,11 @@ class UnitOfWorkFactory:
         if self._config_broadcaster is not None:
             broadcaster = self._config_broadcaster
 
-            async def _publish_to_broadcaster(event: object) -> None:
+            async def publish_to_broadcaster(event: object) -> None:
                 if isinstance(event, ConfigParameterChanged):
                     await broadcaster.broadcast_within_session(session, event)
 
-            uow.on_event(_publish_to_broadcaster)
+            uow.on_event(publish_to_broadcaster)
 
         async with uow:
             yield uow

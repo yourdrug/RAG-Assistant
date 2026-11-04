@@ -5,19 +5,29 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from application.benchmark.sweep import SweepEngine
+    from application.benchmark.sweep_jobs import SweepJobService
+    from application.benchmark.sweep_ports import ProgressCallback, ShouldCancel
+    from domain.benchmark.sweep import BenchmarkSweep
+
+import contextlib
 
 from application.benchmark.sweep_jobs import validate_sweep_coverage
 from application.benchmark.sweep_ports import SweepCancelled
 from config import settings
 from infrastructure.redis.redis_client import redis_client
-from infrastructure.worker.runtime import job
 from infrastructure.worker.outcomes import job_error_message
+from infrastructure.worker.runtime import job
+
 
 logger = logging.getLogger(__name__)
 
 
-async def publish_sweep_event(sweep_id: int, message: dict) -> None:
+async def publish_sweep_event(sweep_id: int, message: dict[str, Any]) -> None:
     """Publish a sweep progress/done event to the Redis pub/sub channel."""
     try:
         await redis_client.async_redis.publish(f"sweep:{sweep_id}", json.dumps(message, default=str))
@@ -25,7 +35,12 @@ async def publish_sweep_event(sweep_id: int, message: dict) -> None:
         logger.debug("Failed to publish sweep event to Redis", exc_info=True)
 
 
-async def run_cancellable_sweep(engine, sweep, progress_callback, is_cancelled) -> list[dict]:
+async def run_cancellable_sweep(
+    engine: SweepEngine,
+    sweep: BenchmarkSweep,
+    progress_callback: ProgressCallback,
+    is_cancelled: ShouldCancel,
+) -> list[dict[str, Any]]:
     task = asyncio.create_task(
         engine.run_sweep(
             sweep=sweep,
@@ -39,16 +54,15 @@ async def run_cancellable_sweep(engine, sweep, progress_callback, is_cancelled) 
             await asyncio.wait({task}, timeout=0.5)
 
             if await is_cancelled():
-                raise SweepCancelled("Sweep cancelled during evaluation")
+                msg = "Sweep cancelled during evaluation"
+                raise SweepCancelled(msg)
 
         return await task
     finally:
         if not task.done():
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
 
 @job(max_tries=1)
@@ -59,7 +73,7 @@ async def run_sweep_task(
     job_id: int,
 ) -> None:
     """Run a parameter sweep as a background job (cooperatively cancellable)."""
-    service = ctx["sweep_jobs"]
+    service: SweepJobService = ctx["sweep_jobs"]
 
     async def is_cancelled() -> bool:
         return await service.sweep_job_cancelled(sweep_id, job_id)
@@ -69,11 +83,11 @@ async def run_sweep_task(
     if sweep is None:
         return
 
-    async def progress_callback(ev: int, tot: int, res: dict | None) -> None:
+    async def progress_callback(ev: int, tot: int, res: dict[str, Any] | None) -> None:
         await service.record_sweep_progress(sweep, sweep_id, ev, tot, res)
 
     try:
-        engine = ctx["sweep_engine"]
+        engine: SweepEngine = ctx["sweep_engine"]
         results = await run_cancellable_sweep(engine, sweep, progress_callback, is_cancelled)
         best_run_id = await service.save_sweep_results(sweep, sweep_id, results)
         validate_sweep_coverage(results)
@@ -92,7 +106,11 @@ async def run_sweep_task(
         raise
 
     await service.complete_sweep(sweep_id, results, best_run_id)
+    await save_sweep_reports(service, sweep_id, len(results))
+
+
+async def save_sweep_reports(service: SweepJobService, sweep_id: int, count: int) -> None:
     try:
-        await service.save_sweep_reports(sweep_id, len(results))
+        await service.save_sweep_reports(sweep_id, count)
     except Exception:
         logger.exception("Sweep reports deferred: sweep=%s", sweep_id)

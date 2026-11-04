@@ -7,26 +7,25 @@ Target ownership is declared in application.runtime.setting_keys.
 
 from __future__ import annotations
 
-import sys
-from application.runtime.enums import MLProvider
-from domain.rag.settings import (
-    DEFAULT_NUM_CTX_NARROW,
-    DEFAULT_NUM_CTX_BROAD,
-    DEFAULT_NUM_PREDICT_NARROW,
-    DEFAULT_NUM_PREDICT_BROAD,
-)
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TYPE_CHECKING, Literal
+import sys
+from typing import TYPE_CHECKING, Literal, cast, overload
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
 
-from application.runtime.dynamic_params import MAX_UPLOAD_FILE_MB, DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
-from application.runtime.enums import AppStage
-from application.runtime.enums import LLMProvider
+from application.runtime.dynamic_params import DYNAMIC_PARAMS, MAX_UPLOAD_FILE_MB, PROFILE_CONFIG_DEFAULTS
+from application.runtime.enums import AppStage, LLMProvider, MLProvider
+from domain.rag.settings import (
+    DEFAULT_NUM_CTX_BROAD,
+    DEFAULT_NUM_CTX_NARROW,
+    DEFAULT_NUM_PREDICT_BROAD,
+    DEFAULT_NUM_PREDICT_NARROW,
+)
+
 
 if TYPE_CHECKING:
     from pydantic_settings import PydanticBaseSettingsSource
@@ -34,16 +33,26 @@ if TYPE_CHECKING:
 _settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
 
 
-def get_setting(key: str) -> Any:
+@overload
+def get_setting(key: Literal["retriever_fetch_k", "retriever_top_k"]) -> int: ...
+
+
+@overload
+def get_setting(key: str) -> object: ...
+
+
+def get_setting(key: str) -> object:
     """Read a setting, preferring per-context overrides over the global singleton.
 
     Used by benchmark/sweep code paths that need isolated config without
     mutating the process-wide ``settings`` object.
     """
     overrides = _settings_overrides.get()
+
     if overrides is not None and key in overrides:
         return overrides[key]
-    return getattr(get_request_settings(), key)
+
+    return cast("object", getattr(get_request_settings(), key))
 
 
 request_settings: ContextVar[Settings | None] = ContextVar("request_settings", default=None)
@@ -164,7 +173,7 @@ class Settings(BaseSettings):
     ocr_vl_timeout: float = Field(default=180, gt=0)
     ocr_enabled: bool = True
     ocr_lang_paddle: str = "ru"
-    ocr_lang_surya: list[Any] = ["ru", "en"]
+    ocr_lang_surya: list[str] = ["ru", "en"]
     ocr_dpi: int = 300
     ocr_min_chars: int = 40
 
@@ -223,13 +232,17 @@ class Settings(BaseSettings):
     @property
     def redis_url(self) -> str:
         auth = ""
+
         if self.redis_user:
             auth = self.redis_user
+
             if self.redis_password:
                 auth = f"{auth}:{self.redis_password}"
+
             auth = f"{auth}@"
         elif self.redis_password:
             auth = f":{self.redis_password}@"
+
         return f"redis://{auth}{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     # ── File storage ────────────────────────────────────────────────────────
@@ -239,7 +252,7 @@ class Settings(BaseSettings):
     s3_secret_key: str = ""
     s3_region: str = "us-east-1"
     s3_max_concurrent: int = Field(default=10, ge=1)
-    supported_extensions: tuple = (".pdf", ".docx", ".rtf", ".md", ".txt")
+    supported_extensions: tuple[str, ...] = (".pdf", ".docx", ".rtf", ".md", ".txt")
     max_upload_size_mb: int = Field(default=50, ge=1, le=MAX_UPLOAD_FILE_MB)
     preview_max_size_mb: int = Field(default=50, ge=1, le=MAX_UPLOAD_FILE_MB)
     preview_cache_ttl_seconds: int = Field(default=1800, ge=1)
@@ -283,6 +296,7 @@ class Settings(BaseSettings):
     def uptime_seconds(self) -> float:
         if not self.service_start_datetime:
             return 0.0
+
         try:
             start = datetime.fromisoformat(self.service_start_datetime)
             now = datetime.now(tz=UTC)
@@ -328,31 +342,39 @@ class Settings(BaseSettings):
     @classmethod
     def settings_customise_sources(
         cls,
-        settings_cls,
-        init_settings,
-        env_settings,
-        dotenv_settings,
-        file_secret_settings,
+        _settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         # Filter before decoding (legacy list values can contain invalid JSON).
         dynamic_keys = {param.key for param in DYNAMIC_PARAMS}
+
         for source in (env_settings, dotenv_settings):
+            if not isinstance(source, EnvSettingsSource):
+                continue
+
             source.env_vars = {
                 key: value for key, value in source.env_vars.items() if key.lower() not in dynamic_keys
             }
+
         return init_settings, env_settings, dotenv_settings, file_secret_settings
 
     @model_validator(mode="after")
     def post_init(self) -> Settings:
         pool_errors = self.check_http_pools()
+
         if pool_errors:
             raise ValueError("; ".join(pool_errors))
+
         if not self.version:
             self.version = read_version()
 
         # Security violations are hard errors in EVERY stage: weak/blank
         # credentials must never reach any environment without warning.
         security_errors = self.check_security()
+
         if security_errors:
             msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in security_errors)
             sys.stderr.write(msg + "\n")
@@ -362,46 +384,58 @@ class Settings(BaseSettings):
 
     def check_http_pools(self) -> list[str]:
         errors = []
+
         for prefix in ("embedding", "rerank"):
             maximum = getattr(self, f"{prefix}_http_max_connections")
             keepalive = getattr(self, f"{prefix}_http_max_keepalive_connections")
+
             if maximum <= 0 or keepalive < 0 or keepalive > maximum:
                 errors.append(f"Invalid {prefix} HTTP pool: 0 <= keepalive <= positive connections required")
+
         return errors
 
     def check_security(self) -> list[str]:
         errors: list[str] = []
+
         # Credential hygiene — enforced in ALL stages (weak defaults never pass).
         if not self.jwt_secret_key or self.jwt_secret_key == "change-me-in-production":  # noqa: S105
             errors.append(
                 "JWT_SECRET_KEY must be set to a strong random value "
                 "(openssl rand -hex 32) in server/.env.secrets"
             )
+
         if self.admin_email and self.admin_password in ("", "admin", "password", "change-me-in-production"):
             errors.append(
                 "ADMIN_PASSWORD must be a strong non-default value "
                 "(set ADMIN_PASSWORD in server/.env.secrets)"
             )
+
         if self.redis_password in ("", "password"):
             errors.append(
                 "REDIS_PASSWORD must be a strong non-default value "
                 "(set REDIS_PASSWORD in server/.env.secrets)"
             )
+
         if self.s3_access_key in ("", "minioadmin") or self.s3_secret_key in ("", "minioadmin"):
             errors.append(
                 "S3_ACCESS_KEY / S3_SECRET_KEY must be strong non-default values (set in server/.env.secrets)"
             )
+
         if self.stage == AppStage.PROD and self.allowed_origins.strip() == "*":
             errors.append("ALLOWED_ORIGINS must not be '*' in production — list explicit origins")
+
         return errors
 
     def check_ml_provider(self) -> list[str]:
         if self.ml_provider == MLProvider.TEI.value:
             missing = []
+
             if not self.tei_embed_url:
                 missing.append("TEI_EMBED_URL")
+
             if not self.tei_rerank_url:
                 missing.append("TEI_RERANK_URL")
+
             if missing:
                 return [f"{', '.join(missing)} required when ML_PROVIDER=tei"]
         elif self.ml_provider == MLProvider.DEEPINFRA.value:
@@ -409,9 +443,10 @@ class Settings(BaseSettings):
                 return ["DEEPINFRA_API_KEY required when ML_PROVIDER=deepinfra"]
         else:
             return [f"ML_PROVIDER must be 'tei' or 'deepinfra', got '{self.ml_provider}'"]
+
         return []
 
 
 settings = Settings()
 
-__all__ = ["Settings", "settings", "get_setting", "_settings_overrides"]
+__all__ = ["Settings", "_settings_overrides", "get_setting", "settings"]

@@ -6,8 +6,14 @@ Single source of truth: routes reference policy names, all numbers live here
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from application.ports.rate_limit import RateLimitPolicy, RateLimitPolicyName, RateSpec
-from config import Settings
+
+
+if TYPE_CHECKING:
+    from config import Settings
+
 
 _MINUTE_MS = 60_000
 _HOUR_MS = 60 * _MINUTE_MS

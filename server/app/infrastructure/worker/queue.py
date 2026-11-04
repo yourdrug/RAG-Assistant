@@ -15,57 +15,69 @@ H-7/H-8 hardening:
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import hashlib
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, Unpack, cast
 from uuid import uuid4
 
 from arq import create_pool
-from arq.connections import RedisSettings, ArqRedis
-from arq.jobs import Job
-from config import settings
-from domain.knowledge.enums import DocumentVisibility
+from arq.connections import RedisSettings
+
 from application.budget import billing_principal
 from application.ports.job_enqueuer import DuplicateJobError
+from config import settings
+from domain.knowledge.enums import DocumentVisibility
+
+
+if TYPE_CHECKING:
+    from arq.connections import ArqRedis
+    from arq.jobs import Job
+
+    from application.ports.job_enqueuer import DocumentProcessingRequest
+
 
 logger = logging.getLogger("default")
 
 QUEUE_NAME = "background_tasks"
 
-_pool: ArqRedis | None = None
+
+@dataclass
+class PoolState:
+    pool: ArqRedis | None = None
+
+
+pool_state = PoolState()
 pool_lock = asyncio.Lock()
 
 
 async def get_pool() -> ArqRedis:
     """Lazily create and reuse one arq pool per process."""
-    global _pool
-
-    if _pool is None:
+    if pool_state.pool is None:
         async with pool_lock:
-            if _pool is None:
-                _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+            if pool_state.pool is None:
+                pool_state.pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
 
-    return _pool
+    return pool_state.pool
 
 
 async def close_arq_pool() -> None:
     """Close the shared arq pool (call from lifespan shutdown)."""
-    global _pool
     async with pool_lock:
-        if _pool is not None:
-            pool = _pool
-            _pool = None
+        if pool_state.pool is not None:
+            pool = pool_state.pool
+            pool_state.pool = None
             await pool.close()
 
 
-def deterministic_id(prefix: str, *parts: Any) -> str:
+def deterministic_id(prefix: str, *parts: object) -> str:
     raw = "|".join(str(p) for p in parts)
     digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]  # noqa: S324
     return f"{prefix}:{digest}"
 
 
 async def enqueue_arq(
-    queue_name: str, func_name: str, arq_job_id: str | None = None, **kwargs: Any
+    queue_name: str, func_name: str, arq_job_id: str | None = None, **kwargs: object
 ) -> Job | None:
     """Enqueue a task via Arq's Redis queue.
 
@@ -77,7 +89,9 @@ async def enqueue_arq(
 
     kwargs.setdefault("cost_operation_id", str(uuid4()))
     pool = await get_pool()
-    job = await pool.enqueue_job(func_name, _queue_name=queue_name, _job_id=arq_job_id, **kwargs)
+    job = await pool.enqueue_job(
+        func_name, _queue_name=queue_name, _job_id=arq_job_id, **cast("dict[str, Any]", kwargs)
+    )
 
     if job is None:
         logger.warning(
@@ -96,34 +110,13 @@ async def enqueue_arq(
 # ---------------------------------------------------------------------------
 
 
-async def enqueue_document_processing(
-    *,
-    document_id: int,
-    storage_key: str,
-    filename: str,
-    visibility: str,
-    owner_id: int | None,
-    group_id: int | None,
-    replace_id: int | None,
-    job_id: int,
-    doc_domain: str | None = None,
-    principal_id: int | None = None,
-) -> None:
+async def enqueue_document_processing(**request: Unpack[DocumentProcessingRequest]) -> None:
     """Enqueue document processing via Arq."""
     await enqueue_arq(
         QUEUE_NAME,
         "process_document",
-        arq_job_id=f"process_doc:{document_id}:{job_id}",
-        document_id=document_id,
-        storage_key=storage_key,
-        filename=filename,
-        visibility=visibility,
-        owner_id=owner_id,
-        group_id=group_id,
-        replace_id=replace_id,
-        job_id=job_id,
-        doc_domain=doc_domain,
-        principal_id=principal_id,
+        arq_job_id=f"process_doc:{request['document_id']}:{request['job_id']}",
+        **{**request, "doc_domain": request.get("doc_domain"), "principal_id": request.get("principal_id")},
     )
 
 
@@ -152,8 +145,10 @@ async def enqueue_ingest(
         group_id=group_id,
         client_id=client_id,
     )
+
     if job is None:
-        raise DuplicateJobError("An equivalent ingestion is already queued or running")
+        msg = "An equivalent ingestion is already queued or running"
+        raise DuplicateJobError(msg)
 
 
 async def enqueue_ingest_file(
@@ -179,8 +174,10 @@ async def enqueue_ingest_file(
         client_id=client_id,
         force=force,
     )
+
     if job is None:
-        raise DuplicateJobError("An equivalent ingestion is already queued or running")
+        msg = "An equivalent ingestion is already queued or running"
+        raise DuplicateJobError(msg)
 
 
 async def enqueue_benchmark(
@@ -228,4 +225,5 @@ async def enqueue_document_deletion(*, document_id: int, user_id: int, job_id: i
     )
 
     if job is None:
-        raise RuntimeError("Document deletion job was not enqueued")
+        msg = "Document deletion job was not enqueued"
+        raise RuntimeError(msg)

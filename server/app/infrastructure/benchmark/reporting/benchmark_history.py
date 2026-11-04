@@ -1,5 +1,8 @@
 """Pure comparison of persisted benchmark summaries for web regression checks."""
 
+from typing import Any
+
+
 DEFAULT_THRESHOLDS = {
     "hit_rate": -0.05,
     "faithfulness": -1.0,
@@ -11,10 +14,10 @@ DEFAULT_THRESHOLDS = {
 
 
 def compare_runs(
-    current: dict,
-    baseline: dict,
-    thresholds: dict | None = None,
-) -> dict:
+    current: dict[str, Any],
+    baseline: dict[str, Any],
+    thresholds: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Compare current run against baseline.
 
     Returns dict with:

@@ -4,6 +4,13 @@ Re-exports all classes so that ``from presentation.api.schemas import X``
 continues to work after the split into per-domain modules.
 """
 
+from presentation.api.schemas.admin_act_versions import (
+    ActSummary,
+    ActVersionListResponse,
+    ActVersionReviewItem,
+    ActVersionUpdateRequest,
+    ActVersionUpdateResponse,
+)
 from presentation.api.schemas.admin_config import (
     ConfigParamResponse,
     ConfigParamUpdateRequest,
@@ -12,13 +19,6 @@ from presentation.api.schemas.admin_config import (
     OpenRouterModelsResponse,
     VectorDBCollectionInfo,
     VectorDBInfoResponse,
-)
-from presentation.api.schemas.admin_act_versions import (
-    ActSummary,
-    ActVersionListResponse,
-    ActVersionReviewItem,
-    ActVersionUpdateRequest,
-    ActVersionUpdateResponse,
 )
 from presentation.api.schemas.admin_jobs import JobResponse, JobsListResponse, JobsStatsResponse
 from presentation.api.schemas.admin_logs import (
@@ -42,8 +42,8 @@ from presentation.api.schemas.admin_quality import (
 from presentation.api.schemas.api_keys import (
     ApiKeyCreateRequest,
     ApiKeyCreateResponse,
-    ApiKeyRevokeResponse,
     ApiKeyResponse,
+    ApiKeyRevokeResponse,
 )
 from presentation.api.schemas.auth import (
     ChangeRoleRequest,
@@ -102,6 +102,7 @@ from presentation.api.schemas.chunks import (
     ChunkListResponse,
     ChunkResponse,
 )
+from presentation.api.schemas.curators import CuratorAssignmentResponse
 from presentation.api.schemas.documents import (
     DeleteDocumentResponse,
     DocumentRenameRequest,
@@ -110,7 +111,6 @@ from presentation.api.schemas.documents import (
     UploadResponse,
     UploadStatusResponse,
 )
-from presentation.api.schemas.curators import CuratorAssignmentResponse
 from presentation.api.schemas.groups import (
     CreateGroupRequest,
     GroupAssignResponse,
@@ -123,6 +123,7 @@ from presentation.api.schemas.ingest import IngestRegistryItem, IngestRegistryRe
 from presentation.api.schemas.search import ExactSearchRequest, ExactSearchResponse, ExactSearchResult
 from presentation.api.schemas.validators import FileContent, SafeRelativePath
 
+
 __all__ = [
     # admin_act_versions
     "ActSummary",
@@ -130,51 +131,11 @@ __all__ = [
     "ActVersionReviewItem",
     "ActVersionUpdateRequest",
     "ActVersionUpdateResponse",
-    # admin_config
-    "ConfigParamResponse",
-    "ConfigParamUpdateRequest",
-    "ModelsInfoResponse",
-    "OpenRouterModelInfo",
-    "OpenRouterModelsResponse",
-    "VectorDBCollectionInfo",
-    "VectorDBInfoResponse",
-    # admin_jobs
-    "JobResponse",
-    "JobsListResponse",
-    "JobsStatsResponse",
-    # admin_logs
-    "ChatLogEntry",
-    "ChatLogsResponse",
-    "LogEntry",
-    "LogsResponse",
-    # admin_metrics
-    "MetricsResponse",
-    # admin_quality
-    "DocumentDiagnoseResponse",
-    "DocumentQualityItem",
-    "DocumentQualityListResponse",
-    "DryRunPageResult",
-    "DryRunResponse",
-    "IndexFromPreviewResponse",
-    "PageDiagnostic",
-    "PageImageResponse",
-    "PreviewFile",
     # api_keys
     "ApiKeyCreateRequest",
     "ApiKeyCreateResponse",
-    "ApiKeyRevokeResponse",
     "ApiKeyResponse",
-    # auth
-    "ChangeRoleRequest",
-    "CreateUserRequest",
-    "CuratorScopeResponse",
-    "CurrentUser",
-    "LoginRequest",
-    "MeResponse",
-    "TokenResponse",
-    "UserListResponse",
-    "UserResponse",
-    "UserToggleResponse",
+    "ApiKeyRevokeResponse",
     # benchmark
     "BenchmarkCancelResponse",
     "BenchmarkDeleteResponse",
@@ -182,34 +143,25 @@ __all__ = [
     "BenchmarkHistoryResponse",
     "BenchmarkQuestionCreate",
     "BenchmarkQuestionResponse",
+    "BenchmarkQuestionUpdate",
     "BenchmarkQuestionsImportRequest",
     "BenchmarkQuestionsImportResponse",
     "BenchmarkQuestionsListResponse",
-    "BenchmarkQuestionUpdate",
     "BenchmarkRequest",
     "BenchmarkResponse",
     "BenchmarkResultDetail",
-    "BenchmarkResultsListResponse",
     "BenchmarkResultSummary",
+    "BenchmarkResultsListResponse",
     "BenchmarkRunResponse",
     "BenchmarkRunsListResponse",
-    "RegressionCheckResponse",
-    "RegressionCheckResult",
-    "RunApplyFailed",
-    "RunApplyResponse",
-    "RunCompareResponse",
-    "SourceFilesResponse",
-    "SweepCreateRequest",
-    "SweepResponse",
-    "SweepsListResponse",
+    # auth
+    "ChangeRoleRequest",
+    # admin_logs
+    "ChatLogEntry",
+    "ChatLogsResponse",
     # chat
     "ChatRequest",
     "ChatResponse",
-    "ConversationHistoryResponse",
-    "ConversationListItem",
-    "ConversationListResponse",
-    "MessageResponse",
-    "NewConversationResponse",
     # chunks
     "ChunkCreateRequest",
     "ChunkCursorListResponse",
@@ -217,17 +169,35 @@ __all__ = [
     "ChunkEditRequest",
     "ChunkListResponse",
     "ChunkResponse",
-    # curators
-    "CuratorAssignmentResponse",
-    # documents
-    "DeleteDocumentResponse",
-    "DocumentRenameRequest",
-    "DocumentResponse",
-    "ManualDocumentRequest",
-    "UploadResponse",
-    "UploadStatusResponse",
+    # admin_config
+    "ConfigParamResponse",
+    "ConfigParamUpdateRequest",
+    "ConversationHistoryResponse",
+    "ConversationListItem",
+    "ConversationListResponse",
     # groups
     "CreateGroupRequest",
+    "CreateUserRequest",
+    # curators
+    "CuratorAssignmentResponse",
+    "CuratorScopeResponse",
+    "CurrentUser",
+    # documents
+    "DeleteDocumentResponse",
+    # admin_quality
+    "DocumentDiagnoseResponse",
+    "DocumentQualityItem",
+    "DocumentQualityListResponse",
+    "DocumentRenameRequest",
+    "DocumentResponse",
+    "DryRunPageResult",
+    "DryRunResponse",
+    # search
+    "ExactSearchRequest",
+    "ExactSearchResponse",
+    "ExactSearchResult",
+    # validators
+    "FileContent",
     "GroupAssignResponse",
     "GroupMemberRequest",
     "GroupMemberResponse",
@@ -235,15 +205,46 @@ __all__ = [
     # health
     "HealthCheck",
     "HealthResponse",
+    "IndexFromPreviewResponse",
     # ingest
     "IngestRegistryItem",
     "IngestRegistryResponse",
     "IngestStatusResponse",
-    # search
-    "ExactSearchRequest",
-    "ExactSearchResponse",
-    "ExactSearchResult",
-    # validators
-    "FileContent",
+    # admin_jobs
+    "JobResponse",
+    "JobsListResponse",
+    "JobsStatsResponse",
+    "LogEntry",
+    "LoginRequest",
+    "LogsResponse",
+    "ManualDocumentRequest",
+    "MeResponse",
+    "MessageResponse",
+    # admin_metrics
+    "MetricsResponse",
+    "ModelsInfoResponse",
+    "NewConversationResponse",
+    "OpenRouterModelInfo",
+    "OpenRouterModelsResponse",
+    "PageDiagnostic",
+    "PageImageResponse",
+    "PreviewFile",
+    "RegressionCheckResponse",
+    "RegressionCheckResult",
+    "RunApplyFailed",
+    "RunApplyResponse",
+    "RunCompareResponse",
     "SafeRelativePath",
+    "SourceFilesResponse",
+    "SweepCreateRequest",
+    "SweepResponse",
+    "SweepsListResponse",
+    "TokenResponse",
+    "UploadResponse",
+    "UploadStatusResponse",
+    "UserListResponse",
+    "UserResponse",
+    "UserToggleResponse",
+    "VectorDBCollectionInfo",
+    "VectorDBInfoResponse",
 ]

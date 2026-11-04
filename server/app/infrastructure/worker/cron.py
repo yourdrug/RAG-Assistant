@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from application.uow.factory import UnitOfWorkFactory
-from domain.runtime.jobs import BackgroundJob
-
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from config import settings
+
+
+if TYPE_CHECKING:
+    from application.uow.factory import UnitOfWorkFactory
+    from domain.runtime.jobs import BackgroundJob
+
 
 logger = logging.getLogger("default")
 

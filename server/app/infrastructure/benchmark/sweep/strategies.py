@@ -3,29 +3,31 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING, Any, cast
 
-from domain.benchmark.sweep import BenchmarkStrategy
-
-from infrastructure.benchmark.sweep.search_space import generate_grid_points, generate_random_points
+import optuna
 
 from application.benchmark.sweep_ports import (
     check_cancelled,
     report_progress,
 )
-from typing import TYPE_CHECKING
+from domain.benchmark.sweep import BenchmarkStrategy
+from infrastructure.benchmark.sweep.search_space import generate_grid_points, generate_random_points
+
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from application.benchmark.sweep_ports import (
-        ScoreConfig,
         ProgressCallback,
+        ScoreConfig,
         ShouldCancel,
         SweepSearchStrategy,
     )
-    from collections.abc import Callable
 
 
 class EnumeratedSweepStrategy:
-    def __init__(self, points: list[dict]) -> None:
+    def __init__(self, points: list[dict[str, Any]]) -> None:
         self._points = points
 
     def max_fetch_k(self, default: int) -> int:
@@ -33,7 +35,7 @@ class EnumeratedSweepStrategy:
 
     async def evaluate(
         self, score: ScoreConfig, progress: ProgressCallback | None, should_cancel: ShouldCancel | None
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         results = []
 
         for idx, point in enumerate(self._points, 1):
@@ -48,12 +50,13 @@ class EnumeratedSweepStrategy:
 
 
 class OptunaSweepStrategy:
-    def __init__(self, search_space: dict) -> None:
+    def __init__(self, search_space: dict[str, Any]) -> None:
         self._space = search_space
         self._n_trials = search_space.get("_n_trials", 50)
 
         if self._n_trials < 1:
-            raise ValueError("_n_trials must be at least 1")
+            message = "_n_trials must be at least 1"
+            raise ValueError(message)
 
     def max_fetch_k(self, default: int) -> int:
         spec = self._space.get("fetch_k", {})
@@ -61,9 +64,9 @@ class OptunaSweepStrategy:
         if "values" in spec:
             return max(spec["values"], default=default)
 
-        return spec.get("max", spec.get("default", default))
+        return cast("int", spec.get("max", spec.get("default", default)))
 
-    def sample_config(self, trial) -> dict:
+    def sample_config(self, trial: optuna.Trial) -> dict[str, Any]:
         config = {}
 
         for param, spec in self._space.items():
@@ -89,8 +92,7 @@ class OptunaSweepStrategy:
 
     async def evaluate(
         self, score: ScoreConfig, progress: ProgressCallback | None, should_cancel: ShouldCancel | None
-    ) -> list[dict]:
-        import optuna
+    ) -> list[dict[str, Any]]:
 
         study = optuna.create_study(
             direction="maximize",
@@ -98,12 +100,12 @@ class OptunaSweepStrategy:
         )
         results = []
 
-        def objective(trial):
+        def objective(trial: optuna.Trial) -> float:
             config = self.sample_config(trial)
             result = score(config)
             result["config"] = config
             results.append(result)
-            return result.get("composite_score", 0.0)
+            return cast("float", result.get("composite_score", 0.0))
 
         for evaluated in range(1, self._n_trials + 1):
             await check_cancelled(should_cancel, f"Optuna trial {evaluated}")
@@ -115,7 +117,7 @@ class OptunaSweepStrategy:
         return results
 
 
-def default_strategy_factories() -> dict[str, Callable[[dict], SweepSearchStrategy]]:
+def default_strategy_factories() -> dict[str, Callable[[dict[str, Any]], SweepSearchStrategy]]:
     return {
         BenchmarkStrategy.GRID.value: lambda space: EnumeratedSweepStrategy(generate_grid_points(space)),
         BenchmarkStrategy.RANDOM.value: lambda space: EnumeratedSweepStrategy(

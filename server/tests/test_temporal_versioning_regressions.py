@@ -31,7 +31,7 @@ from infrastructure.ml.rag.rag_postprocess import resolve_temporal_conflicts
 from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.repositories.vector.acl import with_temporal_filter
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
-from presentation.api.routes.chat import _format_sse_event
+from presentation.api.routes.chat import format_sse_event
 from presentation.api.schemas.chat import ChatRequest
 from tests.test_chunk_search_acl import capture, eval_tree, where_tree
 
@@ -101,7 +101,7 @@ def test_calendar_date_has_priority_and_question_date_is_reported_in_sse():
     assert ChatRequest(question=question).as_of_date == date(2024, 6, 1)
     request = ChatRequest(question=question, as_of_date="2025-01-01")
     assert request.as_of_date == date(2025, 1, 1)
-    event = _format_sse_event(MetaEvent(7, [], as_of_date=request.as_of_date), "request")
+    event = format_sse_event(MetaEvent(7, [], as_of_date=request.as_of_date), "request")
     assert '"as_of_date": "2025-01-01"' in event
     with pytest.raises(ValueError, match="Invalid date"):
         ChatRequest(question="Правила по состоянию на 31.02.2024?")
@@ -118,8 +118,10 @@ def test_legal_act_identity_includes_number_and_signing_date():
 @pytest.mark.asyncio
 async def test_backfilled_and_future_versions_keep_chronological_intervals_and_sql_flags():
     factory, service, cache = system()
+
     for document_id in range(1, 5):
         put_document(factory, document_id)
+
     old = await upload(service, 1, date(2020, 1, 1))
     factory._uow.chunks._chunks.append({"act_version_id": old.id, "is_current": True})
     newest = await upload(service, 2, date(2024, 1, 1))
@@ -162,8 +164,10 @@ async def test_same_number_private_upload_cannot_change_public_version(visibilit
 @pytest.mark.asyncio
 async def test_different_years_and_owners_have_independent_act_identities():
     factory, service, _ = system()
+
     for document_id, owner in ((1, 10), (2, 10), (3, 11)):
         put_document(factory, document_id, "internal_private", owner)
+
     one = await upload(service, 1, date(2020, 1, 1), 2020)
     two = await upload(service, 2, date(2021, 1, 1), 2021)
     three = await upload(service, 3, date(2020, 1, 1), 2020)
@@ -238,8 +242,10 @@ async def persist(factory, service, document_id, text):
 @pytest.mark.asyncio
 async def test_persistence_uses_trusted_dates_and_propagates_backfilled_interval():
     factory, service, _ = system()
+
     for document_id in (1, 2, 3):
         put_document(factory, document_id)
+
     await upload(service, 1, date(2024, 1, 1))
     result = await persist(factory, service, 2, "УКАЗ №5 от 1 января 2020 г.\nВступает в силу с 01.01.2022.")
     assert result.effective_to == date(2024, 1, 1) and result.is_current is False
@@ -270,6 +276,7 @@ def test_real_qdrant_engine_handles_missing_null_and_half_open_date_bounds():
                 for i, meta in enumerate(metadata, 1)
             ],
         )
+
         for as_of_date, expected in [
             (date(2023, 12, 31), {1, 2, 4}),
             (date(2024, 1, 1), {1, 2, 5}),
@@ -399,18 +406,20 @@ async def test_admin_all_versions_pagination_includes_reviewed_entries_and_refer
     from presentation.api.routes.admin_act_versions import list_act_versions
 
     factory, service, _ = system()
+
     for document_id in (1, 2):
         put_document(factory, document_id)
         version = await upload(service, document_id, date(2020 + document_id, 1, 1))
         await service.update_version(version.id, verified_by=10)
+
     response = await list_act_versions(
-        review="all", limit=1, offset=0, admin=SimpleNamespace(id=10), service=service
+        review="all", limit=1, offset=0, _admin=SimpleNamespace(id=10), service=service
     )
     assert response.total == 2 and len(response.versions) == 1 and response.next_offset == 1
     assert response.versions[0].date_source == "manual"
     assert response.versions[0].act_id in {act.id for act in response.acts}
     response = await list_act_versions(
-        review="all", limit=1, offset=1, admin=SimpleNamespace(id=10), service=service
+        review="all", limit=1, offset=1, _admin=SimpleNamespace(id=10), service=service
     )
     assert response.next_offset is None
 
@@ -418,8 +427,10 @@ async def test_admin_all_versions_pagination_includes_reviewed_entries_and_refer
 @pytest.mark.asyncio
 async def test_same_effective_date_supersedes_old_edition():
     factory, service, _ = system()
+
     for document_id in (1, 2):
         put_document(factory, document_id)
+
     original = await upload(service, 1, date(2024, 1, 1))
     corrected = await upload(service, 2, date(2024, 1, 1))
     original = await factory._uow.act_versions.get_by_id(original.id)
@@ -440,8 +451,10 @@ async def test_backfill_after_future_edition_takes_effect_cannot_become_latest(m
 
     monkeypatch.setattr(act_versioning_service, "today", Clock.today)
     factory, service, _ = system()
+
     for document_id in (1, 2, 3):
         put_document(factory, document_id)
+
     await upload(service, 1, date(2024, 1, 1))
     await upload(service, 2, date(2099, 1, 1))
     Clock.current = date(2100, 1, 1)
@@ -465,6 +478,7 @@ async def test_prepared_edition_and_chunks_share_transaction(path, outbox_failur
 
     async def enqueue_with_failure(entry):
         await enqueue(entry)
+
         if entry.operation == OutboxOperation.UPSERT_CHUNKS:
             # The edition already exists when chunk projection fails.
             assert len(await uow.act_versions.list_by_act(original.act_id)) == 2
@@ -478,6 +492,7 @@ async def test_prepared_edition_and_chunks_share_transaction(path, outbox_failur
         if path == "upload":
             await persist(factory, service, 2, text)
             return
+
         profile = DecreeDomainProfile(settings=Settings())
         sync = DocumentSyncService(factory, service, SimpleNamespace(get=lambda _key: profile))
         await sync.sync_one_document(

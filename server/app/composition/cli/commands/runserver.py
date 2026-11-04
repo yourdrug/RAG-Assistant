@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 import typer
 import uvicorn
 
 from config import settings
 
+
 logger = logging.getLogger("cli")
 
 
 def runserver(
-    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),  # noqa: S104
-    port: int = typer.Option(8001, "--port", help="Bind port"),
+    *,
+    host: Annotated[str, typer.Option("--host", help="Bind host")] = "0.0.0.0",  # noqa: S104
+    port: Annotated[int, typer.Option("--port", help="Bind port")] = 8001,
     loop: str = "auto",
     reload: bool = False,
     proxy_headers: bool = True,
@@ -24,7 +26,7 @@ def runserver(
 ) -> None:
     """Запустить uvicorn-сервер."""
     try:
-        loop = cast(Literal["none", "auto", "asyncio", "uvloop"], loop)
+        loop = cast("Literal['none', 'auto', 'asyncio', 'uvloop']", loop)
 
         uvicorn.run(
             app="main:create_application",
@@ -37,5 +39,5 @@ def runserver(
             factory=True,
         )
     except Exception as exception:
-        logger.error("Ошибка при запуске uvicorn server", exc_info=exception)
+        logger.exception("Ошибка при запуске uvicorn server", exc_info=exception)
         sys.exit(-1)

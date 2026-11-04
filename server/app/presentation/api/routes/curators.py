@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from application.ports.rate_limit import RateLimitPolicyName
-from application.identity import AssignmentService
+from typing import Annotated
+
 from fastapi import APIRouter, Depends
 
+from application.identity import AssignmentService
+from application.ports.action_logger import ActionLoggerPort
+from application.ports.rate_limit import RateLimitPolicyName
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_action_logger, create_assignment_service
+from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import CuratorAssignmentResponse, CuratorScopeResponse, CurrentUser
+
 
 router = APIRouter(prefix="/admin/curators", tags=["admin", "curators"])
 
@@ -20,12 +24,13 @@ router = APIRouter(prefix="/admin/curators", tags=["admin", "curators"])
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def assign_user_to_curator(
+    *,
     curator_id: int,
     target_user_id: int,
-    admin: CurrentUser = Depends(require_admin),
-    assignment_service: AssignmentService = Depends(create_assignment_service),
-    log=Depends(create_action_logger),
-):
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> CuratorAssignmentResponse:
     await assignment_service.assign_user(curator_id, target_user_id, admin.id)
     log(
         "curator.assign_user",
@@ -41,12 +46,13 @@ async def assign_user_to_curator(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def unassign_user_from_curator(
+    *,
     curator_id: int,
     target_user_id: int,
-    admin: CurrentUser = Depends(require_admin),
-    assignment_service: AssignmentService = Depends(create_assignment_service),
-    log=Depends(create_action_logger),
-):
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> CuratorAssignmentResponse:
     await assignment_service.unassign_user(curator_id, target_user_id)
     log(
         "curator.unassign_user",
@@ -62,12 +68,13 @@ async def unassign_user_from_curator(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def assign_group_to_curator(
+    *,
     curator_id: int,
     group_id: int,
-    admin: CurrentUser = Depends(require_admin),
-    assignment_service: AssignmentService = Depends(create_assignment_service),
-    log=Depends(create_action_logger),
-):
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> CuratorAssignmentResponse:
     await assignment_service.assign_group(curator_id, group_id, admin.id)
     log(
         "curator.assign_group",
@@ -83,12 +90,13 @@ async def assign_group_to_curator(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def unassign_group_from_curator(
+    *,
     curator_id: int,
     group_id: int,
-    admin: CurrentUser = Depends(require_admin),
-    assignment_service: AssignmentService = Depends(create_assignment_service),
-    log=Depends(create_action_logger),
-):
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> CuratorAssignmentResponse:
     await assignment_service.unassign_group(curator_id, group_id)
     log(
         "curator.unassign_group",
@@ -100,9 +108,10 @@ async def unassign_group_from_curator(
 
 @router.get("/{curator_id}/scope", response_model=CuratorScopeResponse)
 async def get_curator_scope(
+    *,
     curator_id: int,
-    admin: CurrentUser = Depends(require_admin),
-    assignment_service: AssignmentService = Depends(create_assignment_service),
-):
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+) -> CuratorScopeResponse:
     scope = await assignment_service.get_scope(curator_id)
     return CuratorScopeResponse(**scope)

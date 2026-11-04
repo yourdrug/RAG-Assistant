@@ -301,7 +301,7 @@ class SweepEngine:
             dense_cache,
             sparse_cache,
             all_candidates,
-            weights,
+            weights=weights,
             rerank_scores=rerank_scores,
             defaults=self._runtime.snapshot(),
         )

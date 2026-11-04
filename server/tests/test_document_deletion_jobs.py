@@ -97,8 +97,10 @@ async def test_job_status_requires_document_ownership_and_matching_job():
 async def test_worker_rechecks_current_user_and_retry_invalidates_deleted_document(active, exists, role):
     factory, uow, doc, enqueuer, service = await harness()
     uow.users.get_by_id = AsyncMock(return_value=User(id=1, role=role, is_active=active))
+
     if not exists:
         await uow.documents.delete(doc.id)
+
     command = SimpleNamespace(delete_document=AsyncMock())
     cache = SimpleNamespace(invalidate_by_document_ids=AsyncMock())
     ctx = {
@@ -107,6 +109,7 @@ async def test_worker_rechecks_current_user_and_retry_invalidates_deleted_docume
         "document_deletion_job": DocumentDeletionJob(factory, command, cache, Mock()),
     }
     await delete_document(ctx, document_id=doc.id, user_id=1, job_id=42)
+
     if exists and (not active or role == UserRole.USER):
         command.delete_document.assert_not_awaited()
         uow.background_jobs.mark_failed.assert_awaited_once()
@@ -116,6 +119,7 @@ async def test_worker_rechecks_current_user_and_retry_invalidates_deleted_docume
             command.delete_document.assert_awaited_once_with(doc.id, 1, role, UserKind.INTERNAL)
         else:
             command.delete_document.assert_not_awaited()
+
         cache.invalidate_by_document_ids.assert_awaited_once_with([doc.id], raise_on_error=True)
         uow.background_jobs.mark_done.assert_awaited_once_with(42)
 
@@ -126,7 +130,10 @@ async def test_delete_route_returns_accepted_job_without_executing_delete():
 
     service = SimpleNamespace(enqueue=AsyncMock(return_value=42))
     response = await route(
-        7, SimpleNamespace(id=1, kind=UserKind.INTERNAL, role=UserRole.USER), service, Mock()
+        document_id=7,
+        current_user=SimpleNamespace(id=1, kind=UserKind.INTERNAL, role=UserRole.USER),
+        deletion_jobs=service,
+        log=Mock(),
     )
     assert response.model_dump() == {
         "status": BackgroundJobStatus.PENDING.value,

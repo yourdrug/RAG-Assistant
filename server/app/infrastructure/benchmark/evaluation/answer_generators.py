@@ -2,32 +2,33 @@
 
 from __future__ import annotations
 
-import time
 from dataclasses import asdict, dataclass, replace
-from typing import Protocol
 from datetime import date
+import time
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from application.chat import ChatRAGPort
 from config import _settings_overrides
-from domain.rag.context import RagContext
 from domain.rag.exceptions import ContextBudgetExceededError
-
+from infrastructure.benchmark.evaluation.case_metrics import (
+    compute_retriever_metrics_from_sources,
+)
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
     active_evidence,
 )
-
-from infrastructure.benchmark.evaluation.case_metrics import (
-    compute_retriever_metrics_from_sources,
-)
 from infrastructure.ml.usage_capture import active_llm_usage
+
+
+if TYPE_CHECKING:
+    from application.chat import ChatRAGPort
+    from domain.rag.context import RagContext
 
 
 @dataclass(frozen=True)
 class BenchmarkAnswer:
     answer: str
     context: str
-    retriever_metrics: dict
+    retriever_metrics: dict[str, Any]
     input_tokens: int | None
     output_tokens: int | None
     ttft_sec: float | None = None
@@ -35,11 +36,15 @@ class BenchmarkAnswer:
     domain: str | None = None
     evidence: BenchmarkEvidence | None = None
     rag_latency_sec: float | None = None
-    llm_usage: list[dict] | None = None
+    llm_usage: list[dict[str, Any]] | None = None
+
+
+class EvidenceFailure(Protocol):
+    benchmark_evidence: BenchmarkEvidence
 
 
 class BenchmarkAnswerGenerator(Protocol):
-    async def generate(self, question: dict, ctx: RagContext) -> BenchmarkAnswer: ...
+    async def generate(self, question: dict[str, Any], ctx: RagContext) -> BenchmarkAnswer: ...
 
 
 class RagBenchmarkGenerator:
@@ -48,7 +53,7 @@ class RagBenchmarkGenerator:
         self._top_k = top_k
         self._fetch_k = fetch_k
 
-    async def generate(self, question: dict, ctx: RagContext) -> BenchmarkAnswer:
+    async def generate(self, question: dict[str, Any], ctx: RagContext) -> BenchmarkAnswer:
         overrides = {
             **(_settings_overrides.get() or {}),
             "cache_enabled": False,
@@ -60,6 +65,7 @@ class RagBenchmarkGenerator:
 
         if question.get("as_of_date"):
             ctx = replace(ctx, as_of_date=date.fromisoformat(question["as_of_date"]))
+
         history = question.get("history") or []
         evidence = BenchmarkEvidence(
             schema_version=2,
@@ -120,12 +126,14 @@ class RagBenchmarkGenerator:
 
 def capture_failure(evidence: BenchmarkEvidence, error: BaseException) -> None:
     evidence.completion = "error" if isinstance(error, Exception) else "cancelled"
+
     if isinstance(error, ContextBudgetExceededError):
         evidence.completion = "prompt_budget"
+
     evidence.answer = {
         "text": None,
         "sources": [],
         "completion": evidence.completion,
         "error_type": type(error).__name__,
     }
-    error.benchmark_evidence = evidence
+    cast("EvidenceFailure", error).benchmark_evidence = evidence

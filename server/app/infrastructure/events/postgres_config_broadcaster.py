@@ -8,10 +8,15 @@ transactionally atomic with the config UPDATE that triggered it.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-from application.runtime.config import ConfigParameterChanged
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+if TYPE_CHECKING:
+    from application.runtime.config import ConfigParameterChanged
+
 
 log = logging.getLogger("default")
 
@@ -22,7 +27,8 @@ class PostgresConfigBroadcaster:
     async def broadcast_within_session(self, session: object, _event: ConfigParameterChanged) -> None:
         """Send pg_notify within an existing session (same transaction as UPDATE)."""
         if not isinstance(session, AsyncSession):
-            raise TypeError(f"Expected AsyncSession, got {type(session)}")
+            msg = f"Expected AsyncSession, got {type(session)}"
+            raise TypeError(msg)
 
         try:
             await session.execute(

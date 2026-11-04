@@ -1,14 +1,18 @@
 """Benchmark progress and summary logging."""
 
 import logging
+from typing import Any
 
 from domain.benchmark.evaluation import EVIDENCE_METRICS
 from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
+
 logger = logging.getLogger("default")
+ANSWER_PREVIEW_CHARS = 200
+LOW_QUALITY_SCORE = 5
 
 
-def log_question_result(idx: int, total: int, q: dict, result: dict):
+def log_question_result(idx: int, total: int, q: dict[str, Any], result: dict[str, Any]) -> None:
     logger.info("[%d/%d] %s", idx, total, q["question"])
 
     rm = result["retriever_metrics"]
@@ -44,16 +48,16 @@ def log_question_result(idx: int, total: int, q: dict, result: dict):
     if result.get("evidence_metrics"):
         logger.info("  Evidence: %s", result["evidence_metrics"])
 
-    answer_preview = result["answer"][:200].replace("\n", " ")
+    answer_preview = result["answer"][:ANSWER_PREVIEW_CHARS].replace("\n", " ")
 
-    if len(result["answer"]) > 200:
+    if len(result["answer"]) > ANSWER_PREVIEW_CHARS:
         answer_preview += "..."
 
     logger.info("  Ответ: %s", answer_preview)
     logger.info("  Время: %.1fs", result["latency_sec"])
 
 
-def log_summary(results: list[dict], total_time: float):
+def log_summary(results: list[dict[str, Any]], total_time: float) -> None:
     n = len(results)
     logger.info("=" * 60)
     logger.info("ИТОГОВЫЙ ОТЧЁТ  (%d вопросов, %.1fs)", n, total_time)
@@ -77,6 +81,13 @@ def log_summary(results: list[dict], total_time: float):
 
     logger.info("  Avg Similarity:  %.3f", m["avg_similarity"])
 
+    log_quality_summary(results, m)
+
+    logger.info("Время: %.1fs  (%.1fs на вопрос)", total_time, total_time / n)
+    logger.info("=" * 60)
+
+
+def log_quality_summary(results: list[dict[str, Any]], m: dict[str, Any]) -> None:
     logger.info("Context Quality:")
 
     if m["avg_context_precision"] is not None:
@@ -107,7 +118,7 @@ def log_summary(results: list[dict], total_time: float):
         r
         for r in results
         if any(
-            r["generator_metrics"].get(key) is not None and r["generator_metrics"][key] < 5
+            r["generator_metrics"].get(key) is not None and r["generator_metrics"][key] < LOW_QUALITY_SCORE
             for key in ("faithfulness", "relevancy")
         )
     ]
@@ -120,6 +131,3 @@ def log_summary(results: list[dict], total_time: float):
             logger.warning("  [%s] %s", r["id"], r["question"][:60])
             logger.warning("        faith=%s  rel=%s", gm["faithfulness"], gm["relevancy"])
             logger.warning("        %s", gm["faithfulness_reason"])
-
-    logger.info("Время: %.1fs  (%.1fs на вопрос)", total_time, total_time / n)
-    logger.info("=" * 60)

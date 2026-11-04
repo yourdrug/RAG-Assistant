@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from presentation.api.dependencies import IdempotencyContext
+from presentation.api.dependencies import JobSubmission
+
 from application.benchmark import jobs as benchmark_jobs
 from application.benchmark.jobs import BenchmarkJobService
 from infrastructure.benchmark.corpus import benchmark_scope
@@ -14,7 +17,7 @@ import io
 import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -59,10 +62,13 @@ async def test_export_without_data_dir_and_without_open_transaction(format, monk
     rows = [{"id": 1, "question": "=1+1", "answer": 'Привет, "мир"\nline', "faithfulness": 8}]
     factory = Factory(rows)
     blocks = []
+
     async for block in BenchmarkExportService(factory).export(7, format):
         assert factory.open == 0
         blocks.append(block)
+
     data = b"".join(blocks).decode()
+
     if format == "json":
         assert json.loads(data)["results"] == rows
     else:
@@ -75,9 +81,11 @@ async def test_export_without_data_dir_and_without_open_transaction(format, monk
 async def test_large_export_pages_and_chunks_are_bounded():
     factory = Factory([{"id": n, "answer": "я" * 200_000} for n in range(30)])
     count = 0
+
     async for block in BenchmarkExportService(factory).export(7, "json"):
         assert len(block) <= EXPORT_CHUNK_BYTES
         count += len(block)
+
     assert count > 10_000_000
     assert all(call.kwargs["limit"] == 1 for call in factory.repo.result_page.call_args_list)
 
@@ -90,8 +98,10 @@ async def test_artifact_failure_retry_preserves_result_and_key():
 
     async def upload(key, blocks):
         keys.append(key)
+
         async for _ in blocks:
             assert factory.open == 0
+
         if failed:
             raise OSError("storage unavailable")
 
@@ -172,19 +182,22 @@ async def test_legacy_out_dir_is_noop_only_for_previous_default():
     enqueuer = SimpleNamespace(enqueue_benchmark=AsyncMock())
     # Empty idempotency headers bypass the reservation store.
     await benchmark.run_benchmark(
-        request,
-        benchmark.BenchmarkRequest(out_dir="/proc/readonly/benchmark_results"),
-        user,
-        jobs,
-        enqueuer,
-        cfg,
-        None,
-        None,
+        request=request,
+        req=benchmark.BenchmarkRequest(out_dir="/proc/readonly/benchmark_results"),
+        admin=user,
+        bench_cfg=cfg,
+        submission=JobSubmission(jobs=jobs, enqueuer=enqueuer, log=Mock()),
+        idempotency=IdempotencyContext(key=None, store=None),
     )
     assert "out_dir" not in enqueuer.enqueue_benchmark.call_args.kwargs
     with pytest.raises(HTTPException) as exc:
         await benchmark.run_benchmark(
-            request, benchmark.BenchmarkRequest(out_dir="/tmp/custom"), user, jobs, enqueuer, cfg, None, None
+            request=request,
+            req=benchmark.BenchmarkRequest(out_dir="/tmp/custom"),
+            admin=user,
+            bench_cfg=cfg,
+            submission=JobSubmission(jobs=jobs, enqueuer=enqueuer, log=Mock()),
+            idempotency=IdempotencyContext(key=None, store=None),
         )
     assert exc.value.status_code == 422
 
@@ -239,8 +252,10 @@ async def test_worker_retry_reuses_committed_run(monkeypatch):
         partial(benchmark_scope, None),
     )
     del ctx["container"]
+
     for _ in range(2):
         await tasks.run_benchmark(ctx, dataset="main", top_k=4, judge_model="judge", job_id=8)
+
     evaluations.assert_awaited_once()
     factory.repo.save_once.assert_awaited_once()
     assert saved.job_id == 8
@@ -249,7 +264,7 @@ async def test_worker_retry_reuses_committed_run(monkeypatch):
 
 def test_cli_registry_has_explicit_export_and_requires_out():
     from typer.testing import CliRunner
-    from presentation.cli.cli import cli
+    from composition.cli.cli import cli
 
     runner = CliRunner()
     response = runner.invoke(cli.cli, ["benchmark", "export", "--help"])
@@ -260,7 +275,7 @@ def test_cli_registry_has_explicit_export_and_requires_out():
 
 @pytest.mark.asyncio
 async def test_cli_export_creates_only_explicit_path(tmp_path, monkeypatch):
-    from presentation.cli.commands import benchmark as command
+    from composition.cli.commands import benchmark as command
 
     factory = Factory([{"id": 1, "answer": "ok"}])
     monkeypatch.setattr(command, "UnitOfWorkFactory", lambda database: factory)

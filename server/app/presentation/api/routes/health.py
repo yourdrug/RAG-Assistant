@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
-from application.health.service import HealthService
-from fastapi import APIRouter, Depends, Response, status
-from application.runtime.enums import HealthStatus
+from typing import Annotated
 
+from fastapi import APIRouter, Depends, Response, status
+
+from application.health.service import HealthService
+from application.runtime.enums import HealthStatus
 from presentation.api.dependencies import create_health_service
 from presentation.api.schemas import HealthCheck, HealthResponse
+
 
 router = APIRouter(tags=["health"])
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health(health_service: HealthService = Depends(create_health_service)):
+async def health(
+    *, health_service: Annotated[HealthService, Depends(create_health_service)]
+) -> HealthResponse:
     result = await health_service.check()
     return HealthResponse(
         status=result.status,
@@ -35,8 +40,12 @@ async def live() -> dict[str, str]:
 
 
 @router.get("/ready", response_model=HealthResponse, include_in_schema=False)
-async def ready(response: Response, health_service: HealthService = Depends(create_health_service)):
-    result = await health(health_service)
+async def ready(
+    *, response: Response, health_service: Annotated[HealthService, Depends(create_health_service)]
+) -> HealthResponse:
+    result = await health(health_service=health_service)
+
     if result.status != HealthStatus.HEALTHY.value:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     return result

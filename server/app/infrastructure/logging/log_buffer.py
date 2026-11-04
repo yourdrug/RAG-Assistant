@@ -7,9 +7,10 @@ buffer to display recent application logs in the admin dashboard.
 
 from __future__ import annotations
 
+from collections import deque
 import logging
 import threading
-from collections import deque
+from typing import Any
 
 
 class LogBufferHandler(logging.Handler):
@@ -17,7 +18,7 @@ class LogBufferHandler(logging.Handler):
 
     def __init__(self, capacity: int = 1000) -> None:
         super().__init__()
-        self._buffer: deque[dict] = deque(maxlen=capacity)
+        self._buffer: deque[dict[str, Any]] = deque(maxlen=capacity)
         self._lock = threading.Lock()
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -33,16 +34,15 @@ class LogBufferHandler(logging.Handler):
             }
             with self._lock:
                 self._buffer.append(entry)
-        except Exception:  # noqa: S110
-            # Logging handler must not raise — swallow silently to avoid recursive failures.
-            pass
+        except Exception:  # noqa: BLE001 - Handler.emit must isolate arbitrary formatter failures.
+            self.handleError(record)
 
     def get_logs(
         self,
         limit: int = 100,
         level: str | None = None,
         search: str | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         with self._lock:
             logs = list(self._buffer)
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -30,7 +32,7 @@ class ChatLogEntry(BaseModel):
     conversation_id: int | None = None
     question: str
     answer: str
-    sources: list | None = None
+    sources: list[Any] | None = None
     latency_ms: int | None = None
     model_used: str | None = None
     breadth: str | None = None

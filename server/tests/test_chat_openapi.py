@@ -4,7 +4,7 @@ from fastapi import FastAPI
 
 from application.rag.stream_events import MetaEvent, StatusEvent, TextChunk
 from presentation.api.constants import SSE_HEARTBEAT, SSE_MEDIA_TYPE
-from presentation.api.routes.chat import _format_sse_event, router
+from presentation.api.routes.chat import format_sse_event, router
 
 
 def test_chat_openapi_describes_stream_and_event_payloads() -> None:
@@ -17,7 +17,7 @@ def test_chat_openapi_describes_stream_and_event_payloads() -> None:
     content = response["content"][SSE_MEDIA_TYPE]
     assert content["schema"] == {"type": "string"}
     frames = [
-        _format_sse_event(event, "abc123")
+        format_sse_event(event, "abc123")
         for event in (StatusEvent("retrieval"), TextChunk("Hello"), MetaEvent(1, []))
     ]
     assert all(frame is not None for frame in frames)

@@ -2,27 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from typing import TYPE_CHECKING
+import asyncio
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import wraps
-import asyncio
-import logging
 import hashlib
-import threading
 from inspect import signature
+import logging
+import threading
+from typing import TYPE_CHECKING, Any
+
 from config import settings
 
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
-    from qdrant_client import QdrantClient
+    from collections.abc import Awaitable, Callable, Coroutine, Iterator
     from contextlib import AbstractContextManager
-    from collections.abc import Awaitable, Callable
-    from collections.abc import Iterator
+
+    from qdrant_client import QdrantClient
+
     from infrastructure.corpus.resources import CorpusResources
 
 
@@ -72,7 +71,8 @@ class BoundQdrantClient:
     def lease(self) -> Iterator[BoundQdrantClient]:
         with self.lock:
             if self.closed:
-                raise RuntimeError("Corpus client is closed")
+                message = "Corpus client is closed"
+                raise RuntimeError(message)
 
             self.active += 1
             self.idle.clear()
@@ -102,7 +102,7 @@ class BoundQdrantClient:
             self.client.close()
         except Exception:
             self.closed = False
-            log.error("Corpus pool cleanup failed; retained for shutdown retry")
+            log.exception("Corpus pool cleanup failed; retained for shutdown retry")
 
     async def aclose(self) -> None:
         self.close()
@@ -131,26 +131,29 @@ class BoundQdrantClient:
                 args = (self.snapshot.physical_collection, *args[1:])
 
             with self.lease():
-                if name in {
-                    "upsert",
-                    "delete",
-                    "set_payload",
-                    "overwrite_payload",
-                    "delete_payload",
-                    "clear_payload",
-                    "create_collection",
-                    "delete_collection",
-                    "create_payload_index",
-                    "delete_payload_index",
-                    "update_collection",
-                    "update_collection_aliases",
-                    "upload_points",
-                    "upload_collection",
-                    "batch_update_points",
-                }:
-                    if self.write_guard is not None:
-                        with self.write_guard(self.snapshot):
-                            return method(*args, **kwargs)
+                if (
+                    name
+                    in {
+                        "upsert",
+                        "delete",
+                        "set_payload",
+                        "overwrite_payload",
+                        "delete_payload",
+                        "clear_payload",
+                        "create_collection",
+                        "delete_collection",
+                        "create_payload_index",
+                        "delete_payload_index",
+                        "update_collection",
+                        "update_collection_aliases",
+                        "upload_points",
+                        "upload_collection",
+                        "batch_update_points",
+                    }
+                    and self.write_guard is not None
+                ):
+                    with self.write_guard(self.snapshot):
+                        return method(*args, **kwargs)
 
                 return method(*args, **kwargs)
 

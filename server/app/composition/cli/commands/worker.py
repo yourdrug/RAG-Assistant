@@ -3,34 +3,38 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 import logging
 import sys
-from collections.abc import Sequence
+from typing import Any
 
 from arq.connections import RedisSettings
 from arq.cron import cron
 from arq.worker import Function, Worker, func as arq_func
 
 from composition.container import Container
+from composition.utils import require
 from config import settings
 from infrastructure.database.database import database
+from infrastructure.events.postgres_config_listener import PostgresConfigListener
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.resilience.circuit_breaker import init_breakers
-from infrastructure.worker.queue import QUEUE_NAME
+from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_cleanup
 from infrastructure.worker.cron import (
     cron_job_cleanup,
     cron_recover_orphaned_jobs,
     cron_recover_stuck_processing,
 )
+from infrastructure.worker.document_deletion import delete_document
+from infrastructure.worker.queue import QUEUE_NAME
+from infrastructure.worker.sweep import run_sweep_task as run_sweep
 from infrastructure.worker.tasks import (
     process_document,
     run_benchmark,
     run_full_ingest,
     run_single_ingest,
 )
-from infrastructure.worker.document_deletion import delete_document
-from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_cleanup
-from infrastructure.worker.sweep import run_sweep_task as run_sweep
+
 
 logger = logging.getLogger("cli")
 
@@ -105,14 +109,14 @@ def worker(
         )
         w.run()
     except ImportError:
-        logger.error("arq package not installed. Run: pip install arq redis")
+        logger.exception("arq package not installed. Run: pip install arq redis")
         sys.exit(1)
     except Exception as exc:
-        logger.error("Worker startup failed", exc_info=exc)
+        logger.exception("Worker startup failed", exc_info=exc)
         sys.exit(1)
 
 
-async def on_startup(ctx: dict) -> None:
+async def on_startup(ctx: dict[str, Any]) -> None:
     """Initialize database and infrastructure on worker startup."""
     try:
         await database.connect()
@@ -122,9 +126,7 @@ async def on_startup(ctx: dict) -> None:
         container.init(database)
         await container.infrastructure.bootstrap_configuration(role="worker")
         ctx.update(container.worker_dependencies())
-        listener = container.infrastructure.events.config_listener
-        if listener is None:
-            raise RuntimeError("Config listener must be initialized in worker")
+        listener = require(container.infrastructure.events.config_listener, "worker config listener")
         init_breakers(
             fail_max=settings.llm_breaker_fail_max,
             timeout_duration=settings.llm_breaker_timeout_duration,
@@ -140,20 +142,23 @@ async def on_startup(ctx: dict) -> None:
         raise
 
 
-async def periodic_config_resync(listener) -> None:
+async def periodic_config_resync(listener: PostgresConfigListener) -> None:
     while True:
         await asyncio.sleep(60)
         await listener.resync(trigger="worker_periodic")
 
 
-async def on_shutdown(ctx: dict) -> None:
+async def on_shutdown(ctx: dict[str, Any]) -> None:
     """Cleanup on worker shutdown."""
     task = ctx.pop("config_resync_task", None)
+
     if task is not None:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
     try:
         container = ctx.pop("container", None)
+
         if container is not None:
             await container.dispose()
             logger.info("Worker: container disposed")

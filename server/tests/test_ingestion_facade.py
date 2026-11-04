@@ -18,10 +18,10 @@ from application.ingestion import (
     S3IngestionTargets,
 )
 from composition.application import ApplicationContainer
+from composition.cli.commands import ingest
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.worker import runtime, tasks as worker_tasks
 from presentation.api.dependencies import create_ingest_service, create_ingestion_port
-from presentation.cli.commands import ingest
 
 
 @pytest.fixture

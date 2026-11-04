@@ -26,7 +26,9 @@ from __future__ import annotations
 import logging
 
 import redis.asyncio as aioredis
+
 from config import settings
+
 
 logger = logging.getLogger("default")
 
@@ -41,7 +43,8 @@ class RedisClient:
     def async_redis(self) -> aioredis.Redis:
         """Return the async Redis connection. Raises if not initialised."""
         if self._redis is None:
-            raise RuntimeError("RedisClient not initialised — call await redis_client.init() first")
+            msg = "RedisClient not initialised — call await redis_client.init() first"
+            raise RuntimeError(msg)
 
         return self._redis
 
@@ -50,7 +53,7 @@ class RedisClient:
         if self._redis is not None:
             return
 
-        client = aioredis.from_url(
+        client = aioredis.Redis.from_url(
             settings.redis_url,
             decode_responses=True,
             socket_connect_timeout=3,

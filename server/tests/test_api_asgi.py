@@ -176,6 +176,7 @@ async def test_benchmark_compare_route_and_roles(asgi_client, role, status):
     app.dependency_overrides[deps.create_benchmark_run_service] = lambda: service
     response = await asgi_client.get("/admin/benchmark/runs/compare?ids=1,2")
     assert response.status_code == status
+
     if status == 200:
         assert response.json() == {"runs": [], "diff": {}}
         service.compare.assert_awaited_once_with([1, 2])
@@ -260,6 +261,7 @@ async def test_private_document_ownership_through_real_route(asgi_client, user_i
     sign_in(role, user_id)
     response = await asgi_client.get(f"/documents/{document.id}")
     assert response.status_code == status
+
     if status == 200:
         assert response.json()["filename"] == "private.pdf"
     else:
@@ -295,6 +297,7 @@ async def test_document_delete_queues_only_after_authorization(asgi_client, user
     response = await asgi_client.delete(f"/documents/{document.id}")
     assert response.status_code == expected
     assert await factory._uow.documents.get_by_id(document.id) == document
+
     if expected == 202:
         assert response.json() == {
             "status": BackgroundJobStatus.PENDING.value,
@@ -396,3 +399,76 @@ async def test_chunk_edit_keeps_document_permissions_through_composed_service(as
     else:
         uow.chunks.update_content.assert_not_awaited()
         uow.vector_outbox.enqueue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_multipart_upload_preserves_metadata_and_job_principal(asgi_client):
+    sign_in(UserRole.ADMIN.value, user_id=9)
+    result = SimpleNamespace(
+        id=41, storage_key="docs/regulation.txt", filename="regulation.txt", owner_id=21, replace_id=7
+    )
+    commands = SimpleNamespace(upload=AsyncMock(return_value=result))
+    jobs = SimpleNamespace(create_job=AsyncMock(return_value=8))
+    enqueuer = SimpleNamespace(enqueue_document_processing=AsyncMock())
+    app.dependency_overrides[deps.create_document_command_service] = lambda: commands
+    app.dependency_overrides[deps.create_job_service] = lambda: jobs
+    app.dependency_overrides[deps.create_job_enqueuer] = lambda: enqueuer
+    app.dependency_overrides[deps.create_upload_config] = lambda: SimpleNamespace(max_upload_size_mb=1)
+    app.dependency_overrides[deps.create_idempotency_store] = lambda: None
+
+    response = await asgi_client.post(
+        "/documents",
+        files={"file": ("regulation.txt", b"legal text", "text/plain")},
+        data={
+            "visibility": DocumentVisibility.CLIENT_PRIVATE.value,
+            "group_id": "5",
+            "client_id": "21",
+            "rename_on_conflict": "true",
+            "doc_domain": DocDomain.LEGAL.value,
+            "replaces_document_id": "7",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "processing", "document_id": 41, "filename": "regulation.txt"}
+    commands.upload.assert_awaited_once_with(
+        filename="regulation.txt",
+        file_data=b"legal text",
+        visibility=DocumentVisibility.CLIENT_PRIVATE.value,
+        group_id=5,
+        client_id=21,
+        user_id=9,
+        user_kind="internal",
+        user_role=UserRole.ADMIN.value,
+        rename_on_conflict=True,
+        doc_domain=DocDomain.LEGAL.value,
+        replaces_document_id=7,
+    )
+    queued = enqueuer.enqueue_document_processing.await_args.kwargs
+    assert queued["owner_id"] == 21
+    assert queued["principal_id"] == 9
+    assert queued["group_id"] == 5
+    assert queued["replace_id"] == 7
+    assert queued["job_id"] == 8
+
+
+@pytest.mark.asyncio
+async def test_question_filters_reach_service_and_response_preserves_total(asgi_client):
+    sign_in(UserRole.ADMIN.value)
+    questions = SimpleNamespace(list=AsyncMock(return_value=([], 53)))
+    app.dependency_overrides[deps.create_benchmark_question_service] = lambda: questions
+    response = await asgi_client.get(
+        "/admin/benchmark/questions",
+        params={
+            "dataset": "sample",
+            "tag": "law",
+            "search": "text",
+            "is_active": "false",
+            "limit": 4,
+            "offset": 8,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {"questions": [], "total": 53}
+    questions.list.assert_awaited_once_with(
+        dataset="sample", tag="law", search="text", is_active=False, limit=4, offset=8
+    )

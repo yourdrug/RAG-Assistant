@@ -5,8 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from domain.knowledge.enums import DocDomain
-
-from .documents import DocumentResponse
+from presentation.api.schemas.documents import DocumentResponse
 
 
 class ChunkResponse(BaseModel):
@@ -70,11 +69,11 @@ class ChunkDeleteResponse(BaseModel):
 
 
 __all__ = [
-    "ChunkResponse",
     "ChunkCreateRequest",
-    "ChunkEditRequest",
-    "ChunkListResponse",
     "ChunkCursorListResponse",
     "ChunkDeleteResponse",
+    "ChunkEditRequest",
+    "ChunkListResponse",
+    "ChunkResponse",
     "DocumentResponse",
 ]

@@ -12,7 +12,7 @@ from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.database.database import database
 from infrastructure.redis.redis_client import redis_client
-from presentation.cli.commands.worker import on_shutdown
+from composition.cli.commands.worker import on_shutdown
 
 
 @pytest.mark.asyncio

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
-
-import logging
-import uuid
 from contextlib import asynccontextmanager
+import logging
+from typing import TYPE_CHECKING, Any
+import uuid
 
 from arq import Retry
+
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

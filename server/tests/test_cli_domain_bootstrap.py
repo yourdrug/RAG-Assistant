@@ -14,7 +14,7 @@ from infrastructure.redis.redis_client import redis_client
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import InProcessEventBus
-from presentation.cli.commands import ingest
+from composition.cli.commands import ingest
 
 
 def build_infrastructure(monkeypatch):

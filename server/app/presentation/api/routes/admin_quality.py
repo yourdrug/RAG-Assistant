@@ -1,31 +1,31 @@
 """Admin quality / diagnostics endpoints — document extraction quality, dry-run preview."""
 
-from __future__ import annotations
-
 import asyncio
 import base64
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 import logging
 from pathlib import Path
+from typing import Annotated, cast
 
-from domain.knowledge.enums import DocumentVisibility
-from domain.shared.exceptions import AppServerError
-from domain.knowledge.enums import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from application.ports.rate_limit import RateLimitPolicyName
+from application.documents import DocumentCommandService, PreviewCache, PreviewStrategyFactoryPort
 from application.documents.diagnostics import PDFDiagnosticService
 from application.documents.quality_service import QualityService
-
+from application.ports.rate_limit import RateLimitPolicyName
+from domain.ingestion.ports import DomainSettingsPort
+from domain.ingestion.profiles.registry import DomainProfileRegistry
+from domain.knowledge.enums import DocDomain, DocumentVisibility
+from domain.shared.exceptions import AppServerError
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import PAGE_IMAGE_DPI
 from presentation.api.dependencies import (
-    create_action_logger,
+    JobSubmission,
     create_document_command_service,
     create_domain_registry,
     create_domain_settings,
-    create_job_enqueuer,
-    create_job_service,
+    create_job_submission,
     create_pdf_diagnostic_service,
     create_preview_cache,
     create_preview_strategy_factory,
@@ -34,9 +34,11 @@ from presentation.api.dependencies import (
 from presentation.api.helpers import (
     build_dry_run_response,
     compute_quality_warning,
+    persisted_id,
     read_upload_with_limit,
     upload_and_enqueue,
 )
+from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import (
     CurrentUser,
     DocumentDiagnoseResponse,
@@ -49,7 +51,29 @@ from presentation.api.schemas import (
     PreviewFile,
 )
 
+
 logger = logging.getLogger("default")
+
+
+# Preserve the legacy optional file schema without adding a nullable wire type.
+DEFAULT_PREVIEW_FILE = cast("UploadFile", None)
+
+
+@dataclass(kw_only=True)
+class PreviewOCRForm:
+    file: Annotated[UploadFile, File()] = DEFAULT_PREVIEW_FILE
+    preview_id: Annotated[str, Form()] = ""
+    pages: Annotated[str, Form()] = ""
+
+
+@dataclass(kw_only=True)
+class PreviewIndexForm:
+    visibility: Annotated[str, Form()] = DocumentVisibility.INTERNAL_PUBLIC.value
+    group_id: Annotated[int | None, Form()] = None
+    client_id: Annotated[int | None, Form()] = None
+    doc_domain: Annotated[DocDomain | None, Form()] = None
+
+
 router = APIRouter(tags=["admin-quality"])
 
 
@@ -58,18 +82,19 @@ router = APIRouter(tags=["admin-quality"])
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/documents/quality", response_model=DocumentQualityListResponse)
+@router.get("/admin/documents/quality")
 async def list_quality_documents(
-    admin: CurrentUser = Depends(require_admin),
-    quality_service: QualityService = Depends(create_quality_service),
-):
+    *,
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    quality_service: Annotated[QualityService, Depends(create_quality_service)],
+) -> DocumentQualityListResponse:
     """List documents with quality warnings, sorted by quality_score descending."""
     warned = await quality_service.list_warned_documents()
 
     return DocumentQualityListResponse(
         documents=[
             DocumentQualityItem(
-                id=d.id,
+                id=persisted_id(d.id),
                 filename=d.filename,
                 status=d.status,
                 quality_score=d.quality_score,
@@ -86,19 +111,20 @@ async def list_quality_documents(
 
 @router.post(
     "/admin/documents/{document_id}/diagnose",
-    response_model=DocumentDiagnoseResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def diagnose_document(
+    *,
     document_id: int,
-    admin: CurrentUser = Depends(require_admin),
-    diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
-    quality_service: QualityService = Depends(create_quality_service),
-):
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    diag_service: Annotated[PDFDiagnosticService, Depends(create_pdf_diagnostic_service)],
+    quality_service: Annotated[QualityService, Depends(create_quality_service)],
+) -> DocumentDiagnoseResponse:
     """Run per-page PDF diagnosis on an already-indexed document."""
     source_path = await quality_service.get_document_source_path(document_id)
 
     result = await diag_service.diagnose_document(document_id, source_path)
+
     if result is None:
         raise AppServerError(message="Failed to diagnose document")
 
@@ -121,18 +147,18 @@ async def diagnose_document(
 
 @router.post(
     "/admin/documents/preview",
-    response_model=DryRunResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def dry_run_preview(
-    file: UploadFile = File(...),
-    admin: CurrentUser = Depends(require_admin),
-    diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
-    preview_cache=Depends(create_preview_cache),
-    preview_factory=Depends(create_preview_strategy_factory),
-    domain_registry=Depends(create_domain_registry),
-    domain_settings=Depends(create_domain_settings),
-):
+    *,
+    file: Annotated[UploadFile, File()],
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    diag_service: Annotated[PDFDiagnosticService, Depends(create_pdf_diagnostic_service)],
+    preview_cache: Annotated[PreviewCache, Depends(create_preview_cache)],
+    preview_factory: Annotated[PreviewStrategyFactoryPort, Depends(create_preview_strategy_factory)],
+    domain_registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
+    domain_settings: Annotated[DomainSettingsPort | None, Depends(create_domain_settings)],
+) -> DryRunResponse:
     """Preview extraction; the selected PaddleOCR-VL engine also parses scans."""
     filename = file.filename or "unnamed"
     try:
@@ -159,6 +185,7 @@ async def dry_run_preview(
     async with preview_cache.get_path(preview_id) as tmp_path:
         if tmp_path is None:
             raise HTTPException(status_code=500, detail="Failed to store preview")
+
         # PyMuPDF over every page is CPU-heavy: run in a worker thread so the
         # event loop (single uvicorn process) stays responsive.
         page_results, types_count, total_chars = await asyncio.to_thread(strategy.analyze, tmp_path)
@@ -183,32 +210,24 @@ async def dry_run_preview(
 
 @router.post(
     "/admin/documents/preview-ocr",
-    response_model=DryRunResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def dry_run_ocr_phase2(
-    file: UploadFile = File(None),
-    preview_id: str = Form(""),
-    pages: str = Form(""),
-    admin: CurrentUser = Depends(require_admin),
-    diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
-    preview_cache=Depends(create_preview_cache),
-    preview_factory=Depends(create_preview_strategy_factory),
-    domain_registry=Depends(create_domain_registry),
-    domain_settings=Depends(create_domain_settings),
-):
+    *,
+    options: Annotated[PreviewOCRForm, Depends()],
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    diag_service: Annotated[PDFDiagnosticService, Depends(create_pdf_diagnostic_service)],
+    preview_cache: Annotated[PreviewCache, Depends(create_preview_cache)],
+    preview_factory: Annotated[PreviewStrategyFactoryPort, Depends(create_preview_strategy_factory)],
+    domain_registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
+    domain_settings: Annotated[DomainSettingsPort | None, Depends(create_domain_settings)],
+) -> DryRunResponse:
     """Phase 2: Run OCR on specific problem units and return updated results.
 
     Accepts either a fresh file upload OR a ``preview_id`` from a previous
     ``/preview`` call (avoids re-uploading the file from the client).
     """
-    try:
-        page_nums = [int(p.strip()) for p in pages.split(",") if p.strip()]
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid unit IDs") from None
-
-    if not page_nums:
-        raise HTTPException(status_code=400, detail="No units specified for OCR")
+    page_nums = parse_ocr_pages(options.pages)
 
     async def _run_ocr(tmp_path: Path, effective_preview_id: str, fname: str) -> DryRunResponse:
         ext = Path(fname).suffix.lower()
@@ -244,26 +263,27 @@ async def dry_run_ocr_phase2(
         )
 
     # Resolve the file: cached file takes precedence over a fresh upload
-    if preview_id:
-        async with preview_cache.get_path(preview_id) as cached_path:
+    if options.preview_id:
+        async with preview_cache.get_path(options.preview_id) as cached_path:
             if cached_path is not None:
-                fname = preview_cache.get_filename(preview_id)
-                return await _run_ocr(cached_path, preview_id, fname)
+                fname = preview_cache.get_filename(options.preview_id)
+                return await _run_ocr(cached_path, options.preview_id, fname)
 
     # No cached file — require a fresh upload
-    if file is None:
+    if options.file is None:
         raise HTTPException(
             status_code=400,
             detail="Provide either a file upload or a valid preview_id",
         )
-    return await _run_ocr_from_upload(file, diag_service, preview_cache, _run_ocr)
+
+    return await run_ocr_from_upload(options.file, diag_service, preview_cache, _run_ocr)
 
 
-async def _run_ocr_from_upload(
+async def run_ocr_from_upload(
     file: UploadFile,
     diag_service: PDFDiagnosticService,
-    preview_cache,
-    run_ocr_fn,
+    preview_cache: PreviewCache,
+    run_ocr_fn: Callable[[Path, str, str], Awaitable[DryRunResponse]],
 ) -> DryRunResponse:
     """Handle fresh file upload for OCR: validate, cache, run OCR."""
     fname = file.filename or "unnamed"
@@ -280,6 +300,7 @@ async def _run_ocr_from_upload(
     async with preview_cache.get_path(new_preview_id) as tmp_path:
         if tmp_path is None:
             raise HTTPException(status_code=500, detail="Failed to store preview")
+
         return await run_ocr_fn(tmp_path, new_preview_id, fname)
 
 
@@ -288,33 +309,35 @@ async def _run_ocr_from_upload(
 # ---------------------------------------------------------------------------
 
 
-def _render_page_image_sync(diag_service: PDFDiagnosticService, tmp_path: Path, page: int) -> bytes:
+def render_page_image_sync(diag_service: PDFDiagnosticService, tmp_path: Path, page: int) -> bytes:
     """Sync PyMuPDF work (open/count/render/close) — executed in a worker thread."""
-    doc = diag_service._pdf.open(str(tmp_path))
+    doc = diag_service.pdf_document.open(str(tmp_path))
     try:
-        total = diag_service._pdf.get_page_count(doc)
+        total = diag_service.pdf_document.get_page_count(doc)
+
         if page > total:
             raise HTTPException(
                 status_code=400,
                 detail=f"Page {page} out of range (document has {total} pages)",
             )
-        return diag_service._pdf.render_page_image(doc, page - 1, dpi=PAGE_IMAGE_DPI)
+
+        return diag_service.pdf_document.render_page_image(doc, page - 1, dpi=PAGE_IMAGE_DPI)
     finally:
-        diag_service._pdf.close(doc)
+        diag_service.pdf_document.close(doc)
 
 
 @router.post(
     "/admin/documents/preview/page-image",
-    response_model=PageImageResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def get_page_image(
-    preview_id: str = Form(...),
-    page: int = Form(...),
-    admin: CurrentUser = Depends(require_admin),
-    diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
-    preview_cache=Depends(create_preview_cache),
-):
+    *,
+    preview_id: Annotated[str, Form()],
+    page: Annotated[int, Form()],
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    diag_service: Annotated[PDFDiagnosticService, Depends(create_pdf_diagnostic_service)],
+    preview_cache: Annotated[PreviewCache, Depends(create_preview_cache)],
+) -> PageImageResponse:
     """Render a single page of the cached PDF as a PNG image (base64-encoded)."""
     async with preview_cache.get_path(preview_id) as tmp_path:
         if tmp_path is None:
@@ -323,7 +346,7 @@ async def get_page_image(
         if page < 1:
             raise HTTPException(status_code=400, detail="Page number must be >= 1")
 
-        image_bytes = await asyncio.to_thread(_render_page_image_sync, diag_service, tmp_path, page)
+        image_bytes = await asyncio.to_thread(render_page_image_sync, diag_service, tmp_path, page)
 
         return PageImageResponse(
             image_base64=base64.b64encode(image_bytes).decode("ascii"),
@@ -338,22 +361,17 @@ async def get_page_image(
 
 @router.post(
     "/admin/documents/preview/{preview_id}/index",
-    response_model=IndexFromPreviewResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def index_from_preview(
+    *,
     preview_id: str,
-    visibility: str = Form(DocumentVisibility.INTERNAL_PUBLIC.value),
-    group_id: int | None = Form(None),
-    client_id: int | None = Form(None),
-    doc_domain: DocDomain | None = Form(None),
-    admin: CurrentUser = Depends(require_admin),
-    preview_cache=Depends(create_preview_cache),
-    cmd=Depends(create_document_command_service),
-    job_service=Depends(create_job_service),
-    job_enqueuer=Depends(create_job_enqueuer),
-    log=Depends(create_action_logger),
-):
+    options: Annotated[PreviewIndexForm, Depends()],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+    preview_cache: Annotated[PreviewCache, Depends(create_preview_cache)],
+    cmd: Annotated[DocumentCommandService, Depends(create_document_command_service)],
+    submission: Annotated[JobSubmission, Depends(create_job_submission)],
+) -> IndexFromPreviewResponse:
     """Index the cached document through the standard ingestion pipeline.
 
     The uploaded file is passed through the same upload + processing flow as
@@ -362,6 +380,7 @@ async def index_from_preview(
     scratch.
     """
     file_data = await preview_cache.get_bytes(preview_id)
+
     if file_data is None:
         raise HTTPException(status_code=404, detail="Preview expired or not found")
 
@@ -370,21 +389,33 @@ async def index_from_preview(
     result = await upload_and_enqueue(
         file_data=file_data,
         filename=filename,
-        visibility=visibility,
-        group_id=group_id,
-        client_id=client_id,
+        visibility=options.visibility,
+        group_id=options.group_id,
+        client_id=options.client_id,
         user_id=admin.id,
         user_kind=admin.kind,
         user_role=admin.role,
         rename_on_conflict=False,
-        doc_domain=doc_domain.value if doc_domain is not None else None,
+        doc_domain=options.doc_domain.value if options.doc_domain is not None else None,
         document_service=cmd,
-        job_service=job_service,
-        enqueue_fn=job_enqueuer.enqueue_document_processing,
+        job_service=submission.jobs,
+        enqueue_fn=submission.enqueuer.enqueue_document_processing,
         action_name="document.upload_from_preview",
-        log_fn=log,
+        log_fn=submission.log,
     )
 
     return IndexFromPreviewResponse(
         document_id=result["document_id"], filename=filename, status=result["status"]
     )
+
+
+def parse_ocr_pages(pages: str) -> list[int]:
+    try:
+        page_nums = [int(p.strip()) for p in pages.split(",") if p.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid unit IDs") from None
+
+    if not page_nums:
+        raise HTTPException(status_code=400, detail="No units specified for OCR")
+
+    return page_nums

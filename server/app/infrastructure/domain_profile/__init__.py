@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from domain.ingestion.profiles.catalog import PROFILE_TYPES, SETTINGS_PROFILE_TYPES
 
+
 if TYPE_CHECKING:
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.registry import DomainProfileRegistry
@@ -32,7 +33,7 @@ def register_all_profiles(registry: DomainProfileRegistry, settings: DomainSetti
         profile = cls(settings=settings)
         try:
             profile.get_setting("max_unit_chars")
-        except Exception:
+        except (KeyError, RuntimeError):
             log.warning(
                 "DomainSettingsPort validation failed for %s -- config parameters may not be seeded yet",
                 cls.__name__,

@@ -2,24 +2,26 @@
 
 from __future__ import annotations
 
-from application.ports.ml_clients import MLClientPort
+from copy import deepcopy
+from typing import TYPE_CHECKING, Any
 
-from typing import Any
+from langchain_core.documents import Document as LCDocument
 
 from application.benchmark import load_benchmark_questions
-from application.benchmark.sweep_dto import DenseCache, SparseCache, CandidateCache
-from infrastructure.ml.rag.langchain_mapping import chunk_value
-from langchain_core.documents import Document as LCDocument
-from copy import deepcopy
-from application.uow.factory import UnitOfWorkFactory
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
-
-from infrastructure.benchmark.sweep.reranking import cache_reranker_scores
 from infrastructure.benchmark.sweep.candidates import cache_candidates
-from application.benchmark.sweep_ports import ShouldCancel
+from infrastructure.benchmark.sweep.reranking import cache_reranker_scores
 from infrastructure.ml.clients import factories
+from infrastructure.ml.rag.langchain_mapping import chunk_value
 from infrastructure.repositories.vector.acl import build_search_filter
+
+
+if TYPE_CHECKING:
+    from application.benchmark.sweep_dto import CandidateCache, DenseCache, SparseCache
+    from application.benchmark.sweep_ports import ShouldCancel
+    from application.ports.ml_clients import MLClientPort
+    from application.uow.factory import UnitOfWorkFactory
 
 
 class SweepDataSource:
@@ -72,12 +74,17 @@ class SweepDataSource:
             key: LCDocument(page_content=chunk.content, metadata=deepcopy(chunk.metadata))
             for key, chunk in candidates.items()
         }
+
         if self._ml_clients is not None:
             reranker = self._ml_clients.reranker()
-            return await cache_reranker_scores(questions, dense, sparse, candidates, reranker, should_cancel)
+            return await cache_reranker_scores(
+                questions, dense, sparse, candidates, reranker, should_cancel=should_cancel
+            )
 
         reranker = factories.create_reranker()
         try:
-            return await cache_reranker_scores(questions, dense, sparse, candidates, reranker, should_cancel)
+            return await cache_reranker_scores(
+                questions, dense, sparse, candidates, reranker, should_cancel=should_cancel
+            )
         finally:
             await reranker.close()

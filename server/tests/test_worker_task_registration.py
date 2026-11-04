@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 from infrastructure.worker import queue
 from infrastructure.worker.sweep import run_sweep_task
 from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_cleanup
-from presentation.cli.commands import worker as worker_command
+from composition.cli.commands import worker as worker_command
 
 
 def test_enqueued_sweep_resolves_to_registered_handler(monkeypatch):

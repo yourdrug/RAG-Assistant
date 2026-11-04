@@ -3,23 +3,25 @@
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
-from application.ports.rate_limit import RateLimitPolicyName
-from application.chunks import ChunkCursorQuery, ChunkMutationService, ChunkQueryService
-from application.documents import ManualDocumentService
-from domain.identity.roles import UserKind, UserRole
-from domain.knowledge.enums import DocumentVisibility
-from domain.identity.capabilities import Capability
 from fastapi import APIRouter, Depends, Query
 
+from application.chunks import ChunkCursorQuery, ChunkMutationService, ChunkQueryService
+from application.documents import ManualDocumentService
+from application.ports.action_logger import ActionLoggerPort
+from application.ports.rate_limit import RateLimitPolicyName
+from domain.identity.capabilities import Capability
+from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.enums import DocumentVisibility
 from presentation.api.auth_dependencies import get_current_user, require_capability
-from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import (
     create_action_logger,
-    create_chunk_query_service,
     create_chunk_mutation_service,
+    create_chunk_query_service,
     create_manual_document_service,
 )
+from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import (
     ChunkCreateRequest,
     ChunkCursorListResponse,
@@ -32,6 +34,7 @@ from presentation.api.schemas import (
     ManualDocumentRequest,
 )
 
+
 logger = logging.getLogger("default")
 
 router = APIRouter(tags=["chunks"])
@@ -39,13 +42,14 @@ router = APIRouter(tags=["chunks"])
 
 @router.get("/documents/{document_id}/chunks", response_model=ChunkListResponse)
 async def list_chunks(
+    *,
     document_id: int,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    highlight: str | None = Query(None, description="Comma-separated content_hashes to filter"),
-    current_user: CurrentUser = Depends(get_current_user),
-    chunk_service: ChunkQueryService = Depends(create_chunk_query_service),
-):
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    highlight: Annotated[str | None, Query(description="Comma-separated content_hashes to filter")] = None,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    chunk_service: Annotated[ChunkQueryService, Depends(create_chunk_query_service)],
+) -> ChunkListResponse:
     """List chunks for a document. When highlight is set, only matching chunks are returned."""
     content_hashes = [h.strip() for h in highlight.split(",") if h.strip()] if highlight else None
     chunks, total = await chunk_service.list_chunks(
@@ -91,14 +95,15 @@ async def list_chunks(
 
 @router.get("/documents/{document_id}/chunks/cursor", response_model=ChunkCursorListResponse)
 async def list_chunks_cursor(
+    *,
     document_id: int,
-    limit: int = Query(50, ge=1, le=200),
-    cursor: str | None = Query(None, description="Opaque cursor from previous response"),
-    direction: str = Query("next", pattern="^(next|prev)$"),
-    highlight: str | None = Query(None, description="Comma-separated content_hashes to filter"),
-    current_user: CurrentUser = Depends(get_current_user),
-    chunk_service: ChunkQueryService = Depends(create_chunk_query_service),
-):
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    cursor: Annotated[str | None, Query(description="Opaque cursor from previous response")] = None,
+    direction: Annotated[str, Query(pattern="^(next|prev)$")] = "next",
+    highlight: Annotated[str | None, Query(description="Comma-separated content_hashes to filter")] = None,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    chunk_service: Annotated[ChunkQueryService, Depends(create_chunk_query_service)],
+) -> ChunkCursorListResponse:
     """List chunks with cursor-based (keyset) pagination."""
     content_hashes = [h.strip() for h in highlight.split(",") if h.strip()] if highlight else None
     page = await chunk_service.list_chunks_cursor(
@@ -152,12 +157,13 @@ async def list_chunks_cursor(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def add_chunk(
+    *,
     document_id: int,
     request: ChunkCreateRequest,
-    current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
-    chunk_service: ChunkMutationService = Depends(create_chunk_mutation_service),
-    log=Depends(create_action_logger),
-):
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.CHUNKS_MANAGE))],
+    chunk_service: Annotated[ChunkMutationService, Depends(create_chunk_mutation_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> ChunkResponse:
     """Add a new chunk to an existing document."""
     result = await chunk_service.add_chunk(
         document_id=document_id,
@@ -190,13 +196,14 @@ async def add_chunk(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def edit_chunk(
+    *,
     document_id: int,
     chunk_id: int,
     request: ChunkEditRequest,
-    current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
-    chunk_service: ChunkMutationService = Depends(create_chunk_mutation_service),
-    log=Depends(create_action_logger),
-):
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.CHUNKS_MANAGE))],
+    chunk_service: Annotated[ChunkMutationService, Depends(create_chunk_mutation_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> ChunkResponse:
     """Edit an existing chunk's content with automatic re-embedding."""
     result = await chunk_service.edit_chunk(
         document_id=document_id,
@@ -230,12 +237,13 @@ async def edit_chunk(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def delete_chunk(
+    *,
     document_id: int,
     chunk_id: int,
-    current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
-    chunk_service: ChunkMutationService = Depends(create_chunk_mutation_service),
-    log=Depends(create_action_logger),
-):
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.CHUNKS_MANAGE))],
+    chunk_service: Annotated[ChunkMutationService, Depends(create_chunk_mutation_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> ChunkDeleteResponse:
     """Delete a single chunk."""
     await chunk_service.delete_chunk(
         document_id=document_id,
@@ -259,11 +267,12 @@ async def delete_chunk(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def create_manual_document(
+    *,
     request: ManualDocumentRequest,
-    current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
-    document_service: ManualDocumentService = Depends(create_manual_document_service),
-    log=Depends(create_action_logger),
-):
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.CHUNKS_MANAGE))],
+    document_service: Annotated[ManualDocumentService, Depends(create_manual_document_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> DocumentResponse:
     """Create a virtual document container for manual chunks."""
     result = await document_service.create_manual_document(
         title=request.title,

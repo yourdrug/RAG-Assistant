@@ -5,11 +5,13 @@ from dataclasses import asdict
 from enum import StrEnum
 import json
 from typing import Any
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from domain.shared.exceptions import ValidationError
+
 from domain.knowledge.enums import DocumentStatus
 from domain.knowledge.index_sync import OutboxStatus
+from domain.shared.exceptions import ValidationError
 from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.corpus.validation import corpus_digest
 
@@ -71,7 +73,8 @@ class CorpusRepository:
         ).scalar_one()
 
         if busy:
-            raise ValidationError("Finish or reconcile ingestion/outbox work before switching corpus")
+            message = "Finish or reconcile ingestion/outbox work before switching corpus"
+            raise ValidationError(message)
 
     async def commit_switch(
         self, snapshot: CorpusSnapshot, digest: str, config_rows: Sequence[Any], process_id: str
@@ -94,20 +97,22 @@ class CorpusRepository:
                 or not journal["candidate"]
                 or journal["candidate"]["generation"] != snapshot.generation
             ):
-                raise ValidationError("Corpus preparation journal changed before commit")
+                message = "Corpus preparation journal changed before commit"
+                raise ValidationError(message)
 
             await session.execute(
                 text("""LOCK TABLE documents, chunks, vector_store_outbox,
                 config_parameters IN SHARE ROW EXCLUSIVE MODE""")
             )
             await self.quiescent(session)
-            latest = list((await session.execute(text(CHUNKS_SQL))).mappings())
+            latest = [dict(row) for row in (await session.execute(text(CHUNKS_SQL))).mappings()]
             config_latest = (
                 await session.execute(text("SELECT key, domain_key, value FROM config_parameters"))
             ).all()
 
             if corpus_digest(latest) != digest or set(config_latest) != set(config_rows):
-                raise ValidationError("Configuration/corpus changed during probe; retry switching")
+                message = "Configuration/corpus changed during probe; retry switching"
+                raise ValidationError(message)
 
             for key, value in [("qdrant_url", snapshot.endpoint), ("collection_name", snapshot.alias)]:
                 result = await session.execute(
@@ -117,7 +122,8 @@ class CorpusRepository:
                 )
 
                 if len(result.all()) != 1:
-                    raise ValidationError("Corpus configuration is not initialized")
+                    message = "Corpus configuration is not initialized"
+                    raise ValidationError(message)
 
             await session.execute(
                 text("""UPDATE corpus_control SET phase=:phase,

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import uuid
 
-from shared import request_id_ctx
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
+
+from shared import request_id_ctx
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

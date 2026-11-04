@@ -6,7 +6,7 @@ not on the concrete Redis-backed implementation.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -15,3 +15,9 @@ class ApiKeyProviderPort(Protocol):
     def hash_key(self, raw_key: str) -> str: ...
     def key_prefix_for_display(self, raw_key: str) -> str: ...
     async def invalidate_by_id(self, api_key_id: int) -> None: ...
+
+    MISS: object
+
+    async def get_cached(self, key_hash: str) -> object: ...
+
+    async def set_cached(self, key_hash: str, value: dict[str, Any] | None) -> None: ...

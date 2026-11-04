@@ -71,16 +71,11 @@ backup и сверки dry run, сохраняя нестандартные stat
 
 ## Архитектура
 
-```
-domain/        ← бизнес-логика (чистая, без инфраструктуры)
-application/   ← сервисы, порты (протоколы), DTO
-infrastructure/← SQLAlchemy, Qdrant, Ollama, S3
-presentation/  ← FastAPI routes
-```
-
-**Пайплайн:** вопрос → Qdrant (top-25) → реранкер (top-6) → LLM (стриминг)
-
-**Порты:** Application зависит от протоколов (`application/ports/`), infrastructure предоставляет реализации. DI через конструктор.
+Backend разделён на Domain, Application, Infrastructure, Presentation и Composition.
+Основные пути загрузки и ответа, внешние сервисы и границы зависимостей:
+[обзор архитектуры](docs/architecture/overview.md).
+Термины предметной области: [глоссарий](docs/domain/glossary.md).
+Остальная постоянная документация: [docs](docs/README.md).
 
 ---
 

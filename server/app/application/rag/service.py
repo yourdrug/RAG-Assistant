@@ -1,6 +1,6 @@
 """Order RAG stages, bounded retry, and public stream events."""
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import aclosing
 from dataclasses import replace
 from typing import Any
@@ -50,10 +50,10 @@ class RagService:
         self.corpus = corpus
 
     async def stream(
-        self, question: str, history: list[object], ctx: RagContext
+        self, question: str, history: Sequence[object], ctx: RagContext
     ) -> AsyncGenerator[StreamEvent]:
         async with self.corpus():
-            request = self.preparation.request(question, history, ctx)
+            request = self.preparation.request(question, list(history), ctx)
             async with aclosing(self.events(request)) as events:
                 async for event in events:
                     yield event
@@ -130,11 +130,11 @@ class RagService:
     async def invoke(
         self,
         question: str,
-        history: list[object],
+        history: Sequence[object],
         ctx: RagContext,
     ) -> RagResult:
         async with self.corpus():
-            request = self.preparation.request(question, history, ctx)
+            request = self.preparation.request(question, list(history), ctx)
             return await self.result(request)
 
     async def result(self, request: RagRequest) -> RagResult:

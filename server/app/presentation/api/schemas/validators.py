@@ -6,15 +6,15 @@ into composable Pydantic types and model validators.
 
 from __future__ import annotations
 
-from pathlib import Path
 from io import BytesIO
+from pathlib import Path
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, ValidationError, model_validator
 from fastapi.exceptions import RequestValidationError
+from pydantic import AfterValidator, BaseModel, ValidationError, model_validator
 
+from application.documents.docx_validation import validate_docx_archive
 from presentation.api.constants import MAGIC_BYTES
-from infrastructure.storage.docx_validation import validate_docx_archive
 
 
 # ---------------------------------------------------------------------------
@@ -30,14 +30,17 @@ def _reject_unsafe_path(v: str) -> str:
     checks as defense-in-depth.
     """
     if ".." in v:
-        raise ValueError("Path must not contain '..'")
+        message = "Path must not contain '..'"
+        raise ValueError(message)
+
     if Path(v).is_absolute():
-        raise ValueError("Absolute paths are not allowed")
+        message = "Absolute paths are not allowed"
+        raise ValueError(message)
+
     return v
 
 
 # Annotated type — use as field type for automatic validation:
-#   docs_dir: SafeRelativePath = "docs/"
 SafeRelativePath = Annotated[str, AfterValidator(_reject_unsafe_path)]
 
 
@@ -48,7 +51,7 @@ SafeRelativePath = Annotated[str, AfterValidator(_reject_unsafe_path)]
 
 def _is_valid_pdf(data: bytes) -> bool:
     """Check that PDF ends with %%EOF marker."""
-    tail = data[-1024:] if len(data) > 1024 else data
+    tail = data[-1024:]
     return b"%%EOF" in tail
 
 
@@ -71,23 +74,29 @@ class FileContent(BaseModel):
     @model_validator(mode="after")
     def validate_content(self) -> FileContent:
         if not self.data:
-            raise ValueError("File is empty")
+            message = "File is empty"
+            raise ValueError(message)
 
         ext = Path(self.filename).suffix.lower()
 
         # 1. Extension must be known
         if ext not in MAGIC_BYTES:
-            raise ValueError(f"Unsupported file extension: {ext}")
+            message = f"Unsupported file extension: {ext}"
+            raise ValueError(message)
 
         # 2. Magic bytes must match declared extension
         expected = MAGIC_BYTES[ext]
+
         if expected and not any(self.data[: len(sig)] == sig for sig in expected):
-            raise ValueError(f"File content does not match extension {ext}")
+            message = f"File content does not match extension {ext}"
+            raise ValueError(message)
 
         # 3. Optional structural checks
         if self.check_structural:
             if ext == ".pdf" and not _is_valid_pdf(self.data):
-                raise ValueError("File content is not a valid PDF (missing EOF marker)")
+                message = "File content is not a valid PDF (missing EOF marker)"
+                raise ValueError(message)
+
             if ext == ".docx":
                 validate_docx_archive(BytesIO(self.data))
 

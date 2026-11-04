@@ -14,13 +14,19 @@ from __future__ import annotations
 
 import asyncio
 import enum
+from functools import wraps
 import logging
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING
 
 from prometheus_client import Counter, Gauge
 
 from domain.shared.exceptions import LLMUnavailableError
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Coroutine
+
 
 log = logging.getLogger("default")
 
@@ -96,27 +102,25 @@ class LLMCircuitBreaker:
                 return
 
             CB_FAILURES.labels(operation=self._operation_name).inc()
-            self._update_metrics()
-            raise CircuitBreakerError(
-                f"Circuit breaker '{self._operation_name}' is OPEN. Retry after {self._timeout_duration}s."
-            )
+            self.update_metrics()
+            msg = f"Circuit breaker '{self._operation_name}' is OPEN. Retry after {self._timeout_duration}s."
+            raise CircuitBreakerError(msg)
 
-    def _transition_to_half_open_if_needed(self) -> None:
+    def transition_to_half_open_if_needed(self) -> None:
         """Transition from OPEN to HALF_OPEN if the timeout has expired (called under lock)."""
-        if self._state == CBState.OPEN:
-            if time.monotonic() - self._opened_at >= self._timeout_duration:
-                self._state = CBState.HALF_OPEN
-                log.info(
-                    "Circuit breaker '%s' transitioned to HALF_OPEN (probe allowed)",
-                    self._operation_name,
-                )
+        if self._state == CBState.OPEN and time.monotonic() - self._opened_at >= self._timeout_duration:
+            self._state = CBState.HALF_OPEN
+            log.info(
+                "Circuit breaker '%s' transitioned to HALF_OPEN (probe allowed)",
+                self._operation_name,
+            )
 
     # -- Report success/failure (short lock) ----------------------------------
 
     async def report_success(self) -> None:
         """Report a successful call. Under lock, check and transition if needed."""
         async with self._lock:
-            self._transition_to_half_open_if_needed()
+            self.transition_to_half_open_if_needed()
 
             if self._state == CBState.HALF_OPEN:
                 self._state = CBState.CLOSED
@@ -128,12 +132,12 @@ class LLMCircuitBreaker:
             elif self._state == CBState.CLOSED:
                 self._failure_count = 0
 
-            self._update_metrics()
+            self.update_metrics()
 
     async def report_failure(self) -> None:
         """Report a failed call. Under lock, increment counter and potentially open."""
         async with self._lock:
-            self._transition_to_half_open_if_needed()
+            self.transition_to_half_open_if_needed()
 
             if self._state == CBState.HALF_OPEN:
                 # Any failure during half-open probe reopens immediately
@@ -155,15 +159,15 @@ class LLMCircuitBreaker:
                         self._failure_count,
                     )
 
-            self._update_metrics()
+            self.update_metrics()
 
     # -- Unified call API (for simple use cases) ------------------------------
 
-    def _update_metrics(self) -> None:
+    def update_metrics(self) -> None:
         state_val = {"closed": 0, "open": 1, "half_open": 2}.get(self._state.value, -1)
         CB_STATE.labels(operation=self._operation_name).set(state_val)
 
-    async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    async def call[**P, R](self, func: Callable[P, Awaitable[R]], *args: P.args, **kwargs: P.kwargs) -> R:
         """Execute *func* through circuit breaker (convenience wrapper).
 
         check_open() + report_success/report_failure around func.
@@ -182,16 +186,13 @@ class LLMCircuitBreaker:
             await self.report_success()
             return result
 
-    def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
+    def __call__[**P, R](self, func: Callable[P, Awaitable[R]]) -> Callable[P, Coroutine[object, object, R]]:
         """Use as decorator: ``@llm_generate_breaker``."""
-        _func = func
 
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            return await self.call(_func, *args, **kwargs)
+        @wraps(func)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            return await self.call(func, *args, **kwargs)
 
-        wrapper.__name__ = func.__name__
-        wrapper.__doc__ = func.__doc__
-        wrapper.__wrapped__ = func  # type: ignore[attr-defined]
         return wrapper
 
 
@@ -206,9 +207,8 @@ def get_breaker(name: str) -> LLMCircuitBreaker:
     try:
         return _breakers[name]
     except KeyError:
-        raise KeyError(
-            f"Circuit breaker '{name}' not initialised. Call init_breakers() at startup."
-        ) from None
+        msg = f"Circuit breaker '{name}' not initialised. Call init_breakers() at startup."
+        raise KeyError(msg) from None
 
 
 def init_breakers(

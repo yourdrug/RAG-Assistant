@@ -13,6 +13,7 @@ import os
 from typing import Any
 
 from pythonjsonlogger.json import JsonFormatter
+
 from shared import request_id_ctx
 
 
@@ -71,7 +72,7 @@ _formatters: dict[str, Any] = {
     },
     "access": {
         "()": "uvicorn.logging.AccessFormatter",
-        "fmt": "[%(asctime)s] %(levelname)s [%(request_id)s]"  # noqa: E501
+        "fmt": "[%(asctime)s] %(levelname)s [%(request_id)s]"
         ": %(client_addr)s %(request_line)s %(status_code)s",
         "datefmt": "%Y-%m-%d %H:%M:%S",
     },

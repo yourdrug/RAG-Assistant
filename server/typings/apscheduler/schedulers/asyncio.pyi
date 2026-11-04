@@ -1,0 +1,16 @@
+from collections.abc import Callable
+from typing import TypedDict, Unpack
+
+class IntervalJobOptions(TypedDict):
+    id: str
+    replace_existing: bool
+    trigger: str
+    max_instances: int
+    seconds: int
+
+class AsyncIOScheduler:
+    def __init__(self, *, timezone: str) -> None: ...
+    def add_job(self, func: Callable[[], object], **kwargs: Unpack[IntervalJobOptions]) -> object: ...
+    def start(self, paused: bool = False) -> None: ...
+    def remove_all_jobs(self, jobstore: str | None = None) -> None: ...
+    def shutdown(self, wait: bool = True) -> None: ...

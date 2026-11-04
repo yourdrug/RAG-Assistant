@@ -7,7 +7,7 @@ dependency providers.
 
 from __future__ import annotations
 
-from domain.runtime.jobs import JobType as JobType
+from domain.runtime.jobs import JobType
 
 
 # ---------------------------------------------------------------------------
@@ -98,3 +98,5 @@ QUALITY_BAD_RATIO_THRESHOLD: float = 0.3
 # ---------------------------------------------------------------------------
 AUTH_SCHEME_BEARER = "bearer"
 AUTH_SCHEME_API_KEY = "api-key"
+
+__all__ = ["JobType"]

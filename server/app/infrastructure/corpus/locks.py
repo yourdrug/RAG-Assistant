@@ -10,6 +10,7 @@ from infrastructure.corpus.repository import CorpusPhase, CorpusRow
 from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.database.database import DatabaseManager
 
+
 # Stable across processes and releases: changing this lets old and new writers bypass each other.
 CORPUS_SWITCH_ADVISORY_LOCK_KEY = 7319048273461
 
@@ -42,10 +43,12 @@ def corpus_write_guard(database: DatabaseManager, snapshot: CorpusSnapshot) -> I
 
 def validate_write_admission(row: CorpusRow | None, snapshot: CorpusSnapshot) -> None:
     if row is None or row["phase"] not in {CorpusPhase.ACTIVE, CorpusPhase.FAILED}:
-        raise ValidationError("Corpus switch is pending; retry the write after readiness")
+        message = "Corpus switch is pending; retry the write after readiness"
+        raise ValidationError(message)
 
     if CorpusSnapshot(**row["active"]).namespace != snapshot.namespace:
-        raise ValidationError("Corpus generation changed; retry using the current snapshot")
+        message = "Corpus generation changed; retry using the current snapshot"
+        raise ValidationError(message)
 
 
 @asynccontextmanager
@@ -63,4 +66,5 @@ def validate_switch_version(latest: CorpusRow, previous: CorpusRow, expected_gen
         or latest["phase"] not in {CorpusPhase.ACTIVE, CorpusPhase.FAILED}
         or latest["write_epoch"] != previous["write_epoch"]
     ):
-        raise ValidationError("Corpus changed during validation; retry the switch")
+        message = "Corpus changed during validation; retry the switch"
+        raise ValidationError(message)

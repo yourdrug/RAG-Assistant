@@ -12,11 +12,12 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-
 from infrastructure.events.postgres_listener import PostgresListener
+
 
 if TYPE_CHECKING:
     from infrastructure.database.database import DatabaseManager
+    from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
 log = logging.getLogger("default")
 
@@ -26,7 +27,7 @@ _CHANNEL = "vector_outbox_ready"
 class PostgresOutboxListener:
     """LISTEN/NOTIFY listener that triggers the outbox dispatcher on new entries."""
 
-    def __init__(self, dispatcher, database: DatabaseManager) -> None:
+    def __init__(self, dispatcher: OutboxDispatcher, database: DatabaseManager) -> None:
         """Initialize the outbox listener.
 
         Args:

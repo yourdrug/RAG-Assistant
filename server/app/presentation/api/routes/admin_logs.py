@@ -2,24 +2,29 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Query
 
+from application.admin import LogBufferPort
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import MAX_PAGE_LIMIT_LARGE
 from presentation.api.dependencies import create_log_buffer
 from presentation.api.schemas import CurrentUser, LogEntry, LogsResponse
+
 
 router = APIRouter(tags=["admin-logs"])
 
 
 @router.get("/admin/logs", response_model=LogsResponse)
 async def list_logs(
-    limit: int = Query(100, ge=1, le=MAX_PAGE_LIMIT_LARGE),
-    level: str | None = Query(None),
-    search: str | None = Query(None),
-    admin: CurrentUser = Depends(require_admin),
-    log_buffer=Depends(create_log_buffer),
-):
+    *,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_LIMIT_LARGE)] = 100,
+    level: Annotated[str | None, Query()] = None,
+    search: Annotated[str | None, Query()] = None,
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    log_buffer: Annotated[LogBufferPort, Depends(create_log_buffer)],
+) -> LogsResponse:
     raw = log_buffer.get_logs(limit=limit, level=level, search=search)
     logs = [
         LogEntry(

@@ -1,9 +1,9 @@
 """Shared prompts and criteria for benchmark judge requests."""
 
 from infrastructure.benchmark.judging.judge_rubric import (
+    CITATION_SUPPORT_CRITERIA,
     CORRECTNESS_CRITERIA,
     FAITHFULNESS_CRITERIA,
-    CITATION_SUPPORT_CRITERIA,
 )
 
 
@@ -41,7 +41,7 @@ RELEVANCY_PROMPT = """\
 это означает, что ассистент корректно определил отсутствие информации.
 В этом случае:
 - Если информация действительно отсутствует в документах — оцени как 7-10 (ассистент корректноresponded).
-- Если информация ЕСТЬ в документах, но ассистент её не нашёл — оцени как 0-3 (ретривер не справился).
+- Если информация ЕСТ\u042c в документах, но ассистент её не нашёл — оцени как 0-3 (ретривер не справился).
 
 Точный полный ответ = 10. Ответ не по теме = 0. «Не найдена» при отсутствии информации = 7-10.
 

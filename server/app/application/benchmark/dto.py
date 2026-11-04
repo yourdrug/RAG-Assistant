@@ -125,4 +125,5 @@ class BenchmarkRunOptions(TypedDict, total=False):
 
 
 class BenchmarkRunnerOptions(BenchmarkRunOptions, total=False):
+    fetch_k: int | None
     rag_service: ChatRAGPort | None

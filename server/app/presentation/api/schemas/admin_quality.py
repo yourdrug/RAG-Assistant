@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -38,7 +39,7 @@ class DocumentDiagnoseResponse(BaseModel):
     filename: str
     total_pages: int
     pages: list[PageDiagnostic]
-    summary: dict
+    summary: dict[str, Any]
 
 
 class DryRunPageResult(BaseModel):
@@ -63,7 +64,7 @@ class DryRunResponse(BaseModel):
     quality_score: float
     warning: str | None = None
     full_text_preview: str
-    summary: dict
+    summary: dict[str, Any]
     suggestion: str | None = None
     preview_id: str | None = None
 
@@ -82,17 +83,19 @@ class PreviewFile(BaseModel):
 
     filename: str
 
-    def model_post_init(self, __context: object) -> None:
+    def model_post_init(self, _context: object, /) -> None:
         ext = Path(self.filename).suffix.lower()
+
         if ext == ".doc":
-            raise ValueError(
+            message = (
                 "Файлы .doc (старый формат Word 97-2003) не поддерживаются. "
                 "Конвертируйте файл в .docx и повторите попытку."
             )
+            raise ValueError(message)
+
         if ext not in DRY_RUN_EXTENSIONS:
-            raise ValueError(
-                f"Unsupported file type: {ext}. Supported: {', '.join(sorted(DRY_RUN_EXTENSIONS))}"
-            )
+            message = f"Unsupported file type: {ext}. Supported: {', '.join(sorted(DRY_RUN_EXTENSIONS))}"
+            raise ValueError(message)
 
 
 class IndexFromPreviewResponse(BaseModel):

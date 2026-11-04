@@ -22,7 +22,8 @@ class DomainSettingsAdapter:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        raise KeyError(f"Config parameter '{key}' not found for domain '{domain_key}'")
+        msg = f"Config parameter '{key}' not found for domain '{domain_key}'"
+        raise KeyError(msg)
 
     def snapshot(self) -> dict[tuple[str, str], str]:
         return dict(self._cache)

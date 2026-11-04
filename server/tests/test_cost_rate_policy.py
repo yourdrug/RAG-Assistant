@@ -48,7 +48,7 @@ async def test_api_maps_input_only_without_accepting_a_policy_override(provider:
         }
     )
     service = AsyncMock()
-    await add_cost_rate(body, admin=Mock(), service=service)
+    await add_cost_rate(body=body, _admin=Mock(), service=service)
     rate = service.add_rate.await_args.args[0]
     assert rate.input_only is (provider == "deepinfra")
     assert "input_only" not in CostRateRequest.model_json_schema()["properties"]

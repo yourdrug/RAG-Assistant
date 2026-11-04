@@ -12,12 +12,21 @@ Only process-local jobs stay here (metrics collector, config resync).
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
 from infrastructure.metrics.metrics import collect_infra_metrics
 from infrastructure.utils.async_exception_handler import handle_exceptions
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from application.ports.ml_clients import MLClientPort
+    from infrastructure.events.postgres_config_listener import PostgresConfigListener
+    from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+
 
 logger = logging.getLogger("default")
 
@@ -27,16 +36,15 @@ class Scheduler:
 
     def __init__(self) -> None:
         self.scheduler = AsyncIOScheduler(timezone="UTC")
-        self._config_listener: Any = None
-        self._ml_clients: Any = None
-        self._outbox_dispatcher: Any = None
+        self._config_listener: PostgresConfigListener | None = None
+        self._ml_clients: MLClientPort | None = None
+        self._outbox_dispatcher: OutboxDispatcher | None = None
 
     def add_interval_job(
         self,
         job_id: str,
-        func: Callable,
+        func: Callable[[], object],
         seconds: int,
-        **kwargs: Any,
     ) -> None:
         self.scheduler.add_job(
             id=job_id,
@@ -45,21 +53,20 @@ class Scheduler:
             trigger="interval",
             max_instances=1,
             seconds=seconds,
-            **kwargs,
         )
 
-    def _configure(self) -> None:
+    def configure(self) -> None:
         # Infrastructure metrics collector (every 30s) — server-local Prometheus registry
         self.add_interval_job(
             job_id="infra_metrics_collector",
-            func=self._periodic_infra_collector,
+            func=self.periodic_infra_collector,
             seconds=30,
         )
 
         # Config resync — страховка от потерянных NOTIFY (every 5 min)
         self.add_interval_job(
             job_id="config_resync",
-            func=self._periodic_config_resync,
+            func=self.periodic_config_resync,
             seconds=300,
         )
 
@@ -67,24 +74,24 @@ class Scheduler:
         if self._outbox_dispatcher is not None:
             self.add_interval_job(
                 job_id="vector_outbox_dispatch",
-                func=self._periodic_outbox_dispatch,
+                func=self.periodic_outbox_dispatch,
                 seconds=30,
             )
 
             # Reconcile stuck documents (every 60s)
             self.add_interval_job(
                 job_id="outbox_reconcile_stuck",
-                func=self._periodic_reconcile_stuck,
+                func=self.periodic_reconcile_stuck,
                 seconds=60,
             )
 
     @handle_exceptions
-    async def _periodic_infra_collector(self) -> None:
+    async def periodic_infra_collector(self) -> None:
         """Periodically update infrastructure Prometheus gauges."""
         await collect_infra_metrics(ml_clients=self._ml_clients)
 
     @handle_exceptions
-    async def _periodic_config_resync(self) -> None:
+    async def periodic_config_resync(self) -> None:
         """Страховочная полная сверка config_parameters -> settings.
 
         Не заменяет LISTEN/NOTIFY (тот даёт near-real-time применение), а закрывает
@@ -94,7 +101,7 @@ class Scheduler:
             await self._config_listener.resync(trigger="periodic")
 
     @handle_exceptions
-    async def _periodic_outbox_dispatch(self) -> None:
+    async def periodic_outbox_dispatch(self) -> None:
         """Safety net: process pending outbox entries if NOTIFY was missed."""
         if self._outbox_dispatcher is None:
             return
@@ -105,7 +112,7 @@ class Scheduler:
             logger.info("Outbox dispatch (periodic): processed %d entries", processed)
 
     @handle_exceptions
-    async def _periodic_reconcile_stuck(self) -> None:
+    async def periodic_reconcile_stuck(self) -> None:
         """Fix documents stuck in 'indexing' with no pending outbox entries."""
         if self._outbox_dispatcher is None:
             return
@@ -117,16 +124,15 @@ class Scheduler:
 
     async def startup(
         self,
-        uow_factory: Any = None,
-        config_listener: Any = None,
-        ml_clients: Any = None,
-        outbox_dispatcher: Any = None,
+        config_listener: PostgresConfigListener | None = None,
+        ml_clients: MLClientPort | None = None,
+        outbox_dispatcher: OutboxDispatcher | None = None,
     ) -> None:
         """Configure and start the scheduler with required dependencies."""
         self._config_listener = config_listener
         self._ml_clients = ml_clients
         self._outbox_dispatcher = outbox_dispatcher
-        self._configure()
+        self.configure()
         self.scheduler.start()
         logger.info("Scheduler started.")
 

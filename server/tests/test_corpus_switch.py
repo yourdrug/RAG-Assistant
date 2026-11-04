@@ -89,7 +89,7 @@ def fixture_corpus() -> tuple[QdrantClient, str, dict[str, Any]]:
 def test_candidate_requires_exact_pg_acl_and_immutable_identity() -> None:
     client, identity, row = fixture_corpus()
     try:
-        snapshot = validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, [row])
+        snapshot = validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, rows=[row])
         assert snapshot.physical_collection == "docs_v1"
 
         for bad_row in [
@@ -99,14 +99,14 @@ def test_candidate_requires_exact_pg_acl_and_immutable_identity() -> None:
             {**row, "visibility": "internal_public"},
         ]:
             with pytest.raises(ValidationError):
-                validate_corpus(client, snapshot.endpoint, "docs_v1", identity, 2, [bad_row])
+                validate_corpus(client, snapshot.endpoint, "docs_v1", identity, 2, rows=[bad_row])
 
         with pytest.raises(ValidationError):
-            validate_corpus(client, snapshot.endpoint, "docs_v1", "other:model", 2, [row])
+            validate_corpus(client, snapshot.endpoint, "docs_v1", "other:model", 2, rows=[row])
         with pytest.raises(ValidationError):
-            validate_corpus(client, snapshot.endpoint, "docs_v1", identity, 3, [row])
+            validate_corpus(client, snapshot.endpoint, "docs_v1", identity, 3, rows=[row])
         with pytest.raises(ValidationError):
-            validate_corpus(client, snapshot.endpoint, "docs_v1", identity, 2, [])
+            validate_corpus(client, snapshot.endpoint, "docs_v1", identity, 2, rows=[])
     finally:
         client.close()
 
@@ -271,10 +271,10 @@ def test_corpus_requires_sparse_vector(text: str, vector: models.SparseVector | 
         client.upsert("docs_v1", [models.PointStruct(id=1, vector=vectors, payload=payload)])
 
         if valid:
-            validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, [row])
+            validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, rows=[row])
         else:
             with pytest.raises(ValidationError, match="sparse vector"):
-                validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, [row])
+                validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, rows=[row])
     finally:
         client.close()
 

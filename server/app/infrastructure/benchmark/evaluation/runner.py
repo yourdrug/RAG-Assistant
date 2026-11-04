@@ -2,54 +2,57 @@
 
 from __future__ import annotations
 
-
-from typing import Any, TYPE_CHECKING
-
+import asyncio
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any, Unpack
 
-from application.benchmark.identity import fingerprint
 from application.benchmark.execution import (
     BenchmarkExecutionScope,
     execute_benchmark,
-    validate_questions as validate_questions,
+    validate_questions,
 )
+from application.benchmark.identity import fingerprint
 from config import settings
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.evaluation import answer_generators
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.evaluation.run_manifest import build_run_manifest
-import asyncio
 from infrastructure.benchmark.judging.judge_rubric import JUDGE_RUBRIC_VERSION
 from infrastructure.benchmark.reporting import progress
 from infrastructure.benchmark.sweep.settings import settings_fingerprint
 
+
 if TYPE_CHECKING:
-    from infrastructure.benchmark.evaluation.annotation_validation import AnnotationValidator
-    from application.benchmark import BenchmarkCheckpoints
-    from infrastructure.budget.runtime import BudgetRuntime
-    from application.ports.ml_clients import MLClientPort
-    from application.chat import ChatRAGPort
     from collections.abc import AsyncIterator
+
+    from application.benchmark.dto import BenchmarkRunnerOptions
+    from application.ports.ml_clients import MLClientPort
+    from infrastructure.benchmark.evaluation.annotation_validation import AnnotationValidator
+    from infrastructure.budget.runtime import BudgetRuntime
 
 
 async def run_benchmark_async(
     questions: list[dict[str, Any]],
     top_k: int,
     judge_model: str,
-    max_concurrent: int | None = None,
-    seed: int | None = None,
-    n_runs: int = 1,
-    rag_service: ChatRAGPort | None = None,
+    *,
     corpus_resource: MLClientPort | None = None,
     budget_runtime: BudgetRuntime | None = None,
-    fetch_k: int | None = None,
-    resume: bool = False,
-    checkpoints: BenchmarkCheckpoints | None = None,
-    checkpoint_prefix: str | None = None,
     annotation_validator: AnnotationValidator | None = None,
+    **options: Unpack[BenchmarkRunnerOptions],
 ) -> list[dict[str, Any]]:
+    rag_service = options.get("rag_service")
+    max_concurrent = options.get("max_concurrent")
+    seed = options.get("seed")
+    n_runs = options.get("n_runs", 1)
+    fetch_k = options.get("fetch_k")
+    resume = options.get("resume", False)
+    checkpoints = options.get("checkpoints")
+    checkpoint_prefix = options.get("checkpoint_prefix")
+
     if rag_service is None:
-        raise ValueError("rag_service is required for benchmark evaluation")
+        message = "rag_service is required for benchmark evaluation"
+        raise ValueError(message)
 
     @asynccontextmanager
     async def scope() -> AsyncIterator[BenchmarkExecutionScope]:
@@ -94,3 +97,6 @@ async def run_benchmark_async(
         settings_identity=fingerprint({"settings": settings_fingerprint(), "evidence_schema": 2}),
         rubric_version=JUDGE_RUBRIC_VERSION,
     )
+
+
+__all__ = ["validate_questions"]

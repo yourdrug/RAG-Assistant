@@ -12,6 +12,7 @@ from infrastructure.worker.queue import (
     enqueue_ingest_file,
 )
 
+
 __all__ = [
     "enqueue_benchmark",
     "enqueue_document_processing",

@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
-from application.benchmark.sweep_ports import ShouldCancel, check_cancelled
+from typing import TYPE_CHECKING, Any
+
+from application.benchmark.sweep_ports import check_cancelled
 from infrastructure.ml.rag.rag_reranking import rerank_documents
 
 
+if TYPE_CHECKING:
+    from application.benchmark.sweep_dto import SparseCache
+    from application.benchmark.sweep_ports import ShouldCancel
+    from application.ports.ml_clients import RerankerClientPort
+    from infrastructure.benchmark.sweep.candidates import DenseDocumentCache, DocumentCache
+
+
 async def cache_reranker_scores(
-    questions: list[dict],
-    dense_cache: dict,
-    sparse_cache: dict,
-    candidates: dict,
-    reranker,
+    questions: list[dict[str, Any]],
+    dense_cache: DenseDocumentCache,
+    sparse_cache: SparseCache,
+    candidates: DocumentCache,
+    reranker: RerankerClientPort,
+    *,
     should_cancel: ShouldCancel | None = None,
 ) -> dict[str, dict[str, float]]:
     """One inference per question, reused by every retrieval configuration.

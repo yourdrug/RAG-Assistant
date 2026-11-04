@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from application.ports.rag_settings import RagSettingsPort
+from typing import TYPE_CHECKING
+
 from infrastructure.ml.guardrails.guardrails import PIIDetector
+
+
+if TYPE_CHECKING:
+    from application.ports.rag_settings import RagSettingsPort
 
 
 class PIIRedactorAdapter:

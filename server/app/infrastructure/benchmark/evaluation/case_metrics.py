@@ -1,16 +1,18 @@
 """Metrics derived from generated benchmark answers and provider usage metadata."""
 
 import logging
+from typing import Any
 
 from infrastructure.benchmark.evaluation.source_hints import matches_source_hints, parse_source_hints
+
 
 logger = logging.getLogger("default")
 
 
 def compute_retriever_metrics_from_sources(
-    sources: list[dict],
+    sources: list[dict[str, Any]],
     source_hint: str | None,
-) -> dict:
+) -> dict[str, Any]:
     """Compute retriever metrics from RagResult.sources format.
 
     Sources from RagService are list[dict] with keys: source, max_score, pages, etc.
@@ -50,7 +52,7 @@ def compute_retriever_metrics_from_sources(
     }
 
 
-def extract_usage_from_response(response) -> tuple[int | None, int | None]:
+def extract_usage_from_response(response: object) -> tuple[int | None, int | None]:
     """Extract input/output token counts from a LangChain LLM response."""
     try:
         metadata = getattr(response, "response_metadata", {}) or {}

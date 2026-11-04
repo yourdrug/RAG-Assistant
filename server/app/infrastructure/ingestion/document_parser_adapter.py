@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from application.ingestion import FileMeta, SplitContext
 from domain.ingestion.raw_document import RawDocument
 from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from application.ingestion import FileMeta, SplitContext
 
 
 class IngestionDocumentParser:

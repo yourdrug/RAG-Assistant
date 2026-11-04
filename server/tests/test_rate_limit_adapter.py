@@ -49,7 +49,7 @@ class _BrokenRedis:
 
 
 class TestResolveViolation:
-    """Test that _resolve_violation returns the actual violated rate, not just the tightest."""
+    """Test that resolve_violation returns the actual violated rate, not just the tightest."""
 
     @pytest.mark.asyncio
     async def test_single_window_returns_correct_limit(self):
@@ -74,7 +74,7 @@ class TestResolveViolation:
 
     @pytest.mark.asyncio
     async def test_multi_window_violation_returns_correct_rate(self):
-        """When the minute window is exceeded, _resolve_violation returns the
+        """When the minute window is exceeded, resolve_violation returns the
         minute rate (limit=10, retry=60), NOT the daily rate (100/day).
         """
         chat_policy = {
@@ -110,7 +110,7 @@ class TestResolveViolation:
 
     @pytest.mark.asyncio
     async def test_violation_fallback_on_missing_bucket(self):
-        """If bucket is not in cache, _resolve_violation falls back to tightest_limit."""
+        """If bucket is not in cache, resolve_violation falls back to tightest_limit."""
         limiter = PyrateRateLimiter(
             fakeredis.aioredis.FakeRedis(decode_responses=True),
             _policies(),
@@ -295,10 +295,10 @@ class _ExpireFailRedis:
 
 
 class TestRefreshTtlException:
-    """Cover limiter.py:106-107 — _refresh_ttl exception handler."""
+    """Cover limiter.py:106-107 — refresh_ttl exception handler."""
 
     @pytest.mark.asyncio
-    async def test_refresh_ttl_failure_does_not_break_allowed_path(self):
+    async def testrefresh_ttl_failure_does_not_break_allowed_path(self):
         limiter = PyrateRateLimiter(
             _ExpireFailRedis(),
             _policies(),
@@ -307,7 +307,7 @@ class TestRefreshTtlException:
             fail_open=True,
         )
 
-        # First request: bucket created, try_acquire succeeds, _refresh_ttl fails
+        # First request: bucket created, try_acquire succeeds, refresh_ttl fails
         decision = await limiter.check(RateLimitPolicyName.LOGIN, "ip:1")
 
         assert decision.allowed is True
@@ -338,7 +338,7 @@ class TestDoubleCheckedLock:
 
 
 class TestLruEviction:
-    """Cover bucket_factory.py:91-92 — _evict_overflow loop body."""
+    """Cover bucket_factory.py:91-92 — evict_overflow loop body."""
 
     @pytest.mark.asyncio
     async def test_evicts_oldest_when_max_buckets_reached(self):
@@ -358,7 +358,7 @@ class TestLruEviction:
 
 
 class TestResolvePolicyError:
-    """Cover bucket_factory.py:86-87 — _resolve_policy ValueError."""
+    """Cover bucket_factory.py:86-87 — resolve_policy ValueError."""
 
     @pytest.mark.asyncio
     async def test_unknown_policy_in_item_name_raises(self):
@@ -372,7 +372,7 @@ class TestResolvePolicyError:
 
 
 class TestResolveViolationException:
-    """Cover limiter.py:133-135 — _resolve_violation exception handler."""
+    """Cover limiter.py:133-135 — resolve_violation exception handler."""
 
     @pytest.mark.asyncio
     async def test_exception_in_bucket_lookup_falls_back(self):
@@ -384,7 +384,7 @@ class TestResolveViolationException:
             fail_open=True,
         )
 
-        # Corrupt buckets to force an exception in _resolve_violation's try block
+        # Corrupt buckets to force an exception in resolve_violation's try block
         class _BoomDict:
             def get(self, *a, **kw):
                 raise RuntimeError("bucket lookup exploded")
@@ -392,7 +392,7 @@ class TestResolveViolationException:
         limiter._factory.buckets = _BoomDict()  # type: ignore[assignment]
 
         policy = _policies()[RateLimitPolicyName.LOGIN]
-        fallback = await limiter._resolve_violation("login:ip:1", policy, RateLimitPolicyName.LOGIN)
+        fallback = await limiter.resolve_violation("login:ip:1", policy, RateLimitPolicyName.LOGIN)
 
         # Falls back to tightest_limit / policy.retry_after_sec
         assert fallback == (2, 60)

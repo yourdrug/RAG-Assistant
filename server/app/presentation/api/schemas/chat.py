@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 from domain.rag.classification import explicit_question_date
 from domain.shared.dates import parse_date_guess
 
@@ -22,13 +23,14 @@ class ChatRequest(BaseModel):
     def infer_as_of_date(self) -> ChatRequest:
         if self.as_of_date is None:
             self.as_of_date = explicit_question_date(self.question) or parse_date_guess(self.question)
+
         return self
 
 
 class ChatResponse(BaseModel):
     answer: str
     conversation_id: int
-    sources: list[dict] | None = None
+    sources: list[dict[str, Any]] | None = None
     confidence: float | None = Field(None, description="Answer confidence score (0.0-1.0)")
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -38,7 +40,7 @@ class MessageResponse(BaseModel):
     id: int
     role: str
     content: str
-    sources: list | None
+    sources: list[Any] | None
     creation_date: datetime | None
 
 

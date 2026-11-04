@@ -3,6 +3,16 @@
 # Production deploys skip this file by using explicit -f flags.
 
 services:
+  migrate:
+    volumes:
+      - type: bind
+        source: server/app
+        target: /code/project/app
+        read_only: true
+        bind:
+          create_host_path: false
+          selinux: Z
+
   server:
     build:
       context: .

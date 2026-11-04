@@ -18,7 +18,7 @@ from infrastructure.worker import queue, runtime, tasks
 
 @pytest.fixture
 def pool_state(monkeypatch):
-    monkeypatch.setattr(queue, "_pool", None)
+    monkeypatch.setattr(queue.pool_state, "pool", None)
     if hasattr(queue, "pool_lock"):
         monkeypatch.setattr(queue, "pool_lock", asyncio.Lock())
 
@@ -40,7 +40,7 @@ async def test_concurrent_first_enqueues_create_only_one_pool(monkeypatch, pool_
     assert len(pools) == 1
     assert pools[0].enqueue_job.await_count == 12
     pools[0].close.assert_awaited_once()
-    assert queue._pool is None
+    assert queue.pool_state.pool is None
 
 
 @pytest.mark.asyncio
@@ -63,7 +63,7 @@ async def test_shutdown_waits_for_inflight_pool_creation(monkeypatch, pool_state
     await asyncio.gather(enqueue, shutdown)
 
     pool.close.assert_awaited_once()
-    assert queue._pool is None
+    assert queue.pool_state.pool is None
 
 
 @pytest.mark.asyncio
@@ -72,10 +72,10 @@ async def test_concurrent_shutdown_closes_shared_pool_once(monkeypatch, pool_sta
         await asyncio.sleep(0)
 
     pool = SimpleNamespace(close=AsyncMock(side_effect=close))
-    monkeypatch.setattr(queue, "_pool", pool)
+    monkeypatch.setattr(queue.pool_state, "pool", pool)
     await asyncio.gather(queue.close_arq_pool(), queue.close_arq_pool())
     pool.close.assert_awaited_once()
-    assert queue._pool is None
+    assert queue.pool_state.pool is None
 
 
 @pytest.mark.asyncio

@@ -4,16 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from langchain_core.documents import Document
+
 from infrastructure.ml.ingestion import extract_article_number, extract_date_from_filename
 from infrastructure.ml.pdf_diag import assess_pdf_extraction_quality
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
-    from langchain_core.documents import Document
-
     from domain.ingestion.preview import PDFQualityReport
+    from domain.ingestion.raw_document import RawDocument
 
 
 class MLContentExtractor:
@@ -29,5 +31,7 @@ class MLContentExtractor:
 class MLPDFQualityAssessor:
     """Adapts PDF quality assessment behind PDFQualityAssessorPort."""
 
-    def assess(self, pdf_path: Path, documents: list[Document]) -> PDFQualityReport:
-        return assess_pdf_extraction_quality(pdf_path, documents)
+    def assess(self, pdf_path: Path, documents: Sequence[RawDocument | Document]) -> PDFQualityReport:
+        return assess_pdf_extraction_quality(
+            pdf_path, [Document(page_content=d.page_content, metadata=d.metadata) for d in documents]
+        )
