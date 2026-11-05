@@ -18,6 +18,7 @@ from domain.knowledge.access_control import (
 from domain.knowledge.acts.policy import same_document_scope
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility, DomainKey
+from domain.runtime.jobs import BackgroundJob, JobType
 from domain.shared.exceptions import (
     BusinessRuleViolationError,
     EntityNotFoundError,
@@ -189,6 +190,26 @@ class DocumentUploadCommand:
                 msg = "Document"
                 raise EntityNotFoundError(msg, saved_id)
 
+            # This job row is also the task outbox: commit it with the document.
+            # Redis delivery happens later, without depending on the HTTP process.
+            await uow.background_jobs.create(
+                BackgroundJob(
+                    job_type=JobType.DOCUMENT_PROCESSING,
+                    related_id=saved_id,
+                    dispatch_payload={
+                        "document_id": saved_id,
+                        "storage_key": key,
+                        "filename": final_doc.filename,
+                        "visibility": final_doc.visibility.value,
+                        "owner_id": final_doc.owner_id,
+                        "group_id": final_doc.group_id,
+                        "replace_id": pending_replace_id,
+                        "doc_domain": doc_domain,
+                        "principal_id": user_id,
+                        "cost_principal": f"user:{user_id}",
+                    },
+                )
+            )
             return DocumentDTO.from_entity(final_doc, storage_key=key, replace_id=pending_replace_id)
 
     async def prepare_upload_target(

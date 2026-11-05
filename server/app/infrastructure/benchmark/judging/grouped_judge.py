@@ -4,11 +4,13 @@ import asyncio
 import time
 from typing import Any, Unpack
 
+from domain.benchmark.question import ABSTENTION_TYPES, ANSWER_BEHAVIORS, answer_type
 from infrastructure.benchmark.judging.callbacks import GroupedMetricOptions
 from infrastructure.benchmark.judging.clients import create_async_judge_client
 from infrastructure.benchmark.judging.judge_diagnostics import (
     log_judge_event,
 )
+from infrastructure.benchmark.judging.judge_rubric import ANSWER_TYPE_RUBRICS
 from infrastructure.benchmark.judging.requests import judge_group
 from infrastructure.budget.runtime import BudgetRuntime
 
@@ -61,12 +63,18 @@ def judge_groups(
     question: dict[str, Any], answer: str, context: str, evidence_context: str | None
 ) -> list[tuple[dict[str, Any], list[str]]]:
     annotations = question.get("annotations") or {}
+    kind = answer_type(annotations)
+    rubric = {
+        "answer_type": kind,
+        "expected_behavior": ANSWER_BEHAVIORS[kind],
+        "answer_rubric": ANSWER_TYPE_RUBRICS[kind],
+    }
     quality = ["relevancy"]
 
     if question.get("expected_answer"):
         quality.append("correctness")
 
-    if "expected_refusal" in annotations:
+    if "expected_refusal" in annotations or "answer_type" in annotations:
         quality.append("refusal_score")
 
     support = ["faithfulness"]
@@ -84,6 +92,9 @@ def judge_groups(
                 "answer": answer,
                 "expected_answer": question.get("expected_answer"),
                 "expected_refusal": annotations.get("expected_refusal"),
+                **rubric,
+                "reference_evidence": annotations.get("gold_evidence")
+                or annotations.get("expected_fragments"),
             },
             quality,
         ),
@@ -92,6 +103,7 @@ def judge_groups(
                 "question": question["question"],
                 "answer": answer,
                 "context": context,
+                **rubric,
                 "required_facts": annotations.get("required_facts"),
                 "required_conditions": annotations.get("required_conditions"),
             },
@@ -99,7 +111,7 @@ def judge_groups(
         ),
     ]
 
-    if context:
+    if context and kind not in ABSTENTION_TYPES:
         groups.append(
             (
                 {

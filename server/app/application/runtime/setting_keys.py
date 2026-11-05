@@ -23,6 +23,7 @@ SECRET_SETTING_KEYS: frozenset[str] = frozenset(
 STATIC_SETTING_KEYS: frozenset[str] = frozenset(
     {
         "evidence_profile",
+        "ml_provider",
         "ml_internal_allowed_origins",
         "ocr_vl_url",
         "ocr_vl_timeout",
@@ -65,6 +66,7 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "redis_user",
         "redis_db",
         "worker_max_concurrent",
+        "outbox_max_concurrent",
         "redis_socket_timeout",
         "redis_max_connections",
         "s3_endpoint",

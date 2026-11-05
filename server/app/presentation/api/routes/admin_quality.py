@@ -398,8 +398,6 @@ async def index_from_preview(
         rename_on_conflict=False,
         doc_domain=options.doc_domain.value if options.doc_domain is not None else None,
         document_service=cmd,
-        job_service=submission.jobs,
-        enqueue_fn=submission.enqueuer.enqueue_document_processing,
         action_name="document.upload_from_preview",
         log_fn=submission.log,
     )

@@ -32,6 +32,9 @@ class BenchmarkQuestionCreateDTO:
     dataset: str = "main"
     notes: str | None = None
     is_active: bool = True
+    case_id: str | None = None
+    variant_of: str | None = None
+    question_style: str | None = None
 
 
 @dataclass(frozen=True)

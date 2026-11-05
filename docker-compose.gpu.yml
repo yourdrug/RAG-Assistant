@@ -1,15 +1,6 @@
-# GPU override — подключает nvidia runtime для ollama, server, tei-embed и tei-rerank.
+# GPU override — подключает nvidia runtime для server, tei-embed и tei-rerank.
 # Использование: task up -- gpu
 services:
-  ollama:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${GPU_COUNT:-1}
-              capabilities: [gpu]
-
   server:
     deploy:
       resources:

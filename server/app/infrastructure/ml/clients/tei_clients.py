@@ -2,7 +2,7 @@
 
 TEI is a separate service that hosts embedding and reranking models.
 The API pod calls TEI synchronously over HTTP — the same pattern as
-calling Qdrant or Ollama (sync request/response, not async worker).
+calling Qdrant or an LLM (sync request/response, not async worker).
 
 Each client exposes both async and sync methods:
   - async: for use inside FastAPI / async code paths

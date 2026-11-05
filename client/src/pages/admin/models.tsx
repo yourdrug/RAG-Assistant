@@ -14,7 +14,6 @@ interface ModelsInfo {
   ml_provider: string;
   ocr_engine: string;
   ocr_enabled: boolean;
-  ollama_models: string[] | null;
   openrouter_model: string | null;
 }
 
@@ -50,18 +49,15 @@ export function AdminModelsPage() {
   const models = [
     {
       title: "LLM Provider",
-      value: data?.llm_provider === "openrouter" ? "OpenRouter (Cloud)" : "Ollama (Local)",
-      icon: data?.llm_provider === "openrouter" ? Cloud : Brain,
+      value: "OpenRouter (Cloud)",
+      icon: Cloud,
       description: "Active LLM provider",
     },
     {
       title: "LLM Model",
-      value: data?.llm_provider === "openrouter" ? data?.openrouter_model : data?.llm_model,
+      value: data?.openrouter_model,
       icon: Brain,
-      description:
-        data?.llm_provider === "openrouter"
-          ? "Cloud model via OpenRouter"
-          : "Local model via Ollama",
+      description: "Cloud model via OpenRouter",
     },
     {
       title: "Embedding Model",
@@ -107,25 +103,6 @@ export function AdminModelsPage() {
           );
         })}
       </div>
-
-      {data?.llm_provider === "ollama" && data?.ollama_models && data.ollama_models.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Available Ollama Models</CardTitle>
-            <CardDescription>Models loaded in Ollama</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {data.ollama_models.map((model) => (
-                <Badge key={model} variant={model === data?.llm_model ? "default" : "secondary"}>
-                  {model}
-                  {model === data?.llm_model && " (active)"}
-                </Badge>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {data?.llm_provider === "openrouter" && (
         <Card>

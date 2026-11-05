@@ -36,7 +36,6 @@ def http_probe(monkeypatch: pytest.MonkeyPatch) -> HttpFixture:
         probes,
         "settings",
         SimpleNamespace(
-            ollama_base_url="http://ollama",
             openrouter_base_url="http://openrouter",
             openrouter_api_key="test-key",
             openrouter_model="test-model",
@@ -45,38 +44,6 @@ def http_probe(monkeypatch: pytest.MonkeyPatch) -> HttpFixture:
         ),
     )
     return probes.SystemHealthProbe(), responses, requests
-
-
-@pytest.mark.asyncio
-async def test_ollama_models_shared_with_admin(http_probe: HttpFixture) -> None:
-    health, responses, requests = http_probe
-    responses["/api/tags"] = httpx.Response(200, json={"models": [{"name": "one"}, {"name": "two"}]})
-    result = await health.check_ollama()
-    assert result.status == "ok"
-    assert result.models == ["one", "two"]
-    assert result.latency_ms is not None
-    assert result.latency_ms >= 0
-    assert await probes.OllamaProbe(health).get_models() == result.models
-    assert len(requests) == 2
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "response",
-    [
-        httpx.Response(503),
-        httpx.Response(200, content=b"invalid json"),
-        httpx.Response(200, json={"models": [{}]}),
-        httpx.ConnectError("unavailable"),
-    ],
-)
-async def test_ollama_failure_degrades_to_empty_admin_models(
-    http_probe: HttpFixture, response: httpx.Response | Exception
-) -> None:
-    health, responses, _ = http_probe
-    responses["/api/tags"] = response
-    assert (await health.check_ollama()).status.startswith("error:")
-    assert await probes.OllamaProbe(health).get_models() == []
 
 
 @pytest.mark.asyncio

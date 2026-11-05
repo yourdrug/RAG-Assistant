@@ -1,6 +1,9 @@
 """Real application ASGI contracts, keeping auth rules, middleware and handlers."""
 
+from __future__ import annotations
+
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -9,36 +12,45 @@ import pytest_asyncio
 
 from application.chat import ConversationService
 from application.chunks import AddChunkResult, EditChunkResult
-from domain.shared.pagination import CursorPage
-from tests.test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
-from application.documents import DocumentDTO
-from domain.knowledge.document import Document
-from domain.knowledge.enums import DocumentVisibility
-from domain.knowledge.enums import SourceType
-from domain.chat.message import Message
-from domain.chat.message import MessageRole
-from domain.runtime.jobs import BackgroundJobStatus
+from application.documents import DocumentDeletionJobs, DocumentDTO, DocumentQueryService
+from domain.benchmark.question import DEFAULT_DATASET
+from domain.chat.message import Message, MessageRole
 from domain.identity.roles import UserRole
-from domain.knowledge.enums import DocDomain
 from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocDomain, DocumentVisibility, SourceType
+from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
+from domain.shared.exceptions import LLMUnavailableError
+from domain.shared.pagination import CursorPage
 from main import app
-from presentation.api.auth_dependencies import get_current_user
 from presentation.api import dependencies as deps
+from presentation.api.auth_dependencies import get_current_user
 from presentation.api.schemas import CurrentUser
-from tests.fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory, require_present
+from tests.test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+    from pathlib import Path
+
+
+def mock_dependency() -> MagicMock:
+    """Expose a zero-argument signature for FastAPI dependency inspection."""
+    return MagicMock()
 
 
 @pytest_asyncio.fixture
-async def asgi_client():
+async def asgi_client() -> AsyncIterator[httpx.AsyncClient]:
     old_overrides = dict(app.dependency_overrides)
     old_container = getattr(app.state, "container", None)
     app.state.container = None
     app.dependency_overrides[deps.create_rate_limiter] = lambda: None
-    app.dependency_overrides[deps.create_action_logger] = lambda: MagicMock()
-    app.dependency_overrides[deps.create_auth_service] = lambda: MagicMock()
-    app.dependency_overrides[deps.create_api_key_service] = lambda: MagicMock()
-    app.dependency_overrides[deps.create_api_key_provider] = lambda: MagicMock()
-    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    app.dependency_overrides[deps.create_action_logger] = mock_dependency
+    app.dependency_overrides[deps.create_auth_service] = mock_dependency
+    app.dependency_overrides[deps.create_api_key_service] = mock_dependency
+    app.dependency_overrides[deps.create_api_key_provider] = mock_dependency
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)  # type: ignore[arg-type]  # Starlette and HTTPX disagree on the ASGI send annotation.
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
@@ -48,7 +60,7 @@ async def asgi_client():
         app.state.container = old_container
 
 
-def sign_in(role="user", user_id=1):
+def sign_in(role: str = "user", user_id: int = 1) -> None:
     user = CurrentUser(id=user_id, email="asgi@example.org", role=role, kind="internal", is_active=True)
     app.dependency_overrides[get_current_user] = lambda: user
 
@@ -56,7 +68,9 @@ def sign_in(role="user", user_id=1):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["/ingest", "/ingest/file"])
 @pytest.mark.parametrize("domain", ["legal_typo", "", "AUTO"])
-async def test_ingestion_rejects_unknown_domain_before_creating_job(asgi_client, path, domain):
+async def test_ingestion_rejects_unknown_domain_before_creating_job(
+    asgi_client: httpx.AsyncClient, path: str, domain: str
+) -> None:
     sign_in(UserRole.ADMIN.value)
     jobs = SimpleNamespace(create_job=AsyncMock(return_value=8))
     app.dependency_overrides[deps.create_job_service] = lambda: jobs
@@ -76,7 +90,9 @@ async def test_ingestion_rejects_unknown_domain_before_creating_job(asgi_client,
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["/ingest", "/ingest/file"])
 @pytest.mark.parametrize("domain", [*(item.value for item in DocDomain), "auto"])
-async def test_ingestion_accepts_supported_and_automatic_domains(asgi_client, path, domain):
+async def test_ingestion_accepts_supported_and_automatic_domains(
+    asgi_client: httpx.AsyncClient, path: str, domain: DocDomain
+) -> None:
     sign_in(UserRole.ADMIN.value)
     app.dependency_overrides[deps.create_job_service] = lambda: SimpleNamespace(
         create_job=AsyncMock(return_value=8)
@@ -95,13 +111,15 @@ async def test_ingestion_accepts_supported_and_automatic_domains(asgi_client, pa
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("domain", ["legal_typo", "auto"])
-async def test_preview_index_rejects_unknown_domain_before_loading_file(asgi_client, domain):
+async def test_preview_index_rejects_unknown_domain_before_loading_file(
+    asgi_client: httpx.AsyncClient, domain: str
+) -> None:
     sign_in(UserRole.ADMIN.value)
     cache = SimpleNamespace(get_bytes=AsyncMock(return_value=None))
     app.dependency_overrides[deps.create_preview_cache] = lambda: cache
-    app.dependency_overrides[deps.create_document_command_service] = lambda: MagicMock()
-    app.dependency_overrides[deps.create_job_service] = lambda: MagicMock()
-    app.dependency_overrides[deps.create_job_enqueuer] = lambda: MagicMock()
+    app.dependency_overrides[deps.create_document_command_service] = mock_dependency
+    app.dependency_overrides[deps.create_job_service] = mock_dependency
+    app.dependency_overrides[deps.create_job_enqueuer] = mock_dependency
     response = await asgi_client.post("/admin/documents/preview/test/index", data={"doc_domain": domain})
     assert response.status_code == 422
     assert "doc_domain" in response.json()["errors"]
@@ -109,7 +127,7 @@ async def test_preview_index_rejects_unknown_domain_before_loading_file(asgi_cli
 
 
 @pytest.mark.asyncio
-async def test_exact_search_reports_full_total_and_requested_page(asgi_client):
+async def test_exact_search_reports_full_total_and_requested_page(asgi_client: httpx.AsyncClient) -> None:
     sign_in()
     row = ChunkRecord(3, 10, "test.txt", "matching needle text", 3)
     service = SimpleNamespace(exact_search=AsyncMock(return_value=([row], 53)))
@@ -125,7 +143,7 @@ async def test_exact_search_reports_full_total_and_requested_page(asgi_client):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("offset", [-1, 0.5, "bad"])
-async def test_exact_search_rejects_invalid_offset(asgi_client, offset):
+async def test_exact_search_rejects_invalid_offset(asgi_client: httpx.AsyncClient, offset: int) -> None:
     sign_in()
     service = SimpleNamespace(exact_search=AsyncMock())
     app.dependency_overrides[deps.create_search_service] = lambda: service
@@ -136,8 +154,9 @@ async def test_exact_search_rejects_invalid_offset(asgi_client, offset):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("dataset", [None, "custom"])
-async def test_benchmark_launch_enqueues_database_dataset(asgi_client, tmp_path, dataset):
-    from domain.benchmark.question import DEFAULT_DATASET
+async def test_benchmark_launch_enqueues_database_dataset(
+    asgi_client: httpx.AsyncClient, tmp_path: Path, dataset: str | None
+) -> None:
 
     sign_in(role=UserRole.ADMIN.value)
     enqueuer = SimpleNamespace(enqueue_benchmark=AsyncMock())
@@ -157,11 +176,11 @@ async def test_benchmark_launch_enqueues_database_dataset(asgi_client, tmp_path,
         judge_model="judge",
         job_id=8,
     )
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
-async def test_real_auth_required(asgi_client):
+async def test_real_auth_required(asgi_client: httpx.AsyncClient) -> None:
     response = await asgi_client.get("/conversations")
     assert response.status_code == 401
     assert "message" in response.json()
@@ -170,7 +189,9 @@ async def test_real_auth_required(asgi_client):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role,status", [("user", 403), ("curator", 403), ("admin", 200)])
-async def test_benchmark_compare_route_and_roles(asgi_client, role, status):
+async def test_benchmark_compare_route_and_roles(
+    asgi_client: httpx.AsyncClient, role: str, status: int
+) -> None:
     sign_in(role)
     service = SimpleNamespace(compare=AsyncMock(return_value=([], {})))
     app.dependency_overrides[deps.create_benchmark_run_service] = lambda: service
@@ -194,14 +215,16 @@ async def test_benchmark_compare_route_and_roles(asgi_client, role, status):
         ("legacy.DOC", b"\xd0\xcf\x11\xe0 ole2"),
     ],
 )
-async def test_file_validation_returns_422_before_upload(asgi_client, filename, data):
+async def test_file_validation_returns_422_before_upload(
+    asgi_client: httpx.AsyncClient, filename: str, data: bytes
+) -> None:
     sign_in("admin")
     command = SimpleNamespace(upload=AsyncMock())
     app.dependency_overrides[deps.create_document_command_service] = lambda: command
-    app.dependency_overrides[deps.create_job_service] = lambda: MagicMock()
-    app.dependency_overrides[deps.create_job_enqueuer] = lambda: MagicMock()
+    app.dependency_overrides[deps.create_job_service] = mock_dependency
+    app.dependency_overrides[deps.create_job_enqueuer] = mock_dependency
     app.dependency_overrides[deps.create_upload_config] = lambda: SimpleNamespace(max_upload_size_mb=1)
-    app.dependency_overrides[deps.create_idempotency_store] = lambda: MagicMock()
+    app.dependency_overrides[deps.create_idempotency_store] = mock_dependency
     response = await asgi_client.post(
         "/documents", files={"file": (filename, data)}, data={"visibility": "internal_public"}
     )
@@ -211,10 +234,10 @@ async def test_file_validation_returns_422_before_upload(asgi_client, filename, 
 
 
 @pytest.mark.asyncio
-async def test_conversation_cursor_and_ownership(asgi_client):
+async def test_conversation_cursor_and_ownership(asgi_client: httpx.AsyncClient) -> None:
     factory = FakeUnitOfWorkFactory()
-    factory._uow.conversations._convs[7] = {"id": 7, "user_id": 1, "summary": None}
-    factory._uow.messages._messages = [
+    factory._uow.fake_conversations._convs[7] = {"id": 7, "user_id": 1, "summary": None}
+    factory._uow.fake_messages._messages = [
         Message(id=i, conversation_id=7, role=MessageRole.USER, content=str(i)) for i in range(1, 106)
     ]
     service = ConversationService(factory, MagicMock(), MagicMock())
@@ -234,8 +257,7 @@ async def test_conversation_cursor_and_ownership(asgi_client):
 
 
 @pytest.mark.asyncio
-async def test_chat_outage_preserves_retry_after(asgi_client):
-    from domain.shared.exceptions import LLMUnavailableError
+async def test_chat_outage_preserves_retry_after(asgi_client: httpx.AsyncClient) -> None:
 
     sign_in()
     service = SimpleNamespace(sync_chat=AsyncMock(side_effect=LLMUnavailableError()))
@@ -248,12 +270,12 @@ async def test_chat_outage_preserves_retry_after(asgi_client):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("user_id,role,status", [(1, "user", 200), (2, "user", 409), (2, "admin", 200)])
-async def test_private_document_ownership_through_real_route(asgi_client, user_id, role, status):
-    from application.documents import DocumentQueryService
-    from domain.knowledge.enums import DocumentVisibility
+async def test_private_document_ownership_through_real_route(
+    asgi_client: httpx.AsyncClient, user_id: int, role: str, status: int
+) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    document = await factory._uow.documents.save(
+    document = await factory._uow.fake_documents.save(
         Document(filename="private.pdf", owner_id=1, visibility=DocumentVisibility.INTERNAL_PRIVATE)
     )
     service = DocumentQueryService(factory)
@@ -272,23 +294,29 @@ async def test_private_document_ownership_through_real_route(asgi_client, user_i
 @pytest.mark.parametrize(
     "user_id,role,expected", [(1, UserRole.CURATOR, 202), (2, UserRole.CURATOR, 409), (1, UserRole.USER, 403)]
 )
-async def test_document_delete_queues_only_after_authorization(asgi_client, user_id, role, expected):
-    from application.documents import DocumentDeletionJobs
-    from domain.runtime.jobs import BackgroundJob
-    from domain.runtime.jobs import JobType
-    from domain.knowledge.enums import DocumentVisibility
+async def test_document_delete_queues_only_after_authorization(
+    asgi_client: httpx.AsyncClient,
+    user_id: int,
+    role: UserRole,
+    expected: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    document = await factory._uow.documents.save(
+    document = await factory._uow.fake_documents.save(
         Document(
             filename="private.pdf",
             owner_id=1,
             visibility=DocumentVisibility.INTERNAL_PRIVATE,
         )
     )
-    jobs = factory._uow.background_jobs
-    jobs.create = AsyncMock(
-        return_value=BackgroundJob(id=42, related_id=document.id, job_type=JobType.DOCUMENT_DELETION)
+    jobs = factory._uow.fake_background_jobs
+    monkeypatch.setattr(
+        jobs,
+        "create",
+        AsyncMock(
+            return_value=BackgroundJob(id=42, related_id=document.id, job_type=JobType.DOCUMENT_DELETION)
+        ),
     )
     enqueuer = SimpleNamespace(enqueue_document_deletion=AsyncMock())
     service = DocumentDeletionJobs(factory, enqueuer)
@@ -296,7 +324,7 @@ async def test_document_delete_queues_only_after_authorization(asgi_client, user
     sign_in(role.value, user_id)
     response = await asgi_client.delete(f"/documents/{document.id}")
     assert response.status_code == expected
-    assert await factory._uow.documents.get_by_id(document.id) == document
+    assert await factory._uow.fake_documents.get_by_id(require_present(document.id)) == document
 
     if expected == 202:
         assert response.json() == {
@@ -307,16 +335,20 @@ async def test_document_delete_queues_only_after_authorization(asgi_client, user
         enqueuer.enqueue_document_deletion.assert_awaited_once_with(
             document_id=document.id, user_id=user_id, job_id=42
         )
-        jobs.get_by_id = AsyncMock(
-            return_value=BackgroundJob(id=42, related_id=document.id, job_type=JobType.DOCUMENT_DELETION)
+        monkeypatch.setattr(
+            jobs,
+            "get_by_id",
+            AsyncMock(
+                return_value=BackgroundJob(id=42, related_id=document.id, job_type=JobType.DOCUMENT_DELETION)
+            ),
         )
         progress = await asgi_client.get(f"/documents/{document.id}/deletion/42")
         assert progress.status_code == 200
         assert progress.json()["status"] == BackgroundJobStatus.PENDING.value
-        await factory._uow.documents.delete(document.id)
+        await factory._uow.fake_documents.delete(require_present(document.id))
         assert (await asgi_client.get(f"/documents/{document.id}/deletion/42")).status_code == 404
     else:
-        jobs.create.assert_not_awaited()
+        cast("AsyncMock", jobs.create).assert_not_awaited()
         enqueuer.enqueue_document_deletion.assert_not_awaited()
 
 
@@ -337,7 +369,9 @@ async def test_document_delete_queues_only_after_authorization(asgi_client, user
         ),
     ],
 )
-async def test_chunk_routes_resolve_composed_services(asgi_client, method, path, payload, operation):
+async def test_chunk_routes_resolve_composed_services(
+    asgi_client: httpx.AsyncClient, method: str, path: str, payload: dict[str, Any] | None, operation: str
+) -> None:
     query = SimpleNamespace(
         list_chunks=AsyncMock(return_value=([], 0)),
         list_chunks_cursor=AsyncMock(return_value=CursorPage(items=[], next_cursor=None, prev_cursor=None)),
@@ -382,7 +416,9 @@ async def test_chunk_routes_resolve_composed_services(asgi_client, method, path,
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("user_id,expected", [(1, 200), (2, 409)])
-async def test_chunk_edit_keeps_document_permissions_through_composed_service(asgi_client, user_id, expected):
+async def test_chunk_edit_keeps_document_permissions_through_composed_service(
+    asgi_client: httpx.AsyncClient, user_id: int, expected: int
+) -> None:
     uow = _make_uow(
         doc=_make_doc(owner_id=1, visibility=DocumentVisibility.INTERNAL_PRIVATE),
         chunk=_make_chunk(owner_id=1, visibility=DocumentVisibility.INTERNAL_PRIVATE.value),
@@ -402,7 +438,7 @@ async def test_chunk_edit_keeps_document_permissions_through_composed_service(as
 
 
 @pytest.mark.asyncio
-async def test_multipart_upload_preserves_metadata_and_job_principal(asgi_client):
+async def test_multipart_upload_preserves_metadata_and_job_principal(asgi_client: httpx.AsyncClient) -> None:
     sign_in(UserRole.ADMIN.value, user_id=9)
     result = SimpleNamespace(
         id=41, storage_key="docs/regulation.txt", filename="regulation.txt", owner_id=21, replace_id=7
@@ -443,16 +479,15 @@ async def test_multipart_upload_preserves_metadata_and_job_principal(asgi_client
         doc_domain=DocDomain.LEGAL.value,
         replaces_document_id=7,
     )
-    queued = enqueuer.enqueue_document_processing.await_args.kwargs
-    assert queued["owner_id"] == 21
-    assert queued["principal_id"] == 9
-    assert queued["group_id"] == 5
-    assert queued["replace_id"] == 7
-    assert queued["job_id"] == 8
+    # Upload owns the durable job; the HTTP path never publishes to Redis.
+    jobs.create_job.assert_not_awaited()
+    enqueuer.enqueue_document_processing.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_question_filters_reach_service_and_response_preserves_total(asgi_client):
+async def test_question_filters_reach_service_and_response_preserves_total(
+    asgi_client: httpx.AsyncClient,
+) -> None:
     sign_in(UserRole.ADMIN.value)
     questions = SimpleNamespace(list=AsyncMock(return_value=([], 53)))
     app.dependency_overrides[deps.create_benchmark_question_service] = lambda: questions

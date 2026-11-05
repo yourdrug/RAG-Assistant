@@ -1,7 +1,10 @@
 """Manual chunks inherit edition state in both transactional projections."""
 
+from __future__ import annotations
+
 from datetime import date
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,6 +18,11 @@ from infrastructure.repositories.misc.sqlalchemy_act_version_repository import S
 from tests.test_chunk_service import _make_service, _make_uow
 
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.sql import ClauseElement
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "version",
@@ -25,10 +33,10 @@ from tests.test_chunk_service import _make_service, _make_uow
         pytest.param(None, id="unversioned"),
     ],
 )
-async def test_add_chunk_inherits_edition_in_sql_model_and_outbox(version):
-    models = []
+async def test_add_chunk_inherits_edition_in_sql_model_and_outbox(version: ActVersion | None) -> None:
+    models: list[Any] = []
 
-    async def flush():
+    async def flush() -> None:
         models[0].id = 20
 
     session = SimpleNamespace(add=models.append, flush=AsyncMock(side_effect=flush))
@@ -36,9 +44,9 @@ async def test_add_chunk_inherits_edition_in_sql_model_and_outbox(version):
     uow.act_versions.get_by_document_id.return_value = version
     # Exercise the composed repository and actual ORM construction, not just
     # the arguments sent by the service to a mocked insert_one.
-    uow.chunks.insert_one = SQLAlchemyChunkRepository(session).insert_one
+    uow.chunks.insert_one = SQLAlchemyChunkRepository(cast("AsyncSession", session)).insert_one
     result = await _make_service(uow).add_chunk(
-        1, "A manually added regulatory passage. " * 8, 100, UserRole.ADMIN.value, page=3, section="Rules"
+        1, "A manually added regulatory passage. " * 8, 100, UserRole.ADMIN, page=3, section="Rules"
     )
 
     uow.act_versions.get_by_document_id.assert_awaited_once_with(1, for_update=True)
@@ -61,31 +69,36 @@ async def test_add_chunk_inherits_edition_in_sql_model_and_outbox(version):
         key: value.isoformat() if isinstance(value, date) else value for key, value in expected.items()
     }
     assert metadata["act_id"] == (version.act_id if version else None)
-    assert metadata["page"] == 3 and metadata["section"] == "Rules"
+    assert metadata["page"] == 3
+    assert metadata["section"] == "Rules"
 
 
 @pytest.mark.asyncio
-async def test_edition_read_failure_aborts_manual_chunk_creation():
+async def test_edition_read_failure_aborts_manual_chunk_creation() -> None:
     uow = _make_uow()
     uow.act_versions.get_by_document_id.side_effect = OSError("edition read failed")
     service = _make_service(uow)
     with pytest.raises(OSError, match="edition read failed"):
-        await service.add_chunk(1, "A manual passage. " * 20, 100, UserRole.ADMIN.value)
+        await service.add_chunk(1, "A manual passage. " * 20, 100, UserRole.ADMIN)
     uow.chunks.insert_one.assert_not_awaited()
     uow.vector_outbox.enqueue.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("for_update", [False, True])
-async def test_for_update_locks_selected_edition_as_well_as_document(for_update):
+async def test_for_update_locks_selected_edition_as_well_as_document(for_update: bool) -> None:
     session = SimpleNamespace(
         execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
     )
-    await SQLAlchemyActVersionRepository(session).get_by_document_id(1, for_update=for_update)
+    await SQLAlchemyActVersionRepository(cast("AsyncSession", session)).get_by_document_id(
+        1, for_update=for_update
+    )
     statements = [
-        str(call.args[0].compile(dialect=postgresql.dialect())) for call in session.execute.await_args_list
+        str(cast("ClauseElement", call.args[0]).compile(dialect=postgresql.dialect()))  # type: ignore[no-untyped-call]  # SQLAlchemy exposes an untyped dialect constructor.
+        for call in session.execute.await_args_list
     ]
     assert len(statements) == (2 if for_update else 1)
     assert ("FOR UPDATE" in statements[-1]) is for_update
+
     if for_update:
         assert "FOR UPDATE" in statements[0]

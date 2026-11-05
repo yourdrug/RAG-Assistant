@@ -33,7 +33,6 @@ class ModelsInfoResponse(BaseModel):
     rerank_model: str
     ocr_engine: str
     ocr_enabled: bool
-    ollama_models: list[str]
     openrouter_model: str | None = None
     ml_provider: str = MLProvider.TEI.value
 

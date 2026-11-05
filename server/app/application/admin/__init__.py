@@ -14,7 +14,6 @@ from application.admin.metrics import MetricsResult, MetricsService
 from application.admin.ports import (
     ConfigMaskerPort,
     CorpusControlPort,
-    OllamaProbePort,
     ProviderConfigurationPort,
     VectorDBInfoPort,
 )
@@ -36,7 +35,6 @@ __all__ = [
     "MetricsResult",
     "MetricsService",
     "ModelsInfo",
-    "OllamaProbePort",
     "OpenRouterModelsInfo",
     "ProviderConfigurationPort",
     "VectorDBCollectionInfo",

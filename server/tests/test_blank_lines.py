@@ -93,31 +93,3 @@ def test_invalid_syntax_fails_without_writing(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert b"syntax error" in result.stderr
     assert path.read_bytes() == source
-
-
-def test_baseline_skips_only_listed_files_from_another_working_directory(tmp_path: Path) -> None:
-    legacy = tmp_path / "legacy.py"
-    fresh = tmp_path / "fresh.py"
-    source = b"x = 1\nif x:\n    pass\nx = 2\n"
-    legacy.write_bytes(source)
-    fresh.write_bytes(source)
-    baseline = tmp_path / "baseline.txt"
-    baseline.write_text("# legacy files\n\nlegacy.py\n", encoding="utf-8")
-    command = [sys.executable, str(SCRIPT), "--exclude-from", str(baseline), str(legacy), str(fresh)]
-    checked = subprocess.run(  # noqa: S603 -- fixed Python and test-owned paths
-        [*command, "--check"], cwd=tmp_path.parent, capture_output=True, check=False
-    )
-    assert checked.returncode == 1
-    assert str(fresh).encode() in checked.stdout
-    assert str(legacy).encode() not in checked.stdout
-    assert fresh.read_bytes() == source
-    fixed = subprocess.run(  # noqa: S603 -- fixed Python and test-owned paths
-        command, cwd=tmp_path.parent, capture_output=True, check=False
-    )
-    assert fixed.returncode == 1
-    assert legacy.read_bytes() == source
-    assert fresh.read_bytes() != source
-    repeated = subprocess.run(  # noqa: S603 -- fixed Python and test-owned paths
-        [*command, "--check"], cwd=tmp_path.parent, capture_output=True, check=False
-    )
-    assert repeated.returncode == 0

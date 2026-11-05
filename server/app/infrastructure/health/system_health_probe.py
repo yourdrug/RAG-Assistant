@@ -60,16 +60,6 @@ class SystemHealthProbe:
         embed, rerank = await asyncio.gather(probe(settings.tei_embed_url), probe(settings.tei_rerank_url))
         return {"tei_embed": embed, "tei_rerank": rerank}
 
-    async def check_ollama(self) -> HealthCheckResult:
-        try:
-            response, latency_ms = await self.http.get(f"{settings.ollama_base_url}/api/tags")
-            response.raise_for_status()
-            models = [model["name"] for model in response.json().get("models", [])]
-            return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms, models=models)
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
-            logger.warning("Ollama health probe failed (%s)", type(e).__name__)
-            return HealthCheckResult(status=f"error: {e}")
-
     async def check_openrouter(self) -> HealthCheckResult:
         try:
             response, latency_ms = await self.http.get(
@@ -128,17 +118,6 @@ class SystemHealthProbe:
         except (RedisError, OSError, RuntimeError) as e:
             logger.warning("Redis health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
-
-
-class OllamaProbe:
-    """Ollama model listing — delegates connectivity check to SystemHealthProbe."""
-
-    def __init__(self, health_probe: SystemHealthProbe) -> None:
-        self.health = health_probe
-
-    async def get_models(self) -> list[str]:
-        result = await self.health.check_ollama()
-        return result.models or []
 
 
 class QdrantInfo:

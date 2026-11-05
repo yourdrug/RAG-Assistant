@@ -310,7 +310,7 @@ async def test_new_documents_and_config_changes_make_old_answers_miss(
     await step_check_cache(second)
     assert first.q_hash != second.q_hash
     assert not second.terminal
-    monkeypatch.setattr(settings, "llm_model", "changed-model")
+    monkeypatch.setattr(settings, "openrouter_model", "changed-model")
     third = state_for([], rag=rag, query_for_search="Q")
     await step_check_cache(third)
     assert second.q_hash != third.q_hash

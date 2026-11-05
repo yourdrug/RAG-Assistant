@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
+import logging
 import math
 from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from application.ports.ml_clients import EmbeddingClientPort, RerankerClientPort
     from config import Settings
     from infrastructure.ml.clients.client_registry import MLClientRegistry
@@ -15,7 +19,7 @@ if TYPE_CHECKING:
 import httpx
 
 from application.budget import billing_principal
-from application.runtime.enums import LLMProvider, MLProvider
+from application.runtime.enums import MLProvider
 from domain.shared.exceptions import ValidationError
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client
@@ -23,12 +27,33 @@ from infrastructure.ml.clients.managed_llm import ManagedInstructor, ManagedLLM
 from infrastructure.utils.async_tasks import finish_owned_task
 
 
+log = logging.getLogger("default")
+
+
+@contextmanager
+def endpoint_availability(*, component: str, allow_unavailable: bool) -> Iterator[None]:
+    try:
+        yield
+    except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+        if not allow_unavailable or (
+            isinstance(exc, httpx.HTTPStatusError)
+            and exc.response.status_code < httpx.codes.INTERNAL_SERVER_ERROR
+        ):
+            raise
+
+        log.warning(
+            "%s endpoint is unavailable during startup (%s); continuing with the saved ML "
+            "configuration. ML operations may fail until the endpoint is restored. "
+            "Changing embedding providers requires the corpus migration workflow.",
+            component,
+            type(exc).__name__,
+        )
+
+
 LLM_CLIENT_KEYS = frozenset(
     {
-        "ollama_base_url",
         "openrouter_base_url",
         "llm_provider",
-        "llm_model",
         "openrouter_model",
         "llm_temperature",
         "llm_top_p",
@@ -123,11 +148,10 @@ def prepare_llm_clients(registry: MLClientRegistry, candidate: Settings, prepare
         )
 
     if registry.cached_instructor is not None:
-        remote = candidate.llm_provider == LLMProvider.OPENROUTER
         prepared["cached_instructor"] = ManagedInstructor(
             create_async_instructor_client(
-                candidate.openrouter_base_url if remote else f"{candidate.ollama_base_url.rstrip('/')}/v1",
-                candidate.openrouter_api_key if remote else LLMProvider.OLLAMA.value,
+                candidate.openrouter_base_url,
+                candidate.openrouter_api_key,
                 runtime=registry.budget_runtime,
             )
         )
@@ -136,8 +160,7 @@ def prepare_llm_clients(registry: MLClientRegistry, candidate: Settings, prepare
 async def probe_llm_endpoint(
     registry: MLClientRegistry, candidate: Settings, keys: set[str], prepared: dict[str, object]
 ) -> None:
-    remote = candidate.llm_provider == LLMProvider.OPENROUTER
-    endpoint = "openrouter_base_url" if remote else "ollama_base_url"
+    endpoint = "openrouter_base_url"
 
     if endpoint not in keys:
         return
@@ -149,8 +172,8 @@ async def probe_llm_endpoint(
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         response = await client.get(
-            f"{getattr(candidate, endpoint).rstrip('/')}/{'models' if remote else 'api/tags'}",
-            headers={"Authorization": f"Bearer {candidate.openrouter_api_key}"} if remote else {},
+            f"{candidate.openrouter_base_url.rstrip('/')}/models",
+            headers={"Authorization": f"Bearer {candidate.openrouter_api_key}"},
         )
         response.raise_for_status()
 
@@ -202,20 +225,28 @@ async def probe_embedding_endpoint(
 
 
 async def prepare_clients(
-    registry: MLClientRegistry, current: Settings, candidate: Settings, keys: set[str], *, applied: bool
+    registry: MLClientRegistry,
+    current: Settings,
+    candidate: Settings,
+    keys: set[str],
+    *,
+    applied: bool,
+    allow_unavailable: bool = False,
 ) -> dict[str, Any]:
     prepared: dict[str, object] = {}
     billing_token = billing_principal.set(billing_principal.get() or "system:configuration-probe")
     try:
         if keys & LLM_CLIENT_KEYS:
             prepare_llm_clients(registry, candidate, prepared)
-            await probe_llm_endpoint(registry, candidate, keys, prepared)
+            with endpoint_availability(component="LLM", allow_unavailable=allow_unavailable):
+                await probe_llm_endpoint(registry, candidate, keys, prepared)
 
         if keys & EMBEDDING_CLIENT_KEYS:
             prepared["cached_embeddings"] = factories.create_embeddings(
                 candidate, runtime=registry.budget_runtime
             )
-            await probe_embedding_endpoint(registry, current, candidate, keys, prepared, applied=applied)
+            with endpoint_availability(component="Embedding", allow_unavailable=allow_unavailable):
+                await probe_embedding_endpoint(registry, current, candidate, keys, prepared, applied=applied)
 
         if keys & RERANK_CLIENT_KEYS:
             prepared["cached_reranker"] = factories.create_reranker(
@@ -225,9 +256,10 @@ async def prepare_clients(
             if ("tei_rerank_url" in keys and candidate.ml_provider == MLProvider.TEI.value) or (
                 "deepinfra_base_url" in keys and candidate.ml_provider == MLProvider.DEEPINFRA.value
             ):
-                await cast("RerankerClientPort", prepared["cached_reranker"]).predict(
-                    [("compatibility probe", "compatibility probe")]
-                )
+                with endpoint_availability(component="Reranker", allow_unavailable=allow_unavailable):
+                    await cast("RerankerClientPort", prepared["cached_reranker"]).predict(
+                        [("compatibility probe", "compatibility probe")]
+                    )
 
     except BaseException:
         await dispose_clients(prepared)

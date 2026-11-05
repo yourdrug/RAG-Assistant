@@ -1,7 +1,10 @@
 """A real Qdrant alias change keeps old readers on their physical corpus and ACL."""
 
+from __future__ import annotations
+
 import hashlib
 import os
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -17,6 +20,7 @@ from qdrant_client.models import (
     SparseVectorParams,
     VectorParams,
 )
+from tests.fakes import require_present
 
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocumentVisibility
@@ -28,17 +32,19 @@ from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 
 
 @pytest.mark.integration
-def test_alias_switch_preserves_physical_snapshot_and_private_acl():
+def test_alias_switch_preserves_physical_snapshot_and_private_acl() -> None:  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
     endpoint = os.environ.get("TEST_QDRANT_URL")
+
     if not endpoint:
         pytest.skip("Set TEST_QDRANT_URL to an isolated test Qdrant")
+
     client = QdrantClient(url=endpoint, timeout=5)
     prefix = "configuration_test_" + uuid4().hex
     alias = prefix + "_active"
     names = [prefix + "_v1", prefix + "_v2"]
     identity = "test:model:revision"
     fingerprint = hashlib.sha256(identity.encode()).hexdigest()
-    rows = [
+    rows: list[dict[str, Any]] = [
         {
             "id": i,
             "document_id": i,
@@ -70,7 +76,7 @@ def test_alias_switch_preserves_physical_snapshot_and_private_acl():
                 [
                     PointStruct(
                         id=row["id"],
-                        vector=point_vectors(row["content"], [1.0, 0.0]),
+                        vector=point_vectors(require_present(row["content"]), [1.0, 0.0]),
                         payload={
                             "page_content": row["content"],
                             "metadata": {
@@ -83,6 +89,7 @@ def test_alias_switch_preserves_physical_snapshot_and_private_acl():
                 ],
                 wait=True,
             )
+
         client.update_collection_aliases(
             [CreateAliasOperation(create_alias=CreateAlias(collection_name=names[0], alias_name=alias))]
         )
@@ -102,6 +109,7 @@ def test_alias_switch_preserves_physical_snapshot_and_private_acl():
         with pytest.raises(ValidationError, match="metadata differs"):
             validate_corpus(client, endpoint, alias, identity, 2, rows=[{**rows[0], "owner_id": 9}, rows[1]])
         client.update_collection_aliases([DeleteAliasOperation(delete_alias=DeleteAlias(alias_name=alias))])
+
         # A pinned reader uses the physical corpus even when the alias no longer exists.
         for user_id in (7, 8, 9):
             access = build_qdrant_filter(
@@ -119,6 +127,7 @@ def test_alias_switch_preserves_physical_snapshot_and_private_acl():
                 client.update_collection_aliases(
                     [DeleteAliasOperation(delete_alias=DeleteAlias(alias_name=alias))]
                 )
+
             for name in reversed(created):
                 client.delete_collection(name)
         finally:

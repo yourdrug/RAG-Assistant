@@ -3,18 +3,25 @@
 Tests the application service with mocked UoW factory.
 """
 
-import sys
+from __future__ import annotations
+
 from pathlib import Path
+import sys
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
+
+from tests.fakes import require_present
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import pytest  # noqa: E402
-from application.identity import CreateUserCommand, LoginCommand  # noqa: E402
-from application.identity import AuthService, UserManagementService  # noqa: E402
-from domain.identity.user import User  # noqa: E402
-from domain.shared.exceptions import BusinessRuleViolationError, ValidationError  # noqa: E402
-from domain.identity.roles import UserKind, UserRole  # noqa: E402
+import pytest
+
+from application.identity import AuthService, CreateUserCommand, LoginCommand, UserManagementService
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user import User
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -22,7 +29,7 @@ from domain.identity.roles import UserKind, UserRole  # noqa: E402
 
 
 @pytest.fixture
-def auth_service():
+def auth_service() -> tuple[AuthService, AsyncMock]:
     hasher = AsyncMock()
     hasher.hash.return_value = "hashed_pw"
     hasher.verify.return_value = True
@@ -43,7 +50,7 @@ def auth_service():
 
 
 @pytest.fixture
-def user_service(auth_service):
+def user_service(auth_service: tuple[AuthService, AsyncMock]) -> tuple[UserManagementService, AsyncMock]:
     service, uow = auth_service
     return UserManagementService(service._uow_factory, service._hasher), uow
 
@@ -55,57 +62,57 @@ def user_service(auth_service):
 
 class TestAuthenticate:
     @pytest.mark.asyncio
-    async def test_successful_authentication(self, auth_service):
+    async def test_successful_authentication(self, auth_service: tuple[AuthService, AsyncMock]) -> None:
         service, uow = auth_service
         user = User(id=1, email="test@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
-        user.hashed_password = "hashed_pw"
+        user.hashed_password = "hashed_pw"  # noqa: S105 - Synthetic test data used to verify authentication/redaction.
         user.is_active = True
         uow.users.get_by_email.return_value = user
 
-        result = await service.authenticate(LoginCommand(email="test@test.com", password="password"))
-        assert result.access_token == "token123"
+        result = await service.authenticate(LoginCommand(email="test@test.com", password="password"))  # noqa: S106 - Synthetic credentials for this test.
+        assert result.access_token == "token123"  # noqa: S105 - Synthetic test data used to verify authentication/redaction.
         assert result.role == "user"
 
     @pytest.mark.asyncio
-    async def test_wrong_password_raises(self, auth_service):
+    async def test_wrong_password_raises(self, auth_service: tuple[AuthService, AsyncMock]) -> None:
         service, uow = auth_service
         user = User(id=1, email="test@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
-        user.hashed_password = "hashed_pw"
+        user.hashed_password = "hashed_pw"  # noqa: S105 - Synthetic test data used to verify authentication/redaction.
         user.is_active = True
         uow.users.get_by_email.return_value = user
-        service._hasher.verify.return_value = False
+        cast("AsyncMock", service._hasher.verify).return_value = False
 
         with pytest.raises(ValidationError):
-            await service.authenticate(LoginCommand(email="test@test.com", password="wrong"))
+            await service.authenticate(LoginCommand(email="test@test.com", password="wrong"))  # noqa: S106 - Synthetic credentials for this test.
 
     @pytest.mark.asyncio
-    async def test_inactive_user_raises(self, auth_service):
+    async def test_inactive_user_raises(self, auth_service: tuple[AuthService, AsyncMock]) -> None:
         service, uow = auth_service
         user = User(id=1, email="inactive@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
-        user.hashed_password = "hashed_pw"
+        user.hashed_password = "hashed_pw"  # noqa: S105 - Synthetic test data used to verify authentication/redaction.
         user.is_active = False
         uow.users.get_by_email.return_value = user
 
         with pytest.raises(ValidationError, match="Invalid email or password"):
-            await service.authenticate(LoginCommand(email="inactive@test.com", password="password"))
-        service._hasher.verify.assert_awaited_once()
-        password, dummy_hash = service._hasher.verify.await_args.args
-        assert password == "password"
+            await service.authenticate(LoginCommand(email="inactive@test.com", password="password"))  # noqa: S106 - Synthetic credentials for this test.
+        cast("AsyncMock", service._hasher.verify).assert_awaited_once()
+        password, dummy_hash = require_present(cast("AsyncMock", service._hasher.verify).await_args).args
+        assert password == "password"  # noqa: S105 - Synthetic test data used to verify authentication/redaction.
         assert dummy_hash.startswith("$2b$")
-        service._tokens.create_token.assert_not_called()
+        cast("MagicMock", service._tokens.create_token).assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_unknown_email_raises(self, auth_service):
+    async def test_unknown_email_raises(self, auth_service: tuple[AuthService, AsyncMock]) -> None:
         service, uow = auth_service
         uow.users.get_by_email.return_value = None
 
         with pytest.raises(ValidationError, match="Invalid email or password"):
-            await service.authenticate(LoginCommand(email="nobody@test.com", password="password"))
-        service._hasher.verify.assert_awaited_once()
-        password, dummy_hash = service._hasher.verify.await_args.args
-        assert password == "password"
+            await service.authenticate(LoginCommand(email="nobody@test.com", password="password"))  # noqa: S106 - Synthetic credentials for this test.
+        cast("AsyncMock", service._hasher.verify).assert_awaited_once()
+        password, dummy_hash = require_present(cast("AsyncMock", service._hasher.verify).await_args).args
+        assert password == "password"  # noqa: S105 - Synthetic test data used to verify authentication/redaction.
         assert dummy_hash.startswith("$2b$")
-        service._tokens.create_token.assert_not_called()
+        cast("MagicMock", service._tokens.create_token).assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -115,23 +122,23 @@ class TestAuthenticate:
 
 class TestCreateUser:
     @pytest.mark.asyncio
-    async def test_successful_creation(self, user_service):
+    async def test_successful_creation(self, user_service: Any) -> None:
         service, uow = user_service
         uow.users.get_by_email.return_value = None
         saved = User(id=1, email="new@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
         uow.users.save.return_value = saved
 
         result = await service.create_user(
-            CreateUserCommand(email="new@test.com", password="pw", role="user", kind="internal")
+            CreateUserCommand(email="new@test.com", password="pw", role="user", kind="internal")  # noqa: S106 - Synthetic credentials for this test.
         )
         assert result.id == 1
 
     @pytest.mark.asyncio
-    async def test_invalid_role_raises(self, user_service):
-        service, uow = user_service
+    async def test_invalid_role_raises(self, user_service: Any) -> None:
+        service, _uow = user_service
         with pytest.raises(ValidationError):
             await service.create_user(
-                CreateUserCommand(email="x@x.com", password="pw", role="superadmin", kind="internal")
+                CreateUserCommand(email="x@x.com", password="pw", role="superadmin", kind="internal")  # noqa: S106 - Synthetic credentials for this test.
             )
 
 
@@ -142,7 +149,7 @@ class TestCreateUser:
 
 class TestListUsers:
     @pytest.mark.asyncio
-    async def test_delegates_to_use_case(self, user_service):
+    async def test_delegates_to_use_case(self, user_service: Any) -> None:
         service, uow = user_service
         user = User(id=1, email="a@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
         uow.users.list_all.return_value = [user]
@@ -160,7 +167,7 @@ class TestListUsers:
 
 class TestToggleActive:
     @pytest.mark.asyncio
-    async def test_deactivate_user(self, user_service):
+    async def test_deactivate_user(self, user_service: Any) -> None:
         service, uow = user_service
         user = User(id=5, email="u@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
         uow.users.get_by_id.return_value = user
@@ -169,7 +176,7 @@ class TestToggleActive:
         assert result.is_active is False
 
     @pytest.mark.asyncio
-    async def test_cannot_deactivate_self(self, user_service):
+    async def test_cannot_deactivate_self(self, user_service: Any) -> None:
         service, uow = user_service
         user = User(id=1, email="admin@test.com", role=UserRole.ADMIN, kind=UserKind.INTERNAL)
         uow.users.get_by_id.return_value = user

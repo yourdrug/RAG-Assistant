@@ -8,7 +8,6 @@ from domain.shared.exceptions import ValidationError
 
 ENDPOINT_KEYS = frozenset(
     {
-        "ollama_base_url",
         "tei_embed_url",
         "tei_rerank_url",
         "openrouter_base_url",

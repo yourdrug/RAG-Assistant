@@ -1,7 +1,7 @@
 """Instructor-wrapped LLM clients for structured output.
 
 Provides ``create_instructor_client`` (sync) and ``create_async_instructor_client``
-that wraps OpenAI/Ollama clients with ``instructor`` for Pydantic-validated,
+that wraps OpenAI-compatible clients with ``instructor`` for Pydantic-validated,
 auto-retried LLM calls.
 """
 
@@ -14,7 +14,6 @@ import httpx
 import instructor
 from openai import AsyncOpenAI, OpenAI
 
-from application.runtime.enums import LLMProvider
 from config import settings
 from infrastructure.budget.transport import PaidAsyncTransport, PaidSyncTransport
 from infrastructure.ml.usage_capture import record_model_response
@@ -29,11 +28,11 @@ log = logging.getLogger("default")
 
 
 def create_instructor_client(
-    base_url: str, api_key: str = "ollama", model: str = "", *, runtime: BudgetRuntime | None = None
+    base_url: str, api_key: str, model: str = "", *, runtime: BudgetRuntime | None = None
 ) -> Instructor:
     """Create a sync instructor-wrapped OpenAI client.
 
-    Works with both Ollama (http://localhost:11434/v1) and OpenRouter.
+    Uses the configured OpenRouter endpoint.
     The returned client supports ``client.chat.completions.create()``
     with ``response_model=<Pydantic model>`` for structured output.
     """
@@ -55,7 +54,7 @@ def create_instructor_client(
 
 
 def create_async_instructor_client(
-    base_url: str, api_key: str = "ollama", model: str = "", *, runtime: BudgetRuntime | None = None
+    base_url: str, api_key: str, model: str = "", *, runtime: BudgetRuntime | None = None
 ) -> AsyncInstructor:
     """Create an async instructor-wrapped OpenAI client.
 
@@ -86,19 +85,11 @@ def create_llm_instructor_client(
     Returns (client, model_name). If *model* is given it is used as-is;
     otherwise the default model for the current provider is selected.
     """
-    if settings.llm_provider == LLMProvider.OPENROUTER:
-        client = create_instructor_client(
-            runtime=runtime,
-            base_url=settings.openrouter_base_url,
-            api_key=settings.openrouter_api_key,
-        )
-        resolved_model = model or settings.openrouter_model
-    else:
-        client = create_instructor_client(
-            runtime=runtime,
-            base_url=f"{settings.ollama_base_url}/v1",
-            api_key="ollama",
-        )
-        resolved_model = model or settings.llm_model
+    client = create_instructor_client(
+        runtime=runtime,
+        base_url=settings.openrouter_base_url,
+        api_key=settings.openrouter_api_key,
+    )
+    resolved_model = model or settings.openrouter_model
 
     return client, resolved_model

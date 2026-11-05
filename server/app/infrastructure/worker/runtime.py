@@ -1,4 +1,4 @@
-"""Shared worker execution: billing, admission, heartbeat and job outcomes."""
+"""Shared worker execution: billing, heartbeat and job outcomes."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from arq import Retry
 
 from application.benchmark.sweep_jobs import IncompleteEvaluationError
 from infrastructure.budget.job_context import job_billing_scope
-from infrastructure.worker.admission import document_admission
 from infrastructure.worker.outcomes import job_error_message
 
 
@@ -107,9 +106,9 @@ async def run_tracked_job(
 
 
 def job(
-    *, per_principal: bool = False, max_tries: int = MAX_JOB_TRIES
+    *, max_tries: int = MAX_JOB_TRIES
 ) -> Callable[[Callable[..., Awaitable[None]]], Callable[..., Coroutine[Any, Any, None]]]:
-    """Apply the worker lifecycle once, excluding admission waits from retries."""
+    """Apply billing, heartbeat and bounded processing retries to a worker task."""
 
     def decorate(function: Callable[..., Awaitable[None]]) -> Callable[..., Coroutine[Any, Any, None]]:
         @wraps(function)
@@ -122,19 +121,18 @@ def job(
         ) -> None:
             factory = ctx["uow_factory"]
             with job_billing_scope(function.__name__, ctx, kwargs, cost_principal, cost_operation_id):
-                async with document_admission(ctx, kwargs, enabled=per_principal) as run_ctx:
 
-                    async def action() -> None:
-                        await function(run_ctx, **kwargs)
+                async def action() -> None:
+                    await function(ctx, **kwargs)
 
-                    await run_tracked_job(
-                        factory,
-                        kwargs["job_id"],
-                        action,
-                        description=function.__name__,
-                        job_try=run_ctx.get("job_try", 1),
-                        max_tries=max_tries,
-                    )
+                await run_tracked_job(
+                    factory,
+                    kwargs["job_id"],
+                    action,
+                    description=function.__name__,
+                    job_try=ctx.get("job_try", 1),
+                    max_tries=max_tries,
+                )
 
         return run
 

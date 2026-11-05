@@ -5,8 +5,6 @@ from typing import Any, Unpack
 
 from langchain.schema import Document
 
-from application.runtime.enums import LLMProvider
-from config import settings
 from infrastructure.benchmark.judging import judge
 from infrastructure.benchmark.judging.callbacks import SyncMetricOptions
 from infrastructure.benchmark.judging.prompts import CONTEXT_PRECISION_PROMPT, CONTEXT_RECALL_PROMPT
@@ -72,9 +70,7 @@ def compute_context_precision_recall(
             continue
 
         try:
-            client = judge.get_judge_client(
-                model if settings.llm_provider == LLMProvider.OLLAMA else "", runtime=runtime
-            )
+            client = judge.get_judge_client(model, runtime=runtime)
             score = judge.judge_with_structured_output(
                 client, template.format(question=question, answer=answer, context=context), model
             )

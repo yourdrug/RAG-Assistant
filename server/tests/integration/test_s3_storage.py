@@ -1,4 +1,4 @@
-"""Opt-in MinIO compatibility smoke; only this run's unique keys are removed."""
+"""Opt-in S3 compatibility smoke (local stack: PGSTY Silo); only this run's unique keys are removed."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest_asyncio.fixture
-async def minio_storage(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[tuple[S3Storage, str, list[str]]]:
+async def s3_storage(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[tuple[S3Storage, str, list[str]]]:
     if os.environ.get("RAG_S3_SMOKE") != "1":
         pytest.skip("Set RAG_S3_SMOKE=1 and S3_SMOKE_ENDPOINT to opt in")
 
@@ -75,10 +75,10 @@ async def minio_storage(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[tuple[
 
 
 @pytest.mark.asyncio
-async def test_minio_operations_content_pagination_and_cleanup(
-    minio_storage: tuple[S3Storage, str, list[str]], record_property: Callable[[str, object], None]
+async def test_s3_operations_content_pagination_and_cleanup(
+    s3_storage: tuple[S3Storage, str, list[str]], record_property: Callable[[str, object], None]
 ) -> None:
-    storage, prefix, keys = minio_storage
+    storage, prefix, keys = s3_storage
     rss_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     fd_before = open_fd_count()
     key = prefix + "отчёт с пробелом.txt"
@@ -113,11 +113,11 @@ async def test_minio_operations_content_pagination_and_cleanup(
 
 @pytest.mark.asyncio
 async def test_repeated_config_rotations_close_retired_pools(
-    minio_storage: tuple[S3Storage, str, list[str]],
+    s3_storage: tuple[S3Storage, str, list[str]],
     record_property: Callable[[str, object], None],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, prefix, keys = minio_storage
+    _, prefix, keys = s3_storage
     before = open_fd_count()
     storage = LazyStorage()
     key = prefix + "rotation.txt"
@@ -145,9 +145,9 @@ async def test_repeated_config_rotations_close_retired_pools(
 
 @pytest.mark.asyncio
 async def test_bm25_cold_warm_load_and_snapshot_refresh(
-    minio_storage: tuple[S3Storage, str, list[str]], monkeypatch: pytest.MonkeyPatch
+    s3_storage: tuple[S3Storage, str, list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    storage, prefix, keys = minio_storage
+    storage, prefix, keys = s3_storage
     key = prefix + "snapshot.json"
     keys.append(key)
     monkeypatch.setattr(persistence, "BM25_S3_KEY", key)
@@ -188,12 +188,12 @@ async def test_bm25_cold_warm_load_and_snapshot_refresh(
 
 @pytest.mark.asyncio
 async def test_bm25_redis_invalidation_reloads_real_snapshot(
-    minio_storage: tuple[S3Storage, str, list[str]], monkeypatch: pytest.MonkeyPatch
+    s3_storage: tuple[S3Storage, str, list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     if os.environ.get("RAG_S3_REDIS_SMOKE") != "1":
         pytest.skip("Set RAG_S3_REDIS_SMOKE=1 to opt in to isolated Redis pub/sub smoke")
 
-    storage, prefix, keys = minio_storage
+    storage, prefix, keys = s3_storage
     key = prefix + "redis-snapshot.json"
     keys.append(key)
     channel = prefix + "invalidate"
@@ -225,11 +225,11 @@ async def test_bm25_redis_invalidation_reloads_real_snapshot(
 @pytest.mark.parametrize("report_format", ["csv", "json"])
 async def test_committed_benchmark_report_survives_s3_failure_and_new_worker(
     pg_engine: AsyncEngine,
-    minio_storage: tuple[S3Storage, str, list[str]],
+    s3_storage: tuple[S3Storage, str, list[str]],
     monkeypatch: pytest.MonkeyPatch,
     report_format: str,
 ) -> None:
-    storage, prefix, keys = minio_storage
+    storage, prefix, keys = s3_storage
     monkeypatch.setattr(settings, "data_dir", "/proc/unavailable-benchmark-data")
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     results = [{"id": n, "question": "question", "answer": "x" * 100_000} for n in range(60)]

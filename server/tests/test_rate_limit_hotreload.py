@@ -1,35 +1,44 @@
 """Dynamic quotas retain shared Redis history across policy generations."""
 
+from __future__ import annotations
+
 import asyncio
+from time import time_ns
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock
 
 import fakeredis.aioredis
 import pytest
 from redis.exceptions import RedisError
 
-from config import Settings
-from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
 from application.ports.rate_limit import RateLimitPolicyName
-from infrastructure.rate_limit import limiter as module
-from infrastructure.rate_limit import bucket_factory
+from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
+from config import Settings
+from infrastructure.rate_limit import bucket_factory, limiter as module
+from tests.fakes import require_present
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
 
 
 @pytest.fixture
-def configuration():
+def configuration() -> Settings:
     return Settings(rate_limit_login_per_minute=3)
 
 
-def make_limiter(redis, configuration):
+def make_limiter(redis: Any, configuration: Settings) -> module.DynamicRateLimiter:
     return module.DynamicRateLimiter(redis, configuration)
 
 
 @pytest.mark.asyncio
-async def test_lower_and_raise_quota_preserve_history(configuration):
+async def test_lower_and_raise_quota_preserve_history(configuration: Settings) -> None:
     redis = fakeredis.aioredis.FakeRedis()
     limiter = make_limiter(redis, configuration)
     try:
         for _ in range(2):
             assert (await limiter.check(RateLimitPolicyName.LOGIN, "ip:1")).allowed
+
         configuration.rate_limit_login_per_minute = 1
         assert not (await limiter.check(RateLimitPolicyName.LOGIN, "ip:1")).allowed
         configuration.rate_limit_login_per_minute = 3
@@ -42,7 +51,7 @@ async def test_lower_and_raise_quota_preserve_history(configuration):
 
 
 @pytest.mark.asyncio
-async def test_two_processes_share_history_with_concurrent_acquire(configuration):
+async def test_two_processes_share_history_with_concurrent_acquire(configuration: Settings) -> None:
     redis = fakeredis.aioredis.FakeRedis()
     limiters = [make_limiter(redis, configuration) for _ in range(2)]
     try:
@@ -58,11 +67,12 @@ async def test_two_processes_share_history_with_concurrent_acquire(configuration
     finally:
         for limiter in limiters:
             await limiter.aclose()
+
         await redis.aclose()
 
 
 @pytest.mark.asyncio
-async def test_disabled_and_fail_open_are_live(configuration):
+async def test_disabled_and_fail_open_are_live(configuration: Settings) -> None:
     redis = AsyncMock()
     redis.script_load.side_effect = RedisError("offline")
     limiter = make_limiter(redis, configuration)
@@ -78,25 +88,28 @@ async def test_disabled_and_fail_open_are_live(configuration):
         await limiter.aclose()
 
 
-def test_quotas_are_dynamic_and_positive():
+def test_quotas_are_dynamic_and_positive() -> None:
     fields = [key for key in Settings.model_fields if key.startswith("rate_limit_") and "_per_" in key]
+
     for key in fields:
         assert key in DYNAMIC_FIELDS_MAP
-        with pytest.raises(ValueError):
-            Settings(**{key: 0})
+        with pytest.raises(ValueError, match="greater than"):
+            Settings(**cast("dict[str, Any]", {key: 0}))
+
     assert {"rate_limit_enabled", "rate_limit_fail_open"} <= DYNAMIC_FIELDS_MAP.keys()
 
 
 @pytest.mark.asyncio
-async def test_rotation_during_acquire_keeps_old_generation_alive(configuration):
+async def test_rotation_during_acquire_keeps_old_generation_alive(configuration: Settings) -> None:
     entered, resume = asyncio.Event(), asyncio.Event()
 
     class PausedRedis(fakeredis.aioredis.FakeRedis):
-        async def evalsha(self, *args, **kwargs):
+        async def evalsha(self, *args: Any, **kwargs: Any) -> Any:
             if not entered.is_set():
                 entered.set()
                 await resume.wait()
-            return await super().evalsha(*args, **kwargs)
+
+            return await cast("Awaitable[Any]", super().evalsha(*args, **kwargs))
 
     redis = PausedRedis()
     limiter = make_limiter(redis, configuration)
@@ -117,16 +130,19 @@ async def test_rotation_during_acquire_keeps_old_generation_alive(configuration)
 
 
 @pytest.mark.asyncio
-async def test_delayed_request_cannot_ignore_later_admissions(configuration, monkeypatch):
+async def test_delayed_request_cannot_ignore_later_admissions(
+    configuration: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
     entered, resume = asyncio.Event(), asyncio.Event()
-    timestamp = bucket_factory.time_ns()
+    timestamp = time_ns()
 
     class PausedRedis(fakeredis.aioredis.FakeRedis):
-        async def evalsha(self, *args, **kwargs):
+        async def evalsha(self, *args: Any, **kwargs: Any) -> Any:
             if not entered.is_set():
                 entered.set()
                 await resume.wait()
-            return await super().evalsha(*args, **kwargs)
+
+            return await cast("Awaitable[Any]", super().evalsha(*args, **kwargs))
 
     redis = PausedRedis()
     first = make_limiter(redis, configuration)
@@ -137,8 +153,10 @@ async def test_delayed_request_cannot_ignore_later_admissions(configuration, mon
     try:
         await entered.wait()
         monkeypatch.setattr(bucket_factory, "time_ns", lambda: timestamp)
+
         for _ in range(3):
             assert (await second.check(RateLimitPolicyName.LOGIN, "ip:1")).allowed
+
         resume.set()
         assert not (await delayed).allowed
         assert await redis.zcard(f"{configuration.rate_limit_redis_prefix}login:ip:1") == 3
@@ -151,14 +169,14 @@ async def test_delayed_request_cannot_ignore_later_admissions(configuration, mon
 
 
 @pytest.mark.asyncio
-async def test_close_waits_for_background_leak_task(configuration):
+async def test_close_waits_for_background_leak_task(configuration: Settings) -> None:
     redis = fakeredis.aioredis.FakeRedis()
     limiter = make_limiter(redis, configuration)
     try:
         await limiter.check(RateLimitPolicyName.LOGIN, "ip:1")
-        task = limiter._current.limiter._factory._leaker.aio_leak_task
+        task = require_present(require_present(limiter._current).limiter._factory._leaker).aio_leak_task
         await limiter.aclose()
-        assert task.done()
+        assert require_present(task).done()
     finally:
         await limiter.aclose()
         await redis.aclose()

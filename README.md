@@ -1,6 +1,6 @@
 # RAG — Корпоративный ассистент (локальный, без облака)
 
-**Стек:** FastAPI · LangChain · Qdrant · Ollama · PostgreSQL · BAAI/bge-m3 · BAAI/bge-reranker-v2-m3 · PaddleOCR
+**Стек:** FastAPI · LangChain · Qdrant · OpenRouter · PostgreSQL · BAAI/bge-m3 · BAAI/bge-reranker-v2-m3 · PaddleOCR
 
 **Лицензия проекта:** Elastic License 2.0 — можно self-host, нельзя продавать как SaaS.
 
@@ -36,7 +36,6 @@ task chat -- "Вопрос"
 | `task up -- gpu` | Поднять с GPU |
 | `task build` | Пересобрать образы |
 | `task build -- gpu` | Пересобрать с GPU |
-| `task pull-model MODEL=qwen2.5:7b` | Скачать LLM в Ollama |
 | `task login email=... password=...` | Залогиниться → `.auth_token` |
 | `task ingest` | Проиндексировать `data/docs_sample/` [admin] |
 | `task chat -- "вопрос"` | Синхронный запрос |
@@ -163,7 +162,6 @@ curl https://rag.example.com/api/documents \
 
 ## Troubleshooting
 
-**`Error: EOF` при ollama pull** → MTU слишком низкий (VPN). `export DOCKER_MTU=1400 && task down && task up`
 
 **`401 Unauthorized`** → Токен истёк. `task login email=... password=...` заново.
 

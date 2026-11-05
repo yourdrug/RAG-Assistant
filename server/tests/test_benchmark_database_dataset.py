@@ -1,30 +1,47 @@
 """Database-only execution contracts for benchmark and both sweep phases."""
 
-from infrastructure.worker import runtime
+from __future__ import annotations
 
 from datetime import date
+from functools import partial
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
+from pydantic import ValidationError
 import pytest
 
-from application.benchmark import BenchmarkResultService
-from application.benchmark import BenchmarkService
-from pydantic import ValidationError
-
-from application.benchmark import load_benchmark_questions
-from domain.benchmark.question import BenchmarkQuestion
+from application.benchmark import (
+    BenchmarkQuestionService,
+    BenchmarkResultService,
+    BenchmarkService,
+    load_benchmark_questions,
+)
+from application.benchmark.jobs import BenchmarkJobService
+from composition.service_providers import build_sweep_engine
+from domain.benchmark.question import DEFAULT_DATASET, BenchmarkQuestion
 from domain.benchmark.run import BenchmarkRun
 from domain.benchmark.sweep import BenchmarkSweep
-from domain.benchmark.question import DEFAULT_DATASET
-from composition.service_providers import build_sweep_engine
+from infrastructure.benchmark.corpus import benchmark_scope
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
+from infrastructure.worker import queue, runtime, tasks
 from presentation.api.schemas.benchmark import BenchmarkQuestionCreate, BenchmarkRequest, SweepCreateRequest
 
 
-def dataset_factory(questions=None, error=None):
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from application.chat.ports import ChatRAGPort
+
+
+def dataset_factory(
+    questions: list[BenchmarkQuestion] | None = None, error: Exception | None = None
+) -> tuple[SimpleNamespace, SimpleNamespace, MagicMock]:
     repo = SimpleNamespace(list_active=AsyncMock(return_value=questions or [], side_effect=error))
     uow = MagicMock()
     uow.__aenter__ = AsyncMock(
@@ -43,7 +60,7 @@ def dataset_factory(questions=None, error=None):
 
 
 @pytest.mark.asyncio
-async def test_dataset_preserves_all_ids_and_annotations_without_1000_question_limit():
+async def test_dataset_preserves_all_ids_and_annotations_without_1000_question_limit() -> None:
     cases = [BenchmarkQuestion(id=i, question=f"Question {i}", dataset="custom") for i in range(1, 1002)]
     cases[0].expected_answer = "Expected"
     cases[0].source_hint = "rules.pdf"
@@ -57,6 +74,9 @@ async def test_dataset_preserves_all_ids_and_annotations_without_1000_question_l
     assert len(loaded) == 1001
     assert loaded[0] == {
         "id": 1,
+        "case_id": None,
+        "variant_of": None,
+        "question_style": None,
         "question": "Question 1",
         "expected_answer": "Expected",
         "source_hint": "rules.pdf",
@@ -71,29 +91,33 @@ async def test_dataset_preserves_all_ids_and_annotations_without_1000_question_l
 
 
 @pytest.mark.asyncio
-async def test_empty_dataset_fails_without_creating_files(tmp_path, monkeypatch):
+async def test_empty_dataset_fails_without_creating_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     factory, _, _ = dataset_factory()
-    with pytest.raises(ValueError, match="No active benchmark questions.*custom"):
+    with pytest.raises(ValueError, match=r"No active benchmark questions.*custom"):
         await load_benchmark_questions(factory, "custom")
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
-async def test_db_error_propagates_without_file_fallback(tmp_path, monkeypatch):
+async def test_db_error_propagates_without_file_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     factory, _, _ = dataset_factory(error=RuntimeError("database unavailable"))
     with pytest.raises(RuntimeError, match="database unavailable"):
         await load_benchmark_questions(factory, DEFAULT_DATASET)
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
-async def test_repository_selects_only_active_dataset_without_pagination():
+async def test_repository_selects_only_active_dataset_without_pagination() -> None:
     result = MagicMock()
     result.scalars.return_value.all.return_value = []
     session = SimpleNamespace(execute=AsyncMock(return_value=result))
-    await SQLAlchemyBenchmarkQuestionRepository(session).list_active(dataset="custom")
+    await SQLAlchemyBenchmarkQuestionRepository(cast("AsyncSession", session)).list_active(dataset="custom")
     stmt = session.execute.call_args.args[0]
     sql = str(stmt.compile())
     assert "benchmark_questions.is_active IS true" in sql
@@ -104,7 +128,9 @@ async def test_repository_selects_only_active_dataset_without_pagination():
 
 
 @pytest.mark.asyncio
-async def test_phase_b_uses_loaded_dataset_including_cases_without_source_hints(monkeypatch):
+async def test_phase_b_uses_loaded_dataset_including_cases_without_source_hints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     labelled = BenchmarkQuestion(id=10, question="Labelled", source_hint="rules.pdf", dataset="custom")
     unlabelled = BenchmarkQuestion(
         id=20, question="Refusal", annotations={"expected_refusal": True}, dataset="custom"
@@ -117,7 +143,7 @@ async def test_phase_b_uses_loaded_dataset_including_cases_without_source_hints(
     cache = AsyncMock(return_value=({}, {}, {}))
     monkeypatch.setattr(engine, "cache_candidates", cache)
 
-    def score(config, *args, **_kwargs):
+    def score(config: dict[str, Any], *args: Any, **_kwargs: Any) -> dict[str, Any]:
         # Simulate dataset editing between phases. B must use the original snapshot.
         repo.list_active.return_value = [BenchmarkQuestion(id=30, question="Changed")]
         return {"composite_score": config["top_k"]}
@@ -137,11 +163,11 @@ async def test_phase_b_uses_loaded_dataset_including_cases_without_source_hints(
     assert all(r["llm_evaluated"] for r in results)
 
 
-def test_benchmark_request_selects_dataset_and_rejects_file_paths():
+def test_benchmark_request_selects_dataset_and_rejects_file_paths() -> None:
     assert BenchmarkRequest().dataset == DEFAULT_DATASET
     assert BenchmarkRequest(dataset="custom").dataset == "custom"
     with pytest.raises(ValidationError):
-        BenchmarkRequest(questions_path="removed.json")
+        BenchmarkRequest.model_validate({"questions_path": "removed.json"})
 
 
 @pytest.mark.parametrize(
@@ -155,18 +181,17 @@ def test_benchmark_request_selects_dataset_and_rejects_file_paths():
         lambda **kwargs: SweepCreateRequest(search_space={"top_k": {"values": [2]}}, **kwargs),
     ],
 )
-def test_dataset_defaults_preserve_custom_names(factory):
+def test_dataset_defaults_preserve_custom_names(factory: Callable[..., Any]) -> None:
     assert DEFAULT_DATASET == "main"
     assert factory().dataset == "main"
     assert factory(dataset="custom").dataset == "custom"
 
 
 @pytest.mark.asyncio
-async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
-    from infrastructure.worker import tasks
+async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch: pytest.MonkeyPatch) -> None:
 
     factory, repo, _ = dataset_factory([BenchmarkQuestion(id=72, question="Database case")])
-    ctx = {
+    ctx: dict[str, Any] = {
         "benchmark_results": BenchmarkResultService(factory),
         "container": SimpleNamespace(
             infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)),
@@ -176,23 +201,21 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
     run = AsyncMock(return_value=[])
     ctx["container"].infrastructure.ml = SimpleNamespace(
         ml_clients=None,
-        benchmark_service=BenchmarkService(rag_service=object(), runner=SimpleNamespace(run=run)),
+        benchmark_service=BenchmarkService(
+            rag_service=cast("ChatRAGPort", object()), runner=SimpleNamespace(run=run)
+        ),
     )
 
-    async def tracked(factory_arg, job_id, action, **kwargs):
+    async def tracked(factory_arg: Any, job_id: int, action: Any, **kwargs: Any) -> None:
         assert factory_arg is factory
         assert job_id == 8
         await action()
-
-    from application.benchmark.jobs import BenchmarkJobService
-    from infrastructure.benchmark.corpus import benchmark_scope
-    from functools import partial
 
     ctx["uow_factory"] = factory
     ctx["benchmark_job"] = BenchmarkJobService(
         factory,
         ctx["container"].infrastructure.ml.benchmark_service,
-        ctx["benchmark_results"],
+        cast("BenchmarkResultService", ctx["benchmark_results"]),
         AsyncMock(),
         partial(benchmark_scope, None),
     )
@@ -207,13 +230,14 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_queue_serializes_dataset_and_deduplicates_per_dataset(monkeypatch):
-    from infrastructure.worker import queue
+async def test_queue_serializes_dataset_and_deduplicates_per_dataset(monkeypatch: pytest.MonkeyPatch) -> None:
 
     enqueue = AsyncMock()
     monkeypatch.setattr(queue, "enqueue_arq", enqueue)
+
     for job_id, dataset in enumerate([DEFAULT_DATASET, "custom"], 8):
         await queue.enqueue_benchmark(dataset=dataset, top_k=7, judge_model="judge", job_id=job_id)
+
     calls = enqueue.await_args_list
     assert [c.kwargs["dataset"] for c in calls] == [DEFAULT_DATASET, "custom"]
     assert calls[0].kwargs["arq_job_id"] != calls[1].kwargs["arq_job_id"]
@@ -221,8 +245,7 @@ async def test_queue_serializes_dataset_and_deduplicates_per_dataset(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_dataset_catalog_uses_repository_without_question_pagination():
-    from application.benchmark import BenchmarkQuestionService
+async def test_dataset_catalog_uses_repository_without_question_pagination() -> None:
 
     factory, repo, uow = dataset_factory()
     repo.get_datasets = AsyncMock(return_value=[DEFAULT_DATASET, "quick-30", "custom"])

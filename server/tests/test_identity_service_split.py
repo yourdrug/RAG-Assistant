@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, Mock
@@ -136,8 +137,10 @@ async def test_api_key_authentication_preserves_cache_and_touch(
     )
     identity.uow.api_keys.get_active_client_by_hash.return_value = result
 
+    cache_payload = asdict(result) if result is not None else None
+
     if cached:
-        identity.provider.get_cached.return_value = result
+        identity.provider.get_cached.return_value = cache_payload
 
     response = await client.get("/auth/me", headers={"Authorization": "Api-Key secret"})
     assert response.status_code == (200 if valid else 401)
@@ -149,7 +152,9 @@ async def test_api_key_authentication_preserves_cache_and_touch(
         identity.uow.api_keys.get_active_client_by_hash.assert_awaited_once_with(
             identity.provider.hash_key.return_value
         )
-        identity.provider.set_cached.assert_awaited_once_with(identity.provider.hash_key.return_value, result)
+        identity.provider.set_cached.assert_awaited_once_with(
+            identity.provider.hash_key.return_value, cache_payload
+        )
 
     if valid and not cached:
         identity.uow.api_keys.touch_last_used.assert_awaited_once_with(7)

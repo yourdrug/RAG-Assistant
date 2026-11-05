@@ -143,7 +143,7 @@ async def test_full_mode_requires_judge_before_expensive_preparation() -> None:
         )
 
 
-@pytest.mark.parametrize("parameter", ["chunk_size", "llm_model"])
+@pytest.mark.parametrize("parameter", ["chunk_size", "openrouter_model"])
 @pytest.mark.asyncio
 async def test_full_mode_rejects_parameters_that_cannot_be_applied(
     monkeypatch: pytest.MonkeyPatch, parameter: str

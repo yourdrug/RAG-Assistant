@@ -5,18 +5,23 @@ Tests database case validation and retriever metrics with real computation logic
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
+from infrastructure.benchmark.evaluation.case_metrics import compute_retriever_metrics_from_sources
 from infrastructure.benchmark.evaluation.runner import validate_questions
 
 
-def test_validate_questions_accepts_database_cases():
+def test_validate_questions_accepts_database_cases() -> None:
     validate_questions([{"id": 41, "question": "Q", "annotations": {"expected_refusal": True}}])
 
 
 @pytest.mark.parametrize("questions", [[], "questions.json", {}, [None], [{"question": 1}]])
-def test_validate_questions_rejects_invalid_cases(questions):
-    with pytest.raises(ValueError):
+def test_validate_questions_rejects_invalid_cases(
+    questions: list[Any] | str | dict[str, Any] | list[None] | list[dict[str, Any]],
+) -> None:
+    with pytest.raises(ValueError, match=r".+"):
         validate_questions(questions)
 
 
@@ -25,8 +30,7 @@ def test_validate_questions_rejects_invalid_cases(questions):
 # ---------------------------------------------------------------------------
 
 
-def test_compute_retriever_metrics_no_source_hint():
-    from infrastructure.benchmark.evaluation.case_metrics import compute_retriever_metrics_from_sources
+def test_compute_retriever_metrics_no_source_hint() -> None:
 
     sources = [
         {"source": "doc1.pdf", "max_score": 0.9},
@@ -41,8 +45,7 @@ def test_compute_retriever_metrics_no_source_hint():
     assert result["retrieved_sources"] == ["doc1.pdf", "doc2.pdf"]
 
 
-def test_compute_retriever_metrics_with_hint_hit():
-    from infrastructure.benchmark.evaluation.case_metrics import compute_retriever_metrics_from_sources
+def test_compute_retriever_metrics_with_hint_hit() -> None:
 
     sources = [
         {"source": "contracts/report.pdf", "max_score": 0.9},
@@ -55,8 +58,7 @@ def test_compute_retriever_metrics_with_hint_hit():
     assert result["mrr"] == 1.0  # first position
 
 
-def test_compute_retriever_metrics_with_hint_hit_at_rank2():
-    from infrastructure.benchmark.evaluation.case_metrics import compute_retriever_metrics_from_sources
+def test_compute_retriever_metrics_with_hint_hit_at_rank2() -> None:
 
     sources = [
         {"source": "other.pdf", "max_score": 0.9},
@@ -69,8 +71,7 @@ def test_compute_retriever_metrics_with_hint_hit_at_rank2():
     assert result["mrr"] == 0.5  # 1/2
 
 
-def test_compute_retriever_metrics_with_hint_no_hit():
-    from infrastructure.benchmark.evaluation.case_metrics import compute_retriever_metrics_from_sources
+def test_compute_retriever_metrics_with_hint_no_hit() -> None:
 
     sources = [
         {"source": "other.pdf", "max_score": 0.9},
@@ -82,8 +83,7 @@ def test_compute_retriever_metrics_with_hint_no_hit():
     assert result["mrr"] == 0.0
 
 
-def test_compute_retriever_metrics_empty_sources():
-    from infrastructure.benchmark.evaluation.case_metrics import compute_retriever_metrics_from_sources
+def test_compute_retriever_metrics_empty_sources() -> None:
 
     result = compute_retriever_metrics_from_sources([], source_hint="anything")
 
@@ -91,8 +91,7 @@ def test_compute_retriever_metrics_empty_sources():
     assert result["retrieved_sources"] == []
 
 
-def test_compute_retriever_metrics_missing_max_score():
-    from infrastructure.benchmark.evaluation.case_metrics import compute_retriever_metrics_from_sources
+def test_compute_retriever_metrics_missing_max_score() -> None:
 
     sources = [{"source": "doc.pdf"}]  # no max_score key
 

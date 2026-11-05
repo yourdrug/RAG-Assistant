@@ -107,12 +107,8 @@ class Settings(BaseSettings):
     qdrant_write_max_concurrent: int = 8  # caps concurrent Qdrant upserts (prevents write contention)
     rag_retrieval_score_threshold: float = 0.0  # minimum cosine similarity for dense search results
 
-    # ── Ollama ──────────────────────────────────────────────────────────────
-    ollama_base_url: str = "http://localhost:11434"
-
     # ── LLM ─────────────────────────────────────────────────────────────────
-    llm_provider: str = LLMProvider.OLLAMA.value
-    llm_model: str = "qwen2.5:7b"
+    llm_provider: Literal["openrouter"] = LLMProvider.OPENROUTER.value
     llm_temperature: float = 0.1
     llm_top_p: float = 0.9
     llm_num_ctx_narrow: int = DEFAULT_NUM_CTX_NARROW
@@ -133,7 +129,7 @@ class Settings(BaseSettings):
     benchmark_judge_grouped_enabled: bool = True
     benchmark_judge_initial_tokens: int = Field(default=2048, ge=1)
     benchmark_judge_retry_tokens: int = Field(default=8192, ge=1)
-    benchmark_judge_model: str = ""  # empty = use fast_llm for OpenRouter, llm_model for Ollama
+    benchmark_judge_model: str = ""  # empty = use fast_llm for OpenRouter
 
     # ── OpenRouter ──────────────────────────────────────────────────────────
     openrouter_api_key: str = ""
@@ -141,7 +137,7 @@ class Settings(BaseSettings):
     openrouter_model: str = "qwen/qwen-2.5-7b-instruct"
 
     # ── Embedding / Reranking provider ──────────────────────────────────────
-    ml_provider: str = MLProvider.TEI.value
+    ml_provider: Literal["tei", "deepinfra"] = MLProvider.DEEPINFRA.value
     tei_embed_url: str = "http://tei-embed:8080"
     tei_embed_model: str = "BAAI/bge-m3"
     embedding_revision: str = "v1"
@@ -158,8 +154,6 @@ class Settings(BaseSettings):
     rerank_http_max_keepalive_connections: int = Field(default=10, ge=0)
     # Deployment controls the trust boundary; database writers cannot expand it.
     ml_internal_allowed_origins: list[str] = [
-        "http://localhost:11434",
-        "http://ollama:11434",
         "http://tei-embed:8080",
         "http://tei-rerank:8080",
         "http://qdrant:6333",
@@ -226,6 +220,7 @@ class Settings(BaseSettings):
     redis_password: str = ""
     redis_db: int = 0
     worker_max_concurrent: int = 4
+    outbox_max_concurrent: int = Field(default=5, ge=1)
     redis_socket_timeout: int = 10
     redis_max_connections: int = 50
 
@@ -441,8 +436,6 @@ class Settings(BaseSettings):
         elif self.ml_provider == MLProvider.DEEPINFRA.value:
             if not self.deepinfra_api_key:
                 return ["DEEPINFRA_API_KEY required when ML_PROVIDER=deepinfra"]
-        else:
-            return [f"ML_PROVIDER must be 'tei' or 'deepinfra', got '{self.ml_provider}'"]
 
         return []
 

@@ -8,7 +8,6 @@ from enum import StrEnum
 class LLMProvider(StrEnum):
     """Supported LLM providers."""
 
-    OLLAMA = "ollama"
     OPENROUTER = "openrouter"
 
 

@@ -9,21 +9,23 @@ Requires a reachable Redis; skipped otherwise. Point the test at any instance::
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
+import sys
 
 import pytest
 import redis.asyncio as aioredis
 from redis.exceptions import RedisError
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from application.ports.rate_limit import (  # noqa: E402
+from application.ports.rate_limit import (
     RateLimitPolicy,
     RateLimitPolicyName,
     RateSpec,
 )
-from infrastructure.rate_limit.limiter import PyrateRateLimiter  # noqa: E402
+from infrastructure.rate_limit.limiter import PyrateRateLimiter
+
 
 _DEFAULT_URL = "redis://localhost:6379/15"
 
@@ -40,9 +42,9 @@ def _policies() -> dict[RateLimitPolicyName, RateLimitPolicy]:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_rate_limit_round_trip_on_real_redis():
+async def test_rate_limit_round_trip_on_real_redis() -> None:
     url = os.environ.get("RATE_LIMIT_TEST_REDIS_URL", _DEFAULT_URL)
-    client = aioredis.from_url(url, decode_responses=True)
+    client = aioredis.Redis.from_url(url, decode_responses=True)
     try:
         await client.ping()
     except (RedisError, OSError) as exc:

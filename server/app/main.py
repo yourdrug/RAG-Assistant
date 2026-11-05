@@ -151,11 +151,19 @@ async def start_background_services(container: Container) -> None:
 
     # Ensure Qdrant collection exists
     if container.infrastructure.ml.vector_store_repo is not None:
-        await container.infrastructure.ml.vector_store_repo.ensure_collection(
-            vector_size=settings.embed_dim,
-            reset=False,
-        )
-        logger.info("Qdrant collection ensured (dim=%d)", settings.embed_dim)
+        corpus_control = container.infrastructure.corpus_control
+
+        if corpus_control is not None and not await corpus_control.is_ready():
+            logger.warning(
+                "Skipping Qdrant collection initialization: corpus generation is not ready; "
+                "continuing API startup with corpus operations unavailable."
+            )
+        else:
+            await container.infrastructure.ml.vector_store_repo.ensure_collection(
+                vector_size=settings.embed_dim,
+                reset=False,
+            )
+            logger.info("Qdrant collection ensured (dim=%d)", settings.embed_dim)
 
     await scheduler.startup(
         config_listener=container.infrastructure.events.config_listener,

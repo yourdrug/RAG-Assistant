@@ -7,6 +7,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from domain.benchmark.evaluation import matches_fragment
+from domain.benchmark.question import evaluation_annotations
 from domain.rag.context import RagContext
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 
@@ -23,6 +24,7 @@ class AnnotationValidator:
         self.search = search
 
     async def validate(self, annotations: dict[str, Any] | None, ctx: RagContext) -> dict[str, Any]:
+        annotations = evaluation_annotations(annotations)
         fragments = (annotations or {}).get("expected_fragments") or []
 
         if not fragments:

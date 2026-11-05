@@ -122,8 +122,11 @@ class PostgresCorpusControl:
             raise ValidationError(message)
 
         if active.embedding_identity != configured_embedding_identity():
-            message = "Active corpus embedding identity differs from the configured encoder"
-            raise ValidationError(message)
+            log.warning(
+                "Active corpus embedding identity differs from the configured encoder; "
+                "continuing startup. Corpus operations are unavailable until the corpus "
+                "is migrated or the previous ML_PROVIDER is restored."
+            )
 
         raw = raw_corpus_client(active.endpoint)
         try:
@@ -302,7 +305,12 @@ class PostgresCorpusControl:
             log.exception("Corpus admission journal unavailable")
             return False
         current = self.resources.corpus_snapshot
-        return bool(state and current is not None and current.generation == state["active"]["generation"])
+        return bool(
+            state
+            and current is not None
+            and current.generation == state["active"]["generation"]
+            and current.embedding_identity == configured_embedding_identity()
+        )
 
     async def status(self) -> dict[str, Any]:
         state = await self.read_state()

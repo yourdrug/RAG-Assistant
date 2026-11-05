@@ -235,7 +235,7 @@ export function DashboardPage() {
             latency={health.checks?.qdrant?.latency_ms}
           />
           <ServiceCard
-            title={health?.llm_provider === "openrouter" ? "OpenRouter" : "Ollama"}
+            title="OpenRouter"
             icon={<Cpu className="h-5 w-5 text-orange-600 dark:text-orange-400" />}
             status={llmStatus}
             latency={health.checks?.llm?.latency_ms}

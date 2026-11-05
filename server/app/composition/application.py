@@ -199,7 +199,6 @@ class ApplicationContainer:
         health_probe = require(infra.services.health_probe, "health_probe")
         config_listener = require(infra.events.config_listener, "config_listener")
         metrics_registry = require(infra.ml.metrics_registry, "metrics_registry")
-        ollama_probe = require(infra.services.ollama_probe, "ollama_probe")
         qdrant_info = require(infra.services.qdrant_info, "qdrant_info")
         self.config_service = ConfigService(
             uow_factory=uow, event_bus=event_bus, provider_configuration=infra.configuration
@@ -214,7 +213,6 @@ class ApplicationContainer:
         )
         self.metrics_service = MetricsService(registry=metrics_registry)
         self.config_admin_service = ConfigAdminService(
-            ollama_probe=ollama_probe,
             vectordb_info=qdrant_info,
             admin_settings=LiveConfigAdminSettings(),
             openrouter_models_fetcher=fetch_openrouter_models,

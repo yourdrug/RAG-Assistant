@@ -19,7 +19,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
@@ -252,11 +252,62 @@ function SourceHintPicker({
 function QuestionsTab() {
   const [search, setSearch] = useState("");
   const [datasetFilter, setDatasetFilter] = useState<string>("");
-  const { data, isLoading, refetch } = useBenchmarkQuestions({
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [loadedPage, setLoadedPage] = useState(1);
+  const { data, isLoading, isFetching, isPlaceholderData, refetch } = useBenchmarkQuestions({
     search: search || undefined,
     dataset: datasetFilter || undefined,
-    limit: 500,
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
   });
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : page;
+  const displayedPage = isPlaceholderData ? loadedPage : page;
+
+  useEffect(() => {
+    if (data && !isPlaceholderData) {
+      setLoadedPage(page);
+      if (page > totalPages) setPage(totalPages);
+    }
+  }, [data, isPlaceholderData, page, totalPages]);
+
+  const changePage = (nextPage: number) => {
+    setPage(nextPage);
+  };
+
+  const pagination = (
+    <nav
+      aria-label="Questions pagination"
+      className="flex flex-wrap items-center justify-between gap-3"
+    >
+      <span className="text-xs text-muted-foreground" aria-live="polite">
+        {data
+          ? `${data.total === 0 ? 0 : (displayedPage - 1) * pageSize + 1}–${Math.min(displayedPage * pageSize, data.total)} of ${data.total} questions`
+          : "Loading questions…"}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!data || isFetching || page <= 1}
+          onClick={() => changePage(page - 1)}
+        >
+          Previous
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          Page {displayedPage} of {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!data || isFetching || page >= totalPages}
+          onClick={() => changePage(page + 1)}
+        >
+          Next
+        </Button>
+      </div>
+    </nav>
+  );
   const createQuestion = useCreateBenchmarkQuestion();
   const updateQuestion = useUpdateBenchmarkQuestion();
   const deleteQuestion = useDeleteBenchmarkQuestion();
@@ -381,10 +432,20 @@ function QuestionsTab() {
         <Input
           placeholder="Search questions..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
           className="max-w-sm"
         />
-        <BenchmarkDatasetSelect value={datasetFilter} onChange={setDatasetFilter} allowAll />
+        <BenchmarkDatasetSelect
+          value={datasetFilter}
+          onChange={(value) => {
+            setDatasetFilter(value);
+            setPage(1);
+          }}
+          allowAll
+        />
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-1" /> Refresh
         </Button>
@@ -413,86 +474,106 @@ function QuestionsTab() {
         </Button>
       </div>
 
-      {/* Table */}
+      {pagination}
+      {/* Questions */}
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full" />
+            <Skeleton key={i} className="h-36 w-full rounded-lg" />
           ))}
         </div>
       ) : (
-        <div className="max-h-[500px] overflow-auto border rounded-md">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[40px]">#</TableHead>
-                <TableHead>Question</TableHead>
-                <TableHead>Expected Answer</TableHead>
-                <TableHead>Source Hint</TableHead>
-                <TableHead>Tags</TableHead>
-                <TableHead>Dataset</TableHead>
-                <TableHead className="w-[60px]">Active</TableHead>
-                <TableHead className="w-[80px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data?.questions.map((q, idx) => (
-                <TableRow key={q.id}>
-                  <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                  <TableCell className="text-sm max-w-[250px]">
-                    <div className="truncate" title={q.question}>
-                      {q.question}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs max-w-[200px]">
-                    <div className="truncate text-muted-foreground" title={q.expected_answer || ""}>
-                      {q.expected_answer || "-"}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {q.source_hint || "-"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1 flex-wrap">
-                      {(q.tags || []).map((t) => (
-                        <Badge key={t} variant="secondary" className="text-xs">
-                          {t}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs">{q.dataset}</TableCell>
-                  <TableCell>
+        <div className="space-y-2 [overflow-anchor:none]" aria-busy={isFetching}>
+          {data?.questions.map((q, idx) => (
+            <article key={q.id} className="min-w-0 overflow-hidden rounded-lg border bg-card">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+                  <span className="font-mono text-muted-foreground">
+                    #{(displayedPage - 1) * pageSize + idx + 1}
+                  </span>
+                  <Badge variant="outline" className="max-w-full whitespace-normal break-words">
+                    {q.dataset}
+                  </Badge>
+                  <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                     {q.is_active ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
                     ) : (
-                      <XCircle className="h-4 w-4 text-red-500" />
+                      <XCircle className="h-3.5 w-3.5" />
                     )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(q)}>
-                        Edit
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(q.id)}>
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {data?.questions.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    No questions yet. Add your first question above.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+                    {q.is_active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => openEdit(q)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    aria-label={`Delete question ${(displayedPage - 1) * pageSize + idx + 1}`}
+                    onClick={() => handleDelete(q.id)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2 p-3">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Question
+                  </p>
+                  <h3 className="whitespace-pre-wrap break-words text-sm font-medium leading-snug [overflow-wrap:anywhere]">
+                    {q.question}
+                  </h3>
+                </div>
+                <div className="space-y-1 rounded-md border bg-muted/30 p-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Expected answer
+                  </p>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-snug [overflow-wrap:anywhere]">
+                    {q.expected_answer || (
+                      <span className="text-muted-foreground">No expected answer</span>
+                    )}
+                  </p>
+                </div>
+                {q.source_hint && (
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <p className="font-medium">Source hint</p>
+                    <p className="whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">
+                      {q.source_hint}
+                    </p>
+                  </div>
+                )}
+                {!!q.tags?.length && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {q.tags.map((t) => (
+                      <Badge
+                        key={t}
+                        variant="secondary"
+                        className="max-w-full whitespace-normal break-words text-xs"
+                      >
+                        {t}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </article>
+          ))}
+          {data?.questions.length === 0 && (
+            <div className="rounded-xl border border-dashed py-12 text-center text-sm text-muted-foreground">
+              No questions yet. Add your first question above.
+            </div>
+          )}
         </div>
       )}
-      <div className="text-xs text-muted-foreground">{data?.total ?? 0} questions total</div>
+      {pagination}
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

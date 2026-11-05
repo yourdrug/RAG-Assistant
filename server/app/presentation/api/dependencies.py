@@ -330,7 +330,7 @@ def create_benchmark_config(_request: Request) -> BenchmarkConfig:
     return BenchmarkConfig(
         data_dir=settings.data_dir,
         retriever_top_k=settings.retriever_top_k,
-        llm_model=settings.llm_model,
+        llm_model=settings.openrouter_model,
     )
 
 

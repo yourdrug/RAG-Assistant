@@ -15,7 +15,6 @@ class MetricsResult:
     db_pool: dict[str, float] = field(default_factory=dict)
     qdrant: dict[str, float] = field(default_factory=dict)
     bm25: dict[str, float] = field(default_factory=dict)
-    ollama: list[dict[str, object]] = field(default_factory=list)
     rag: dict[str, object] = field(default_factory=dict)
     ingestion: dict[str, object] = field(default_factory=dict)
     http_requests: dict[str, object] = field(default_factory=dict)
@@ -42,18 +41,6 @@ class MetricsService:
         # BM25
         bm25_vals = reg.collect_gauge("bm25_index_size")
         bm25 = {"index_size": sum(bm25_vals.values()) if bm25_vals else 0.0}
-
-        # Ollama GPU/RAM
-        ollama = []
-        gpu_vals = reg.collect_gauge("ollama_gpu_memory_bytes")
-
-        for model, gpu_bytes in gpu_vals.items():
-            ollama.append(
-                {
-                    "model": model,
-                    "gpu_bytes": gpu_bytes,
-                }
-            )
 
         rag = self.collect_rag()
 
@@ -96,7 +83,6 @@ class MetricsService:
             db_pool=db_pool,
             qdrant=qdrant,
             bm25=bm25,
-            ollama=ollama,
             rag=rag,
             ingestion=ingestion,
             http_requests=http_requests,

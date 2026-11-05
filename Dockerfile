@@ -137,7 +137,7 @@ COPY --from=uv-base-cpu $VENV_PATH $VENV_PATH
 #RUN chmod +x $VENV_PATH/bin/python $VENV_PATH/bin/python3
 
 # Copy dependency files (needed for uv sync to verify consistency)
-COPY server/pyproject.toml server/uv.lock server/ruff-baseline.toml ./
+COPY server/pyproject.toml server/uv.lock ./
 
 # Re-sync to add dev dependencies (testing, linting, etc.)
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
@@ -201,7 +201,7 @@ COPY --from=uv-base-gpu $VENV_PATH $VENV_PATH
 #RUN chmod +x $VENV_PATH/bin/python $VENV_PATH/bin/python3
 
 # Copy dependency files
-COPY server/pyproject.toml server/uv.lock server/ruff-baseline.toml ./
+COPY server/pyproject.toml server/uv.lock ./
 
 # Re-sync to add dev dependencies
 RUN --mount=type=cache,target=/root/.cache/uv                                       \

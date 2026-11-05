@@ -3,48 +3,55 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.test_postgres_listener import connection, database_manager
 
 from application.runtime.config import ConfigParameterChanged
 from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
+from tests.test_postgres_listener import connection, database_manager
 
 
 @pytest.fixture
-def listener():
+def listener() -> PostgresConfigListener:
     return PostgresConfigListener(MagicMock(), configuration=MagicMock(), database=MagicMock())
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("payload", ["", "not json", '{"key":"llm_model","new_value":"stale"}'])
-async def test_notify_reloads_snapshot_regardless_of_payload(listener, monkeypatch, payload):
+@pytest.mark.parametrize("payload", ["", "not json", '{"key":"openrouter_model","new_value":"stale"}'])
+async def test_notify_reloads_snapshot_regardless_of_payload(
+    listener: PostgresConfigListener, monkeypatch: pytest.MonkeyPatch, payload: str
+) -> None:
     synchronize = AsyncMock()
     monkeypatch.setattr(listener, "synchronize", synchronize)
     listener.on_notify(payload)
     await asyncio.gather(*listener.transport.background_tasks)
     synchronize.assert_awaited_once_with()
-    listener.configuration.failed.assert_not_called()
+    cast("MagicMock", listener.configuration).failed.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_resync_marks_configuration_unready_on_failure(listener, monkeypatch, caplog):
+async def test_resync_marks_configuration_unready_on_failure(
+    listener: PostgresConfigListener, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     monkeypatch.setattr(listener, "synchronize", AsyncMock(side_effect=RuntimeError("DB down")))
     await listener.resync(trigger="periodic")
-    listener.configuration.failed.assert_called_once_with()
+    cast("MagicMock", listener.configuration).failed.assert_called_once_with()
     assert "Configuration snapshot resync failed" in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_connect_reloads_snapshot_after_listening(listener, monkeypatch):
+async def test_connect_reloads_snapshot_after_listening(
+    listener: PostgresConfigListener, monkeypatch: pytest.MonkeyPatch
+) -> None:
     driver = connection()
     listener.transport.database = database_manager(driver)
     synchronized = asyncio.Event()
 
-    async def synchronized_after_listen():
+    async def synchronized_after_listen() -> None:
         statement = driver.execute.call_args.args[0]
         assert statement.as_string() == 'LISTEN "config_changed"'
         synchronized.set()
@@ -60,11 +67,13 @@ async def test_connect_reloads_snapshot_after_listening(listener, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stop_cancels_pending_sync_and_closes_connection(listener, monkeypatch):
+async def test_stop_cancels_pending_sync_and_closes_connection(
+    listener: PostgresConfigListener, monkeypatch: pytest.MonkeyPatch
+) -> None:
     started = asyncio.Event()
     cancelled = asyncio.Event()
 
-    async def synchronize():
+    async def synchronize() -> None:
         started.set()
         try:
             await asyncio.Event().wait()
@@ -82,16 +91,16 @@ async def test_stop_cancels_pending_sync_and_closes_connection(listener, monkeyp
     assert not listener.transport.background_tasks
     assert not listener.is_connected
     driver.close.assert_awaited_once_with()
-    listener.configuration.failed.assert_not_called()
+    cast("MagicMock", listener.configuration).failed.assert_not_called()
 
 
-def test_is_connected_false_initially(listener):
+def test_is_connected_false_initially(listener: PostgresConfigListener) -> None:
     assert not listener.is_connected
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("key,value", [("llm_model", "x" * 9000), ("openrouter_api_key", "secret")])
-async def test_broadcast_sends_only_invalidation_in_existing_transaction(key, value):
+@pytest.mark.parametrize("key,value", [("openrouter_model", "x" * 9000), ("openrouter_api_key", "secret")])
+async def test_broadcast_sends_only_invalidation_in_existing_transaction(key: str, value: str) -> None:
     session = AsyncMock(spec=AsyncSession)
     event = ConfigParameterChanged(key=key, old_value="old", new_value=value, value_type="str")
     await PostgresConfigBroadcaster().broadcast_within_session(session, event)

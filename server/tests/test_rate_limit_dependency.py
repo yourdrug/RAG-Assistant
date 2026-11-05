@@ -2,24 +2,25 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
+from typing import Annotated, Any
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from fastapi import Depends, FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
 
-from application.ports.rate_limit import RateLimitPolicyName  # noqa: E402
-from domain.shared.exceptions import AuthenticationError, AppClientError  # noqa: E402
-from domain.identity.roles import UserKind, UserRole  # noqa: E402
-from presentation.api.auth_dependencies import get_current_user  # noqa: E402
-from presentation.api.dependencies import create_rate_limiter  # noqa: E402
-from presentation.api.exception_handlers import handle_client_exception  # noqa: E402
-from presentation.api.rate_limit import rate_limit  # noqa: E402
-from presentation.api.schemas import CurrentUser  # noqa: E402
-
-from tests.fakes import FakeRateLimiterPort  # noqa: E402
+from application.ports.rate_limit import RateLimitPolicyName
+from domain.identity.roles import UserKind, UserRole
+from domain.shared.exceptions import AppClientError, AuthenticationError
+from presentation.api.auth_dependencies import get_current_user
+from presentation.api.dependencies import create_rate_limiter
+from presentation.api.exception_handlers import handle_client_exception
+from presentation.api.rate_limit import rate_limit
+from presentation.api.schemas import CurrentUser
+from tests.fakes import FakeRateLimiterPort
 
 
 def _current_user() -> CurrentUser:
@@ -33,38 +34,40 @@ def _current_user() -> CurrentUser:
 
 
 def _unauthorized() -> CurrentUser:
-    raise AuthenticationError("Not authenticated")
+    msg = "Not authenticated"
+    raise AuthenticationError(msg)
 
 
-def _client(limiter, *, authenticate: bool = True) -> TestClient:
+def _client(limiter: Any, *, authenticate: bool = True) -> TestClient:
     app = FastAPI()
     app.add_exception_handler(AppClientError, handle_client_exception)
 
     @app.post("/limited", dependencies=[Depends(rate_limit(RateLimitPolicyName.SEARCH))])
-    async def limited(current_user: CurrentUser = Depends(get_current_user)):
+    async def limited(current_user: Annotated[CurrentUser, Depends(get_current_user)]) -> dict[str, Any]:
         return {"ok": True}
 
     @app.post("/login", dependencies=[Depends(rate_limit(RateLimitPolicyName.LOGIN))])
-    async def login():
+    async def login() -> dict[str, Any]:
         return {"ok": True}
 
     if authenticate:
         app.dependency_overrides[get_current_user] = _current_user
     else:
         app.dependency_overrides[get_current_user] = _unauthorized
+
     app.dependency_overrides[create_rate_limiter] = lambda: limiter
     return TestClient(app, raise_server_exceptions=False)
 
 
 class TestUserScopedPolicy:
-    def test_allowed_request_passes_and_keys_by_user(self):
+    def test_allowed_request_passes_and_keys_by_user(self) -> None:
         limiter = FakeRateLimiterPort()
         response = _client(limiter).post("/limited")
 
         assert response.status_code == 200
         assert limiter.calls == [("search", "user:internal:7")]
 
-    def test_exceeded_returns_429_envelope_with_headers(self):
+    def test_exceeded_returns_429_envelope_with_headers(self) -> None:
         limiter = FakeRateLimiterPort(allow=0)
         response = _client(limiter).post("/limited")
 
@@ -75,28 +78,28 @@ class TestUserScopedPolicy:
         assert response.headers["Retry-After"] == "60"
         assert response.headers["X-RateLimit-Limit"] == "1"
 
-    def test_requires_authentication_before_limit_check(self):
+    def test_requires_authentication_before_limit_check(self) -> None:
         limiter = FakeRateLimiterPort()
         response = _client(limiter, authenticate=False).post("/limited")
 
         assert response.status_code == 401
         assert limiter.calls == []
 
-    def test_disabled_limiter_is_noop(self):
+    def test_disabled_limiter_is_noop(self) -> None:
         response = _client(None).post("/limited")
 
         assert response.status_code == 200
 
 
 class TestIpScopedPolicy:
-    def test_login_keys_by_client_ip_without_auth(self):
+    def test_login_keys_by_client_ip_without_auth(self) -> None:
         limiter = FakeRateLimiterPort()
         response = _client(limiter, authenticate=False).post("/login")
 
         assert response.status_code == 200
         assert limiter.calls == [("login", "ip:testclient")]
 
-    def test_login_exceeded_returns_429(self):
+    def test_login_exceeded_returns_429(self) -> None:
         limiter = FakeRateLimiterPort(allow=0)
         response = _client(limiter, authenticate=False).post("/login")
 

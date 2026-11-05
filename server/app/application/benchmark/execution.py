@@ -112,6 +112,11 @@ async def execute_benchmark(  # noqa: C901, PLR0913, PLR0915, PLR0917 — preser
         raise ValueError(message)
 
     validate_questions(questions)
+    questions = [q for q in questions if q.get("is_active", True)]
+
+    if not questions:
+        message = "benchmark requires at least one active question"
+        raise ValueError(message)
 
     if n_runs < 1:
         message = "n_runs must be positive"

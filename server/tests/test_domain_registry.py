@@ -2,22 +2,32 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
+from typing import TYPE_CHECKING, Any, cast
+
+import pytest
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.ingestion.profiles.registry import (
-    DomainProfileRegistry,
-)
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
+from domain.ingestion.profiles.registry import (
+    DomainProfileRegistry,
+)
+
+
+if TYPE_CHECKING:
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.protocol import DocumentProfile
 
 
 class FakeSettings:
     def get(self, key: str, domain_key: str = "") -> str:
-        defaults = {
+        _ = domain_key
+        defaults: dict[str, str] = {
             "classification_threshold": "2.0",
             "fingerprint_min_points": "1",
             "fingerprint_min_articles": "2",
@@ -34,27 +44,28 @@ def _make_registry() -> DomainProfileRegistry:
 
 
 class TestRegistryBasics:
-    def test_register_and_get(self):
+    def test_register_and_get(self) -> None:
         reg = _make_registry()
         assert reg.get("general") is not None
         assert reg.get("legal") is not None
         assert reg.get("decree") is not None
 
-    def test_all_returns_all_profiles(self):
+    def test_all_returns_all_profiles(self) -> None:
         reg = _make_registry()
         assert len(reg.all()) == 3
 
-    def test_get_unknown_raises(self):
+    def test_get_unknown_raises(self) -> None:
         reg = _make_registry()
         try:
             reg.get("unknown")
-            raise AssertionError("Should have raised KeyError")
+            msg = "Should have raised KeyError"
+            raise AssertionError(msg)
         except KeyError:
             pass
 
 
 class TestFingerprintClassification:
-    def test_decree_fingerprint_wins(self):
+    def test_decree_fingerprint_wins(self) -> None:
         # Text must be >= MIN_CLASSIFIABLE_CHARS (120)
         text = (
             "УКАЗ ПРЕЗИДЕНТА РЕСПУБЛИКИ БЕЛАРУСЬ\n"
@@ -71,7 +82,7 @@ class TestFingerprintClassification:
         assert result.is_ambiguous is False
         assert result.is_low_signal is False
 
-    def test_legal_fingerprint_wins(self):
+    def test_legal_fingerprint_wins(self) -> None:
         text = (
             "Глава 1. Общие положения\n\n"
             "Статья 1. Основные понятия\n\n"
@@ -84,7 +95,7 @@ class TestFingerprintClassification:
         assert result.domain_key == "legal"
         assert result.confidence == 1.0
 
-    def test_short_text_returns_low_signal(self):
+    def test_short_text_returns_low_signal(self) -> None:
         text = "Короткий текст."
         reg = _make_registry()
         result = reg.classify(text, settings=FakeSettings())
@@ -93,7 +104,7 @@ class TestFingerprintClassification:
 
 
 class TestDensityScoreClassification:
-    def test_legal_density_wins(self):
+    def test_legal_density_wins(self) -> None:
         # Text without fingerprint triggers (no "Глава"), but with legal markers
         # Must be >= MIN_CLASSIFIABLE_CHARS (120)
         text = (
@@ -109,7 +120,7 @@ class TestDensityScoreClassification:
         result = reg.classify(text, settings=FakeSettings())
         assert result.domain_key == "legal"
 
-    def test_general_when_no_signals(self):
+    def test_general_when_no_signals(self) -> None:
         text = "Обычный корпоративный документ без юридических маркеров. " * 10
         reg = _make_registry()
         result = reg.classify(text, settings=FakeSettings())
@@ -118,7 +129,7 @@ class TestDensityScoreClassification:
 
 
 class TestAmbiguityDetection:
-    def test_sticky_prior_boosts_domain(self):
+    def test_sticky_prior_boosts_domain(self) -> None:
         text = "УКАЗ ПРЕЗИДЕНТА\nПОСТАНОВЛЯЮ:\n1. Мера.\n"
         reg = _make_registry()
         # Without prior — may be ambiguous or not
@@ -126,23 +137,24 @@ class TestAmbiguityDetection:
         # With prior=decree — should definitely be decree
         result_with_prior = reg.classify(text, prior_domain="decree", settings=FakeSettings())
         assert result_with_prior.domain_key == "decree"
+
         # Sticky bonus should increase confidence
         if not result_no_prior.is_ambiguous:
             assert result_with_prior.confidence >= result_no_prior.confidence
 
 
 class TestEdgeCases:
-    def test_empty_text(self):
+    def test_empty_text(self) -> None:
         reg = _make_registry()
         result = reg.classify("", settings=FakeSettings())
         assert result.is_low_signal is True
 
-    def test_whitespace_only(self):
+    def test_whitespace_only(self) -> None:
         reg = _make_registry()
         result = reg.classify("   \n  \n  ", settings=FakeSettings())
         assert result.is_low_signal is True
 
-    def test_unknown_domain_falls_to_general(self):
+    def test_unknown_domain_falls_to_general(self) -> None:
         text = "Текст без каких-либо маркеров домена. " * 20
         reg = _make_registry()
         result = reg.classify(text, settings=FakeSettings())
@@ -159,29 +171,32 @@ class _TwoFingerprintProfile:
     def __init__(self) -> None:
         pass
 
-    def config_defaults(self):
+    def config_defaults(self) -> list[Any]:
         return []
 
     def structural_fingerprint(self, text: str) -> bool:
+        _ = text
         return True
 
     def classify_score(self, text: str) -> float:
+        _ = text
         return 0.0
 
-    def content_boundaries(self):
+    def content_boundaries(self) -> list[Any]:
         return []
 
-    def extract_references(self, text: str):
+    def extract_references(self, text: str) -> list[Any]:
+        _ = text
         return []
 
-    def extract_effective_date(self, text: str):
-        return None
+    def extract_effective_date(self, text: str) -> None:
+        _ = text
 
 
 class TestFingerprintConflict:
-    def test_two_fingerprints_fire_is_ambiguous(self):
+    def test_two_fingerprints_fire_is_ambiguous(self) -> None:
         reg = _make_registry()
-        reg.register(_TwoFingerprintProfile())
+        reg.register(cast("DocumentProfile", _TwoFingerprintProfile()))
         text = "УКАЗ ПРЕЗИДЕНТА\nПОСТАНОВЛЯЮ:\n1. Пункт.\n2. Пункт.\n" * 4
         result = reg.classify(text, settings=FakeSettings())
         # Two formats claimed "this is definitely me" — never a silent pick
@@ -191,7 +206,7 @@ class TestFingerprintConflict:
 
 
 class TestMarginAmbiguity:
-    def test_borderline_scores_flagged_ambiguous(self):
+    def test_borderline_scores_flagged_ambiguous(self) -> None:
         reg = DomainProfileRegistry()
         reg.register(LegalDomainProfile(settings=FakeSettings()))
         reg.register(DecreeDomainProfile(settings=FakeSettings()))
@@ -205,18 +220,19 @@ class TestMarginAmbiguity:
         )
         result = reg.classify(text, settings=FakeSettings())
         assert result.candidate_scores, "density scores must be exposed for review"
+
         if result.is_ambiguous:
             assert result.confidence == 0.5
         else:
             assert result.confidence > 0.5
 
-    def test_short_text_inherits_prior_domain(self):
+    def test_short_text_inherits_prior_domain(self) -> None:
         reg = _make_registry()
         result = reg.classify("1. Пункт.", prior_domain="decree", settings=FakeSettings())
         assert result.domain_key == "decree"
         assert result.is_low_signal is True
 
-    def test_short_text_without_prior_falls_to_general(self):
+    def test_short_text_without_prior_falls_to_general(self) -> None:
         reg = _make_registry()
         result = reg.classify("1. Пункт.", settings=FakeSettings())
         assert result.domain_key == "general"
@@ -229,7 +245,7 @@ class TestMarginAmbiguity:
 
 
 class TestConfidenceFormula:
-    def test_confidence_formula_clean_winner(self):
+    def test_confidence_formula_clean_winner(self) -> None:
         """Confidence = min(1.0, (top_score - threshold) / threshold)."""
         reg = _make_registry()
         # Decree text with strong signals → score well above threshold
@@ -242,11 +258,12 @@ class TestConfidenceFormula:
             "4. Пункт четвёртый.\n"
         )
         result = reg.classify(text, settings=FakeSettings())
+
         if result.domain_key == "decree" and not result.is_ambiguous:
-            # confidence = min(1.0, (score - 2.0) / 2.0)
+            # Confidence is capped at one after normalizing the score.
             assert 0.0 <= result.confidence <= 1.0
 
-    def test_confidence_clamped_at_1(self):
+    def test_confidence_clamped_at_1(self) -> None:
         """Confidence must never exceed 1.0 even with very high scores."""
         reg = DomainProfileRegistry()
         reg.register(GeneralDomainProfile())
@@ -256,7 +273,7 @@ class TestConfidenceFormula:
         result = reg.classify(text, settings=FakeSettings())
         assert result.confidence <= 1.0
 
-    def test_confidence_zero_when_score_zero(self):
+    def test_confidence_zero_when_score_zero(self) -> None:
         """When top_score=0 and threshold>0, confidence should be 1.0 (general wins)."""
         reg = DomainProfileRegistry()
         reg.register(GeneralDomainProfile())
@@ -273,7 +290,7 @@ class TestConfidenceFormula:
 
 
 class TestThresholdBoundary:
-    def test_score_exactly_at_threshold_classifies(self):
+    def test_score_exactly_at_threshold_classifies(self) -> None:
         """When top_score == threshold, it should classify as the domain (not general)."""
         reg = DomainProfileRegistry()
         reg.register(GeneralDomainProfile())
@@ -286,7 +303,7 @@ class TestThresholdBoundary:
         assert result.domain_key == "decree"
         assert result.is_low_signal is False
 
-    def test_score_below_threshold_returns_general(self):
+    def test_score_below_threshold_returns_general(self) -> None:
         """When top_score < threshold, should classify as general."""
         reg = DomainProfileRegistry()
         reg.register(GeneralDomainProfile())
@@ -294,6 +311,7 @@ class TestThresholdBoundary:
         # Very weak text → score < 2.0
         text = "Обычный документ без особых признаков.\n"
         result = reg.classify(text, settings=FakeSettings())
+
         # If score < threshold, falls to general
         if result.domain_key == "general":
             assert result.confidence >= 0.0
@@ -305,7 +323,7 @@ class TestThresholdBoundary:
 
 
 class TestStickyPriorEdgeCases:
-    def test_sticky_prior_ignored_when_score_zero(self):
+    def test_sticky_prior_ignored_when_score_zero(self) -> None:
         """Sticky prior only applies when raw > 0. If score=0, prior is ignored."""
         reg = DomainProfileRegistry()
         reg.register(GeneralDomainProfile())
@@ -319,7 +337,7 @@ class TestStickyPriorEdgeCases:
         # Decree score is 0, sticky not applied, falls to general
         assert result.domain_key == "general"
 
-    def test_unknown_prior_domain_no_effect(self):
+    def test_unknown_prior_domain_no_effect(self) -> None:
         """prior_domain pointing to non-existent profile has no effect on scoring."""
         reg = _make_registry()
         result = reg.classify(
@@ -330,7 +348,7 @@ class TestStickyPriorEdgeCases:
         # Unknown prior → no sticky boost, normal classification
         assert result.domain_key == "general"
 
-    def test_unknown_prior_with_short_text(self):
+    def test_unknown_prior_with_short_text(self) -> None:
         """Short text with unknown prior falls back to general."""
         reg = _make_registry()
         result = reg.classify(
@@ -348,7 +366,7 @@ class TestStickyPriorEdgeCases:
 
 
 class TestAllScoresZero:
-    def test_all_scores_zero_returns_general(self):
+    def test_all_scores_zero_returns_general(self) -> None:
         """When all candidate scores are 0, top_score=0 < threshold → general."""
         reg = _make_registry()
         # Plain text with no markers for any domain
@@ -359,7 +377,7 @@ class TestAllScoresZero:
         )
         assert result.domain_key == "general"
 
-    def test_only_general_registered(self):
+    def test_only_general_registered(self) -> None:
         """When only general is registered, candidates is empty → general."""
         reg = DomainProfileRegistry()
         reg.register(GeneralDomainProfile())
@@ -377,7 +395,7 @@ class TestAllScoresZero:
 
 
 class TestMarginRatioRealProfiles:
-    def test_clean_winner_not_ambiguous(self):
+    def test_clean_winner_not_ambiguous(self) -> None:
         """Strong decree text should not be ambiguous with legal."""
         reg = DomainProfileRegistry()
         reg.register(GeneralDomainProfile())
@@ -385,11 +403,10 @@ class TestMarginRatioRealProfiles:
         reg.register(DecreeDomainProfile(settings=FakeSettings()))
         text = "УКАЗ ПРЕЗИДЕНТА\nПОСТАНОВЛЯЮ:\n1. Первый пункт.\n2. Второй пункт.\n3. Третий пункт.\n"
         result = reg.classify(text, settings=FakeSettings())
+
         # Strong decree signals → should not be ambiguous
-        if result.domain_key == "decree":
-            # If clean winner, confidence > 0.5
-            if not result.is_ambiguous:
-                assert result.confidence > 0.5
+        if result.domain_key == "decree" and not result.is_ambiguous:
+            assert result.confidence > 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -398,18 +415,19 @@ class TestMarginRatioRealProfiles:
 
 
 class TestSettingsAdapterIntegration:
-    def test_missing_threshold_key_in_classify(self):
+    def test_missing_threshold_key_in_classify(self) -> None:
         """If settings.get() raises KeyError, it propagates."""
 
         class BadSettings:
-            def get(self, key, domain_key=""):
-                raise KeyError(f"Missing key: {key}")
+            def get(self, key: str, domain_key: str = "") -> None:
+                _ = domain_key
+                msg = f"Missing key: {key}"
+                raise KeyError(msg)
 
         reg = DomainProfileRegistry()
         reg.register(GeneralDomainProfile())
-        reg.register(DecreeDomainProfile(settings=BadSettings()))
+        reg.register(DecreeDomainProfile(settings=cast("DomainSettingsPort", BadSettings())))
         text = "УКАЗ\nПОСТАНОВЛЯЮ:\n" + "\n".join(f"{i}. Пункт {i}." for i in range(10)) + "\n"
-        import pytest
 
         with pytest.raises(KeyError):
-            reg.classify(text, settings=BadSettings())
+            reg.classify(text, settings=cast("DomainSettingsPort", BadSettings()))

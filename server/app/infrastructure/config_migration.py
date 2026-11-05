@@ -335,7 +335,9 @@ def validate_storage_and_credentials(
         key: effective.get(key.upper(), Settings.model_fields[key].default)
         for key in ("llm_provider", "ml_provider")
     }
-    providers.update({row.key: row.value for row in rows if row.domain_key is None and row.key in providers})
+    providers.update(
+        {row.key: row.value for row in rows if row.domain_key is None and row.key == "llm_provider"}
+    )
 
     if providers["ml_provider"] == MLProvider.DEEPINFRA.value:
         required.add("DEEPINFRA_API_KEY")

@@ -18,29 +18,37 @@ deliberately -- never delete the test.
 from __future__ import annotations
 
 import asyncio
-import threading
 from contextlib import asynccontextmanager
 from datetime import date
+import threading
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Unpack, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
 from application.act_versioning import ActVersioningService, VersioningPlan, VersioningResult
-from application.documents.dto import DocumentProcessingDependencies, ProcessDocumentCommand
 from application.documents import DocumentProcessor
-from domain.ingestion.profiles.registry import ClassificationResult
-from domain.knowledge.document import Document
-from domain.ingestion.raw_document import RawDocument
-from domain.knowledge.index_sync import OutboxOperation
-from domain.knowledge.enums import DocumentStatus
+from application.documents.dto import DocumentProcessingDependencies, ProcessDocumentCommand
 from domain.ingestion.preview import PDFQualityReport
-from tests.fakes import FakeDocumentRepository, FakeUnitOfWorkFactory
+from domain.ingestion.profiles.registry import ClassificationResult
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.acts.models import ActVersion
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentStatus, DomainKey
+from domain.knowledge.index_sync import OutboxOperation
 from infrastructure.ingestion.document_parser_adapter import IngestionDocumentSplitter
+from infrastructure.ml.langchain_document_parser import LangchainDocumentSplitter
+from tests.fakes import FakeDocumentRepository, FakeUnitOfWorkFactory, require_present
+
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from application.ingestion import FileMeta, SplitContext
+    from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.knowledge.repositories.document import DocumentStatusUpdate
+    from tests.fakes import FakeUnitOfWork
 
 # ---------------------------------------------------------------------------
 # Stubs
@@ -48,13 +56,13 @@ if TYPE_CHECKING:
 
 
 class StubFileStorage:
-    def __init__(self, tmp_dir) -> None:
+    def __init__(self, tmp_dir: Path) -> None:
         self._tmp_dir = tmp_dir
         self.downloads: list[str] = []
         self.deleted: list[str] = []
         self._n = 0
 
-    async def download_to_temp(self, key: str):
+    async def download_to_temp(self, key: str) -> Any:
         self._n += 1
         path = self._tmp_dir / f"temp_{self._n}.bin"
         path.write_bytes(b"stub-file-content")
@@ -66,15 +74,18 @@ class StubFileStorage:
 
 
 class StubParser:
-    def __init__(self, docs, error: Exception | None = None) -> None:
+    def __init__(self, docs: Any, error: Exception | None = None) -> None:
         self._docs = docs
         self._error = error
-        self.calls: list = []
+        self.calls: list[Any] = []
 
-    def parse(self, file_path, meta: FileMeta) -> list:
+    def parse(self, file_path: Path, meta: FileMeta) -> list[Any]:
+        _ = meta
         self.calls.append(file_path)
+
         if self._error is not None:
             raise self._error
+
         return [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in self._docs]
 
 
@@ -82,24 +93,25 @@ class StubSplitter:
     """Copies doc metadata into chunks so metadata enrichment stays observable."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple] = []
+        self.calls: list[tuple[Any, ...]] = []
 
-    def split(self, documents, context: SplitContext) -> list:
+    def split(self, documents: Any, context: SplitContext) -> list[Any]:
         self.calls.append((tuple(documents), context.domain))
         return [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in documents]
 
 
 class StubExtractor:
     def extract_date_from_filename(self, filename: str) -> str | None:
+        _ = filename
         return "2026-01-15"
 
 
 class StubPDFQualityAssessor:
     def __init__(self, report: PDFQualityReport) -> None:
         self._report = report
-        self.calls: list = []
+        self.calls: list[Any] = []
 
-    def assess(self, pdf_path, documents) -> PDFQualityReport:
+    def assess(self, pdf_path: Any, documents: Any) -> PDFQualityReport:
         self.calls.append((pdf_path, documents))
         return self._report
 
@@ -114,12 +126,13 @@ class StubTextQualityAssessor:
 
 class StubSettings:
     def get(self, key: str, domain_key: str = "") -> str:
+        _ = domain_key, key
         return "0"
 
 
 class RecordingMetrics:
     def __init__(self) -> None:
-        self.calls: list[tuple] = []
+        self.calls: list[tuple[Any, ...]] = []
 
     def inc_chunks(self, count: int) -> None:
         self.calls.append(("inc_chunks", count))
@@ -128,6 +141,7 @@ class RecordingMetrics:
         self.calls.append(("inc_documents", status))
 
     def observe_duration(self, status: str, seconds: float) -> None:
+        _ = seconds
         self.calls.append(("observe_duration", status))
 
     def observe_pdf_pages(self, quality: str, count: int) -> None:
@@ -145,7 +159,7 @@ class RecordingMetrics:
     def count(self, name: str) -> int:
         return sum(1 for c in self.calls if c[0] == name)
 
-    def has(self, *expected) -> bool:
+    def has(self, *expected: Any) -> bool:
         return any(c[: len(expected)] == expected for c in self.calls)
 
 
@@ -154,36 +168,50 @@ class RecordingDocumentRepository(FakeDocumentRepository):
 
     def __init__(self) -> None:
         super().__init__()
-        self.status_calls: list[dict] = []
+        self.status_calls: list[dict[str, Any]] = []
         self.domain_calls: list[tuple[int, str]] = []
         self.get_calls = 0
         self.fail_failed_status = False
 
-    async def get_by_id(self, doc_id: int):
+    async def get_by_id(self, document_id: int, *, for_update: bool = False) -> Document | None:
+        _ = for_update
+        doc_id = document_id
         self.get_calls += 1
         return await super().get_by_id(doc_id)
 
     async def set_domain(self, document_id: int, doc_domain: str) -> None:
         self.domain_calls.append((document_id, doc_domain))
         doc = self._documents.get(document_id)
-        if doc is not None:
-            doc.doc_domain = str(doc_domain)
 
-    async def update_status(self, document_id: int, status: str, **kwargs) -> None:
+        if doc is not None:
+            doc.doc_domain = DomainKey(doc_domain)
+
+    async def update_status(self, document_id: int, **kwargs: Unpack[DocumentStatusUpdate]) -> bool:
+        status = kwargs.get("status")
+
         if self.fail_failed_status and status == DocumentStatus.FAILED.value:
-            raise RuntimeError("status write failed")
+            msg = "status write failed"
+            raise RuntimeError(msg)
+
         self.status_calls.append({"document_id": document_id, "status": status, **kwargs})
         doc = self._documents.get(document_id)
+
         if doc is not None:
-            doc.status = DocumentStatus(status)
+            doc.status = DocumentStatus(require_present(status))
+
             if "error" in kwargs:
                 doc.error_message = kwargs["error"]
+
             if "warning" in kwargs:
                 doc.warning_message = kwargs["warning"]
+
             if "quality_score" in kwargs:
                 doc.quality_score = kwargs["quality_score"]
+
             if "chunks" in kwargs:
                 doc.chunks = kwargs["chunks"]
+
+        return doc is not None
 
 
 class VanishingDocumentRepository(RecordingDocumentRepository):
@@ -198,34 +226,45 @@ class VanishingDocumentRepository(RecordingDocumentRepository):
         self._vanish_after = vanish_after
         self._seen = 0
 
-    async def get_by_id(self, doc_id: int):
+    async def get_by_id(self, document_id: int, *, for_update: bool = False) -> Document | None:
+        _ = for_update
+        doc_id = document_id
+
         if doc_id == self._vanish_id:
             if self._seen >= self._vanish_after:
                 self.get_calls += 1
                 return None
+
             self._seen += 1
+
         return await super().get_by_id(doc_id)
 
 
 class FakeActVersioningService(ActVersioningService):
     def __init__(self, result: VersioningResult | None = None) -> None:
-        self.calls: list[dict] = []
+        self.calls: list[dict[str, Any]] = []
         self.invalidated_acts: list[int] = []
         self.invalidated_documents: list[int] = []
         self._result = result or VersioningResult(
             domain_metadata=None, act_version_id=None, act_id=None, effective_from=None, warning=None
         )
 
-    async def prepare_document_versioning(self, profile, full_text: str) -> VersioningPlan | None:
+    async def prepare_document_versioning(self, profile: Any, full_text: str) -> VersioningPlan | None:
         self.calls.append({"profile": profile, "full_text": full_text})
+
         if self._result.domain_metadata is None and self._result.warning is None:
             return None
+
         return VersioningPlan(
             [], self._result.domain_metadata, None, self._result.effective_from, None, self._result.warning
         )
 
-    async def create_version_in_uow(self, uow, profile, document_id, extracted_refs, **kwargs):
-        return SimpleNamespace(
+    async def create_version_in_uow(
+        self, uow: object, profile: object, document_id: int, extracted_refs: object, **kwargs: Any
+    ) -> ActVersion:
+        _ = uow, profile, document_id, extracted_refs, kwargs
+        return ActVersion(
+            document_id=document_id,
             id=self._result.act_version_id,
             act_id=self._result.act_id,
             effective_from=self._result.effective_from,
@@ -242,19 +281,27 @@ class FakeActVersioningService(ActVersioningService):
 
 class FakeDomainRegistry:
     def __init__(
-        self, profiles: dict | None = None, classify_result: ClassificationResult | None = None
+        self,
+        profiles: dict[str, DocumentProfile] | None = None,
+        classify_result: ClassificationResult | None = None,
     ) -> None:
         self._profiles = profiles or {}
         self._classify_result = classify_result
         self.classify_calls: list[str] = []
 
-    def get(self, key: str):
+    def get(self, key: str) -> DocumentProfile:
         return self._profiles[key]  # KeyError, like the real registry
 
-    def classify(self, text: str, *, settings, prior_domain: str | None = None) -> ClassificationResult:
+    def classify(
+        self, text: str, *, settings: object, prior_domain: str | None = None
+    ) -> ClassificationResult:
+        _ = settings, prior_domain
         self.classify_calls.append(text)
+
         if self._classify_result is None:
-            raise RuntimeError("classify_result not configured")
+            msg = "classify_result not configured"
+            raise RuntimeError(msg)
+
         return self._classify_result
 
 
@@ -274,7 +321,9 @@ def _default_docs() -> list[RawDocument]:
 # ---------------------------------------------------------------------------
 
 
-def build_harness(tmp_path, *, docs=None, parse_error=None, repo=None, **overrides):
+def build_harness(
+    tmp_path: Path, *, docs: Any = None, parse_error: Any = None, repo: Any = None, **overrides: Any
+) -> SimpleNamespace:
     uow_factory = FakeUnitOfWorkFactory()
     repo = repo or RecordingDocumentRepository()
     uow_factory._uow.documents = repo
@@ -316,25 +365,27 @@ def build_harness(tmp_path, *, docs=None, parse_error=None, repo=None, **overrid
     return harness
 
 
-async def seed_document(repo: RecordingDocumentRepository, **kwargs) -> Document:
+async def seed_document(repo: RecordingDocumentRepository, **kwargs: Any) -> Document:
     kwargs.setdefault("filename", "report.pdf")
     kwargs.setdefault("source_path", "uploads/report.pdf")
     return await repo.save(Document(**kwargs))
 
 
-def outbox_ops(uow) -> list[tuple[OutboxOperation, int]]:
-    return [(e.operation, e.aggregate_id) for e in uow.vector_outbox._entries.values()]
+def outbox_ops(uow: FakeUnitOfWork) -> list[tuple[OutboxOperation, int]]:
+    return [(e.operation, e.aggregate_id) for e in uow.fake_vector_outbox._entries.values()]
 
 
-def upsert_points(uow) -> list[dict]:
+def upsert_points(uow: FakeUnitOfWork) -> list[dict[str, Any]]:
     points = []
-    for e in uow.vector_outbox._entries.values():
+
+    for e in uow.fake_vector_outbox._entries.values():
         if e.operation == OutboxOperation.UPSERT_CHUNKS:
             points.extend(e.payload["points"])
+
     return points
 
 
-async def run(harness, doc, **kwargs):
+async def run(harness: Any, doc: Any, **kwargs: Any) -> None:
     kwargs.setdefault("storage_key", "uploads/report.pdf")
     kwargs.setdefault("original_filename", doc.filename)
     kwargs.setdefault("visibility", "internal_public")
@@ -351,7 +402,7 @@ async def run(harness, doc, **kwargs):
 
 
 @pytest.mark.asyncio
-async def test_happy_path_indexes_document(tmp_path):
+async def test_happy_path_indexes_document(tmp_path: Path) -> None:
     h = build_harness(tmp_path)
     doc = await seed_document(h.repo)
 
@@ -368,11 +419,11 @@ async def test_happy_path_indexes_document(tmp_path):
     assert h.metrics.count("observe_duration") == 1
     assert h.storage.deleted == []
     # temp file is removed in finalize_processing
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
-async def test_empty_parse_marks_failed(tmp_path):
+async def test_empty_parse_marks_failed(tmp_path: Path) -> None:
     h = build_harness(tmp_path, docs=[])
     doc = await seed_document(h.repo)
 
@@ -386,11 +437,11 @@ async def test_empty_parse_marks_failed(tmp_path):
     assert h.metrics.has("inc_documents", "failed")
     assert outbox_ops(h.uow) == []
     assert h.repo.domain_calls == []
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
-async def test_parse_failure_marks_failed_and_cleans_temp(tmp_path):
+async def test_parse_failure_marks_failed_and_cleans_temp(tmp_path: Path) -> None:
     h = build_harness(tmp_path, parse_error=RuntimeError("boom"))
     doc = await seed_document(h.repo)
 
@@ -400,11 +451,11 @@ async def test_parse_failure_marks_failed_and_cleans_temp(tmp_path):
     assert h.repo.status_calls[-1]["status"] == "failed"
     assert h.repo.status_calls[-1]["error"] == "boom"
     assert h.metrics.has("inc_documents", "failed")
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
-async def test_status_write_failure_does_not_mask_processing_error(tmp_path):
+async def test_status_write_failure_does_not_mask_processing_error(tmp_path: Path) -> None:
     """The secondary status-write error is logged while the processing error propagates."""
     h = build_harness(tmp_path, parse_error=RuntimeError("boom"))
     h.repo.fail_failed_status = True
@@ -414,11 +465,11 @@ async def test_status_write_failure_does_not_mask_processing_error(tmp_path):
         await run(h, doc)
 
     assert h.metrics.has("inc_documents", "failed")
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
-async def test_low_quality_pdf_warning_and_metrics(tmp_path):
+async def test_low_quality_pdf_warning_and_metrics(tmp_path: Path) -> None:
     report = PDFQualityReport(total_pages=10, n_ok=5, n_missing=3, n_garbled=2, bad_ratio=0.5)
     h = build_harness(tmp_path, pdf_report=report)
     doc = await seed_document(h.repo, filename="scan.pdf", source_path="uploads/scan.pdf")
@@ -441,7 +492,7 @@ async def test_low_quality_pdf_warning_and_metrics(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_docx_garbled_warning_without_quality_report(tmp_path):
+async def test_docx_garbled_warning_without_quality_report(tmp_path: Path) -> None:
     """Non-PDF branch: no report object -> quality_score is explicitly None."""
     docs = [
         RawDocument(page_content="текст нормального качества на этой странице документа"),
@@ -467,7 +518,7 @@ async def test_docx_garbled_warning_without_quality_report(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_very_low_char_count_warning(tmp_path):
+async def test_very_low_char_count_warning(tmp_path: Path) -> None:
     docs = [RawDocument(page_content="abc")]
     h = build_harness(tmp_path, docs=docs)
     doc = await seed_document(h.repo, filename="note.txt", source_path="uploads/note.txt")
@@ -479,7 +530,7 @@ async def test_very_low_char_count_warning(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_ambiguous_classification_appends_warning(tmp_path):
+async def test_ambiguous_classification_appends_warning(tmp_path: Path) -> None:
     """quality warning and ambiguous warning are joined with a single newline."""
     docs = [
         RawDocument(page_content="текст нормального качества на этой странице документа"),
@@ -518,7 +569,9 @@ async def test_ambiguous_classification_appends_warning(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_general_fallback_when_registry_missing(tmp_path, caplog):
+async def test_general_fallback_when_registry_missing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     h = build_harness(tmp_path, docs=[RawDocument(page_content="Федеральный закон")])
     doc = await seed_document(h.repo)
 
@@ -531,7 +584,7 @@ async def test_general_fallback_when_registry_missing(tmp_path, caplog):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("ingestion_key", [None, "docs/shared.pdf"])
-async def test_replace_non_versioned_deletes_old_document(tmp_path, ingestion_key):
+async def test_replace_non_versioned_deletes_old_document(tmp_path: Path, ingestion_key: str | None) -> None:
     registry = FakeDomainRegistry(
         profiles={"general": make_profile("general", versioned=False)},
         classify_result=ClassificationResult(
@@ -564,7 +617,7 @@ async def test_replace_non_versioned_deletes_old_document(tmp_path, ingestion_ke
 
 
 @pytest.mark.asyncio
-async def test_replace_versioned_keeps_old_document(tmp_path):
+async def test_replace_versioned_keeps_old_document(tmp_path: Path) -> None:
     registry = FakeDomainRegistry(
         profiles={"legal": make_profile("legal", versioned=True)},
         classify_result=ClassificationResult(
@@ -604,7 +657,7 @@ async def test_replace_versioned_keeps_old_document(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_document_deleted_before_persist_aborts(tmp_path):
+async def test_document_deleted_before_persist_aborts(tmp_path: Path) -> None:
     """current_doc is None -> early abort: no chunks, no outbox, status failed."""
     h = build_harness(tmp_path, repo=VanishingDocumentRepository(vanish_id=1, vanish_after=1))
     doc = await seed_document(h.repo)
@@ -621,7 +674,7 @@ async def test_document_deleted_before_persist_aborts(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_document_deleted_before_processing_skips_storage(tmp_path):
+async def test_document_deleted_before_processing_skips_storage(tmp_path: Path) -> None:
     h = build_harness(tmp_path, repo=VanishingDocumentRepository(vanish_id=1, vanish_after=0))
     doc = await seed_document(h.repo)
     await run(h, doc)
@@ -632,7 +685,7 @@ async def test_document_deleted_before_processing_skips_storage(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_document_deleted_inside_persist_preserves_replacement_target(tmp_path):
+async def test_document_deleted_inside_persist_preserves_replacement_target(tmp_path: Path) -> None:
     """An aborted replacement must preserve both the old row and its source file."""
     registry = FakeDomainRegistry(
         profiles={"general": make_profile("general", versioned=False)},
@@ -663,7 +716,7 @@ async def test_document_deleted_inside_persist_preserves_replacement_target(tmp_
 
 
 @pytest.mark.asyncio
-async def test_versioning_warning_and_metadata_enrichment(tmp_path):
+async def test_versioning_warning_and_metadata_enrichment(tmp_path: Path) -> None:
     """Join order: quality warning first, versioning warning last."""
     report = PDFQualityReport(total_pages=10, n_ok=5, n_missing=3, n_garbled=2, bad_ratio=0.5)
     registry = FakeDomainRegistry(
@@ -697,17 +750,18 @@ async def test_versioning_warning_and_metadata_enrichment(tmp_path):
     assert final["quality_score"] == 0.5
 
     points = upsert_points(h.uow)
+
     for p in points:
         assert "act_version_id" not in p["metadata"]
         assert "act_id" not in p["metadata"]
         assert p["metadata"]["effective_from"] == "2026-01-01"
         assert p["metadata"]["domain_metadata"] == {"act_number": "42"}
+
     assert act_versioning.calls[0]["profile"] is registry.get("legal")
 
 
 @pytest.mark.asyncio
-async def test_section_prefix_added_to_chunks(tmp_path):
-    from infrastructure.ml.langchain_document_parser import LangchainDocumentSplitter
+async def test_section_prefix_added_to_chunks(tmp_path: Path) -> None:
 
     docs = [RawDocument(page_content="Текст раздела", metadata={"section": "Глава 1"})]
     h = build_harness(tmp_path, docs=docs, splitter=IngestionDocumentSplitter(LangchainDocumentSplitter()))
@@ -724,19 +778,23 @@ async def test_section_prefix_added_to_chunks(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("warning", [None, "Дата требует ручной проверки"])
-async def test_prepared_version_commits_with_chunks_before_cache_invalidation(tmp_path, warning):
+async def test_prepared_version_commits_with_chunks_before_cache_invalidation(  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
+    tmp_path: Path, warning: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     profile = make_profile("legal", versioned=True)
     plan = VersioningPlan([], {"act_number": "42"}, None, date(2026, 1, 1), 0.9, warning)
     service = FakeActVersioningService()
-    service.prepare_document_versioning = AsyncMock(return_value=plan)
+    monkeypatch.setattr(service, "prepare_document_versioning", AsyncMock(return_value=plan))
     events = []
-    active_uows = []
+    active_uows: list[Any] = []
 
-    async def create_version(uow, *args, effective_date=None, date_confidence=None):
+    async def create_version(
+        uow: FakeUnitOfWork, *args: Any, effective_date: Any = None, date_confidence: Any = None
+    ) -> SimpleNamespace:
         assert effective_date == plan.effective_from
         assert date_confidence == plan.date_confidence
         assert active_uows == [uow]
-        assert uow.chunks._chunks == []
+        assert uow.fake_chunks._chunks == []
         events.append("version")
         return SimpleNamespace(
             id=7,
@@ -746,22 +804,22 @@ async def test_prepared_version_commits_with_chunks_before_cache_invalidation(tm
             is_current=False,
         )
 
-    async def invalidate(*args):
+    async def invalidate(*args: Any) -> None:
         assert active_uows == []
         assert h.uow._committed
         assert len(upsert_points(h.uow)) == 2
         events.append("invalidate")
 
-    service.create_version_in_uow = AsyncMock(side_effect=create_version)
-    service.invalidate_act_answers = AsyncMock(side_effect=invalidate)
-    service.invalidate_document_answers = AsyncMock(side_effect=invalidate)
+    monkeypatch.setattr(service, "create_version_in_uow", AsyncMock(side_effect=create_version))
+    monkeypatch.setattr(service, "invalidate_act_answers", AsyncMock(side_effect=invalidate))
+    monkeypatch.setattr(service, "invalidate_document_answers", AsyncMock(side_effect=invalidate))
     h = build_harness(
         tmp_path, registry=FakeDomainRegistry(profiles={"legal": profile}), act_versioning=service
     )
     original_create = h.uow_factory.create
 
     @asynccontextmanager
-    async def track_transaction(master=False):
+    async def track_transaction(master: bool = False) -> Any:
         async with original_create(master=master) as uow:
             active_uows.append(uow)
             try:
@@ -773,20 +831,21 @@ async def test_prepared_version_commits_with_chunks_before_cache_invalidation(tm
     doc = await seed_document(h.repo)
     await run(h, doc, doc_domain="legal")
 
-    service.prepare_document_versioning.assert_awaited_once_with(
+    cast("AsyncMock", service.prepare_document_versioning).assert_awaited_once_with(
         profile, "\n".join(d.page_content for d in _default_docs())
     )
     points = upsert_points(h.uow)
     assert all(p["metadata"]["domain_metadata"] == {"act_number": "42"} for p in points)
+
     if warning:
-        service.create_version_in_uow.assert_not_awaited()
-        service.invalidate_document_answers.assert_awaited_once_with(doc.id)
+        cast("AsyncMock", service.create_version_in_uow).assert_not_awaited()
+        cast("AsyncMock", service.invalidate_document_answers).assert_awaited_once_with(doc.id)
         assert events == ["invalidate"]
         assert h.repo.status_calls[-1]["warning"] == warning
         assert all("act_version_id" not in p["metadata"] for p in points)
     else:
         assert events == ["version", "invalidate"]
-        service.invalidate_act_answers.assert_awaited_once_with(3)
+        cast("AsyncMock", service.invalidate_act_answers).assert_awaited_once_with(3)
         assert all(p["metadata"]["act_version_id"] == 7 for p in points)
         assert all(p["metadata"]["effective_to"] == "2027-01-01" for p in points)
         assert all(p["metadata"]["is_current"] is False for p in points)
@@ -794,25 +853,30 @@ async def test_prepared_version_commits_with_chunks_before_cache_invalidation(tm
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("registered", [False, True])
-async def test_versioning_without_profile_or_plan_still_indexes(tmp_path, registered):
+async def test_versioning_without_profile_or_plan_still_indexes(
+    tmp_path: Path, registered: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     service = FakeActVersioningService()
-    service.prepare_document_versioning = AsyncMock(return_value=None)
+    monkeypatch.setattr(service, "prepare_document_versioning", AsyncMock(return_value=None))
     registry = FakeDomainRegistry(profiles={"general": make_profile()} if registered else {})
     h = build_harness(tmp_path, registry=registry, act_versioning=service)
     doc = await seed_document(h.repo)
     await run(h, doc)
     assert h.metrics.has("inc_documents", "indexing")
     assert all("act_version_id" not in p["metadata"] for p in upsert_points(h.uow))
+
     if registered:
-        service.prepare_document_versioning.assert_awaited_once()
+        cast("AsyncMock", service.prepare_document_versioning).assert_awaited_once()
     else:
-        service.prepare_document_versioning.assert_not_awaited()
+        cast("AsyncMock", service.prepare_document_versioning).assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_cancelled_versioning_cleans_temp_without_marking_failed(tmp_path):
+async def test_cancelled_versioning_cleans_temp_without_marking_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     service = FakeActVersioningService()
-    service.prepare_document_versioning = AsyncMock(side_effect=asyncio.CancelledError)
+    monkeypatch.setattr(service, "prepare_document_versioning", AsyncMock(side_effect=asyncio.CancelledError))
     h = build_harness(
         tmp_path, registry=FakeDomainRegistry(profiles={"general": make_profile()}), act_versioning=service
     )
@@ -823,11 +887,11 @@ async def test_cancelled_versioning_cleans_temp_without_marking_failed(tmp_path)
     assert outbox_ops(h.uow) == []
     assert h.metrics.has("inc_documents", "failed")
     assert h.metrics.has("inc_chunks", 2)
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
-async def test_concurrent_processing_bounds_parser_and_keeps_run_state_separate(tmp_path):
+async def test_concurrent_processing_bounds_parser_and_keeps_run_state_separate(tmp_path: Path) -> None:  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
     h = build_harness(tmp_path)
     first = await seed_document(h.repo, filename="first.pdf")
     second = await seed_document(h.repo, filename="second.pdf")
@@ -838,20 +902,26 @@ async def test_concurrent_processing_bounds_parser_and_keeps_run_state_separate(
     original_parse = h.parser.parse
     thread_ids = []
 
-    def blocking_parse(path, meta):
+    def blocking_parse(path: Any, meta: Any) -> Any:
         thread_ids.append(threading.get_ident())
+
         if len(thread_ids) == 1:
             loop.call_soon_threadsafe(entered.set)
+
             if not release.wait(timeout=5):
-                raise RuntimeError("Parser was not released")
+                msg = "Parser was not released"
+                raise RuntimeError(msg)
+
         return original_parse(path, meta)
 
     original_download = h.storage.download_to_temp
 
-    async def download(key):
+    async def download(key: str) -> Any:
         path = await original_download(key)
+
         if key == "second":
             downloaded_second.set()
+
         return path
 
     h.parser.parse = blocking_parse
@@ -871,34 +941,37 @@ async def test_concurrent_processing_bounds_parser_and_keeps_run_state_separate(
     assert h.metrics.count("inc_documents") == 2
     sources = {p["metadata"]["source"] for p in upsert_points(h.uow)}
     assert sources == {"first.pdf", "second.pdf"}
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure_stage", ["split", "commit"])
-async def test_failed_replacement_preserves_old_document_and_file(tmp_path, failure_stage):
+async def test_failed_replacement_preserves_old_document_and_file(tmp_path: Path, failure_stage: str) -> None:
     h = build_harness(tmp_path)
     old = await seed_document(h.repo, filename="old.pdf", source_path="uploads/old.pdf")
     new = await seed_document(h.repo, filename="new.pdf", source_path="uploads/new.pdf")
 
     if failure_stage == "split":
 
-        def fail_split(*args):
-            raise RuntimeError("replacement failed")
+        def fail_split(*args: Any) -> None:
+            msg = "replacement failed"
+            raise RuntimeError(msg)
 
         h.splitter.split = fail_split
     else:
         original_create = h.uow_factory.create
 
         @asynccontextmanager
-        async def fail_commit(master=False):
+        async def fail_commit(master: bool = False) -> Any:
             async with original_create(master=master) as uow:
                 yield uow
+
                 if any(
                     e.operation == OutboxOperation.DELETE_BY_DOCUMENT
-                    for e in uow.vector_outbox._entries.values()
+                    for e in uow.fake_vector_outbox._entries.values()
                 ):
-                    raise RuntimeError("replacement failed")
+                    msg = "replacement failed"
+                    raise RuntimeError(msg)
 
         h.uow_factory.create = fail_commit
 

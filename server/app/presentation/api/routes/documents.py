@@ -130,8 +130,6 @@ async def upload_document(
         doc_domain=options.doc_domain,
         replaces_document_id=options.replaces_document_id,
         document_service=cmd,
-        job_service=submission.jobs,
-        enqueue_fn=submission.enqueuer.enqueue_document_processing,
         action_name="document.upload",
         log_fn=submission.log,
     )

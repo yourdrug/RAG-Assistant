@@ -938,8 +938,18 @@ class FakeConfigParameterRepository:
 
 
 class FakeBackgroundJobRepository:
+    def __init__(self) -> None:
+        self.jobs: dict[int, BackgroundJob] = {}
+
     async def create(self, job: BackgroundJob) -> BackgroundJob:
+        job.id = len(self.jobs) + 1
+        self.jobs[job.id] = job
         return job
+
+    async def pending_dispatch(self, limit: int = 100) -> list[BackgroundJob]:
+        return [
+            job for job in self.jobs.values() if job.status == "pending" and job.dispatch_payload is not None
+        ][:limit]
 
     async def mark_running(self, job_id: int) -> None:
         pass
@@ -1677,3 +1687,9 @@ class FakeEventBus:
 
         for handler in self._handlers.get(type(event), []):
             handler(event)
+
+
+def require_present[T](value: T | None) -> T:
+    """Verify a fixture lookup/identity exists before checking its other properties."""
+    assert value is not None
+    return value

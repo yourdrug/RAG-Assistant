@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
-import sys
+import asyncio
 from pathlib import Path
+import sys
+from typing import TYPE_CHECKING, cast
+
+from application.indexing import process_chunks
+from domain.ingestion.raw_document import RawDocument
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -14,9 +20,14 @@ from domain.ingestion.profiles.decree import DecreeDomainProfile
 from infrastructure.ml.ingestion import split_documents
 
 
+if TYPE_CHECKING:
+    from tests.fakes import FakeUnitOfWorkFactory
+
+
 class FakeSettings:
     def get(self, key: str, domain_key: str = "") -> str:
-        defaults = {"max_unit_chars": "200", "fingerprint_min_points": "1"}
+        _ = domain_key
+        defaults: dict[str, str] = {"max_unit_chars": "200", "fingerprint_min_points": "1"}
         return defaults.get(key, "0")
 
 
@@ -27,7 +38,7 @@ _DECREE_TEXT = (
 )
 
 
-def test_structured_domain_uses_content_splitter():
+def test_structured_domain_uses_content_splitter() -> None:
     profile = DecreeDomainProfile(settings=FakeSettings())
     docs = [Document(page_content=_DECREE_TEXT, metadata={"source": "ukaz.rtf"})]
     chunks = split_documents(docs, domain="decree", profile=profile, settings=FakeSettings())
@@ -41,14 +52,14 @@ def test_structured_domain_uses_content_splitter():
     assert any("Контроль возложить" in c.page_content for c in chunks)
 
 
-def test_general_domain_still_uses_char_splitter():
+def test_general_domain_still_uses_char_splitter() -> None:
     docs = [Document(page_content="Просто текст без структуры. " * 50, metadata={"source": "doc.md"})]
     chunks = split_documents(docs, domain="general", profile=None, settings=None)
     assert len(chunks) >= 1
     assert all("unit_kind" not in c.metadata for c in chunks)
 
 
-def test_enrich_merges_doc_level_refs_without_clobbering_chunk_level():
+def test_enrich_merges_doc_level_refs_without_clobbering_chunk_level() -> None:
     profile = DecreeDomainProfile(settings=FakeSettings())
     docs = [Document(page_content=_DECREE_TEXT, metadata={"source": "ukaz.rtf"})]
     chunks = split_documents(docs, domain="decree", profile=profile, settings=FakeSettings())
@@ -56,7 +67,7 @@ def test_enrich_merges_doc_level_refs_without_clobbering_chunk_level():
     # Doc-level identity (decree number/date) must reach EVERY chunk without
     # wiping chunk-level references (e.g. point numbers)
     enrich_chunks_metadata(
-        chunks,
+        cast("list[RawDocument]", chunks),
         document_id=7,
         visibility="internal_public",
         owner_id=None,
@@ -67,22 +78,20 @@ def test_enrich_merges_doc_level_refs_without_clobbering_chunk_level():
         act_id=9,
         effective_from=__import__("datetime").date(2026, 1, 1),
     )
+
     for chunk in chunks:
         dm = chunk.metadata["domain_metadata"]
         assert dm["decree_number"] == "123"
         assert chunk.metadata["act_version_id"] == 55
         assert chunk.metadata["act_id"] == 9
+
     # A chunk-level key is not overwritten by the doc-level value
     point_chunks = [c for c in chunks if "point" in c.metadata.get("domain_metadata", {})]
     assert point_chunks, "point refs must exist on chunk level"
 
 
-def test_process_chunks_persists_versioning_columns(fake_uow_factory):
+def test_process_chunks_persists_versioning_columns(fake_uow_factory: FakeUnitOfWorkFactory) -> None:
     """The denormalized columns must actually reach Postgres bulk_insert."""
-    import asyncio
-
-    from application.indexing import process_chunks
-    from domain.ingestion.raw_document import RawDocument
 
     chunks = [
         RawDocument(
@@ -110,7 +119,7 @@ def test_process_chunks_persists_versioning_columns(fake_uow_factory):
             set_indexing=False,
         )
     )
-    stored = uow.chunks._chunks[0]
+    stored = uow.fake_chunks._chunks[0]
     assert stored["act_version_id"] == 3
     assert stored["domain_metadata"] == {"decree_number": "5"}
     assert stored["is_current"] is True

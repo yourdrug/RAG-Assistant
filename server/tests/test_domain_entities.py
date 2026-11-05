@@ -6,34 +6,39 @@ following AAA (Arrange-Act-Assert) pattern.
 
 from __future__ import annotations
 
-import sys
 from datetime import UTC, datetime
+import sys
+from typing import Any, cast
 
 import pytest
 
-sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
-
-from domain.knowledge.chunk import Chunk
-from domain.chat.conversation import Conversation
-from domain.knowledge.document import Document
-from domain.chat.message import Message
-from domain.ingestion.raw_document import RawDocument
-from domain.identity.user import User
-from domain.shared.exceptions import BusinessRuleViolationError
-from domain.shared.hashing import content_hash
-from application.runtime.config import parse_bool
-from domain.knowledge.enums import DocumentStatus
 from domain.chat.message import MessageRole
 from domain.identity.roles import UserKind, UserRole
-from domain.knowledge.enums import DocumentVisibility
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
+from domain.shared.exceptions import ValidationError
+from tests.fakes import require_present
+
+
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
+
+from application.runtime.config import parse_bool
+from domain.chat.conversation import Conversation
+from domain.chat.message import Message
+from domain.identity.user import User
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.chunk import Chunk
+from domain.knowledge.document import Document
+from domain.shared.exceptions import BusinessRuleViolationError
+from domain.shared.hashing import content_hash
+
 
 # ---------------------------------------------------------------------------
 # Helpers / Factories
 # ---------------------------------------------------------------------------
 
 
-def _make_user(**overrides) -> User:
-    defaults = {
+def _make_user(**overrides: Any) -> User:
+    defaults: dict[str, Any] = {
         "id": 1,
         "email": "test@example.com",
         "role": UserRole.USER,
@@ -44,11 +49,11 @@ def _make_user(**overrides) -> User:
     return User(**defaults)
 
 
-def _make_document(**overrides) -> Document:
-    defaults = {
+def _make_document(**overrides: Any) -> Document:
+    defaults: dict[str, Any] = {
         "id": 1,
         "filename": "doc.pdf",
-        "source_path": "/tmp/doc.pdf",
+        "source_path": "fixtures/doc.pdf",
         "visibility": DocumentVisibility.INTERNAL_PUBLIC,
         "owner_id": 1,
     }
@@ -56,14 +61,14 @@ def _make_document(**overrides) -> Document:
     return Document(**defaults)
 
 
-def _make_conversation(**overrides) -> Conversation:
-    defaults = {"id": 1, "user_id": 10}
+def _make_conversation(**overrides: Any) -> Conversation:
+    defaults: dict[str, Any] = {"id": 1, "user_id": 10}
     defaults.update(overrides)
     return Conversation(**defaults)
 
 
-def _make_message(**overrides) -> Message:
-    defaults = {"id": 1, "conversation_id": 1, "role": MessageRole.USER, "content": "hello"}
+def _make_message(**overrides: Any) -> Message:
+    defaults: dict[str, Any] = {"id": 1, "conversation_id": 1, "role": MessageRole.USER, "content": "hello"}
     defaults.update(overrides)
     return Message(**defaults)
 
@@ -76,24 +81,24 @@ def _make_message(**overrides) -> Message:
 class TestUserCreation:
     """Business rule: only admin can create users."""
 
-    def test_admin_can_create_users(self):
+    def test_admin_can_create_users(self) -> None:
         # Arrange
         user = _make_user()
         # Act & Assert — should not raise
         user.ensure_can_be_created_by(UserRole.ADMIN)
 
-    def test_non_admin_cannot_create_users(self):
+    def test_non_admin_cannot_create_users(self) -> None:
         # Arrange
         user = _make_user()
         # Act & Assert
         with pytest.raises(BusinessRuleViolationError, match="Only admin can create users"):
             user.ensure_can_be_created_by(UserRole.USER)
 
-    def test_admin_role_can_create_users(self):
+    def test_admin_role_can_create_users(self) -> None:
         # Arrange & Act & Assert
         User().ensure_can_be_created_by(UserRole.ADMIN)
 
-    def test_user_role_cannot_create_users(self):
+    def test_user_role_cannot_create_users(self) -> None:
         # Arrange & Act & Assert
         with pytest.raises(BusinessRuleViolationError):
             User().ensure_can_be_created_by(UserRole.USER)
@@ -102,26 +107,26 @@ class TestUserCreation:
 class TestUserEnsureValidForCreation:
     """Business rule: client cannot be admin."""
 
-    def test_client_with_admin_role_raises(self):
+    def test_client_with_admin_role_raises(self) -> None:
         # Arrange
         user = _make_user(kind=UserKind.CLIENT, role=UserRole.ADMIN)
         # Act & Assert
         with pytest.raises(BusinessRuleViolationError, match="Client cannot be admin"):
             user.ensure_valid_for_creation()
 
-    def test_client_with_user_role_is_valid(self):
+    def test_client_with_user_role_is_valid(self) -> None:
         # Arrange
         user = _make_user(kind=UserKind.CLIENT, role=UserRole.USER)
         # Act & Assert — should not raise
         user.ensure_valid_for_creation()
 
-    def test_internal_with_admin_role_is_valid(self):
+    def test_internal_with_admin_role_is_valid(self) -> None:
         # Arrange
         user = _make_user(kind=UserKind.INTERNAL, role=UserRole.ADMIN)
         # Act & Assert
         user.ensure_valid_for_creation()
 
-    def test_internal_with_user_role_is_valid(self):
+    def test_internal_with_user_role_is_valid(self) -> None:
         # Arrange
         user = _make_user(kind=UserKind.INTERNAL, role=UserRole.USER)
         # Act & Assert
@@ -131,26 +136,26 @@ class TestUserEnsureValidForCreation:
 class TestUserDeactivateSelfProhibited:
     """Business rule: admin cannot deactivate themselves."""
 
-    def test_self_deactivation_raises(self):
+    def test_self_deactivation_raises(self) -> None:
         # Arrange
         user = _make_user(id=42)
         # Act & Assert
         with pytest.raises(BusinessRuleViolationError, match="Cannot deactivate yourself"):
             user.deactivate_self_prohibited(42)
 
-    def test_deactivating_other_user_is_allowed(self):
+    def test_deactivating_other_user_is_allowed(self) -> None:
         # Arrange
         user = _make_user(id=42)
         # Act & Assert — should not raise
         user.deactivate_self_prohibited(99)
 
-    def test_deactivating_other_user_with_same_role(self):
+    def test_deactivating_other_user_with_same_role(self) -> None:
         # Arrange
         user = _make_user(id=10, role=UserRole.USER)
         # Act & Assert
         user.deactivate_self_prohibited(20)
 
-    def test_self_deactivation_with_different_id(self):
+    def test_self_deactivation_with_different_id(self) -> None:
         # Arrange
         user = _make_user(id=100)
         # Act & Assert
@@ -158,7 +163,7 @@ class TestUserDeactivateSelfProhibited:
 
 
 class TestUserToggleActive:
-    def test_toggle_active_true(self):
+    def test_toggle_active_true(self) -> None:
         # Arrange
         user = _make_user(is_active=False)
         # Act
@@ -166,7 +171,7 @@ class TestUserToggleActive:
         # Assert
         assert user.is_active is True
 
-    def test_toggle_active_false(self):
+    def test_toggle_active_false(self) -> None:
         # Arrange
         user = _make_user(is_active=True)
         # Act
@@ -174,7 +179,7 @@ class TestUserToggleActive:
         # Assert
         assert user.is_active is False
 
-    def test_toggle_active_idempotent(self):
+    def test_toggle_active_idempotent(self) -> None:
         # Arrange
         user = _make_user(is_active=True)
         # Act
@@ -185,7 +190,7 @@ class TestUserToggleActive:
 
 
 class TestUserChangeRole:
-    def test_change_role_user_to_admin(self):
+    def test_change_role_user_to_admin(self) -> None:
         # Arrange
         user = _make_user(role=UserRole.USER, kind=UserKind.INTERNAL)
         # Act
@@ -193,7 +198,7 @@ class TestUserChangeRole:
         # Assert
         assert user.role == UserRole.ADMIN
 
-    def test_change_role_admin_to_user(self):
+    def test_change_role_admin_to_user(self) -> None:
         # Arrange
         user = _make_user(role=UserRole.ADMIN)
         # Act
@@ -201,14 +206,14 @@ class TestUserChangeRole:
         # Assert
         assert user.role == UserRole.USER
 
-    def test_client_cannot_become_admin(self):
+    def test_client_cannot_become_admin(self) -> None:
         # Arrange
         user = _make_user(kind=UserKind.CLIENT, role=UserRole.USER)
         # Act & Assert
         with pytest.raises(BusinessRuleViolationError, match="Client cannot be admin"):
             user.change_role(UserRole.ADMIN)
 
-    def test_client_can_stay_user(self):
+    def test_client_can_stay_user(self) -> None:
         # Arrange
         user = _make_user(kind=UserKind.CLIENT, role=UserRole.USER)
         # Act & Assert — should not raise
@@ -216,31 +221,31 @@ class TestUserChangeRole:
 
 
 class TestUserPostInit:
-    def test_role_from_string(self):
+    def test_role_from_string(self) -> None:
         # Arrange & Act
-        user = User(role="admin")
+        user = User(role=cast("UserRole", "admin"))
         # Assert
         assert user.role == UserRole.ADMIN
 
-    def test_kind_from_string(self):
+    def test_kind_from_string(self) -> None:
         # Arrange & Act
-        user = User(kind="client")
+        user = User(kind=cast("UserKind", "client"))
         # Assert
         assert user.kind == UserKind.CLIENT
 
-    def test_invalid_role_string_raises(self):
+    def test_invalid_role_string_raises(self) -> None:
         # Arrange & Act & Assert
-        with pytest.raises(Exception):  # noqa: B017
-            User(role="superadmin")
+        with pytest.raises(ValidationError, match="role must be one of"):
+            User(role=cast("UserRole", "superadmin"))
 
-    def test_invalid_kind_string_raises(self):
+    def test_invalid_kind_string_raises(self) -> None:
         # Arrange & Act & Assert
-        with pytest.raises(Exception):  # noqa: B017
-            User(kind="external")
+        with pytest.raises(ValidationError, match="kind must be one of"):
+            User(kind=cast("UserKind", "external"))
 
 
 class TestUserDefaults:
-    def test_default_values(self):
+    def test_default_values(self) -> None:
         # Arrange & Act
         user = User()
         # Assert
@@ -259,7 +264,7 @@ class TestUserDefaults:
 
 
 class TestDocumentMarkDone:
-    def test_mark_done_sets_status_chunks_chars(self):
+    def test_mark_done_sets_status_chunks_chars(self) -> None:
         # Arrange
         doc = _make_document(status=DocumentStatus.PROCESSING)
         # Act
@@ -270,38 +275,38 @@ class TestDocumentMarkDone:
         assert doc.chars == 5000
         assert doc.indexed_at is not None
 
-    def test_mark_done_updates_indexed_at(self):
+    def test_mark_done_updates_indexed_at(self) -> None:
         # Arrange
         doc = _make_document(indexed_at=None)
         before = datetime.now(UTC)
         # Act
         doc.mark_done(chunks=5, chars=1000)
         # Assert
-        assert doc.indexed_at >= before
+        assert require_present(doc.indexed_at) >= before
 
-    def test_mark_done_from_pending(self):
+    def test_mark_done_from_pending(self) -> None:
         doc = _make_document(status=DocumentStatus.PENDING)
         doc.mark_done(chunks=1, chars=100)
         assert doc.status == DocumentStatus.DONE
 
-    def test_mark_done_from_indexing(self):
+    def test_mark_done_from_indexing(self) -> None:
         doc = _make_document(status=DocumentStatus.INDEXING)
         doc.mark_done(chunks=3, chars=300)
         assert doc.status == DocumentStatus.DONE
 
-    def test_mark_done_on_done_raises(self):
+    def test_mark_done_on_done_raises(self) -> None:
         doc = _make_document(status=DocumentStatus.DONE)
         with pytest.raises(BusinessRuleViolationError, match="Cannot mark document as DONE"):
             doc.mark_done(chunks=1, chars=1)
 
-    def test_mark_done_on_failed_raises(self):
+    def test_mark_done_on_failed_raises(self) -> None:
         doc = _make_document(status=DocumentStatus.FAILED)
         with pytest.raises(BusinessRuleViolationError, match="Cannot mark document as DONE"):
             doc.mark_done(chunks=1, chars=1)
 
 
 class TestDocumentMarkFailed:
-    def test_mark_failed_sets_error(self):
+    def test_mark_failed_sets_error(self) -> None:
         # Arrange
         doc = _make_document(status=DocumentStatus.PROCESSING)
         # Act
@@ -310,7 +315,7 @@ class TestDocumentMarkFailed:
         assert doc.status == DocumentStatus.FAILED
         assert doc.error_message == "OCR failed"
 
-    def test_mark_failed_clears_previous_error(self):
+    def test_mark_failed_clears_previous_error(self) -> None:
         # Arrange
         doc = _make_document(error_message="old error")
         # Act
@@ -318,47 +323,47 @@ class TestDocumentMarkFailed:
         # Assert
         assert doc.error_message == "new error"
 
-    def test_mark_failed_from_pending(self):
+    def test_mark_failed_from_pending(self) -> None:
         doc = _make_document(status=DocumentStatus.PENDING)
         doc.mark_failed("timeout")
         assert doc.status == DocumentStatus.FAILED
 
-    def test_mark_failed_from_indexing(self):
+    def test_mark_failed_from_indexing(self) -> None:
         doc = _make_document(status=DocumentStatus.INDEXING)
         doc.mark_failed("ocr error")
         assert doc.status == DocumentStatus.FAILED
 
-    def test_mark_failed_on_done_raises(self):
+    def test_mark_failed_on_done_raises(self) -> None:
         doc = _make_document(status=DocumentStatus.DONE)
         with pytest.raises(BusinessRuleViolationError, match="Cannot mark document as FAILED"):
             doc.mark_failed("oops")
 
-    def test_mark_failed_on_failed_raises(self):
+    def test_mark_failed_on_failed_raises(self) -> None:
         doc = _make_document(status=DocumentStatus.FAILED)
         with pytest.raises(BusinessRuleViolationError, match="Cannot mark document as FAILED"):
             doc.mark_failed("double fail")
 
 
 class TestDocumentCanBeDeletedBy:
-    def test_owner_can_delete(self):
+    def test_owner_can_delete(self) -> None:
         # Arrange
         doc = _make_document(owner_id=10)
         # Act & Assert
         assert doc.can_be_deleted_by(10, UserRole.USER) is True
 
-    def test_admin_can_delete_any(self):
+    def test_admin_can_delete_any(self) -> None:
         # Arrange
         doc = _make_document(owner_id=10)
         # Act & Assert
         assert doc.can_be_deleted_by(99, UserRole.ADMIN) is True
 
-    def test_non_owner_non_admin_cannot_delete(self):
+    def test_non_owner_non_admin_cannot_delete(self) -> None:
         # Arrange
         doc = _make_document(owner_id=10)
         # Act & Assert
         assert doc.can_be_deleted_by(20, UserRole.USER) is False
 
-    def test_owner_admin_can_also_delete(self):
+    def test_owner_admin_can_also_delete(self) -> None:
         # Arrange
         doc = _make_document(owner_id=10)
         # Act & Assert
@@ -366,26 +371,26 @@ class TestDocumentCanBeDeletedBy:
 
 
 class TestDocumentPostInit:
-    def test_visibility_from_string(self):
+    def test_visibility_from_string(self) -> None:
         # Arrange & Act
-        doc = Document(visibility="internal_private")
+        doc = Document(visibility=cast("DocumentVisibility", "internal_private"))
         # Assert
         assert doc.visibility == DocumentVisibility.INTERNAL_PRIVATE
 
-    def test_status_from_string(self):
+    def test_status_from_string(self) -> None:
         # Arrange & Act
-        doc = Document(status="done")
+        doc = Document(status=cast("DocumentStatus", "done"))
         # Assert
         assert doc.status == DocumentStatus.DONE
 
-    def test_invalid_visibility_string_raises(self):
+    def test_invalid_visibility_string_raises(self) -> None:
         # Arrange & Act & Assert
-        with pytest.raises(Exception):  # noqa: B017
-            Document(visibility="public")
+        with pytest.raises(ValidationError, match="visibility must be one of"):
+            Document(visibility=cast("DocumentVisibility", "public"))
 
 
 class TestDocumentDefaults:
-    def test_default_values(self):
+    def test_default_values(self) -> None:
         # Arrange & Act
         doc = Document()
         # Assert
@@ -408,7 +413,7 @@ class TestDocumentDefaults:
 
 
 class TestConversationDefaults:
-    def test_default_values(self):
+    def test_default_values(self) -> None:
         # Arrange & Act
         conv = Conversation()
         # Assert
@@ -423,26 +428,26 @@ class TestConversationDefaults:
 
 
 class TestMessagePostInit:
-    def test_role_from_string_user(self):
+    def test_role_from_string_user(self) -> None:
         # Arrange & Act
-        msg = Message(role="user")
+        msg = Message(role=cast("MessageRole", "user"))
         # Assert
         assert msg.role == MessageRole.USER
 
-    def test_role_from_string_assistant(self):
+    def test_role_from_string_assistant(self) -> None:
         # Arrange & Act
-        msg = Message(role="assistant")
+        msg = Message(role=cast("MessageRole", "assistant"))
         # Assert
         assert msg.role == MessageRole.ASSISTANT
 
-    def test_invalid_role_string_raises(self):
+    def test_invalid_role_string_raises(self) -> None:
         # Arrange & Act & Assert
-        with pytest.raises(Exception):  # noqa: B017
-            Message(role="system")
+        with pytest.raises(ValueError, match="system"):
+            Message(role=cast("MessageRole", "system"))
 
 
 class TestMessageDefaults:
-    def test_default_values(self):
+    def test_default_values(self) -> None:
         # Arrange & Act
         msg = Message()
         # Assert
@@ -455,7 +460,7 @@ class TestMessageDefaults:
 
 
 class TestMessageSources:
-    def test_message_with_sources(self):
+    def test_message_with_sources(self) -> None:
         # Arrange
         sources = [{"source": "doc.pdf", "page": 1}]
         # Act
@@ -463,7 +468,7 @@ class TestMessageSources:
         # Assert
         assert msg.sources == sources
 
-    def test_message_empty_sources(self):
+    def test_message_empty_sources(self) -> None:
         # Arrange & Act
         msg = Message(sources=[])
         # Assert
@@ -476,7 +481,7 @@ class TestMessageSources:
 
 
 class TestChunk:
-    def test_chunk_defaults(self):
+    def test_chunk_defaults(self) -> None:
         # Arrange & Act
         chunk = Chunk()
         # Assert
@@ -484,7 +489,7 @@ class TestChunk:
         assert chunk.metadata == {}
         assert chunk.score is None
 
-    def test_chunk_with_values(self):
+    def test_chunk_with_values(self) -> None:
         # Arrange & Act
         chunk = Chunk(content="text", metadata={"page": 1}, score=0.95)
         # Assert
@@ -492,7 +497,7 @@ class TestChunk:
         assert chunk.metadata == {"page": 1}
         assert chunk.score == 0.95
 
-    def test_chunk_metadata_mutable(self):
+    def test_chunk_metadata_mutable(self) -> None:
         # Arrange
         chunk = Chunk()
         # Act
@@ -507,17 +512,17 @@ class TestChunk:
 
 
 class TestRawDocument:
-    def test_defaults(self):
+    def test_defaults(self) -> None:
         doc = RawDocument()
         assert doc.page_content == ""
         assert doc.metadata == {}
 
-    def test_with_values(self):
+    def test_with_values(self) -> None:
         doc = RawDocument(page_content="hello", metadata={"source": "a.pdf"})
         assert doc.page_content == "hello"
         assert doc.metadata == {"source": "a.pdf"}
 
-    def test_metadata_mutable(self):
+    def test_metadata_mutable(self) -> None:
         doc = RawDocument()
         doc.metadata["key"] = "value"
         assert doc.metadata == {"key": "value"}
@@ -529,15 +534,15 @@ class TestRawDocument:
 
 
 class TestParseBool:
-    def test_true_values(self):
+    def test_true_values(self) -> None:
         for v in ("true", "True", "TRUE", "1", "yes", "Yes", "on", "On"):
             assert parse_bool(v) is True
 
-    def test_false_values(self):
+    def test_false_values(self) -> None:
         for v in ("false", "False", "FALSE", "0", "no", "No", "off", "Off"):
             assert parse_bool(v) is False
 
-    def test_invalid_value_raises(self):
+    def test_invalid_value_raises(self) -> None:
         with pytest.raises(ValueError, match="Cannot parse"):
             parse_bool("maybe")
 
@@ -548,13 +553,13 @@ class TestParseBool:
 
 
 class TestContentHash:
-    def test_deterministic(self):
+    def test_deterministic(self) -> None:
         assert content_hash("hello") == content_hash("hello")
 
-    def test_different_input_different_hash(self):
+    def test_different_input_different_hash(self) -> None:
         assert content_hash("hello") != content_hash("world")
 
-    def test_returns_16_char_hex(self):
+    def test_returns_16_char_hex(self) -> None:
         h = content_hash("test")
         assert len(h) == 16
         assert all(c in "0123456789abcdef" for c in h)
@@ -566,18 +571,18 @@ class TestContentHash:
 
 
 class TestDocumentCanEditChunks:
-    def test_admin_can_edit_any(self):
+    def test_admin_can_edit_any(self) -> None:
         doc = _make_document(visibility=DocumentVisibility.INTERNAL_GROUP, owner_id=None)
         assert doc.can_edit_chunks(99, UserRole.ADMIN) is True
 
-    def test_group_doc_non_admin_cannot_edit(self):
+    def test_group_doc_non_admin_cannot_edit(self) -> None:
         doc = _make_document(visibility=DocumentVisibility.INTERNAL_GROUP, owner_id=None)
         assert doc.can_edit_chunks(10, UserRole.USER) is False
 
-    def test_owner_can_edit_own_doc(self):
+    def test_owner_can_edit_own_doc(self) -> None:
         doc = _make_document(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_id=10)
         assert doc.can_edit_chunks(10, UserRole.USER) is True
 
-    def test_non_owner_cannot_edit_other_doc(self):
+    def test_non_owner_cannot_edit_other_doc(self) -> None:
         doc = _make_document(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_id=10)
         assert doc.can_edit_chunks(20, UserRole.USER) is False

@@ -6,30 +6,32 @@ import sys
 
 import pytest
 
+from domain.ingestion.profiles.types import ReferenceMatch, refs_to_metadata
+
+
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
 
-from infrastructure.domain_profile.answer_policy import classify_query_domain
-from application.runtime.config import ConfigParameter
-from domain.shared.exceptions import (
-    AppError,
-    AuthenticationError,
-    BusinessRuleViolationError,
-    AppClientError,
-    DatabaseError,
-    EntityNotFoundError,
-    PermissionDeniedError,
-    AppServerError,
-    ValidationError,
-)
-from infrastructure.ml.rag.prompts import (
-    build_system_prompt,
-)
+from application.runtime.config import ConfigParameter, ConfigValueType
+from domain.knowledge.enums import DocDomain
+from domain.rag.breadth import Breadth
 from domain.rag.classification import (
     has_exact_reference,
 )
-from application.runtime.config import ConfigValueType
-from domain.knowledge.enums import DocDomain
-from domain.rag.breadth import Breadth
+from domain.shared.exceptions import (
+    AppClientError,
+    AppError,
+    AppServerError,
+    AuthenticationError,
+    BusinessRuleViolationError,
+    DatabaseError,
+    EntityNotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
+from infrastructure.domain_profile.answer_policy import classify_query_domain
+from infrastructure.ml.rag.prompts import (
+    build_system_prompt,
+)
 
 
 # ===========================================================================
@@ -38,27 +40,27 @@ from domain.rag.breadth import Breadth
 
 
 class TestAppException:
-    def test_str(self):
+    def test_str(self) -> None:
         exc = AppError("msg")
         assert str(exc) == "msg"
 
-    def test_repr(self):
+    def test_repr(self) -> None:
         exc = AppError("msg", errors={"k": "v"})
         assert repr(exc) == "AppError(message='msg', errors={'k': 'v'})"
 
-    def test_repr_without_errors(self):
+    def test_repr_without_errors(self) -> None:
         exc = AppError("msg")
         assert repr(exc) == "AppError(message='msg', errors=None)"
 
-    def test_as_dict_with_errors(self):
+    def test_as_dict_with_errors(self) -> None:
         exc = AppError("msg", errors={"detail": "x"})
         assert exc.as_dict() == {"message": "msg", "errors": {"detail": "x"}}
 
-    def test_as_dict_without_errors(self):
+    def test_as_dict_without_errors(self) -> None:
         exc = AppError("msg")
         assert exc.as_dict() == {"message": "msg"}
 
-    def test_as_dict_with_empty_errors(self):
+    def test_as_dict_with_empty_errors(self) -> None:
         exc = AppError("msg", errors={})
         assert exc.as_dict() == {"message": "msg"}
 
@@ -69,10 +71,10 @@ class TestAppException:
 
 
 class TestServerException:
-    def test_is_app_exception(self):
+    def test_is_app_exception(self) -> None:
         assert issubclass(AppServerError, AppError)
 
-    def test_message(self):
+    def test_message(self) -> None:
         exc = AppServerError("server error")
         assert exc.message == "server error"
 
@@ -83,16 +85,16 @@ class TestServerException:
 
 
 class TestDatabaseError:
-    def test_default_message(self):
+    def test_default_message(self) -> None:
         exc = DatabaseError()
         assert exc.message == "Database operation failed"
         assert exc.errors is None
 
-    def test_with_detail(self):
+    def test_with_detail(self) -> None:
         exc = DatabaseError(detail="connection refused")
         assert exc.errors == {"detail": "connection refused"}
 
-    def test_is_server_exception(self):
+    def test_is_server_exception(self) -> None:
         assert issubclass(DatabaseError, AppServerError)
 
 
@@ -102,7 +104,7 @@ class TestDatabaseError:
 
 
 class TestClientException:
-    def test_is_app_exception(self):
+    def test_is_app_exception(self) -> None:
         assert issubclass(AppClientError, AppError)
 
 
@@ -112,25 +114,25 @@ class TestClientException:
 
 
 class TestValidationError:
-    def test_default_message(self):
+    def test_default_message(self) -> None:
         exc = ValidationError()
         assert exc.message == "Validation failed"
         assert exc.errors is None
 
-    def test_custom_message(self):
+    def test_custom_message(self) -> None:
         exc = ValidationError("bad input")
         assert exc.message == "bad input"
 
-    def test_with_errors_dict(self):
+    def test_with_errors_dict(self) -> None:
         exc = ValidationError("err", errors={"field": "msg"})
         assert exc.errors == {"field": "msg"}
 
-    def test_with_field_param(self):
+    def test_with_field_param(self) -> None:
         exc = ValidationError("bad value", field="email")
         assert exc.message == "Validation failed"
         assert exc.errors == {"email": "bad value"}
 
-    def test_field_param_ignored_when_errors_given(self):
+    def test_field_param_ignored_when_errors_given(self) -> None:
         exc = ValidationError("err", errors={"x": "y"}, field="email")
         assert exc.errors == {"x": "y"}
         assert exc.message == "err"
@@ -142,14 +144,15 @@ class TestValidationError:
 
 
 class TestEntityNotFound:
-    def test_message_and_errors(self):
+    def test_message_and_errors(self) -> None:
         exc = EntityNotFoundError("User", 42)
         assert exc.message == "User with id=42 not found"
         assert exc.errors == {"user": "User with id=42 not found", "id": "42"}
 
-    def test_string_identifier(self):
+    def test_string_identifier(self) -> None:
         exc = EntityNotFoundError("Document", "abc-123")
         assert "abc-123" in exc.message
+        assert exc.errors is not None
         assert exc.errors["id"] == "abc-123"
 
 
@@ -159,12 +162,12 @@ class TestEntityNotFound:
 
 
 class TestAuthenticationError:
-    def test_default(self):
+    def test_default(self) -> None:
         exc = AuthenticationError()
         assert exc.message == "Not authenticated"
         assert exc.errors == {"detail": "Not authenticated"}
 
-    def test_custom_detail(self):
+    def test_custom_detail(self) -> None:
         exc = AuthenticationError("token expired")
         assert exc.message == "token expired"
         assert exc.errors == {"detail": "token expired"}
@@ -176,16 +179,16 @@ class TestAuthenticationError:
 
 
 class TestPermissionDeniedError:
-    def test_no_permission(self):
+    def test_no_permission(self) -> None:
         exc = PermissionDeniedError()
         assert exc.message == "Insufficient permissions"
         assert exc.errors is None
 
-    def test_single_permission(self):
+    def test_single_permission(self) -> None:
         exc = PermissionDeniedError("admin")
         assert exc.errors == {"required_permission": "admin"}
 
-    def test_multiple_permissions(self):
+    def test_multiple_permissions(self) -> None:
         exc = PermissionDeniedError(["admin", "moderator"])
         assert exc.errors == {"required_any_of": ["admin", "moderator"]}
 
@@ -196,7 +199,7 @@ class TestPermissionDeniedError:
 
 
 class TestBusinessRuleViolation:
-    def test_is_client_exception(self):
+    def test_is_client_exception(self) -> None:
         assert issubclass(BusinessRuleViolationError, AppClientError)
 
 
@@ -206,93 +209,93 @@ class TestBusinessRuleViolation:
 
 
 class TestConfigParameterValidate:
-    def test_bool_valid_true(self):
+    def test_bool_valid_true(self) -> None:
         p = ConfigParameter(key="k", value="1", value_type=ConfigValueType.BOOL, category="c")
         p.validate("true")
 
-    def test_bool_valid_false(self):
+    def test_bool_valid_false(self) -> None:
         p = ConfigParameter(key="k", value="1", value_type=ConfigValueType.BOOL, category="c")
         p.validate("false")
 
-    def test_bool_invalid(self):
+    def test_bool_invalid(self) -> None:
         p = ConfigParameter(key="k", value="1", value_type=ConfigValueType.BOOL, category="c")
         with pytest.raises(ValidationError, match="must be boolean"):
             p.validate("maybe")
 
-    def test_str_valid(self):
+    def test_str_valid(self) -> None:
         p = ConfigParameter(
             key="k", value="a", value_type=ConfigValueType.STR, category="c", allowed_values=["a", "b"]
         )
         p.validate("a")
 
-    def test_str_invalid_not_in_allowed(self):
+    def test_str_invalid_not_in_allowed(self) -> None:
         p = ConfigParameter(
             key="k", value="a", value_type=ConfigValueType.STR, category="c", allowed_values=["a", "b"]
         )
         with pytest.raises(ValidationError, match="must be one of"):
             p.validate("c")
 
-    def test_str_no_allowed_values(self):
+    def test_str_no_allowed_values(self) -> None:
         p = ConfigParameter(key="k", value="x", value_type=ConfigValueType.STR, category="c")
         p.validate("anything")
 
-    def test_int_valid(self):
+    def test_int_valid(self) -> None:
         p = ConfigParameter(key="k", value="5", value_type=ConfigValueType.INT, category="c")
         p.validate("10")
 
-    def test_int_invalid(self):
+    def test_int_invalid(self) -> None:
         p = ConfigParameter(key="k", value="5", value_type=ConfigValueType.INT, category="c")
         with pytest.raises(ValidationError, match="Invalid value"):
             p.validate("abc")
 
-    def test_int_below_min(self):
+    def test_int_below_min(self) -> None:
         p = ConfigParameter(key="k", value="5", value_type=ConfigValueType.INT, category="c", min_value=0)
         with pytest.raises(ValidationError, match="must be >="):
             p.validate("-1")
 
-    def test_int_above_max(self):
+    def test_int_above_max(self) -> None:
         p = ConfigParameter(key="k", value="5", value_type=ConfigValueType.INT, category="c", max_value=100)
         with pytest.raises(ValidationError, match="must be <="):
             p.validate("200")
 
-    def test_int_within_bounds(self):
+    def test_int_within_bounds(self) -> None:
         p = ConfigParameter(
             key="k", value="5", value_type=ConfigValueType.INT, category="c", min_value=0, max_value=100
         )
         p.validate("50")
 
-    def test_float_valid(self):
+    def test_float_valid(self) -> None:
         p = ConfigParameter(key="k", value="1.0", value_type=ConfigValueType.FLOAT, category="c")
         p.validate("2.5")
 
-    def test_float_invalid(self):
+    def test_float_invalid(self) -> None:
         p = ConfigParameter(key="k", value="1.0", value_type=ConfigValueType.FLOAT, category="c")
         with pytest.raises(ValidationError, match="Invalid value"):
             p.validate("not_a_float")
 
-    def test_float_below_min(self):
+    def test_float_below_min(self) -> None:
         p = ConfigParameter(
             key="k", value="1.0", value_type=ConfigValueType.FLOAT, category="c", min_value=0.0
         )
         with pytest.raises(ValidationError, match="must be >="):
             p.validate("-0.5")
 
-    def test_float_above_max(self):
+    def test_float_above_max(self) -> None:
         p = ConfigParameter(
             key="k", value="1.0", value_type=ConfigValueType.FLOAT, category="c", max_value=10.0
         )
         with pytest.raises(ValidationError, match="must be <="):
             p.validate("20.0")
 
-    def test_unknown_type_returns(self):
+    def test_unknown_type_returns(self) -> None:
         p = ConfigParameter(key="k", value="x", value_type="unknown", category="c")
         p.validate("anything")
 
-    def test_int_no_bounds(self):
+    def test_int_no_bounds(self) -> None:
         p = ConfigParameter(key="k", value="5", value_type=ConfigValueType.INT, category="c")
         p.validate("999")
 
-    def test_float_no_bounds(self):
+    def test_float_no_bounds(self) -> None:
         p = ConfigParameter(key="k", value="1.0", value_type=ConfigValueType.FLOAT, category="c")
         p.validate("999.9")
 
@@ -303,19 +306,19 @@ class TestConfigParameterValidate:
 
 
 class TestBuildSystemPrompt:
-    def test_narrow_prompt(self):
+    def test_narrow_prompt(self) -> None:
         prompt = build_system_prompt(Breadth.NARROW)
         assert "КРАТКО" in prompt
 
-    def test_broad_prompt(self):
+    def test_broad_prompt(self) -> None:
         prompt = build_system_prompt(Breadth.BROAD)
         assert "РАЗВЁРНУТО" in prompt
 
-    def test_default_is_narrow(self):
+    def test_default_is_narrow(self) -> None:
         prompt = build_system_prompt()
         assert "КРАТКО" in prompt
 
-    def test_domain_addendum_appears(self):
+    def test_domain_addendum_appears(self) -> None:
         prompt = build_system_prompt(
             Breadth.NARROW,
             domain_addendum="Обязательно указывай номер статьи/пункта.",
@@ -323,7 +326,7 @@ class TestBuildSystemPrompt:
         assert "domain_specific_rules" in prompt
         assert "статьи/пункта" in prompt
 
-    def test_no_domain_addendum(self):
+    def test_no_domain_addendum(self) -> None:
         prompt = build_system_prompt(Breadth.NARROW)
         assert "domain_specific_rules" not in prompt
 
@@ -334,7 +337,7 @@ class TestBuildSystemPrompt:
 
 
 class TestClassifyQueryDomain:
-    def test_legal_patterns(self):
+    def test_legal_patterns(self) -> None:
         assert classify_query_domain("Вправе ли работник?") == DocDomain.LEGAL
         assert classify_query_domain("Обязан ли арендатор?") == DocDomain.LEGAL
         assert classify_query_domain("Подлежит ли регистрации?") == DocDomain.LEGAL
@@ -345,7 +348,7 @@ class TestClassifyQueryDomain:
         assert classify_query_domain("Согласно договору") == DocDomain.LEGAL
         assert classify_query_domain("Нарушение условий договора") == DocDomain.LEGAL
 
-    def test_general_patterns(self):
+    def test_general_patterns(self) -> None:
         assert classify_query_domain("Какой пароль?") == DocDomain.GENERAL
         assert classify_query_domain("Где скачать программу?") == DocDomain.GENERAL
         assert classify_query_domain("") == DocDomain.GENERAL
@@ -357,22 +360,22 @@ class TestClassifyQueryDomain:
 
 
 class TestHasExactReference:
-    def test_article_reference(self):
+    def test_article_reference(self) -> None:
         assert has_exact_reference("Смотри статья 15") is True
 
-    def test_paragraph_reference(self):
+    def test_paragraph_reference(self) -> None:
         assert has_exact_reference("Согласно п. 3.2") is True
 
-    def test_section_reference(self):
+    def test_section_reference(self) -> None:
         assert has_exact_reference("раздел 4 описано") is True
 
-    def test_chapter_reference(self):
+    def test_chapter_reference(self) -> None:
         assert has_exact_reference("Глава 2 этого документа") is True
 
-    def test_st_reference(self):
+    def test_st_reference(self) -> None:
         assert has_exact_reference("ст. 10 УК РФ") is True
 
-    def test_no_reference(self):
+    def test_no_reference(self) -> None:
         assert has_exact_reference("Общая информация") is False
 
 
@@ -382,8 +385,7 @@ class TestHasExactReference:
 
 
 class TestRefsToMetadata:
-    def test_dedup_same_kind_same_value(self):
-        from domain.ingestion.profiles.types import ReferenceMatch, refs_to_metadata
+    def test_dedup_same_kind_same_value(self) -> None:
 
         refs = [
             ReferenceMatch(kind="point", value="1"),
@@ -392,8 +394,7 @@ class TestRefsToMetadata:
         result = refs_to_metadata(refs)
         assert result == {"point": "1"}
 
-    def test_different_values_become_list(self):
-        from domain.ingestion.profiles.types import ReferenceMatch, refs_to_metadata
+    def test_different_values_become_list(self) -> None:
 
         refs = [
             ReferenceMatch(kind="point", value="1"),
@@ -402,13 +403,11 @@ class TestRefsToMetadata:
         result = refs_to_metadata(refs)
         assert result == {"point": ["1", "2"]}
 
-    def test_empty_refs(self):
-        from domain.ingestion.profiles.types import refs_to_metadata
+    def test_empty_refs(self) -> None:
 
         assert refs_to_metadata([]) == {}
 
-    def test_mixed_kinds(self):
-        from domain.ingestion.profiles.types import ReferenceMatch, refs_to_metadata
+    def test_mixed_kinds(self) -> None:
 
         refs = [
             ReferenceMatch(kind="article", value="15"),
@@ -419,8 +418,7 @@ class TestRefsToMetadata:
         assert result["article"] == ["15", "16"]
         assert result["chapter"] == "2"
 
-    def test_three_values_become_list(self):
-        from domain.ingestion.profiles.types import ReferenceMatch, refs_to_metadata
+    def test_three_values_become_list(self) -> None:
 
         refs = [
             ReferenceMatch(kind="point", value="1"),

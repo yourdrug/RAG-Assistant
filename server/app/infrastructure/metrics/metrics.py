@@ -2,21 +2,18 @@
 
 Defines counters, histograms, and gauges for RAG query quality, document
 ingestion throughput, and infrastructure health (Postgres pool, Qdrant
-collection size, Ollama GPU usage).  The infrastructure gauges are refreshed
+collection size).  The infrastructure gauges are refreshed
 periodically by the Scheduler (``infrastructure.scheduler``).
 """
 
 from __future__ import annotations
 
 import asyncio
-from http import HTTPStatus
 import logging
 from typing import TYPE_CHECKING, cast
 
-import httpx
 from prometheus_client import Counter, Gauge, Histogram
 
-from application.runtime.enums import LLMProvider
 from config import settings
 from infrastructure.database.database import database
 from infrastructure.ml.clients import factories
@@ -200,11 +197,6 @@ BM25_INDEX_SIZE = Gauge(
     "Number of documents in BM25 index",
 )
 
-OLLAMA_GPU_MEMORY_BYTES = Gauge(
-    "ollama_gpu_memory_bytes",
-    "Ollama GPU VRAM usage in bytes (from /api/ps)",
-    ["model"],
-)
 
 # ---------------------------------------------------------------------------
 # Config listener metrics
@@ -360,20 +352,6 @@ async def collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
     QDRANT_POINTS.set(info.points_count or 0)
 
 
-async def collect_ollama_metrics() -> None:
-    async with httpx.AsyncClient(timeout=3) as http:
-        # /api/ps returns actually loaded models with real VRAM usage
-        r = await http.get(f"{settings.ollama_base_url}/api/ps")
-
-        if r.status_code == HTTPStatus.OK:
-            data = r.json()
-
-            for model in data.get("models", []):
-                model_name = model.get("name", "unknown")
-                vram = model.get("size_vram", 0)
-                OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(vram)
-
-
 async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
     """Update infrastructure gauges. Called periodically from lifespan."""
     try:
@@ -384,8 +362,3 @@ async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
         await collect_qdrant_metrics(ml_clients)
     except Exception as e:
         log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e, exc_info=True)
-    try:
-        if settings.llm_provider == LLMProvider.OLLAMA:
-            await collect_ollama_metrics()
-    except Exception as e:
-        log.warning("Failed to collect Ollama metrics: [%s] %s", type(e).__name__, e, exc_info=True)

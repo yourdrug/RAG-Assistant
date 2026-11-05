@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, replace
 import hashlib
 from time import monotonic
@@ -22,6 +23,33 @@ from infrastructure.ml.cache.answers import cache_key
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, point_vectors
 from tests.fakes import FakeUnitOfWorkFactory
+
+
+@pytest.mark.asyncio
+async def test_start_warns_and_fences_corpus_after_deployment_provider_change(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    registry, control, snapshot, _ = readiness_fixture("encoder", monkeypatch)
+    monkeypatch.setattr(settings, "qdrant_url", snapshot.endpoint)
+    monkeypatch.setattr(settings, "collection_name", snapshot.alias)
+    monkeypatch.setattr(module, "raw_corpus_client", Mock(return_value=Mock()))
+    monkeypatch.setattr(module, "probe_active_corpus", Mock())
+    monkeypatch.setattr(control.repository, "has_completed_chunks", AsyncMock(return_value=True))
+    monkeypatch.setattr(control.repository, "remove_process", AsyncMock())
+    monkeypatch.setattr(control, "tick", AsyncMock())
+    try:
+        await control.start("api")
+        assert isinstance(control.task, asyncio.Task)
+        assert not control.task.done()
+        assert "continuing startup" in caplog.text
+        assert "migrated" in caplog.text
+        assert not await control.is_ready()
+        with pytest.raises(ValidationError, match="Corpus generation is not ready"):
+            async with registry.corpus_operation():
+                pytest.fail("incompatible corpus admitted")
+    finally:
+        await control.close()
+        await registry.close()
 
 
 def test_bound_client_never_mixes_new_setting_with_old_collection() -> None:
@@ -221,7 +249,9 @@ async def test_poll_catches_up_to_durable_active_generation(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fault", ["none", "generation", "monitor", "stalled", "error", "database"])
+@pytest.mark.parametrize(
+    "fault", ["none", "generation", "monitor", "stalled", "error", "database", "encoder"]
+)
 async def test_corpus_readiness_fences_stale_replicas(fault: str, monkeypatch: pytest.MonkeyPatch) -> None:
     registry, control, snapshot, durable = readiness_fixture(fault, monkeypatch)
     try:
@@ -316,6 +346,9 @@ def readiness_fixture(
 ) -> tuple[MLClientRegistry, PostgresCorpusControl, CorpusSnapshot, CorpusSnapshot]:
     registry = MLClientRegistry()
     snapshot = CorpusSnapshot("http://qdrant:6333", "docs", "v1", "i", "old")
+    monkeypatch.setattr(
+        module, "configured_embedding_identity", lambda: "other" if fault == "encoder" else "i"
+    )
     registry.install_corpus(BoundQdrantClient(Mock(), snapshot))
     control = PostgresCorpusControl(Mock(), registry.corpus_resources, None)
     registry.corpus_resources.bind_readiness(control.is_ready)

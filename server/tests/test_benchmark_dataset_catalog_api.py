@@ -3,18 +3,18 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
-from domain.shared.exceptions import AppClientError
 from domain.benchmark.question import DEFAULT_DATASET
 from domain.identity.roles import UserKind, UserRole
+from domain.shared.exceptions import AppClientError
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import (
     create_api_key_provider,
-    create_auth_service,
     create_api_key_service,
+    create_auth_service,
     create_benchmark_question_service,
 )
 from presentation.api.exception_handlers import handle_client_exception
@@ -23,7 +23,7 @@ from presentation.api.schemas import CurrentUser
 
 
 @pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.USER, None])
-def test_dataset_catalog_requires_admin(role):
+def test_dataset_catalog_requires_admin(role: UserRole | None) -> None:
     datasets = [DEFAULT_DATASET, "quick-30", "custom"]
     service = SimpleNamespace(list_datasets=AsyncMock(return_value=datasets))
     app = FastAPI()
@@ -33,6 +33,7 @@ def test_dataset_catalog_requires_admin(role):
     app.dependency_overrides[create_api_key_service] = lambda: None
     app.dependency_overrides[create_api_key_provider] = lambda: None
     app.dependency_overrides[create_benchmark_question_service] = lambda: service
+
     if role is not None:
         user = CurrentUser(
             id=7,
@@ -42,8 +43,10 @@ def test_dataset_catalog_requires_admin(role):
             is_active=True,
         )
         app.dependency_overrides[get_current_user] = lambda: user
+
     with TestClient(app) as client:
         response = client.get("/admin/benchmark/datasets")
+
     if role == UserRole.ADMIN:
         assert response.status_code == 200
         assert response.json() == datasets

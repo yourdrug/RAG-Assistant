@@ -10,7 +10,6 @@ from openai import APIConnectionError, InternalServerError, RateLimitError
 from pydantic import ValidationError
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from application.runtime.enums import LLMProvider
 from config import settings
 from infrastructure.benchmark.judging.callbacks import AsyncMetricOptions
 from infrastructure.benchmark.judging.clients import get_judge_client, get_judge_model
@@ -112,9 +111,7 @@ def judge_answer(
 
     for key, prompt in prompts.items():
         try:
-            client = get_judge_client(
-                model if settings.llm_provider == LLMProvider.OLLAMA else "", runtime=runtime
-            )
+            client = get_judge_client(model, runtime=runtime)
             result = judge_with_structured_output(client, prompt, model)
             scores[key] = max(0.0, min(10.0, result.score))
             scores[f"{key}_reason"] = result.reason
@@ -159,9 +156,7 @@ async def judge_answer_async(
         )
 
     async def judge_one(prompt: str) -> JudgeScore:
-        client = get_judge_client(
-            model if settings.llm_provider == LLMProvider.OLLAMA else "", runtime=runtime
-        )
+        client = get_judge_client(model, runtime=runtime)
         with sync_client_operation(client):
             return await asyncio.wait_for(
                 asyncio.to_thread(judge_with_structured_output, client, prompt, model),

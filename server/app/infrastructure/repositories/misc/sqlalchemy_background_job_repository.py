@@ -31,6 +31,7 @@ class SQLAlchemyBackgroundJobRepository:
             finished_at=orm.finished_at,
             error_message=orm.error_message,
             creation_date=orm.creation_date,
+            dispatch_payload=orm.dispatch_payload,
         )
 
     async def create(self, job: BackgroundJob) -> BackgroundJob:
@@ -39,6 +40,7 @@ class SQLAlchemyBackgroundJobRepository:
             status=job.status,
             related_id=job.related_id,
             request_id=job.request_id,
+            dispatch_payload=job.dispatch_payload,
         )
         self._db.add(orm)
         await self._db.flush()
@@ -46,6 +48,20 @@ class SQLAlchemyBackgroundJobRepository:
         job.id = orm.id
         job.creation_date = orm.creation_date
         return job
+
+    async def pending_dispatch(self, limit: int = 100) -> list[BackgroundJob]:
+        """Lock pending durable submissions until the caller commits or rolls back."""
+        result = await self._db.execute(
+            select(BackgroundJobModel)
+            .where(
+                BackgroundJobModel.status == BackgroundJobStatus.PENDING.value,
+                BackgroundJobModel.dispatch_payload.is_not(None),
+            )
+            .order_by(BackgroundJobModel.heartbeat_at.asc().nulls_first(), BackgroundJobModel.id)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        return [self._to_entity(orm) for orm in result.scalars().all()]
 
     async def mark_running(self, job_id: int) -> None:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
@@ -165,6 +181,7 @@ class SQLAlchemyBackgroundJobRepository:
             select(BackgroundJobModel).where(
                 BackgroundJobModel.status == BackgroundJobStatus.PENDING.value,
                 func.coalesce(BackgroundJobModel.heartbeat_at, BackgroundJobModel.creation_date) < cutoff,
+                BackgroundJobModel.dispatch_payload.is_(None),
             )
         )
         orms = result.scalars().all()

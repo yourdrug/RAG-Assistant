@@ -4,11 +4,12 @@ from typing import Any
 
 from domain.benchmark.evaluation import summarize_evidence, summarize_retrieval
 from domain.benchmark.judge import judge_coverage
+from domain.benchmark.question import answer_type
 from domain.benchmark.stage_reporting import summarize_stage_tags
 from domain.benchmark.stats import percentile
 
 
-def summarize_benchmark_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+def summarize_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Extract aggregated metrics from benchmark results.
 
     estimated_cost_usd covers generation tokens only. total_cost_usd sums observed
@@ -90,3 +91,44 @@ def summarize_benchmark_results(results: list[dict[str, Any]]) -> dict[str, Any]
         "cost_complete": cost_complete,
         "estimated_cost_usd": round(sum(r.get("estimated_generation_cost_usd") or 0.0 for r in results), 6),
     }
+
+
+def unique_case_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse dataset copies, preserving deliberate repeated runs and legacy rows."""
+    unique: dict[tuple[str, int], dict[str, Any]] = {}
+    legacy = []
+
+    for result in results:
+        if not result.get("case_id"):
+            legacy.append(result)
+            continue
+
+        key = (result["case_id"], result.get("run", 1))
+
+        if key not in unique or result.get("dataset") == "main":
+            unique[key] = result
+
+    return legacy + list(unique.values())
+
+
+def summarize_benchmark_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    unique = unique_case_results(results)
+    summary = summarize_metrics(unique)
+
+    for dimension in ("answer_type", "question_style", "dataset"):
+        buckets: dict[str, list[dict[str, Any]]] = {}
+
+        for result in results if dimension == "dataset" else unique:
+            key = (
+                (result.get("answer_type") or answer_type(result.get("annotations")))
+                if dimension == "answer_type"
+                else result.get(dimension) or "unknown"
+            )
+            buckets.setdefault(key, []).append(result)
+
+        summary[f"by_{dimension}"] = {
+            key: summarize_metrics(unique_case_results(rows)) for key, rows in buckets.items()
+        }
+
+    summary["dataset_duplicate_count"] = len(results) - len(unique)
+    return summary

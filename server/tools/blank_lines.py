@@ -128,28 +128,11 @@ def process_file(path: Path, transformer: cst.CSTTransformer, *, check: bool) ->
     return True
 
 
-def read_excluded_paths(path: Path | None) -> set[Path]:
-    """Read exact exclusions relative to the baseline file, independent of cwd."""
-    excluded: set[Path] = set()
-
-    if path is None:
-        return excluded
-
-    lines = path.read_text(encoding="utf-8").splitlines()
-
-    return {
-        (path.parent / line.strip()).resolve()
-        for line in lines
-        if line.strip() and not line.lstrip().startswith("#")
-    }
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the codemod over the given files and directories."""
     parser = argparse.ArgumentParser(description="Blank lines around if/for/while.")
     parser.add_argument("paths", nargs="+", type=Path, help="files or directories")
     parser.add_argument("--check", action="store_true", help="report only, do not write")
-    parser.add_argument("--exclude-from", type=Path, help="baseline of exact paths relative to this file")
     parser.add_argument(
         "--also",
         action="append",
@@ -158,7 +141,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="additional statement kinds to surround with blank lines",
     )
     args = parser.parse_args(argv)
-    excluded = read_excluded_paths(args.exclude_from)
 
     targets = DEFAULT_TARGETS
 
@@ -170,9 +152,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     changed = False
 
     for path in iter_python_files(args.paths):
-        if path.resolve() in excluded:
-            continue
-
         try:
             if process_file(path, transformer, check=args.check):
                 changed = True

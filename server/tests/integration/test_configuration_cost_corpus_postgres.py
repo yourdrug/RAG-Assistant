@@ -1,5 +1,7 @@
 """Real PostgreSQL locks/journal with Redis Lua and a local Qdrant test double."""
 
+from __future__ import annotations
+
 import asyncio
 from dataclasses import asdict, replace
 from decimal import Decimal
@@ -7,58 +9,73 @@ import hashlib
 import json
 import os
 import subprocess
+import threading
+from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-from redis.asyncio import Redis
-from redis.exceptions import ConnectionError as RedisConnectionError
-import threading
-from unittest.mock import AsyncMock
-
-import httpx
-
 import fakeredis.aioredis
+import httpx
 import pytest
 import pytest_asyncio
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, Modifier, SparseVectorParams, VectorParams
+from redis.asyncio import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from tests.fakes import require_present
 
-from config import settings
-from domain.shared.exceptions import ValidationError
-from domain.runtime.cost import BudgetError, CostRate, ModelBillingContract
 from application.budget import BudgetPolicy
+from config import settings
+from domain.runtime.cost import BudgetError, CostRate, ModelBillingContract
+from domain.shared.exceptions import ValidationError
 from infrastructure.budget.job_context import bill_job_to_initiator
+from infrastructure.budget.ledger import PostgresRedisBudget
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport, PaidSyncTransport
-from infrastructure.budget.ledger import PostgresRedisBudget
 from infrastructure.corpus import control
 from infrastructure.corpus.control import PostgresCorpusControl
-from infrastructure.corpus.locks import corpus_write_guard
-from infrastructure.database.database import DatabaseManager, DatabaseNode
-from infrastructure.database.enums import DatabaseNodeRole
-from infrastructure.database.dataclasses import DatabaseURL
-from sqlalchemy.ext.asyncio import create_async_engine
+from infrastructure.corpus.locks import (
+    CORPUS_SWITCH_ADVISORY_LOCK_KEY,
+    corpus_switch_guard,
+    corpus_write_guard,
+)
 from infrastructure.corpus.validation import corpus_digest
-from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
+from infrastructure.database.database import DatabaseManager, DatabaseNode
+from infrastructure.database.dataclasses import DatabaseURL
+from infrastructure.database.enums import DatabaseNodeRole
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
+from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+    from infrastructure.corpus.snapshot import CorpusSnapshot
+
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
 @pytest_asyncio.fixture
-async def configured_engine(pg_engine):
+async def configured_engine(pg_engine: AsyncEngine) -> AsyncEngine:
     return pg_engine
 
 
-async def test_shared_money_admission_retry_reconciliation_and_redis_restart(configured_engine):
+async def test_shared_money_admission_retry_reconciliation_and_redis_restart(
+    configured_engine: AsyncEngine,
+) -> None:
     sessions = async_sessionmaker(configured_engine, expire_on_commit=False)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     first = PostgresRedisBudget(sessions, redis)
     second = PostgresRedisBudget(sessions, redis)
-    await first.add_rate(CostRate("openrouter", "m", 1, "tokens", Decimal("1"), Decimal("2"), 100))
-    args = {
+    await first.add_rate(CostRate("openrouter", "m", 1, "tokens", Decimal(1), Decimal(2), 100))
+    args: dict[str, Any] = {
         "principal": "user:1",
         "provider": "openrouter",
         "model": "m",
@@ -84,13 +101,17 @@ async def test_shared_money_admission_retry_reconciliation_and_redis_restart(con
         await second.reconcile_pending(admitted, 0, "same confirmation")
         assert await second.reserve(operation_id="after-reconciliation", **args)
         await redis.aclose()
-        with pytest.raises(ConnectionError):
-            # An injected failure must roll the PostgreSQL reservation back.
-            class OfflineRedis:
-                async def eval(self, *args):
-                    raise ConnectionError("offline")
 
-            await PostgresRedisBudget(sessions, OfflineRedis()).reserve(operation_id="offline", **args)
+        class OfflineRedis:
+            async def eval(self, *args: Any) -> None:
+                _ = args
+                msg = "offline"
+                raise ConnectionError(msg)
+
+        with pytest.raises(ConnectionError):
+            await PostgresRedisBudget(sessions, cast("Redis", OfflineRedis())).reserve(
+                operation_id="offline", **args
+            )
         async with sessions() as session:
             assert (await session.execute(text("SELECT count(*) FROM cost_usage"))).scalar_one() == 6
             assert (
@@ -104,7 +125,9 @@ async def test_shared_money_admission_retry_reconciliation_and_redis_restart(con
 
 
 @pytest_asyncio.fixture
-async def corpus_pair(configured_engine, monkeypatch):
+async def corpus_pair(  # noqa: PLR0915 - One fixture assembles both corpus participants.
+    configured_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[tuple[PostgresCorpusControl, PostgresCorpusControl, async_sessionmaker[AsyncSession]]]:
     sessions = async_sessionmaker(configured_engine, expire_on_commit=False)
     async with sessions() as session:
         schema = (await session.execute(text("SELECT current_schema()"))).scalar_one()
@@ -126,9 +149,10 @@ async def corpus_pair(configured_engine, monkeypatch):
     monkeypatch.setattr(settings, "collection_name", "v1")
     monkeypatch.setattr(settings, "embed_dim", 2)
 
-    def qdrant(endpoint):
+    def qdrant(endpoint: object) -> QdrantClient:
         client = QdrantClient(":memory:")
         fingerprint = hashlib.sha256(configured_embedding_identity().encode()).hexdigest()
+
         for name in ["v1", "v2"]:
             client.create_collection(
                 name,
@@ -139,6 +163,7 @@ async def corpus_pair(configured_engine, monkeypatch):
                 name + "__embedding_identity",
                 vectors_config={fingerprint: VectorParams(size=1, distance=Distance.COSINE)},
             )
+
         return client
 
     monkeypatch.setattr(control, "raw_corpus_client", qdrant)
@@ -167,7 +192,7 @@ async def corpus_pair(configured_engine, monkeypatch):
         await manager.disconnect()
 
 
-async def test_corpus_switch_polls_without_notify_and_fences_stale_writers(corpus_pair):
+async def test_corpus_switch_polls_without_notify_and_fences_stale_writers(corpus_pair: Any) -> None:
     api, worker, sessions = corpus_pair
     old = api.registry.corpus_snapshot
     async with api.registry.corpus_operation():
@@ -185,17 +210,19 @@ async def test_corpus_switch_polls_without_notify_and_fences_stale_writers(corpu
         ).scalar_one() == "v2"
 
 
-def run_write_guard(database, snapshot):
+def run_write_guard(database: Any, snapshot: CorpusSnapshot) -> None:
     with corpus_write_guard(database, snapshot):
         pass
 
 
-async def test_concurrent_ingestion_aborts_before_commit_without_losing_db_write(corpus_pair, monkeypatch):
-    api, worker, sessions = corpus_pair
+async def test_concurrent_ingestion_aborts_before_commit_without_losing_db_write(
+    corpus_pair: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api, _worker, sessions = corpus_pair
     old = api.registry.corpus_snapshot
     wait = api.wait_prepared
 
-    async def start_ingestion_after_probe(generation, required):
+    async def start_ingestion_after_probe(generation: Any, required: Any) -> None:
         await wait(generation, required)
         async with sessions() as session, session.begin():
             await session.execute(
@@ -216,7 +243,7 @@ async def test_concurrent_ingestion_aborts_before_commit_without_losing_db_write
         assert (await session.execute(text("SELECT count(*) FROM documents"))).scalar_one() == 1
 
 
-async def test_missing_worker_rejects_switch_and_committed_journal_recovers(corpus_pair):
+async def test_missing_worker_rejects_switch_and_committed_journal_recovers(corpus_pair: Any) -> None:
     api, worker, sessions = corpus_pair
     old = api.registry.corpus_snapshot
     await worker.close()
@@ -241,16 +268,18 @@ async def test_missing_worker_rejects_switch_and_committed_journal_recovers(corp
     await asyncio.to_thread(lambda: run_write_guard(api.database, candidate))
 
 
-async def test_switch_waits_for_admitted_writer_before_publishing(corpus_pair):
-    api, worker, sessions = corpus_pair
+async def test_switch_waits_for_admitted_writer_before_publishing(corpus_pair: Any) -> None:
+    api, _worker, _sessions = corpus_pair
     old = api.registry.corpus_snapshot
     started, release = threading.Event(), threading.Event()
 
-    def admitted_write():
+    def admitted_write() -> None:
         with corpus_write_guard(api.database, old):
             started.set()
+
             if not release.wait(10):
-                raise TimeoutError("test did not release writer")
+                msg = "test did not release writer"
+                raise TimeoutError(msg)
 
     writing = asyncio.create_task(asyncio.to_thread(admitted_write))
     switching = None
@@ -270,8 +299,9 @@ async def test_switch_waits_for_admitted_writer_before_publishing(corpus_pair):
         await asyncio.gather(writing, *([switching] if switching is not None else []), return_exceptions=True)
 
 
-async def test_budget_policy_reads_committed_database_without_notification(configured_engine, monkeypatch):
-    from infrastructure.budget.runtime import BudgetRuntime
+async def test_budget_policy_reads_committed_database_without_notification(
+    configured_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     sessions = async_sessionmaker(configured_engine, expire_on_commit=False)
     monkeypatch.setattr(settings, "cost_rate_limit_enabled", False)
@@ -304,17 +334,19 @@ async def test_budget_policy_reads_committed_database_without_notification(confi
         await runtime.policy_snapshot()
 
 
-async def test_physical_sync_async_real_redis_restart_and_tariff_debt(configured_engine):
+async def test_physical_sync_async_real_redis_restart_and_tariff_debt(configured_engine: AsyncEngine) -> None:  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
     redis_url = os.environ.get("TEST_REDIS_URL")
     container = os.environ.get("TEST_REDIS_CONTAINER")
+
     if not redis_url or not container:
         pytest.skip("Requires isolated TEST_REDIS_URL and TEST_REDIS_CONTAINER for a real restart")
+
     sessions = async_sessionmaker(configured_engine, expire_on_commit=False)
     redis = Redis.from_url(redis_url, decode_responses=True)
     ledger = PostgresRedisBudget(sessions, redis)
-    await ledger.add_rate(CostRate("openrouter", "m", 1, "tokens", Decimal("1"), Decimal("2"), 100))
+    await ledger.add_rate(CostRate("openrouter", "m", 1, "tokens", Decimal(1), Decimal(2), 100))
     principal = "user:" + uuid4().hex
-    args = {
+    args: dict[str, Any] = {
         "principal": principal,
         "provider": "openrouter",
         "model": "m",
@@ -328,7 +360,7 @@ async def test_physical_sync_async_real_redis_restart_and_tariff_debt(configured
         # Sync callers and async callers enter exactly the same PostgreSQL lock and Lua gate.
         loop = asyncio.get_running_loop()
 
-        def reserve_sync(index):
+        def reserve_sync(index: int) -> bool:
             return asyncio.run_coroutine_threadsafe(
                 ledger.reserve(operation_id=f"sync{index}", **args),
                 loop,
@@ -380,7 +412,7 @@ async def test_physical_sync_async_real_redis_restart_and_tariff_debt(configured
         await redis.aclose()
 
 
-async def test_audit_preserves_pending_and_settled_usage(configured_engine):
+async def test_audit_preserves_pending_and_settled_usage(configured_engine: AsyncEngine) -> None:
     async with configured_engine.begin() as connection:
         await connection.execute(
             text("""
@@ -398,7 +430,7 @@ async def test_audit_preserves_pending_and_settled_usage(configured_engine):
         """)
         )
     sessions = async_sessionmaker(configured_engine, expire_on_commit=False)
-    ledger = PostgresRedisBudget(sessions, None)
+    ledger = PostgresRedisBudget(sessions, MagicMock())
     rows = {row["operation_id"]: row for row in await ledger.usage()}
     assert rows["pending"]["dispatch_state"] == "sending"
     assert rows["settled"]["dispatch_state"] == "settled"
@@ -408,39 +440,46 @@ async def test_audit_preserves_pending_and_settled_usage(configured_engine):
 
 
 @pytest.mark.parametrize("sync", [False, True])
-async def test_budget_worker_retries_only_provably_undispatched_attempt(configured_engine, monkeypatch, sync):
+async def test_budget_worker_retries_only_provably_undispatched_attempt(  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
+    configured_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch, sync: object
+) -> None:
     sessions = async_sessionmaker(configured_engine, expire_on_commit=False)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     ledger = PostgresRedisBudget(sessions, redis)
-    rate = CostRate("openrouter", "m", 1, "tokens", Decimal("1"), Decimal("2"), 100)
+    rate = CostRate("openrouter", "m", 1, "tokens", Decimal(1), Decimal(2), 100)
     await ledger.add_rate(rate)
     runtime = BudgetRuntime()
     runtime.configure(ledger, sessions, AsyncMock())
-    runtime.catalog.contract.return_value = ModelBillingContract(
+    cast(
+        "AsyncMock", require_present(require_present(runtime.catalog).contract)
+    ).return_value = ModelBillingContract(
         "tokens", "llm", 100, frozenset({"model", "messages", "max_tokens"}), "test"
     )
-    runtime.rate = AsyncMock(return_value=rate)
-    runtime.policy_snapshot = AsyncMock(return_value=BudgetPolicy(True))
+    monkeypatch.setattr(runtime, "rate", AsyncMock(return_value=rate))
+    monkeypatch.setattr(runtime, "policy_snapshot", AsyncMock(return_value=BudgetPolicy(True)))
     mark_dispatch = ledger.mark_dispatch
     calls = 0
     sent = []
 
-    async def fail_once_before_send(*args):
+    async def fail_once_before_send(*args: Any) -> None:
         nonlocal calls
         calls += 1
+
         if calls == 1:
             # Simulate cancellation/error after the dispatch marker commits but before HTTP send.
             await mark_dispatch(*args)
-            raise ConnectionError("Before provider dispatch")
+            msg = "Before provider dispatch"
+            raise ConnectionError(msg)
+
         await mark_dispatch(*args)
 
     monkeypatch.setattr(ledger, "mark_dispatch", fail_once_before_send)
 
-    def provider(request):
+    def provider(request: httpx.Request) -> Any:
         sent.append(True)
         return httpx.Response(200, json={"id": "gen-success", "usage": {"cost": "0"}})
 
-    def invoke_sync():
+    def invoke_sync() -> Any:
         with httpx.Client(
             transport=PaidSyncTransport(runtime=runtime, transport=httpx.MockTransport(provider))
         ) as client:
@@ -450,9 +489,10 @@ async def test_budget_worker_retries_only_provably_undispatched_attempt(configur
             )
 
     @bill_job_to_initiator
-    async def job(ctx):
+    async def job(ctx: object) -> Any:
         if sync:
             return await asyncio.to_thread(invoke_sync)
+
         async with httpx.AsyncClient(
             transport=PaidAsyncTransport(runtime=runtime, transport=httpx.MockTransport(provider))
         ) as client:
@@ -483,12 +523,12 @@ async def test_budget_worker_retries_only_provably_undispatched_attempt(configur
         await redis.aclose()
 
 
-async def test_budget_undispatched_retry_is_atomic_and_rechecks_quota(configured_engine):
+async def test_budget_undispatched_retry_is_atomic_and_rechecks_quota(configured_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(configured_engine, expire_on_commit=False)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     ledger = PostgresRedisBudget(sessions, redis)
-    await ledger.add_rate(CostRate("openrouter", "m", 1, "tokens", Decimal("1"), Decimal("2"), 100))
-    args = {
+    await ledger.add_rate(CostRate("openrouter", "m", 1, "tokens", Decimal(1), Decimal(2), 100))
+    args: dict[str, Any] = {
         "principal": "user:1",
         "provider": "openrouter",
         "model": "m",
@@ -507,7 +547,10 @@ async def test_budget_undispatched_retry_is_atomic_and_rechecks_quota(configured
             await ledger.reserve(operation_id="retry", **args)
         await ledger.reconcile("user:1", "other", 0)
         assert (
-            await ledger.reserve(operation_id="retry", **dict(args, request_fingerprint="different-request"))
+            await ledger.reserve(
+                operation_id="retry",
+                **dict(args, request_fingerprint="different-request"),
+            )
             is False
         )
         results = await asyncio.gather(*(ledger.reserve(operation_id="retry", **args) for _ in range(8)))
@@ -525,12 +568,14 @@ async def test_budget_undispatched_retry_is_atomic_and_rechecks_quota(configured
 
 
 @pytest.mark.parametrize("source", ["provider", "administrative", None])
-async def test_budget_zero_charge_or_pending_is_not_permission_to_replay(configured_engine, source):
+async def test_budget_zero_charge_or_pending_is_not_permission_to_replay(
+    configured_engine: AsyncEngine, source: str | None
+) -> None:
     sessions = async_sessionmaker(configured_engine, expire_on_commit=False)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     ledger = PostgresRedisBudget(sessions, redis)
-    await ledger.add_rate(CostRate("openrouter", "m", 1, "tokens", Decimal("1"), Decimal("2"), 100))
-    args = {
+    await ledger.add_rate(CostRate("openrouter", "m", 1, "tokens", Decimal(1), Decimal(2), 100))
+    args: dict[str, Any] = {
         "principal": "user:1",
         "provider": "openrouter",
         "model": "m",
@@ -544,26 +589,32 @@ async def test_budget_zero_charge_or_pending_is_not_permission_to_replay(configu
     try:
         assert await ledger.reserve(operation_id="op", **args)
         await ledger.mark_dispatch("user:1", "op")
+
         if source is not None:
             await ledger.reconcile("user:1", "op", 0, cost_source=source)
+
         assert await ledger.reserve(operation_id="op", **args) is False
     finally:
         await redis.aclose()
 
 
 @pytest.mark.parametrize("failure", [False, True])
-async def test_write_guard_uses_autocommit_and_releases_session_lock(corpus_pair, failure):
-    api, worker, sessions = corpus_pair
+async def test_write_guard_uses_autocommit_and_releases_session_lock(corpus_pair: Any, failure: bool) -> None:  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
+    api, _worker, sessions = corpus_pair
     snapshot = api.registry.corpus_snapshot
     entered, release = threading.Event(), threading.Event()
 
-    def write():
+    def write() -> None:
         with corpus_write_guard(api.database, snapshot):
             entered.set()
+
             if not release.wait(10):
-                raise TimeoutError("test did not release writer")
+                msg = "test did not release writer"
+                raise TimeoutError(msg)
+
             if failure:
-                raise RuntimeError("Qdrant write failed")
+                msg = "Qdrant write failed"
+                raise RuntimeError(msg)
 
     writing = asyncio.create_task(asyncio.to_thread(write))
     try:
@@ -581,11 +632,13 @@ async def test_write_guard_uses_autocommit_and_releases_session_lock(corpus_pair
             assert owners
             assert all(state == "idle" and transaction is None for state, transaction in owners)
         release.set()
+
         if failure:
             with pytest.raises(RuntimeError, match="Qdrant"):
                 await writing
         else:
             await writing
+
         await assert_corpus_lock_available(api.database)
         assert (await api.read_state())["write_epoch"] == 1
     finally:
@@ -593,8 +646,7 @@ async def test_write_guard_uses_autocommit_and_releases_session_lock(corpus_pair
         await asyncio.gather(writing, return_exceptions=True)
 
 
-async def assert_corpus_lock_available(database):
-    from infrastructure.corpus.locks import CORPUS_SWITCH_ADVISORY_LOCK_KEY
+async def assert_corpus_lock_available(database: Any) -> None:
 
     async with asyncio.timeout(2):
         while True:
@@ -605,34 +657,41 @@ async def assert_corpus_lock_available(database):
                         {"key": CORPUS_SWITCH_ADVISORY_LOCK_KEY},
                     )
                 ).scalar_one()
+
                 if available:
                     return
             await asyncio.sleep(0.01)
 
 
 @pytest.mark.parametrize("failure", ["cancel", "timeout", "error"])
-async def test_switch_releases_lock_and_recovers_preparation_on_interruption(
-    corpus_pair, monkeypatch, failure
-):
-    api, worker, sessions = corpus_pair
+async def test_switch_releases_lock_and_recovers_preparation_on_interruption(  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
+    corpus_pair: Any, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    api, _worker, _sessions = corpus_pair
     snapshot = api.registry.corpus_snapshot
     entered = asyncio.Event()
 
-    async def interrupted_prepare(*args):
+    async def interrupted_prepare(*args: Any) -> None:
         entered.set()
+
         if failure == "error":
-            raise RuntimeError("preparation failed")
+            msg = "preparation failed"
+            raise RuntimeError(msg)
+
         if failure == "timeout":
             async with asyncio.timeout(0.02):
                 await asyncio.Event().wait()
+
         await asyncio.Event().wait()
 
     monkeypatch.setattr(api, "wait_prepared", interrupted_prepare)
     switching = asyncio.create_task(api.switch(snapshot.endpoint, "v2", snapshot.generation))
     try:
         await asyncio.wait_for(entered.wait(), 3)
+
         if failure == "cancel":
             switching.cancel()
+
         expected = {"cancel": asyncio.CancelledError, "timeout": TimeoutError, "error": RuntimeError}[failure]
         with pytest.raises(expected):
             await switching
@@ -644,18 +703,19 @@ async def test_switch_releases_lock_and_recovers_preparation_on_interruption(
     finally:
         if not switching.done():
             switching.cancel()
+
         await asyncio.gather(switching, return_exceptions=True)
 
 
 @pytest.mark.parametrize("cancel", [False, True])
-async def test_lock_acquisition_timeout_or_cancel_closes_dedicated_connection(corpus_pair, cancel):
-    from infrastructure.corpus.locks import corpus_switch_guard
-    from sqlalchemy.exc import DBAPIError
+async def test_lock_acquisition_timeout_or_cancel_closes_dedicated_connection(
+    corpus_pair: Any, cancel: bool
+) -> None:
 
-    api, worker, sessions = corpus_pair
+    api, _worker, _sessions = corpus_pair
     entered = asyncio.Event()
 
-    async def wait_for_lock():
+    async def wait_for_lock() -> None:
         entered.set()
         async with corpus_switch_guard(api.database):
             pytest.fail("competing exclusive lock was admitted")
@@ -665,41 +725,44 @@ async def test_lock_acquisition_timeout_or_cancel_closes_dedicated_connection(co
         try:
             await entered.wait()
             await asyncio.sleep(0.05)
+
             if cancel:
                 waiting.cancel()
+
             with pytest.raises(asyncio.CancelledError if cancel else DBAPIError):
                 await asyncio.wait_for(waiting, 7)
         finally:
             if not waiting.done():
                 waiting.cancel()
+
             await asyncio.gather(waiting, return_exceptions=True)
     await assert_corpus_lock_available(api.database)
 
 
-async def test_concurrent_switches_publish_only_one_generation(corpus_pair):
-    api, worker, sessions = corpus_pair
+async def test_concurrent_switches_publish_only_one_generation(corpus_pair: Any) -> None:
+    api, worker, _sessions = corpus_pair
     snapshot = api.registry.corpus_snapshot
     results = await asyncio.gather(
-        api.switch(snapshot.endpoint, 'v2', snapshot.generation),
-        worker.switch(snapshot.endpoint, 'v2', snapshot.generation),
+        api.switch(snapshot.endpoint, "v2", snapshot.generation),
+        worker.switch(snapshot.endpoint, "v2", snapshot.generation),
         return_exceptions=True,
     )
     assert sum(isinstance(result, dict) for result in results) == 1
     assert sum(isinstance(result, ValidationError) for result in results) == 1
     state = await api.read_state()
-    assert state['phase'] == 'active'
-    assert state['active']['generation'] != snapshot.generation
+    assert state["phase"] == "active"
+    assert state["active"]["generation"] != snapshot.generation
     await assert_corpus_lock_available(api.database)
 
 
-async def test_orphaned_preparation_recovers_without_publishing_candidate(corpus_pair):
-    api, worker, sessions = corpus_pair
+async def test_orphaned_preparation_recovers_without_publishing_candidate(corpus_pair: Any) -> None:
+    api, _worker, _sessions = corpus_pair
     snapshot = api.registry.corpus_snapshot
-    candidate = replace(snapshot, alias='v2', physical_collection='v2', generation='orphan')
-    await api.repository.begin_prepare(candidate, corpus_digest([]), 'dead-process')
+    candidate = replace(snapshot, alias="v2", physical_collection="v2", generation="orphan")
+    await api.repository.begin_prepare(candidate, corpus_digest([]), "dead-process")
     await api.tick()
     state = await api.read_state()
-    assert state['phase'] == 'failed'
-    assert state['active']['generation'] == snapshot.generation
-    assert state['candidate'] is None
+    assert state["phase"] == "failed"
+    assert state["active"]["generation"] == snapshot.generation
+    assert state["candidate"] is None
     await asyncio.to_thread(run_write_guard, api.database, snapshot)

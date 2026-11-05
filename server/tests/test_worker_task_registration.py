@@ -3,13 +3,19 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock
 
-from infrastructure.worker import queue
-from infrastructure.worker.sweep import run_sweep_task
-from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_cleanup
+import pytest
+
+from application.budget import billing_principal
 from composition.cli.commands import worker as worker_command
+from infrastructure.budget.job_context import bill_job_to_initiator, job_operations, next_operation_id
+from infrastructure.worker import queue
+from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_cleanup
+from infrastructure.worker.document_deletion import delete_document
+from infrastructure.worker.document_dispatch import cron_dispatch_documents
+from infrastructure.worker.sweep import run_sweep_task
 
 
-def test_enqueued_sweep_resolves_to_registered_handler(monkeypatch):
+def test_enqueued_sweep_resolves_to_registered_handler(monkeypatch: pytest.MonkeyPatch) -> None:
     pool = Mock(enqueue_job=AsyncMock())
     monkeypatch.setattr(queue, "get_pool", AsyncMock(return_value=pool))
     worker_instance = Mock()
@@ -33,11 +39,18 @@ def test_enqueued_sweep_resolves_to_registered_handler(monkeypatch):
     ]
     assert len(cleanup_jobs) == 1
     assert cleanup_jobs[0].minute == set(range(60))
+    dispatch_jobs = [
+        job
+        for job in worker_factory.call_args.kwargs["cron_jobs"]
+        if job.coroutine is cron_dispatch_documents
+    ]
+    assert len(dispatch_jobs) == 1
+    assert dispatch_jobs[0].second == {0, 30}
+    assert dispatch_jobs[0].run_at_startup
     worker_instance.run.assert_called_once()
 
 
-def test_enqueued_deletion_resolves_to_registered_handler(monkeypatch):
-    from infrastructure.worker.document_deletion import delete_document
+def test_enqueued_deletion_resolves_to_registered_handler(monkeypatch: pytest.MonkeyPatch) -> None:
 
     pool = Mock(enqueue_job=AsyncMock())
     monkeypatch.setattr(queue, "get_pool", AsyncMock(return_value=pool))
@@ -55,34 +68,32 @@ def test_enqueued_deletion_resolves_to_registered_handler(monkeypatch):
     assert pool.enqueue_job.call_args.kwargs["job_id"] == 42
 
 
-def test_enqueued_billing_scope_survives_worker_retry(monkeypatch):
-    from application.budget import billing_principal
-    from infrastructure.budget.job_context import bill_job_to_initiator, next_operation_id, job_operations
+def test_enqueued_billing_scope_survives_worker_retry(monkeypatch: pytest.MonkeyPatch) -> None:
 
     pool = Mock(enqueue_job=AsyncMock())
-    monkeypatch.setattr(queue, 'get_pool', AsyncMock(return_value=pool))
+    monkeypatch.setattr(queue, "get_pool", AsyncMock(return_value=pool))
     observed = []
 
     @bill_job_to_initiator
-    async def action(ctx):
+    async def action(ctx: object) -> None:
         observed.append((billing_principal.get(), next_operation_id(), next_operation_id()))
 
-    async def run():
-        token = billing_principal.set('user:123')
+    async def run() -> None:
+        token = billing_principal.set("user:123")
         try:
-            await queue.enqueue_arq('test', 'action', arq_job_id='job')
+            await queue.enqueue_arq("test", "action", arq_job_id="job")
         finally:
             billing_principal.reset(token)
         arguments = pool.enqueue_job.call_args.kwargs
-        payload = {key: value for key, value in arguments.items() if not key.startswith('_')}
-        await action({'job_id': 'job', 'job_try': 1}, **payload)
-        await action({'job_id': 'job', 'job_try': 2}, **payload)
+        payload = {key: value for key, value in arguments.items() if not key.startswith("_")}
+        await action({"job_id": "job", "job_try": 1}, **payload)
+        await action({"job_id": "job", "job_try": 2}, **payload)
         assert observed[0] == observed[1]
-        assert observed[0][0] == 'user:123'
+        assert observed[0][0] == "user:123"
         assert observed[0][1] != observed[0][2]
         assert job_operations.get() is None
         assert billing_principal.get() is None
-        await queue.enqueue_arq('test', 'action', arq_job_id='job')
-        assert pool.enqueue_job.call_args.kwargs['cost_operation_id'] != payload['cost_operation_id']
+        await queue.enqueue_arq("test", "action", arq_job_id="job")
+        assert pool.enqueue_job.call_args.kwargs["cost_operation_id"] != payload["cost_operation_id"]
 
     asyncio.run(run())

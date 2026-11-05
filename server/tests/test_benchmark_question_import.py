@@ -1,14 +1,16 @@
 """Regression tests for active state in benchmark question JSON imports."""
 
+from __future__ import annotations
+
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from application.benchmark import BenchmarkQuestionService
-from domain.benchmark.question import BenchmarkQuestion
-from domain.benchmark.question import DEFAULT_DATASET
+from domain.benchmark.question import DEFAULT_DATASET, BenchmarkQuestion
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
@@ -17,10 +19,17 @@ from presentation.api.routes.benchmark_admin import export_questions, import_que
 from presentation.api.schemas.benchmark import BenchmarkQuestionCreate, BenchmarkQuestionsImportRequest
 
 
+if TYPE_CHECKING:
+    from presentation.api.schemas.auth import CurrentUser
+    from tests.fakes import FakeUnitOfWorkFactory
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("state", [True, False, None])
-async def test_create_preserves_active_state(fake_uow_factory, state):
-    payload = {"question": "Из скольких частей состоит электронный документ?"}
+async def test_create_preserves_active_state(
+    fake_uow_factory: FakeUnitOfWorkFactory, state: bool | None
+) -> None:
+    payload: dict[str, Any] = {"question": "Из скольких частей состоит электронный документ?"}
 
     if state is not None:
         payload["is_active"] = state
@@ -35,7 +44,9 @@ async def test_create_preserves_active_state(fake_uow_factory, state):
 
 
 @pytest.mark.asyncio
-async def test_import_persists_active_inactive_and_default_questions(fake_uow_factory):
+async def test_import_persists_active_inactive_and_default_questions(
+    fake_uow_factory: FakeUnitOfWorkFactory,
+) -> None:
     annotations = {"required_facts": [["двух", "две"]], "expected_refusal": False}
     body = BenchmarkQuestionsImportRequest.model_validate(
         {
@@ -51,7 +62,9 @@ async def test_import_persists_active_inactive_and_default_questions(fake_uow_fa
     fake_uow_factory._uow.benchmark_questions = SQLAlchemyBenchmarkQuestionRepository(session)
 
     result = await import_questions(
-        body=body, admin=SimpleNamespace(id=1), service=BenchmarkQuestionService(fake_uow_factory)
+        body=body,
+        admin=cast("CurrentUser", SimpleNamespace(id=1)),
+        service=BenchmarkQuestionService(fake_uow_factory),
     )
 
     assert result.imported == 3
@@ -64,7 +77,7 @@ async def test_import_persists_active_inactive_and_default_questions(fake_uow_fa
 
 
 @pytest.mark.asyncio
-async def test_export_retains_active_state_for_reimport():
+async def test_export_retains_active_state_for_reimport() -> None:
     service = SimpleNamespace(
         export=AsyncMock(
             return_value=[
@@ -74,13 +87,17 @@ async def test_export_retains_active_state_for_reimport():
         )
     )
 
-    exported = await export_questions(dataset=DEFAULT_DATASET, _admin=SimpleNamespace(id=1), service=service)
+    exported = await export_questions(
+        dataset=DEFAULT_DATASET,
+        _admin=cast("CurrentUser", SimpleNamespace(id=1)),
+        service=cast("BenchmarkQuestionService", service),
+    )
     imported = BenchmarkQuestionsImportRequest.model_validate({"questions": exported})
 
     assert [question.is_active for question in imported.questions] == [True, False]
 
 
 @pytest.mark.parametrize("extra", [{"unexpected": True}, {"is_active": None}])
-def test_import_still_rejects_unknown_fields_and_null_active_state(extra):
+def test_import_still_rejects_unknown_fields_and_null_active_state(extra: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         BenchmarkQuestionsImportRequest.model_validate({"questions": [{"question": "Q", **extra}]})

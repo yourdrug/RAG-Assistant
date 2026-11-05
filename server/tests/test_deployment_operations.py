@@ -1,21 +1,31 @@
 """Operational checks must report failures; restore must never overwrite live data."""
 
+from __future__ import annotations
+
 import json
 import os
+from pathlib import Path
 import runpy
 import shutil
 import subprocess
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
+
+
+if TYPE_CHECKING:
+    from io import BytesIO
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize("healthy", [True, False])
-def test_monitor_reports_readiness_and_uses_optional_webhook(tmp_path, monkeypatch, healthy):
+def test_monitor_reports_readiness_and_uses_optional_webhook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, healthy: bool
+) -> None:
     operations = tmp_path / "scripts/operations"
     operations.mkdir(parents=True)
     source = operations / "check_health.py"
@@ -25,8 +35,10 @@ def test_monitor_reports_readiness_and_uses_optional_webhook(tmp_path, monkeypat
     (tmp_path / ".deploy/last-backup-success").write_text("1000")
     monkeypatch.setattr("time.time", lambda: 1001)
     monkeypatch.setattr("shutil.disk_usage", lambda _: SimpleNamespace(free=80, total=100))
+
     for name in ("OPERATIONS_READY_URL", "OPERATIONS_BACKUP_MAX_AGE_SECONDS", "OPERATIONS_MIN_FREE_RATIO"):
         monkeypatch.delenv(name, raising=False)
+
     monkeypatch.setenv("OPERATIONS_ALERT_WEBHOOK", "https://example.test/alerts")
     response = MagicMock()
     response.__enter__.return_value.read.return_value = json.dumps(
@@ -34,11 +46,12 @@ def test_monitor_reports_readiness_and_uses_optional_webhook(tmp_path, monkeypat
     ).encode()
     calls = []
 
-    def urlopen(request, **kwargs):
+    def urlopen(request: Any, **kwargs: Any) -> BytesIO:
         calls.append(request)
         return response
 
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
+
     if healthy:
         runpy.run_path(str(source), run_name="__main__")
         assert len(calls) == 1
@@ -50,7 +63,7 @@ def test_monitor_reports_readiness_and_uses_optional_webhook(tmp_path, monkeypat
         assert "degraded" in json.loads(calls[1].data)["text"]
 
 
-def test_restore_refuses_existing_target_before_reading_archive(tmp_path):
+def test_restore_refuses_existing_target_before_reading_archive(tmp_path: Path) -> None:
     backup = tmp_path / "backup"
     backup.mkdir()
     target = tmp_path / "live-data"
@@ -63,6 +76,7 @@ def test_restore_refuses_existing_target_before_reading_archive(tmp_path):
         capture_output=True,
         text=True,
         timeout=5,
+        check=False,
     )
     assert result.returncode != 0
     assert "refusing to overwrite" in result.stderr

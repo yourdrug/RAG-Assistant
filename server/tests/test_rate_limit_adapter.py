@@ -2,23 +2,33 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
+from typing import TYPE_CHECKING, Any, cast
 
 import fakeredis.aioredis
 import pytest
 from redis.exceptions import RedisError
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from application.ports.rate_limit import (  # noqa: E402
+from pyrate_limiter import RateItem
+
+from application.ports.rate_limit import (
     RateLimitPolicy,
     RateLimitPolicyName,
     RateSpec,
 )
-from infrastructure.rate_limit.bucket_factory import RedisBucketFactory  # noqa: E402
-from infrastructure.rate_limit.limiter import PyrateRateLimiter  # noqa: E402
-from pyrate_limiter import RateItem  # noqa: E402
+from infrastructure.rate_limit.bucket_factory import RedisBucketFactory
+from infrastructure.rate_limit.limiter import PyrateRateLimiter
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
+    from redis.asyncio import Redis
+
 
 _KEY_PREFIX = "test:ratelimit:"
 
@@ -41,18 +51,22 @@ def _policies() -> dict[RateLimitPolicyName, RateLimitPolicy]:
 class _BrokenRedis:
     """Redis stand-in that always fails with a backend error."""
 
-    async def script_load(self, *args, **kwargs):
-        raise RedisError("redis is down")
+    async def script_load(self, *args: Any, **kwargs: Any) -> None:
+        _ = args, kwargs
+        msg = "redis is down"
+        raise RedisError(msg)
 
-    async def evalsha(self, *args, **kwargs):  # pragma: no cover - script_load fails first
-        raise RedisError("redis is down")
+    async def evalsha(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover - script_load fails first
+        _ = args, kwargs
+        msg = "redis is down"
+        raise RedisError(msg)
 
 
 class TestResolveViolation:
     """Test that resolve_violation returns the actual violated rate, not just the tightest."""
 
     @pytest.mark.asyncio
-    async def test_single_window_returns_correct_limit(self):
+    async def test_single_window_returns_correct_limit(self) -> None:
         limiter = PyrateRateLimiter(
             fakeredis.aioredis.FakeRedis(decode_responses=True),
             _policies(),
@@ -73,7 +87,7 @@ class TestResolveViolation:
         await limiter.aclose()
 
     @pytest.mark.asyncio
-    async def test_multi_window_violation_returns_correct_rate(self):
+    async def test_multi_window_violation_returns_correct_rate(self) -> None:
         """When the minute window is exceeded, resolve_violation returns the
         minute rate (limit=10, retry=60), NOT the daily rate (100/day).
         """
@@ -109,7 +123,7 @@ class TestResolveViolation:
         await limiter.aclose()
 
     @pytest.mark.asyncio
-    async def test_violation_fallback_on_missing_bucket(self):
+    async def test_violation_fallback_on_missing_bucket(self) -> None:
         """If bucket is not in cache, resolve_violation falls back to tightest_limit."""
         limiter = PyrateRateLimiter(
             fakeredis.aioredis.FakeRedis(decode_responses=True),
@@ -137,7 +151,7 @@ class TestResolveViolation:
 
 class TestPyrateRateLimiter:
     @pytest.mark.asyncio
-    async def test_allows_up_to_limit_then_denies(self):
+    async def test_allows_up_to_limit_then_denies(self) -> None:
         limiter = PyrateRateLimiter(
             fakeredis.aioredis.FakeRedis(decode_responses=True),
             _policies(),
@@ -159,7 +173,7 @@ class TestPyrateRateLimiter:
         await limiter.aclose()
 
     @pytest.mark.asyncio
-    async def test_principals_are_isolated(self):
+    async def test_principals_are_isolated(self) -> None:
         limiter = PyrateRateLimiter(
             fakeredis.aioredis.FakeRedis(decode_responses=True),
             _policies(),
@@ -180,7 +194,7 @@ class TestPyrateRateLimiter:
         await limiter.aclose()
 
     @pytest.mark.asyncio
-    async def test_sets_key_ttl_for_widest_window(self):
+    async def test_sets_key_ttl_for_widest_window(self) -> None:
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
         limiter = PyrateRateLimiter(
             redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10, fail_open=True
@@ -194,7 +208,7 @@ class TestPyrateRateLimiter:
         await limiter.aclose()
 
     @pytest.mark.asyncio
-    async def test_unknown_policy_raises(self):
+    async def test_unknown_policy_raises(self) -> None:
         limiter = PyrateRateLimiter(
             fakeredis.aioredis.FakeRedis(decode_responses=True),
             _policies(),
@@ -209,9 +223,9 @@ class TestPyrateRateLimiter:
         await limiter.aclose()
 
     @pytest.mark.asyncio
-    async def test_fail_open_on_backend_error(self):
+    async def test_fail_open_on_backend_error(self) -> None:
         limiter = PyrateRateLimiter(
-            _BrokenRedis(),
+            cast("Redis", _BrokenRedis()),
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
@@ -226,9 +240,9 @@ class TestPyrateRateLimiter:
         await limiter.aclose()
 
     @pytest.mark.asyncio
-    async def test_fail_closed_when_configured(self):
+    async def test_fail_closed_when_configured(self) -> None:
         limiter = PyrateRateLimiter(
-            _BrokenRedis(),
+            cast("Redis", _BrokenRedis()),
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
@@ -243,54 +257,62 @@ class TestPyrateRateLimiter:
 
         await limiter.aclose()
 
-    def test_empty_policies_rejected(self):
+    def test_empty_policies_rejected(self) -> None:
         with pytest.raises(ValueError, match="policies must not be empty"):
-            PyrateRateLimiter(_BrokenRedis(), {}, key_prefix=_KEY_PREFIX, max_buckets=10, fail_open=True)
+            PyrateRateLimiter(
+                cast("Redis", _BrokenRedis()), {}, key_prefix=_KEY_PREFIX, max_buckets=10, fail_open=True
+            )
 
-    def test_invalid_max_buckets_rejected(self):
+    def test_invalid_max_buckets_rejected(self) -> None:
         with pytest.raises(ValueError, match="max_buckets"):
             PyrateRateLimiter(
-                _BrokenRedis(), _policies(), key_prefix=_KEY_PREFIX, max_buckets=0, fail_open=True
+                cast("Redis", _BrokenRedis()),
+                _policies(),
+                key_prefix=_KEY_PREFIX,
+                max_buckets=0,
+                fail_open=True,
             )
 
 
 class _ExpireFailRedis:
     """Redis that works for script_load/evalsha but fails on expire."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._inner = fakeredis.aioredis.FakeRedis(decode_responses=True)
 
-    async def script_load(self, *a, **kw):
+    async def script_load(self, *a: Any, **kw: Any) -> Any:
         return await self._inner.script_load(*a, **kw)
 
-    async def evalsha(self, *a, **kw):
-        return await self._inner.evalsha(*a, **kw)
+    async def evalsha(self, *a: Any, **kw: Any) -> Any:
+        return await cast("Awaitable[Any]", self._inner.evalsha(*a, **kw))
 
-    async def time(self):
+    async def time(self) -> Any:
         return await self._inner.time()
 
-    async def expire(self, *a, **kw):
-        raise RedisError("expire failed")
+    async def expire(self, *a: Any, **kw: Any) -> None:
+        _ = a, kw
+        msg = "expire failed"
+        raise RedisError(msg)
 
-    async def zadd(self, *a, **kw):
+    async def zadd(self, *a: Any, **kw: Any) -> Any:
         return await self._inner.zadd(*a, **kw)
 
-    async def zremrangebyscore(self, *a, **kw):
+    async def zremrangebyscore(self, *a: Any, **kw: Any) -> Any:
         return await self._inner.zremrangebyscore(*a, **kw)
 
-    async def zcard(self, *a, **kw):
+    async def zcard(self, *a: Any, **kw: Any) -> Any:
         return await self._inner.zcard(*a, **kw)
 
-    async def zrange(self, *a, **kw):
+    async def zrange(self, *a: Any, **kw: Any) -> Any:
         return await self._inner.zrange(*a, **kw)
 
-    async def delete(self, *a, **kw):
+    async def delete(self, *a: Any, **kw: Any) -> Any:
         return await self._inner.delete(*a, **kw)
 
-    async def keys(self, *a, **kw):
+    async def keys(self, *a: Any, **kw: Any) -> Any:
         return await self._inner.keys(*a, **kw)
 
-    async def flushall(self, *a, **kw):
+    async def flushall(self, *a: Any, **kw: Any) -> Any:
         return await self._inner.flushall(*a, **kw)
 
 
@@ -298,9 +320,9 @@ class TestRefreshTtlException:
     """Cover limiter.py:106-107 — refresh_ttl exception handler."""
 
     @pytest.mark.asyncio
-    async def testrefresh_ttl_failure_does_not_break_allowed_path(self):
+    async def testrefresh_ttl_failure_does_not_break_allowed_path(self) -> None:
         limiter = PyrateRateLimiter(
-            _ExpireFailRedis(),
+            cast("Redis", _ExpireFailRedis()),
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
@@ -320,7 +342,7 @@ class TestDoubleCheckedLock:
     """Cover bucket_factory.py:63-64 — second check inside _creation_lock."""
 
     @pytest.mark.asyncio
-    async def test_cached_bucket_returned_inside_lock(self):
+    async def test_cached_bucket_returned_inside_lock(self) -> None:
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
         factory = RedisBucketFactory(redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10)
 
@@ -341,7 +363,7 @@ class TestLruEviction:
     """Cover bucket_factory.py:91-92 — evict_overflow loop body."""
 
     @pytest.mark.asyncio
-    async def test_evicts_oldest_when_max_buckets_reached(self):
+    async def test_evicts_oldest_when_max_buckets_reached(self) -> None:
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
         factory = RedisBucketFactory(redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=2)
 
@@ -361,7 +383,7 @@ class TestResolvePolicyError:
     """Cover bucket_factory.py:86-87 — resolve_policy ValueError."""
 
     @pytest.mark.asyncio
-    async def test_unknown_policy_in_item_name_raises(self):
+    async def test_unknown_policy_in_item_name_raises(self) -> None:
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
         factory = RedisBucketFactory(redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10)
 
@@ -375,7 +397,7 @@ class TestResolveViolationException:
     """Cover limiter.py:133-135 — resolve_violation exception handler."""
 
     @pytest.mark.asyncio
-    async def test_exception_in_bucket_lookup_falls_back(self):
+    async def test_exception_in_bucket_lookup_falls_back(self) -> None:
         limiter = PyrateRateLimiter(
             fakeredis.aioredis.FakeRedis(decode_responses=True),
             _policies(),
@@ -386,8 +408,10 @@ class TestResolveViolationException:
 
         # Corrupt buckets to force an exception in resolve_violation's try block
         class _BoomDict:
-            def get(self, *a, **kw):
-                raise RuntimeError("bucket lookup exploded")
+            def get(self, *a: Any, **kw: Any) -> None:
+                _ = a, kw
+                msg = "bucket lookup exploded"
+                raise RuntimeError(msg)
 
         limiter._factory.buckets = _BoomDict()  # type: ignore[assignment]
 

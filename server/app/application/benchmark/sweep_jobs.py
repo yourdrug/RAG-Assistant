@@ -28,17 +28,26 @@ class IncompleteEvaluationError(ValueError):
 def validate_sweep_coverage(results: list[dict[str, Any]]) -> None:
     evaluated = [r["full_metrics"] for r in results if r.get("llm_evaluated")]
     error_count = sum(r.get("judge_error_count", 0) for r in evaluated)
+    invalid_count = sum(r.get("invalid_annotation_count", 0) for r in evaluated)
     incomplete = sum(r.get("evaluation_complete") is False for r in results)
 
-    if error_count or incomplete:
+    if error_count or incomplete or invalid_count:
         total = sum(r.get("total_questions", 0) for r in evaluated)
         complete = sum(r.get("judge_evaluated_count", 0) for r in evaluated)
         # All configurations have run. Retain checkpoints and expose Resume
         # using the existing failed-sweep lifecycle, even with a valid winner.
-        message = (
-            f"Оценено {complete} из {total}, ошибок {error_count}. "
-            f"Неполных конфигураций: {incomplete}. Resume выполнит недостающие оценки."
-        )
+        message = f"Оценено {complete} из {total}, ошибок {error_count}. "
+
+        if invalid_count:
+            message += (
+                f"Пропущено из-за invalid_annotation: {invalid_count}. "
+                "Эталонные цитаты не подтверждены в доступном корпусе. "
+                "Проверьте аннотации и корпус, затем создайте новый sweep; "
+                "Resume сохраняет прежний dataset и checkpoints."
+            )
+        else:
+            message += f"Неполных конфигураций: {incomplete}. Resume выполнит недостающие оценки."
+
         raise IncompleteEvaluationError(message)
 
 
@@ -99,6 +108,7 @@ class SweepJobService:
                     "total_questions",
                     "judge_evaluated_count",
                     "judge_error_count",
+                    "invalid_annotation_count",
                     "total_input_tokens",
                     "total_output_tokens",
                     "total_judge_input_tokens",

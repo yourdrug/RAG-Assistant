@@ -2,46 +2,55 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
+
+from application.runtime.config import ConfigParameter
+from domain.shared.exceptions import EntityNotFoundError
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+
+from typing import TYPE_CHECKING
 
 import pytest
 
 from application.admin import ConfigService
-from application.runtime.config import ConfigParameterChanged
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from tests.fakes import FakeUnitOfWorkFactory
 
 
+if TYPE_CHECKING:
+    from application.runtime.config import ConfigParameterChanged
+
+
 class TestDomainSettingsAdapter:
-    def test_roundtrip(self):
+    def test_roundtrip(self) -> None:
         adapter = DomainSettingsAdapter()
         adapter.replace_snapshot({("max_unit_chars", "decree"): "1200"})
         assert adapter.get("max_unit_chars", domain_key="decree") == "1200"
 
-    def test_missing_key_raises_loudly(self):
+    def test_missing_key_raises_loudly(self) -> None:
         adapter = DomainSettingsAdapter()
         adapter.replace_snapshot({("some_global", "legal"): "1"})
         with pytest.raises(KeyError):
             adapter.get("max_unit_chars", domain_key="decree")
 
-    def test_no_hidden_cross_domain_fallback(self):
+    def test_no_hidden_cross_domain_fallback(self) -> None:
         """A value in another domain must never be silently reused."""
         adapter = DomainSettingsAdapter()
         adapter.replace_snapshot({("max_unit_chars", "legal"): "999"})
         with pytest.raises(KeyError):
             adapter.get("max_unit_chars", domain_key="decree")
 
-    def test_snapshot_and_get(self):
+    def test_snapshot_and_get(self) -> None:
         adapter = DomainSettingsAdapter()
         adapter.replace_snapshot({("max_unit_chars", "legal"): "1500"})
         assert adapter.get("max_unit_chars", domain_key="legal") == "1500"
 
-    def test_replace_snapshot_removes_old_values_and_copies_input(self):
+    def test_replace_snapshot_removes_old_values_and_copies_input(self) -> None:
         adapter = DomainSettingsAdapter()
         adapter.replace_snapshot({("old", "decree"): "1"})
         values = {("new", "legal"): "2"}
@@ -55,7 +64,7 @@ class TestDomainSettingsAdapter:
 
 
 class TestRegistryWithAdapter:
-    def test_threshold_from_settings_drives_general_fallback(self):
+    def test_threshold_from_settings_drives_general_fallback(self) -> None:
         """Unknown documents fall to general when the DB threshold is not met."""
         adapter = DomainSettingsAdapter()
         profile = DecreeDomainProfile(settings=adapter)
@@ -77,13 +86,13 @@ class TestRegistryWithAdapter:
 
 class TestConfigServiceDomainParams:
     @pytest.mark.asyncio
-    async def test_update_domain_parameter_publishes_with_domain_key(self):
+    async def test_update_domain_parameter_publishes_with_domain_key(self) -> None:
         factory = FakeUnitOfWorkFactory()
         uow = factory._uow
         await uow.config_parameters.save(_param("max_unit_chars", "1200", domain_key="decree"))
 
         events: list[ConfigParameterChanged] = []
-        bus = type("Bus", (), {"publish": staticmethod(lambda e: events.append(e))})()
+        bus = type("Bus", (), {"publish": staticmethod(events.append)})()
         service = ConfigService(uow_factory=factory, event_bus=bus)
 
         await service.update_parameter("max_unit_chars", "2000", changed_by=1, domain_key="decree")
@@ -93,22 +102,21 @@ class TestConfigServiceDomainParams:
         assert events[0].new_value == "2000"
         # DB row updated
         saved = await uow.config_parameters.get_by_key_and_domain("max_unit_chars", "decree")
+        assert saved is not None
         assert saved.value == "2000"
 
     @pytest.mark.asyncio
-    async def test_update_unknown_domain_param_raises(self):
+    async def test_update_unknown_domain_param_raises(self) -> None:
         service = ConfigService(
             uow_factory=FakeUnitOfWorkFactory(),
-            event_bus=type("Bus", (), {"publish": staticmethod(lambda e: None)})(),
+            event_bus=type("Bus", (), {"publish": staticmethod(lambda _e: None)})(),
         )
-        from domain.shared.exceptions import EntityNotFoundError
 
         with pytest.raises(EntityNotFoundError):
             await service.update_parameter("max_unit_chars", "1", domain_key="decree")
 
 
-def _param(key: str, value: str, domain_key: str | None):
-    from application.runtime.config import ConfigParameter
+def _param(key: str, value: str, domain_key: str | None) -> ConfigParameter:
 
     return ConfigParameter(
         key=key,

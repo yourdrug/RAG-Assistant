@@ -3,17 +3,23 @@
 Uses real bcrypt/jwt (deterministic, no external services needed).
 """
 
-import sys
+from __future__ import annotations
+
 from pathlib import Path
+import sys
+from typing import Any
 from unittest.mock import patch
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import jwt as _jwt  # noqa: E402
-import pytest  # noqa: E402
-from config import settings  # noqa: E402
-from infrastructure.auth.jwt_provider import JWTProvider  # noqa: E402
-from infrastructure.auth.password_hasher import BCryptPasswordHasher  # noqa: E402
+import jwt as _jwt
+import pytest
+
+from config import settings
+from infrastructure.auth.jwt_provider import JWTProvider
+from infrastructure.auth.password_hasher import BCryptPasswordHasher
+
 
 _hasher = BCryptPasswordHasher()
 _token_provider = JWTProvider()
@@ -31,7 +37,7 @@ def create_access_token(user_id: int, role: str) -> str:
     return _token_provider.create_token(user_id, role)
 
 
-def decode_access_token(token: str) -> dict:
+def decode_access_token(token: str) -> dict[str, Any]:
     return _token_provider.decode_token(token)
 
 
@@ -42,12 +48,12 @@ def decode_access_token(token: str) -> dict:
 
 class TestPasswordHashing:
     @pytest.mark.asyncio
-    async def test_hash_produces_bcrypt_string(self):
+    async def test_hash_produces_bcrypt_string(self) -> None:
         h = await hash_password("mypassword")
         assert h.startswith("$2")
 
     @pytest.mark.asyncio
-    async def test_hash_is_deterministic_for_same_input_different_salts(self):
+    async def test_hash_is_deterministic_for_same_input_different_salts(self) -> None:
         h1 = await hash_password("test")
         h2 = await hash_password("test")
         # Different salts -> different hashes, but both valid
@@ -56,35 +62,35 @@ class TestPasswordHashing:
         assert await verify_password("test", h2)
 
     @pytest.mark.asyncio
-    async def test_verify_correct_password(self):
+    async def test_verify_correct_password(self) -> None:
         h = await hash_password("secret123")
         assert await verify_password("secret123", h) is True
 
     @pytest.mark.asyncio
-    async def test_verify_wrong_password(self):
+    async def test_verify_wrong_password(self) -> None:
         h = await hash_password("secret123")
         assert await verify_password("wrong", h) is False
 
     @pytest.mark.asyncio
-    async def test_verify_empty_password_against_hash(self):
+    async def test_verify_empty_password_against_hash(self) -> None:
         h = await hash_password("notempty")
         assert await verify_password("", h) is False
 
     @pytest.mark.asyncio
-    async def test_verify_with_invalid_hash_returns_false(self):
+    async def test_verify_with_invalid_hash_returns_false(self) -> None:
         assert await verify_password("password", "not-a-valid-hash") is False
 
     @pytest.mark.asyncio
-    async def test_verify_with_empty_hash_returns_false(self):
+    async def test_verify_with_empty_hash_returns_false(self) -> None:
         assert await verify_password("password", "") is False
 
     @pytest.mark.asyncio
-    async def test_unicode_password(self):
+    async def test_unicode_password(self) -> None:
         h = await hash_password("Пароль123!@#")
         assert await verify_password("Пароль123!@#", h) is True
 
     @pytest.mark.asyncio
-    async def test_long_password(self):
+    async def test_long_password(self) -> None:
         long_pw = "a" * 1000
         h = await hash_password(long_pw)
         assert await verify_password(long_pw, h) is True
@@ -96,71 +102,91 @@ class TestPasswordHashing:
 
 
 class TestJWT:
-    def test_create_and_decode_token(self):
-        with patch.object(settings, "jwt_secret_key", "test-secret-key-for-testing"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with patch.object(settings, "jwt_expire_minutes", 60):
-                    token = create_access_token(user_id=42, role="admin")
-                    payload = decode_access_token(token)
-                    assert payload["sub"] == "42"
-                    assert payload["role"] == "admin"
+    def test_create_and_decode_token(self) -> None:
+        with (
+            patch.object(settings, "jwt_secret_key", "test-secret-key-for-testing"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            patch.object(settings, "jwt_expire_minutes", 60),
+        ):
+            token = create_access_token(user_id=42, role="admin")
+            payload = decode_access_token(token)
+            assert payload["sub"] == "42"
+            assert payload["role"] == "admin"
 
-    def test_token_contains_exp(self):
-        with patch.object(settings, "jwt_secret_key", "test-secret"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with patch.object(settings, "jwt_expire_minutes", 60):
-                    token = create_access_token(user_id=1, role="user")
-                    payload = decode_access_token(token)
-                    assert "exp" in payload
+    def test_token_contains_exp(self) -> None:
+        with (
+            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            patch.object(settings, "jwt_expire_minutes", 60),
+        ):
+            token = create_access_token(user_id=1, role="user")
+            payload = decode_access_token(token)
+            assert "exp" in payload
 
-    def test_decode_with_wrong_secret_raises(self):
-        with patch.object(settings, "jwt_secret_key", "correct-secret"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with patch.object(settings, "jwt_expire_minutes", 60):
-                    token = create_access_token(user_id=1, role="user")
+    def test_decode_with_wrong_secret_raises(self) -> None:
+        with (
+            patch.object(settings, "jwt_secret_key", "correct-secret"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            patch.object(settings, "jwt_expire_minutes", 60),
+        ):
+            token = create_access_token(user_id=1, role="user")
 
-        with patch.object(settings, "jwt_secret_key", "different-secret"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with pytest.raises(_jwt.exceptions.InvalidSignatureError):
-                    decode_access_token(token)
+        with (
+            patch.object(settings, "jwt_secret_key", "different-secret"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            pytest.raises(_jwt.exceptions.InvalidSignatureError),
+        ):
+            decode_access_token(token)
 
-    def test_decode_garbage_token_raises(self):
-        with patch.object(settings, "jwt_secret_key", "test-secret"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with pytest.raises((_jwt.exceptions.DecodeError, _jwt.exceptions.InvalidTokenError)):
-                    decode_access_token("not.a.jwt")
+    def test_decode_garbage_token_raises(self) -> None:
+        with (
+            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            pytest.raises((_jwt.exceptions.DecodeError, _jwt.exceptions.InvalidTokenError)),
+        ):
+            decode_access_token("not.a.jwt")
 
-    def test_decode_empty_string_raises(self):
-        with patch.object(settings, "jwt_secret_key", "test-secret"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with pytest.raises((_jwt.exceptions.DecodeError, _jwt.exceptions.InvalidTokenError)):
-                    decode_access_token("")
+    def test_decode_empty_string_raises(self) -> None:
+        with (
+            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            pytest.raises((_jwt.exceptions.DecodeError, _jwt.exceptions.InvalidTokenError)),
+        ):
+            decode_access_token("")
 
-    def test_token_with_different_role(self):
-        with patch.object(settings, "jwt_secret_key", "test-secret"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with patch.object(settings, "jwt_expire_minutes", 60):
-                    token = create_access_token(user_id=1, role="superadmin")
-                    payload = decode_access_token(token)
-                    assert payload["role"] == "superadmin"
+    def test_token_with_different_role(self) -> None:
+        with (
+            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            patch.object(settings, "jwt_expire_minutes", 60),
+        ):
+            token = create_access_token(user_id=1, role="superadmin")
+            payload = decode_access_token(token)
+            assert payload["role"] == "superadmin"
 
-    def test_different_users_different_tokens(self):
-        with patch.object(settings, "jwt_secret_key", "test-secret"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with patch.object(settings, "jwt_expire_minutes", 60):
-                    t1 = create_access_token(user_id=1, role="user")
-                    t2 = create_access_token(user_id=2, role="user")
-                    p1 = decode_access_token(t1)
-                    p2 = decode_access_token(t2)
-                    assert p1["sub"] != p2["sub"]
+    def test_different_users_different_tokens(self) -> None:
+        with (
+            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            patch.object(settings, "jwt_expire_minutes", 60),
+        ):
+            t1 = create_access_token(user_id=1, role="user")
+            t2 = create_access_token(user_id=2, role="user")
+            p1 = decode_access_token(t1)
+            p2 = decode_access_token(t2)
+            assert p1["sub"] != p2["sub"]
 
-    def test_expired_token_raises(self):
-        with patch.object(settings, "jwt_secret_key", "test-secret"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with patch.object(settings, "jwt_expire_minutes", -1):
-                    token = create_access_token(user_id=1, role="user")
+    def test_expired_token_raises(self) -> None:
+        with (
+            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            patch.object(settings, "jwt_expire_minutes", -1),
+        ):
+            token = create_access_token(user_id=1, role="user")
 
-        with patch.object(settings, "jwt_secret_key", "test-secret"):
-            with patch.object(settings, "jwt_algorithm", "HS256"):
-                with pytest.raises(_jwt.exceptions.ExpiredSignatureError):
-                    decode_access_token(token)
+        with (
+            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_algorithm", "HS256"),
+            pytest.raises(_jwt.exceptions.ExpiredSignatureError),
+        ):
+            decode_access_token(token)

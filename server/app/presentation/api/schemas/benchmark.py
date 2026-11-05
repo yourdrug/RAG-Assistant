@@ -79,6 +79,10 @@ class BenchmarkQuestionCreate(BaseModel):
     is_active: bool = True
     notes: str | None = None
 
+    case_id: str | None = Field(default=None, min_length=1, max_length=100)
+    variant_of: str | None = Field(default=None, min_length=1, max_length=100)
+    question_style: str | None = Field(default=None, min_length=1, max_length=100)
+
 
 class BenchmarkQuestionUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -96,6 +100,10 @@ class BenchmarkQuestionUpdate(BaseModel):
     dataset: str | None = None
     is_active: bool | None = None
     notes: str | None = None
+
+    case_id: str | None = Field(default=None, min_length=1, max_length=100)
+    variant_of: str | None = Field(default=None, min_length=1, max_length=100)
+    question_style: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class BenchmarkQuestionResponse(BaseModel):
@@ -115,6 +123,10 @@ class BenchmarkQuestionResponse(BaseModel):
     created_by: int | None = None
     notes: str | None = None
     creation_date: datetime | None = None
+
+    case_id: str | None = Field(default=None, min_length=1, max_length=100)
+    variant_of: str | None = Field(default=None, min_length=1, max_length=100)
+    question_style: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class BenchmarkQuestionsListResponse(BaseModel):

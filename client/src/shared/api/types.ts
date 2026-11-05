@@ -374,7 +374,6 @@ export interface MetricsResponse {
   db_pool: Record<string, number>;
   qdrant: Record<string, number>;
   bm25: Record<string, number>;
-  ollama: Array<{ model: string; gpu_bytes: number; ram_bytes: number }>;
   rag: Record<string, number | Record<string, number>>;
   ingestion: Record<string, number | Record<string, number>>;
   http_requests: Record<string, number | Record<string, number>>;

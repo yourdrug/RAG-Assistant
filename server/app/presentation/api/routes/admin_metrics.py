@@ -26,7 +26,6 @@ async def get_metrics(
         db_pool=result.db_pool,
         qdrant=result.qdrant,
         bm25=result.bm25,
-        ollama=result.ollama,
         rag=result.rag,
         ingestion=result.ingestion,
         http_requests=result.http_requests,

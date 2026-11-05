@@ -1,7 +1,7 @@
 """Characterization tests for RagService.stream() — the 270-line god-method.
 
 Locks down the full RAG pipeline orchestration BEFORE refactoring.
-Every test mocks external I/O (Qdrant, Ollama, Redis) and verifies
+Every test mocks external I/O (Qdrant, LLM, Redis) and verifies
 the event sequence produced by stream().
 
 """

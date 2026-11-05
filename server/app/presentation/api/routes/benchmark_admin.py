@@ -222,6 +222,9 @@ async def export_questions(
             "expected_answer": q.expected_answer,
             "source_hint": q.source_hint,
             "annotations": q.annotations,
+            "case_id": q.case_id,
+            "variant_of": q.variant_of,
+            "question_style": q.question_style,
             "tags": q.tags,
             "dataset": q.dataset,
             "is_active": q.is_active,
@@ -491,11 +494,15 @@ async def benchmark_history(
     points = []
 
     for r in runs:
+        if r.id is None:
+            message = "BenchmarkRun saved with None id"
+            raise RuntimeError(message)
+
         metrics = r.summary_metrics or {}
         config_summary = {k: r.config_json.get(k) for k in HISTORY_CONFIG_KEYS if k in r.config_json}
         points.append(
             BenchmarkHistoryPoint(
-                run_id=r.id,  # type: ignore[arg-type]
+                run_id=r.id,
                 creation_date=r.creation_date,
                 metrics=metrics,
                 config_summary=config_summary,

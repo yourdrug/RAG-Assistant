@@ -29,7 +29,6 @@ log = logging.getLogger("default")
 
 _BASE_BACKOFF_SEC = 5
 _MAX_BACKOFF_SEC = 900  # 15 minutes
-_OUTBOX_CONCURRENCY = 5  # max parallel entry processing tasks
 
 
 class OutboxDispatcher:
@@ -50,7 +49,7 @@ class OutboxDispatcher:
         self._vector_store = vector_store
         self._cache_invalidator = cache_invalidator
         self._worker_id = f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
-        self._semaphore = asyncio.Semaphore(_OUTBOX_CONCURRENCY)
+        self._semaphore = asyncio.Semaphore(settings.outbox_max_concurrent)
 
     async def run_once(self, batch_size: int = 20) -> int:
         """Process one batch of outbox entries. Returns the number of processed entries."""

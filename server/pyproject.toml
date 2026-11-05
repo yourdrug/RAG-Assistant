@@ -4,7 +4,7 @@ version = "0.1.0"
 
 requires-python = "==3.12.*"
 
-description = "Корпоративный RAG-ассистент — FastAPI + Qdrant + Ollama, локальный стек"
+description = "Корпоративный RAG-ассистент — FastAPI + Qdrant + OpenRouter"
 readme = "../README.md"
 
 authors = [
@@ -32,7 +32,6 @@ dependencies = [
     # --- ML / RAG ---
     "langchain==0.3.7",
     "langchain-core==0.3.63",
-    "langchain-ollama==0.2.1",
     "langchain-openai>=0.2.0",
     "openai==1.109.1",
     "numpy==1.26.4",
@@ -150,7 +149,6 @@ torch = [
 grpcio-tools = ["setuptools<81"]
 
 [tool.ruff]
-extend = "ruff-baseline.toml"
 line-length = 110
 target-version = "py312"
 src = ["app", "tests", "tools"]
@@ -329,104 +327,6 @@ disallow_any_decorated = false
 # ignore_missing_imports = true
 
 
-# Temporary file-specific mypy baseline, 2026-10-16. See ../LINT_DEBT.md.
-[[tool.mypy.overrides]]
-module = [
-    "tests.integration.test_configuration_cost_corpus_postgres",
-    "tests.integration.test_corpus_qdrant",
-    "tests.integration.test_dynamic_rate_limit_redis",
-    "tests.integration.test_sweep_evaluation_mode",
-    "tests.integration.test_sweep_judge_model",
-    "tests.test_acl",
-    "tests.test_act_version_timeline",
-    "tests.test_act_versioning",
-    "tests.test_api_asgi",
-    "tests.test_auth",
-    "tests.test_benchmark_characterization",
-    "tests.test_benchmark_checkpoint_cleanup",
-    "tests.test_benchmark_database_dataset",
-    "tests.test_benchmark_database_history",
-    "tests.test_benchmark_dataset_catalog_api",
-    "tests.test_benchmark_evidence",
-    "tests.test_benchmark_exports",
-    "tests.test_benchmark_import_rate_limit",
-    "tests.test_benchmark_judge_rubric",
-    "tests.test_benchmark_judge_selection",
-    "tests.test_benchmark_ml_characterization",
-    "tests.test_benchmark_question_import",
-    "tests.test_benchmark_recovery",
-    "tests.test_benchmark_runner",
-    "tests.test_benchmark_source_hints",
-    "tests.test_budget_corpus_regressions",
-    "tests.test_chat_security_logging",
-    "tests.test_chunk_context_persistence",
-    "tests.test_chunk_service",
-    "tests.test_circuit_breaker",
-    "tests.test_cli_domain_bootstrap",
-    "tests.test_cli_versioning",
-    "tests.test_compare_frozen_generation",
-    "tests.test_config_env_migration",
-    "tests.test_config_static_boundaries",
-    "tests.test_configuration_bootstrap",
-    "tests.test_configuration_deployment",
-    "tests.test_configuration_sources",
-    "tests.test_container",
-    "tests.test_curator_role",
-    "tests.test_curator_scope",
-    "tests.test_cursor_pagination",
-    "tests.test_deployment_health",
-    "tests.test_deployment_operations",
-    "tests.test_deployment_scripts",
-    "tests.test_document_commands_characterization",
-    "tests.test_document_deletion_jobs",
-    "tests.test_document_filename_slot",
-    "tests.test_document_processor_characterization",
-    "tests.test_document_service",
-    "tests.test_docx_archive_safety",
-    "tests.test_domain_access_control",
-    "tests.test_domain_coverage_gaps",
-    "tests.test_domain_entities",
-    "tests.test_domain_profiles",
-    "tests.test_domain_registry",
-    "tests.test_domain_settings_hotreload",
-    "tests.test_dynamic_operational_settings",
-    "tests.test_fixed_generation_reading",
-    "tests.test_generation_completeness_reading",
-    "tests.test_grouped_benchmark_judge",
-    "tests.test_ingest_service_path_guard",
-    "tests.test_ingestion_domain_validation",
-    "tests.test_job_details",
-    "tests.test_judge_metric_checkpoints",
-    "tests.test_judge_retry",
-    "tests.test_judge_truncation",
-    "tests.test_manual_chunk_versioning",
-    "tests.test_pii_redactor_adapter",
-    "tests.test_postgres_config_listener",
-    "tests.test_qdrant_retry",
-    "tests.test_rate_limit_adapter",
-    "tests.test_rate_limit_dependency",
-    "tests.test_rate_limit_hotreload",
-    "tests.test_rate_limit_policies",
-    "tests.test_rate_limit_redis_integration",
-    "tests.test_rate_limit_route_coverage",
-    "tests.test_retry",
-    "tests.test_review_bug_regressions",
-    "tests.test_saga_outbox",
-    "tests.test_saved_judge_calibration",
-    "tests.test_solid_characterization",
-    "tests.test_solid_regressions",
-    "tests.test_structured_split",
-    "tests.test_temporal_versioning_regressions",
-    "tests.test_text_quality",
-    "tests.test_user_service",
-    "tests.test_validators",
-    "tests.test_worker_job_tracking",
-    "tests.test_worker_resource_lifecycle",
-    "tests.test_worker_sweep_lifecycle",
-    "tests.test_worker_task_registration",
-]
-ignore_errors = true
-
 [tool.importlinter]
 root_packages = ["domain", "application", "infrastructure", "presentation", "composition"]
 include_external_packages = true
@@ -448,7 +348,7 @@ source_modules = ["domain"]
 forbidden_modules = [
     "config", "fastapi", "starlette", "sqlalchemy", "pydantic", "pydantic_settings",
     "httpx", "redis", "qdrant_client",
-    "langchain", "langchain_core", "langchain_ollama", "langchain_openai",
+    "langchain", "langchain_core", "langchain_openai",
 ]
 
 [[tool.importlinter.contracts]]
@@ -864,7 +764,7 @@ forbidden_modules = [
     "application.identity", "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.uow", "application.ports",
-    "langchain", "langchain_core", "langchain_ollama", "langchain_openai",
+    "langchain", "langchain_core", "langchain_openai",
 ]
 
 

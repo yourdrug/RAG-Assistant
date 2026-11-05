@@ -16,7 +16,6 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from application.runtime.enums import LLMProvider
 from config import get_request_settings
 from domain.chat.message import MessageRole
 from domain.rag.exceptions import ContextBudgetExceededError
@@ -159,11 +158,7 @@ async def decompose_question(
         log.warning("decompose_question called without instructor_client, returning original")
         return [question]
 
-    model = (
-        get_request_settings().llm_model
-        if get_request_settings().llm_provider == LLMProvider.OLLAMA
-        else get_request_settings().openrouter_model
-    )
+    model = get_request_settings().openrouter_model
 
     async def call_model() -> DecompositionCheck:
         return await asyncio.wait_for(

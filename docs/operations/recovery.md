@@ -18,7 +18,7 @@
 
 В копию не входят `server/.env`, `server/.env.secrets`, `client/.env`,
 `.operations.env`, конфигурационные файлы в `data/db/postgres/`, TLS-сертификаты,
-код приложения и веса Ollama/кэш TEI. Храните нужные для запуска версии этих файлов
+код приложения и кэш TEI. Храните нужные для запуска версии этих файлов
 и сертификатов отдельно, в защищённом и доступном при аварии месте. Данные MinIO,
 PostgreSQL и векторы содержат пользовательский корпус; скрипт не шифрует архив.
 
@@ -34,10 +34,9 @@ S3 или внешнего Qdrant архив из этого скрипта не
 
 | Что записать | Откуда взять / что сохранить |
 |---|---|
-| Release приложения и образы | Версия приложения, `release.env`, `images.txt`; для точного восстановления — digest образов API/worker, TEI и Ollama. |
+| Release приложения и образы | Версия приложения, `release.env`, `images.txt`; для точного восстановления — digest образов API/worker и TEI. |
 | Применённая runtime-конфигурация | Значения из admin status/effective, `applied_version`, доменные overrides. Укажите `ml_provider`, `llm_provider`, выбранные модели, `embedding_revision`, `embed_dim` и `collection_name`. |
 | Локальные TEI-модели | Repo ID и точный Hugging Face commit каждой модели, параметры запуска TEI, отдельная копия каталогов `data/tei_cache/bge-m3` и `data/tei_cache/bge-reranker-v2-m3` с весами, конфигурацией и токенизаторами. |
-| Ollama | Имя и tag используемой модели, её ID/digest, отдельная копия `data/ollama_models`; список установленных моделей можно посмотреть через `compose exec ollama ollama list`. |
 | Облачные модели | Provider, точные ID embedding/reranker/LLM и доступная провайдеру версия. Отметьте, если провайдер не гарантирует неизменность модели по ID. |
 | Хранилище весов | Достижимый при потере хоста адрес отдельной копии, её контрольные суммы, дата проверки и порядок получения доступа. Секреты храните отдельно от паспорта. |
 
@@ -139,14 +138,12 @@ MinIO и не является полной репетицией аварийн�
 
    ```bash
    source scripts/operations/compose.sh
-   compose up -d --wait postgres redis qdrant minio ollama
+   compose up -d --wait postgres redis qdrant minio
    ```
 
    До запуска API/worker восстановите модели, исключённые из архива данных.
    Для локального TEI верните согласованные с корпусом веса, конфигурацию и
    токенизаторы в `data/tei_cache/bge-m3` и `data/tei_cache/bge-reranker-v2-m3`.
-   Для Ollama восстановите `data/ollama_models` из отдельной копии или скачайте
-   требуемую модель через `compose exec ollama ollama pull <model>`.
    Не подменяйте embedding-модель другой ревизией при восстановлении индекса.
 
    Если используется профиль TEI, запустите его сервисы и дождитесь health status

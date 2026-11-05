@@ -14,4 +14,4 @@ compose_args=(--env-file server/.env)
 compose_args+=(-f docker-compose.yml)
 [[ "$BUILD_TARGET" != gpu ]] || compose_args+=(-f docker-compose.gpu.yml)
 compose() { docker compose "${compose_args[@]}" "$@"; }
-# Compose reads COMPOSE_PROFILES from the shell or --env-file; ML provider lives in PostgreSQL.
+# Compose reads COMPOSE_PROFILES and ML_PROVIDER from the shell or --env-file.

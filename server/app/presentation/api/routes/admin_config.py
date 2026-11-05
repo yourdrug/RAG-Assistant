@@ -155,7 +155,6 @@ async def models_info(
         rerank_model=info.rerank_model,
         ocr_engine=info.ocr_engine,
         ocr_enabled=info.ocr_enabled,
-        ollama_models=info.ollama_models,
         openrouter_model=info.openrouter_model,
         ml_provider=info.ml_provider,
     )

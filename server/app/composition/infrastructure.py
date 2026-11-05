@@ -47,7 +47,7 @@ from infrastructure.events.in_process_event_bus import event_bus
 from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
-from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
+from infrastructure.health.system_health_probe import QdrantInfo, SystemHealthProbe
 from infrastructure.initialization import seed_config_defaults, seed_domain_config_defaults
 from infrastructure.metrics.metrics import HTTP_REQUESTS_TOTAL
 from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
@@ -296,7 +296,6 @@ class ServiceContainer:
     """Auxiliary infrastructure services: health, admin, auth, presentation adapters."""
 
     health_probe: SystemHealthProbe | None = field(default=None)
-    ollama_probe: OllamaProbe | None = field(default=None)
     qdrant_info: QdrantInfo | None = field(default=None)
     api_key_provider: ApiKeyProviderPort | None = field(default=None)
     action_logger: ActionLoggerPort | None = field(default=None)
@@ -312,7 +311,6 @@ class ServiceContainer:
     def init(self) -> None:
 
         self.health_probe = SystemHealthProbe()
-        self.ollama_probe = OllamaProbe(health_probe=self.health_probe)
         self.qdrant_info = QdrantInfo(health_probe=self.health_probe)
         self.api_key_provider = api_key_provider
         self.action_logger = ActionLoggerAdapter()
@@ -329,10 +327,6 @@ class ServiceContainer:
     @property
     def health(self) -> SystemHealthProbe:
         return require(self.health_probe, "health_probe")
-
-    @property
-    def ollama(self) -> OllamaProbe:
-        return require(self.ollama_probe, "ollama_probe")
 
     @property
     def vectordb(self) -> QdrantInfo:
@@ -489,7 +483,6 @@ class InfrastructureContainer:
 
         if event.key in {
             "llm_provider",
-            "llm_model",
             "llm_temperature",
             "llm_top_p",
             "llm_num_ctx_narrow",

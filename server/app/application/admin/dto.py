@@ -16,7 +16,6 @@ class ModelsInfo:
     rerank_model: str
     ocr_engine: str
     ocr_enabled: bool
-    ollama_models: list[str] = field(default_factory=list)
     openrouter_model: str | None = None
     ml_provider: str = MLProvider.TEI.value
 

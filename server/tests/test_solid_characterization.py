@@ -1,52 +1,64 @@
 """Public workflow contracts captured before splitting the implementation."""
 
-from domain.knowledge.repositories.chunk import ChunkInsertOptions
+from __future__ import annotations
+
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, Self, cast
 from unittest.mock import AsyncMock, MagicMock
 
+from langchain.schema import Document
 import pytest
 
-from config import _settings_overrides, get_setting, settings
-from domain.knowledge.chunk import ChunkInsert
-from domain.benchmark.sweep import BenchmarkSweep
-from infrastructure.benchmark.judging import evidence_judge
-from infrastructure.benchmark.judging import judge
-from infrastructure.benchmark.evaluation import metrics
-from infrastructure.benchmark.judging import context_judge
-from infrastructure.benchmark.reporting import progress as persistence
-from infrastructure.benchmark.evaluation.runner import run_benchmark_async
 from application.benchmark.sweep_ports import SweepCancelled
 from composition.service_providers import build_sweep_engine
+from config import _settings_overrides, get_setting, settings
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.knowledge.chunk import ChunkInsert
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
+from infrastructure.benchmark.evaluation import metrics
+from infrastructure.benchmark.evaluation.runner import run_benchmark_async
+from infrastructure.benchmark.judging import context_judge, evidence_judge, judge
+from infrastructure.benchmark.reporting import progress as persistence
+from infrastructure.ml.rag.benchmark_evidence import capture_prompt
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
+from tests.fakes import FakeUnitOfWorkFactory
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from application.benchmark.sweep import SweepEngine
 
 
 @pytest.fixture
-def benchmark_io(monkeypatch):
+def benchmark_io(monkeypatch: pytest.MonkeyPatch) -> tuple[list[dict[str, Any]], AsyncMock]:
     # These characterize the individual judge path mocked below.
     monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
     questions = [{"id": "first", "question": "question", "source_hint": "report"}]
     monkeypatch.setattr(
-        evidence_judge, "judge_evidence", lambda *args, **kwargs: {"scores": {}, "details": {}}
+        evidence_judge, "judge_evidence", lambda *_args, **_kwargs: {"scores": {}, "details": {}}
     )
     score = AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": None})
     monkeypatch.setattr(judge, "judge_answer_async", score)
     monkeypatch.setattr(
-        context_judge, "compute_context_precision_recall", lambda *a, **kw: {"context_precision": 6}
+        context_judge, "compute_context_precision_recall", lambda *_a, **_kw: {"context_precision": 6}
     )
-    monkeypatch.setattr(metrics, "estimate_cost_usd", lambda *a: 0.25)
-    monkeypatch.setattr(persistence, "log_question_result", lambda *a: None)
-    monkeypatch.setattr(persistence, "log_summary", lambda *a: None)
+    monkeypatch.setattr(metrics, "estimate_cost_usd", lambda *_a: 0.25)
+    monkeypatch.setattr(persistence, "log_question_result", lambda *_a: None)
+    monkeypatch.setattr(persistence, "log_summary", lambda *_a: None)
     return questions, score
 
 
 @pytest.mark.asyncio
-async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(benchmark_io):
+async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(
+    benchmark_io: tuple[list[dict[str, Any]], AsyncMock],
+) -> None:
     questions, score = benchmark_io
     contexts = []
 
-    async def invoke(question, history, ctx):
-        from langchain.schema import Document
-        from infrastructure.ml.rag.benchmark_evidence import capture_prompt
+    async def invoke(question: object, history: object, ctx: Any) -> SimpleNamespace:
 
         assert get_setting("cache_enabled") is False
         contexts.append(ctx)
@@ -78,7 +90,9 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(be
 
 
 @pytest.mark.asyncio
-async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(benchmark_io):
+async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(
+    benchmark_io: tuple[list[dict[str, Any]], AsyncMock],
+) -> None:
     questions, _ = benchmark_io
     previous = _settings_overrides.get()
     rag = SimpleNamespace(invoke=AsyncMock(side_effect=RuntimeError("pipeline failed")))
@@ -88,20 +102,20 @@ async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(benc
 
 
 @pytest.fixture
-def grid_engine(monkeypatch):
-    engine = build_sweep_engine(uow_factory=None)
+def grid_engine(monkeypatch: pytest.MonkeyPatch) -> SweepEngine:
+    engine = build_sweep_engine(uow_factory=FakeUnitOfWorkFactory())
     monkeypatch.setattr(
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )
     monkeypatch.setattr(engine, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
     monkeypatch.setattr(
-        engine, "score_config_cheap", lambda cfg, *a, **_kwargs: {"composite_score": cfg["top_k"]}
+        engine, "score_config_cheap", lambda cfg, *_a, **_kwargs: {"composite_score": cfg["top_k"]}
     )
     return engine
 
 
 @pytest.mark.asyncio
-async def test_grid_sweep_scores_sorts_and_reports_progress(grid_engine):
+async def test_grid_sweep_scores_sorts_and_reports_progress(grid_engine: Any) -> None:
     progress = []
     sweep = BenchmarkSweep(search_space={"top_k": {"values": [2, 5]}}, top_n_llm=0)
     results = await grid_engine.run_sweep(
@@ -112,7 +126,7 @@ async def test_grid_sweep_scores_sorts_and_reports_progress(grid_engine):
 
 
 @pytest.mark.asyncio
-async def test_sweep_cancels_before_scoring(grid_engine, monkeypatch):
+async def test_sweep_cancels_before_scoring(grid_engine: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     score = MagicMock()
     monkeypatch.setattr(grid_engine, "score_config_cheap", score)
     sweep = BenchmarkSweep(search_space={"top_k": {"values": [2]}}, top_n_llm=0)
@@ -122,7 +136,9 @@ async def test_sweep_cancels_before_scoring(grid_engine, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(grid_engine, monkeypatch):
+async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(
+    grid_engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     token = _settings_overrides.set({"cache_enabled": True, "retriever_top_k": 99})
     monkeypatch.setattr(
         grid_engine, "run_full_benchmark", AsyncMock(side_effect=RuntimeError("judge failed"))
@@ -137,40 +153,38 @@ async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(grid_
 
 
 @pytest.mark.asyncio
-async def test_chunk_corpus_stream_closes_result_on_early_stop():
+async def test_chunk_corpus_stream_closes_result_on_early_stop() -> None:
     class Rows:
         closed = False
 
-        def __aiter__(self):
+        def __aiter__(self) -> Self:
             return self
 
-        async def __anext__(self):
+        async def __anext__(self) -> tuple[str, str, int, None]:
             return ("content", "internal_private", 10, None)
 
-        async def close(self):
+        async def close(self) -> None:
             self.closed = True
 
     rows = Rows()
     session = SimpleNamespace(stream=AsyncMock(return_value=rows))
-    stream = SQLAlchemyChunkRepository(session).iter_all_contents_with_acl(batch_size=7)
+    stream = SQLAlchemyChunkRepository(cast("AsyncSession", session)).iter_all_contents_with_acl(batch_size=7)
     assert await anext(stream) == ("content", "internal_private", 10, None)
-    await stream.aclose()
+    await cast("AsyncGenerator[object, None]", stream).aclose()
     assert rows.closed
     assert session.stream.call_args.args[0].get_execution_options()["yield_per"] == 7
 
 
 @pytest.mark.asyncio
-async def test_chunk_bulk_replacement_keeps_acl_and_metadata_in_shared_session():
-    added = []
+async def test_chunk_bulk_replacement_keeps_acl_and_metadata_in_shared_session() -> None:
+    added: list[Any] = []
 
-    async def flush():
+    async def flush() -> None:
         for idx, item in enumerate(added, 10):
             item.id = idx
 
-    session = SimpleNamespace(
-        execute=AsyncMock(), add_all=lambda items: added.extend(items), flush=AsyncMock(side_effect=flush)
-    )
-    repository = SQLAlchemyChunkRepository(session)
+    session = SimpleNamespace(execute=AsyncMock(), add_all=added.extend, flush=AsyncMock(side_effect=flush))
+    repository = SQLAlchemyChunkRepository(cast("AsyncSession", session))
     ids = await repository.bulk_insert(
         7,
         "report.pdf",
@@ -195,9 +209,14 @@ async def test_chunk_bulk_replacement_keeps_acl_and_metadata_in_shared_session()
 
 
 @pytest.mark.asyncio
-async def test_empty_chunk_replacement_still_removes_old_chunks():
+async def test_empty_chunk_replacement_still_removes_old_chunks() -> None:
     session = SimpleNamespace(execute=AsyncMock(), add_all=MagicMock(), flush=AsyncMock())
-    assert await SQLAlchemyChunkRepository(session).bulk_insert(7, "report.pdf", "internal_public", []) == []
+    assert (
+        await SQLAlchemyChunkRepository(cast("AsyncSession", session)).bulk_insert(
+            7, "report.pdf", "internal_public", []
+        )
+        == []
+    )
     session.execute.assert_awaited_once()
     session.add_all.assert_not_called()
     session.flush.assert_not_awaited()

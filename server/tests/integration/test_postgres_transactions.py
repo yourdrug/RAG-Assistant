@@ -24,6 +24,7 @@ from domain.identity.user_context import UserContext
 from domain.knowledge.document import Document
 from domain.knowledge.enums import GENERAL_DOMAIN_KEY, DocumentVisibility
 from domain.knowledge.index_sync import VectorOutboxEntry
+from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
 from domain.shared.exceptions import BusinessRuleViolationError
 from infrastructure.database.models import BackgroundJobModel, DocumentModel, UserModel
 from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
@@ -186,6 +187,10 @@ async def test_concurrent_duplicate_upload_hits_real_unique_constraint(pg_engine
     assert sum(isinstance(r, BusinessRuleViolationError) for r in results) == 1
     async with sessions() as session:
         assert await session.scalar(select(func.count()).select_from(DocumentModel)) == 1
+        job = (await session.execute(select(BackgroundJobModel))).scalar_one()
+        assert job.dispatch_payload is not None
+        assert job.dispatch_payload["document_id"] == job.related_id
+        assert job.dispatch_payload["cost_principal"] == f"user:{user_id}"
 
 
 async def test_waiting_job_heartbeat_prevents_false_stale_failure(pg_engine: AsyncEngine) -> None:
@@ -209,3 +214,59 @@ async def test_waiting_job_heartbeat_prevents_false_stale_failure(pg_engine: Asy
     async with sessions.begin() as session:
         failed = await SQLAlchemyBackgroundJobRepository(session).fail_stale_pending(timeout_minutes=15)
         assert [job.id for job in failed] == [stale_id]
+
+
+async def test_document_dispatch_claims_skip_locked_and_retry_after_rollback(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBackgroundJobRepository(session)
+        jobs = [
+            await repo.create(
+                BackgroundJob(
+                    job_type=JobType.DOCUMENT_PROCESSING,
+                    related_id=i,
+                    dispatch_payload={"document_id": i},
+                )
+            )
+            for i in (11, 12)
+        ]
+    async with sessions() as first, sessions() as second:
+        one = await SQLAlchemyBackgroundJobRepository(first).pending_dispatch(limit=1)
+        two = await SQLAlchemyBackgroundJobRepository(second).pending_dispatch(limit=1)
+        assert [job.id for job in one] == [jobs[0].id]
+        assert [job.id for job in two] == [jobs[1].id]
+        await first.rollback()
+        await second.rollback()
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBackgroundJobRepository(session)
+        assert len(await repo.pending_dispatch()) == 2
+        assert jobs[0].id is not None
+        await repo.mark_running(jobs[0].id)
+    async with sessions.begin() as session:
+        remaining = await SQLAlchemyBackgroundJobRepository(session).pending_dispatch()
+        assert [job.id for job in remaining] == [jobs[1].id]
+
+
+async def test_stale_pending_preserves_durable_dispatch_but_fails_legacy_jobs(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    old = datetime.now(tz=UTC) - timedelta(days=1)
+    async with sessions.begin() as session:
+        session.add_all(
+            [
+                BackgroundJobModel(
+                    job_type=JobType.DOCUMENT_PROCESSING,
+                    status="pending",
+                    dispatch_payload={"document_id": 1},
+                    creation_date=old,
+                ),
+                BackgroundJobModel(job_type=JobType.DOCUMENT_PROCESSING, status="pending", creation_date=old),
+            ]
+        )
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBackgroundJobRepository(session)
+        failed = await repo.fail_stale_pending(timeout_minutes=15)
+        assert len(failed) == 1
+        assert failed[0].dispatch_payload is None
+        pending = await repo.pending_dispatch()
+        assert len(pending) == 1
+        assert pending[0].status == BackgroundJobStatus.PENDING

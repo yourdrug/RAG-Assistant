@@ -9,7 +9,7 @@ from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
 from infrastructure.ml.config.settings_adapters import LiveRagSettings
 
 
-def test_redaction_tracks_enable_disable_and_reenable(monkeypatch):
+def test_redaction_tracks_enable_disable_and_reenable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "pii_redaction_enabled", False)
     redactor = PIIRedactorAdapter(rag_settings=LiveRagSettings())
     text = "Контакт: private@example.com"
@@ -23,7 +23,7 @@ def test_redaction_tracks_enable_disable_and_reenable(monkeypatch):
 
 @pytest.mark.parametrize("text", ["", "Текст без персональных данных"])
 @pytest.mark.parametrize("enabled", [False, True])
-def test_text_without_pii_is_unchanged(monkeypatch, text, enabled):
+def test_text_without_pii_is_unchanged(monkeypatch: pytest.MonkeyPatch, text: str, enabled: bool) -> None:
     monkeypatch.setattr(settings, "pii_redaction_enabled", enabled)
     redactor = PIIRedactorAdapter(rag_settings=LiveRagSettings())
 
@@ -31,7 +31,7 @@ def test_text_without_pii_is_unchanged(monkeypatch, text, enabled):
     assert redactor.scan_and_redact(text) == (text, [])
 
 
-def test_disabled_redaction_does_not_load_detector(monkeypatch):
+def test_disabled_redaction_does_not_load_detector(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "pii_redaction_enabled", False)
     redactor = PIIRedactorAdapter(rag_settings=LiveRagSettings())
     text = "private@example.com"

@@ -27,7 +27,8 @@ async def judge_generated(
     runtime: BudgetRuntime | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
-    if settings.benchmark_judge_grouped_enabled:
+    if settings.benchmark_judge_grouped_enabled or (annotations or {}).get("answer_type"):
+        question = {**question, "annotations": annotations}
         saved_scores = restore_grouped_scores(stages)
         grouped = await grouped_judge.judge_case_grouped(
             question,

@@ -1,55 +1,92 @@
 """Grouped judge contract: independent scores, bounded calls and durable resume."""
 
-from infrastructure.benchmark.judging import prompts as judge_prompts
-
-from infrastructure.benchmark.judging import requests as judge_requests
+from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, Self, cast
 from unittest.mock import AsyncMock
 
+import httpx
+from openai import RateLimitError
 import pytest
 
-from application.benchmark import BenchmarkResultService
-
+from application.benchmark import BenchmarkResultService, BenchmarkService
 from application.benchmark.sweep_jobs import SweepJobService
-
+from application.benchmark.sweep_ports import SweepCancelled
 from config import settings
 from domain.benchmark.judge import judge_coverage
-from infrastructure.benchmark.judging import grouped_judge
+from domain.benchmark.run import BenchmarkRun
+from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus
+from domain.identity.roles import UserKind
+from domain.identity.user_context import UserContext
+from domain.rag.context import RagContext
+from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
+from infrastructure.benchmark.evaluation import answer_generators, case_evaluator, runner
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
-from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
+from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
+from infrastructure.benchmark.judging import (
+    grouped_judge,
+    prompts as judge_prompts,
+    requests as judge_requests,
+)
+from infrastructure.benchmark.judging.token_usage import judge_context
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
-from tests.fakes import FakeUnitOfWorkFactory
+from infrastructure.worker.sweep import run_cancellable_sweep
+from presentation.api.routes.benchmark import get_benchmark_result
+from tests.fakes import FakeChatRAGPort, FakeUnitOfWorkFactory, require_present
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping
+
+    from openai import AsyncOpenAI
+
+    from application.benchmark.dto import BenchmarkRunnerOptions
+    from application.benchmark.sweep import SweepEngine
+    from application.chat.ports import ChatRAGPort
+    from presentation.api.schemas.auth import CurrentUser
+
+
+@dataclass
+class JudgeCompletions:
+    create: Callable[..., Awaitable[SimpleNamespace]]
+
+
+@dataclass
+class JudgeChat:
+    completions: JudgeCompletions
 
 
 class JudgeClient:
-    def __init__(self, respond):
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=respond))
+    def __init__(self, respond: Callable[..., Awaitable[SimpleNamespace]]) -> None:
+        self.chat = JudgeChat(completions=JudgeCompletions(create=respond))
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args: object) -> None:
         pass
 
 
-def response(values):
+def response(values: dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(values)))],
         usage=SimpleNamespace(prompt_tokens=100, completion_tokens=10),
     )
 
 
-def requested_metrics(kwargs):
+def requested_metrics(kwargs: Mapping[str, Any]) -> list[str]:
     prompt = kwargs["messages"][0]["content"]
     return [key for key in judge_prompts.INSTRUCTIONS if f"\n{key}:" in prompt]
 
 
-def case():
+def case() -> dict[str, Any]:
     return {
         "id": 1,
         "question": "question",
@@ -62,8 +99,13 @@ def case():
     }
 
 
-def generator():
-    return SimpleNamespace(
+@dataclass
+class FakeBenchmarkGenerator:
+    generate: AsyncMock
+
+
+def generator() -> FakeBenchmarkGenerator:
+    return FakeBenchmarkGenerator(
         generate=AsyncMock(
             return_value=BenchmarkAnswer(
                 answer="fact [1]",
@@ -78,13 +120,15 @@ def generator():
 
 
 @pytest.mark.asyncio
-async def test_three_parallel_calls_with_context_only_twice_and_reference_for_retrieval(monkeypatch):
+async def test_three_parallel_calls_with_context_only_twice_and_reference_for_retrieval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls = []
     active = 0
     peak = 0
     barrier = asyncio.Barrier(3)
 
-    async def create(**kwargs):
+    async def create(**kwargs: Any) -> Any:
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
@@ -93,8 +137,10 @@ async def test_three_parallel_calls_with_context_only_twice_and_reference_for_re
         active -= 1
         return response({key: {"score": 0, "reason": "valid zero"} for key in requested_metrics(kwargs)})
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
-    result = await BenchmarkCaseEvaluator(generator(), "judge").evaluate(1, case(), 1, SimpleNamespace())
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **_kwargs: JudgeClient(create))
+    result = await BenchmarkCaseEvaluator(generator(), "judge").evaluate(
+        1, case(), 1, RagContext(UserContext(user_id=1, user_kind=UserKind.INTERNAL))
+    )
     assert len(calls) == peak == 3
     payloads = [json.loads(call["messages"][0]["content"].split("Данные JSON:\n")[1]) for call in calls]
     assert sum("context" in payload for payload in payloads) == 2
@@ -108,10 +154,12 @@ async def test_three_parallel_calls_with_context_only_twice_and_reference_for_re
 
 
 @pytest.mark.asyncio
-async def test_invalid_metric_preserves_siblings_and_retries_only_missing(monkeypatch):
+async def test_invalid_metric_preserves_siblings_and_retries_only_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls = []
 
-    async def create(**kwargs):
+    async def create(**kwargs: Any) -> Any:
         keys = requested_metrics(kwargs)
         calls.append(keys)
         values = {key: {"score": 8, "reason": "ok"} for key in keys}
@@ -123,10 +171,10 @@ async def test_invalid_metric_preserves_siblings_and_retries_only_missing(monkey
 
     snapshots = []
 
-    async def save(values):
+    async def save(values: dict[str, Any]) -> None:
         snapshots.append(values)
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **_kwargs: JudgeClient(create))
     result = await grouped_judge.judge_case_grouped(
         case(), "answer", "context", evidence_context="context", model="judge", callback=save
     )
@@ -141,13 +189,13 @@ async def test_invalid_metric_preserves_siblings_and_retries_only_missing(monkey
 
 @pytest.mark.asyncio
 async def test_database_resume_keeps_generated_answer_and_successful_scores_after_restart(
-    tmp_path, monkeypatch
-):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     factory = FakeUnitOfWorkFactory()
     calls = []
     failing = True
 
-    async def create(**kwargs):
+    async def create(**kwargs: Any) -> Any:
         keys = requested_metrics(kwargs)
         calls.append(keys)
         return response(
@@ -157,16 +205,16 @@ async def test_database_resume_keeps_generated_answer_and_successful_scores_afte
             }
         )
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **_kwargs: JudgeClient(create))
     first_generator = generator()
     store = DatabaseBenchmarkCheckpoints(factory, 42)
     path = Path("config/case.stages.json")
     first = await BenchmarkCaseEvaluator(first_generator, "judge", store).evaluate(
-        1, case(), 1, SimpleNamespace(), path
+        1, case(), 1, RagContext(UserContext(user_id=1, user_kind=UserKind.INTERNAL)), path
     )
     assert judge_coverage([first])["judge_error_count"] == 1
     assert first["generator_metrics"]["relevancy"] == 8
-    assert not list(tmp_path.iterdir())
+    assert not list(tmp_path.iterdir())  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
     count = len(calls)
     failing = False
     # A fresh evaluator/store has no local state; changed token limits do not invalidate work.
@@ -178,7 +226,7 @@ async def test_database_resume_keeps_generated_answer_and_successful_scores_afte
         1,
         case(),
         1,
-        SimpleNamespace(),
+        RagContext(UserContext(user_id=1, user_kind=UserKind.INTERNAL)),
         path,
     )
     second_generator.generate.assert_not_awaited()
@@ -189,12 +237,12 @@ async def test_database_resume_keeps_generated_answer_and_successful_scores_afte
 
 
 @pytest.mark.asyncio
-async def test_request_concurrency_is_bounded_across_questions(monkeypatch):
+async def test_request_concurrency_is_bounded_across_questions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "benchmark_judge_max_concurrent", 2)
     active = 0
     peak = 0
 
-    async def create(**kwargs):
+    async def create(**kwargs: Any) -> Any:
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
@@ -202,7 +250,7 @@ async def test_request_concurrency_is_bounded_across_questions(monkeypatch):
         active -= 1
         return response({key: {"score": 9, "reason": "ok"} for key in requested_metrics(kwargs)})
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **_kwargs: JudgeClient(create))
     await asyncio.gather(
         *(
             grouped_judge.judge_case_grouped(case(), "a", "c", evidence_context="c", model="j")
@@ -213,13 +261,14 @@ async def test_request_concurrency_is_bounded_across_questions(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_all_config_results_saved_and_resume_updates_existing_rows():
-    from domain.benchmark.sweep import BenchmarkSweep
+async def test_all_config_results_saved_and_resume_updates_existing_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    repo = factory._uow.benchmark_runs
-    factory._uow.benchmark_sweeps.set_best_run = AsyncMock()
-    results = [
+    repo = factory._uow.fake_benchmark_runs
+    monkeypatch.setattr(factory._uow.fake_benchmark_sweeps, "set_best_run", AsyncMock())
+    results: list[dict[str, Any]] = [
         {
             "config": {"top_k": 1},
             "composite_score": 0.8,
@@ -246,14 +295,11 @@ async def test_all_config_results_saved_and_resume_updates_existing_rows():
 
 
 @pytest.mark.asyncio
-async def test_cancel_interrupts_inflight_evaluation_and_awaits_cleanup():
-    from domain.benchmark.sweep import BenchmarkSweep
-    from application.benchmark.sweep_ports import SweepCancelled
-    from infrastructure.worker.sweep import run_cancellable_sweep
+async def test_cancel_interrupts_inflight_evaluation_and_awaits_cleanup() -> None:
 
     stopped = asyncio.Event()
 
-    async def evaluate(**kwargs):
+    async def evaluate(**kwargs: Any) -> None:
         try:
             await asyncio.Event().wait()
         finally:
@@ -262,7 +308,7 @@ async def test_cancel_interrupts_inflight_evaluation_and_awaits_cleanup():
     with pytest.raises(SweepCancelled):
         await asyncio.wait_for(
             run_cancellable_sweep(
-                SimpleNamespace(run_sweep=evaluate),
+                cast("SweepEngine", SimpleNamespace(run_sweep=evaluate)),
                 BenchmarkSweep(),
                 AsyncMock(),
                 AsyncMock(return_value=True),
@@ -274,17 +320,15 @@ async def test_cancel_interrupts_inflight_evaluation_and_awaits_cleanup():
 
 @pytest.mark.asyncio
 async def test_resume_24_of_30_retries_six_scores_without_regenerating_or_writing_reports(
-    tmp_path, monkeypatch
-):
-    from infrastructure.benchmark.evaluation import runner
-    from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     factory = FakeUnitOfWorkFactory()
     generated = generator()
     calls = []
     failing = True
 
-    async def create(**kwargs):
+    async def create(**kwargs: Any) -> Any:
         keys = requested_metrics(kwargs)
         payload = json.loads(kwargs["messages"][0]["content"].split("Данные JSON:\n")[1])
         calls.append((payload["question"], keys))
@@ -300,38 +344,34 @@ async def test_resume_24_of_30_retries_six_scores_without_regenerating_or_writin
             }
         )
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
-    from infrastructure.benchmark.evaluation import answer_generators
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **_kwargs: JudgeClient(create))
 
-    monkeypatch.setattr(answer_generators, "RagBenchmarkGenerator", lambda *args: generated)
+    monkeypatch.setattr(answer_generators, "RagBenchmarkGenerator", lambda *_args: generated)
     questions = [{**case(), "id": idx, "question": str(idx)} for idx in range(30)]
-    kwargs = {
-        "questions": questions,
-        "top_k": 4,
-        "judge_model": "judge",
+    options: BenchmarkRunnerOptions = {
         "max_concurrent": 3,
-        "rag_service": object(),
+        "rag_service": FakeChatRAGPort(),
         "resume": True,
         "checkpoint_prefix": "configuration",
+        "checkpoints": DatabaseBenchmarkCheckpoints(factory, 42),
     }
-    first = await runner.run_benchmark_async(**kwargs, checkpoints=DatabaseBenchmarkCheckpoints(factory, 42))
+    first = await runner.run_benchmark_async(questions, 4, "judge", **options)
     summary = compute_summary_metrics(first)
     assert summary["judge_evaluated_count"] == 24
     assert summary["judge_error_count"] == 6
     assert generated.generate.await_count == 30
     failing = False
     first_call_count = len(calls)
-    second = await runner.run_benchmark_async(**kwargs, checkpoints=DatabaseBenchmarkCheckpoints(factory, 42))
+    second = await runner.run_benchmark_async(questions, 4, "judge", **options)
     assert generated.generate.await_count == 30
     assert len(calls) - first_call_count == 6
     assert all(keys == ["correctness"] for _, keys in calls[first_call_count:])
     assert compute_summary_metrics(second)["judge_evaluated_count"] == 30
-    assert not list(tmp_path.iterdir())
+    assert not list(tmp_path.iterdir())  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 
 
 @pytest.mark.asyncio
-async def test_service_returns_current_results_without_consulting_report_files(tmp_path):
-    from application.benchmark import BenchmarkService
+async def test_service_returns_current_results_without_consulting_report_files(tmp_path: Path) -> None:
 
     result = {
         "id": 1,
@@ -350,54 +390,54 @@ async def test_service_returns_current_results_without_consulting_report_files(t
     )
     assert summary["avg_faithfulness"] == 8
     assert summary["results"][0]["answer"] == "a"
-    assert "export_files" not in run.await_args.kwargs
+    assert "export_files" not in require_present(run.await_args).kwargs
 
 
 @pytest.mark.asyncio
-async def test_result_detail_api_serializes_per_question_list():
-    from domain.benchmark.run import BenchmarkRun
-    from presentation.api.routes.benchmark import get_benchmark_result
+async def test_result_detail_api_serializes_per_question_list(monkeypatch: pytest.MonkeyPatch) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    factory._uow.benchmark_runs.get_by_id = AsyncMock(
-        return_value=BenchmarkRun(
-            id=7,
-            per_question_results=[{"id": 1, "answer": "a", "faithfulness": 0}],
-        )
+    monkeypatch.setattr(
+        factory._uow.fake_benchmark_runs,
+        "get_by_id",
+        AsyncMock(
+            return_value=BenchmarkRun(
+                id=7, per_question_results=[{"id": 1, "answer": "a", "faithfulness": 0}]
+            )
+        ),
     )
     result = await get_benchmark_result(
-        run_id=7, _admin=SimpleNamespace(), service=BenchmarkResultService(factory)
+        run_id=7, _admin=cast("CurrentUser", SimpleNamespace()), service=BenchmarkResultService(factory)
     )
     assert result.model_dump()["per_question_results"] == [{"id": 1, "answer": "a", "faithfulness": 0}]
 
 
 @pytest.mark.asyncio
-async def test_failure_does_not_overwrite_acknowledged_cancellation(monkeypatch):
-    from domain.benchmark.sweep import BenchmarkSweep
-    from domain.benchmark.sweep import BenchmarkSweepStatus
+async def test_failure_does_not_overwrite_acknowledged_cancellation(monkeypatch: pytest.MonkeyPatch) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    factory._uow.benchmark_sweeps.get_by_id = AsyncMock(
-        return_value=BenchmarkSweep(
-            id=42,
-            status=BenchmarkSweepStatus.CANCELLED.value,
-        )
+    monkeypatch.setattr(
+        factory._uow.fake_benchmark_sweeps,
+        "get_by_id",
+        AsyncMock(return_value=BenchmarkSweep(id=42, status=BenchmarkSweepStatus.CANCELLED)),
     )
-    factory._uow.benchmark_sweeps.update_status = AsyncMock()
+    monkeypatch.setattr(factory._uow.fake_benchmark_sweeps, "update_status", AsyncMock())
     publish = AsyncMock()
     assert (
         await SweepJobService(factory, publish, AsyncMock()).record_sweep_failure(42, "judge failed") is True
     )
-    factory._uow.benchmark_sweeps.update_status.assert_not_awaited()
-    assert publish.await_args.args[1]["cancelled"] is True
+    cast("AsyncMock", factory._uow.fake_benchmark_sweeps.update_status).assert_not_awaited()
+    assert require_present(publish.await_args).args[1]["cancelled"] is True
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["empty", "truncated", "no_choices", "invalid_json"])
-async def test_bad_provider_responses_retry_with_safe_useful_diagnostics(monkeypatch, kind, caplog):
+async def test_bad_provider_responses_retry_with_safe_useful_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, kind: object, caplog: pytest.LogCaptureFixture
+) -> None:
     calls = []
 
-    async def create(**kwargs):
+    async def create(**kwargs: Any) -> Any:
         calls.append(kwargs)
         result = response({"faithfulness": {"score": 9, "reason": "ok"}})
 
@@ -413,14 +453,14 @@ async def test_bad_provider_responses_retry_with_safe_useful_diagnostics(monkeyp
 
         return result
 
-    scores = {}
+    scores: dict[str, Any] = {}
     snapshots = []
 
-    async def save(value):
+    async def save(value: dict[str, Any]) -> None:
         snapshots.append(value)
 
     await judge_requests.judge_group(
-        JudgeClient(create), "judge", {}, ["faithfulness"], saved=scores, callback=save
+        cast("AsyncOpenAI", JudgeClient(create)), "judge", {}, ["faithfulness"], saved=scores, callback=save
     )
     assert scores["faithfulness"]["score"] == 9
     assert len(calls) == 2
@@ -432,10 +472,10 @@ async def test_bad_provider_responses_retry_with_safe_useful_diagnostics(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_group_shape_failure_recovers_metrics_individually_without_rescoring_success():
+async def test_group_shape_failure_recovers_metrics_individually_without_rescoring_success() -> None:
     calls = []
 
-    async def create(**kwargs):
+    async def create(**kwargs: Any) -> Any:
         keys = requested_metrics(kwargs)
         calls.append(keys)
 
@@ -446,7 +486,7 @@ async def test_group_shape_failure_recovers_metrics_individually_without_rescori
 
     scores = {"relevancy": {"score": 0, "reason": "valid zero"}}
     await judge_requests.judge_group(
-        JudgeClient(create),
+        cast("AsyncOpenAI", JudgeClient(create)),
         "judge",
         {},
         ["relevancy", "faithfulness", "correctness"],
@@ -466,17 +506,16 @@ async def test_group_shape_failure_recovers_metrics_individually_without_rescori
 @pytest.mark.asyncio
 @pytest.mark.parametrize("limit,explicit", [(2, 2), (10, None)])
 async def test_questions_really_generate_concurrently_and_return_in_dataset_order(
-    monkeypatch, tmp_path, limit, explicit
-):
-    from infrastructure.benchmark.evaluation import runner
-    from infrastructure.benchmark.evaluation import answer_generators
-    from infrastructure.benchmark.evaluation import case_evaluator
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, limit: int, explicit: int | None
+) -> None:
 
     monkeypatch.setattr(settings, "benchmark_max_concurrent", limit)
     started = asyncio.Barrier(limit)
     active = peak = 0
 
-    async def evaluate(self, idx, question, run, ctx, **kwargs):
+    async def evaluate(
+        self: object, idx: object, question: dict[str, Any], run: object, ctx: object, **kwargs: Any
+    ) -> dict[str, Any]:
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
@@ -484,15 +523,17 @@ async def test_questions_really_generate_concurrently_and_return_in_dataset_orde
         active -= 1
         return {"id": question["id"]}
 
-    monkeypatch.setattr(answer_generators, "RagBenchmarkGenerator", lambda *args: object())
+    monkeypatch.setattr(answer_generators, "RagBenchmarkGenerator", lambda *_args: object())
     monkeypatch.setattr(case_evaluator.BenchmarkCaseEvaluator, "evaluate", evaluate)
-    monkeypatch.setattr("infrastructure.benchmark.reporting.progress.log_question_result", lambda *args: None)
-    monkeypatch.setattr("infrastructure.benchmark.reporting.progress.log_summary", lambda *args: None)
+    monkeypatch.setattr(
+        "infrastructure.benchmark.reporting.progress.log_question_result", lambda *_args: None
+    )
+    monkeypatch.setattr("infrastructure.benchmark.reporting.progress.log_summary", lambda *_args: None)
     results = await runner.run_benchmark_async(
         [{"id": i, "question": str(i)} for i in range(limit * 2)],
         4,
         "judge",
-        rag_service=object(),
+        rag_service=cast("ChatRAGPort", object()),
         max_concurrent=explicit,
     )
     assert peak == limit
@@ -511,8 +552,9 @@ async def test_questions_really_generate_concurrently_and_return_in_dataset_orde
         ("refusal", "provider_refusal"),
     ],
 )
-async def test_structured_logs_identify_failure_without_private_content(kind, code, caplog):
-    from infrastructure.benchmark.judging.token_usage import judge_context
+async def test_structured_logs_identify_failure_without_private_content(  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
+    kind: str, code: str, caplog: pytest.LogCaptureFixture
+) -> None:
 
     raw = response({"faithfulness": {"score": 8, "reason": "PRIVATE REASON"}})
     raw.id = "completion-id"
@@ -536,7 +578,7 @@ async def test_structured_logs_identify_failure_without_private_content(kind, co
     ctx = judge_context.set({"case_id": "case-id", "question_id": 142, "run": 1})
     try:
         await judge_requests.judge_batch(
-            JudgeClient(AsyncMock(return_value=raw)),
+            cast("AsyncOpenAI", JudgeClient(AsyncMock(return_value=raw))),
             "judge",
             {"context": "PRIVATE CONTEXT"},
             ["faithfulness"],
@@ -561,9 +603,9 @@ async def test_structured_logs_identify_failure_without_private_content(kind, co
 
 
 @pytest.mark.asyncio
-async def test_http_failure_logs_request_id_status_retry_after_without_provider_body(caplog):
-    import httpx
-    from openai import RateLimitError
+async def test_http_failure_logs_request_id_status_retry_after_without_provider_body(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
 
     error = RateLimitError(
         "PRIVATE PROVIDER BODY",
@@ -575,7 +617,7 @@ async def test_http_failure_logs_request_id_status_retry_after_without_provider_
         body={"private": "PRIVATE DOCUMENT"},
     )
     retryable = await judge_requests.judge_batch(
-        JudgeClient(AsyncMock(side_effect=error)),
+        cast("AsyncOpenAI", JudgeClient(AsyncMock(side_effect=error))),
         "judge",
         {},
         ["faithfulness"],
@@ -593,24 +635,24 @@ async def test_http_failure_logs_request_id_status_retry_after_without_provider_
 
 
 @pytest.mark.asyncio
-async def test_parallel_cases_keep_separate_log_correlation(monkeypatch, caplog):
-    import logging
-    from infrastructure.benchmark.judging.token_usage import judge_context
+async def test_parallel_cases_keep_separate_log_correlation(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
 
     caplog.set_level(logging.INFO, logger="default")
 
-    async def create(**kwargs):
+    async def create(**kwargs: Any) -> SimpleNamespace:
         await asyncio.sleep(0)
         return response({key: {"score": 8, "reason": "ok"} for key in requested_metrics(kwargs)})
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **_kwargs: JudgeClient(create))
     await asyncio.gather(
         *(
             BenchmarkCaseEvaluator(generator(), "judge").evaluate(
                 1,
                 {**case(), "id": question_id},
                 1,
-                SimpleNamespace(),
+                RagContext(UserContext(user_id=1, user_kind=UserKind.INTERNAL)),
             )
             for question_id in (11, 22)
         )
@@ -623,7 +665,8 @@ async def test_parallel_cases_keep_separate_log_correlation(monkeypatch, caplog)
     for question_id in (11, 22):
         matched = [event for event in requests if event["question_id"] == question_id]
         case_ids[question_id] = {event["case_id"] for event in matched}
-        assert len(matched) == 3 and len(case_ids[question_id]) == 1
+        assert len(matched) == 3
+        assert len(case_ids[question_id]) == 1
 
     assert case_ids[11].isdisjoint(case_ids[22])
     assert judge_context.get() is None
@@ -632,14 +675,15 @@ async def test_parallel_cases_keep_separate_log_correlation(monkeypatch, caplog)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("explicit", [None, 2])
-async def test_service_passes_runtime_concurrency_through_instead_of_hardcoding_four(explicit):
-    from application.benchmark import BenchmarkService
+async def test_service_passes_runtime_concurrency_through_instead_of_hardcoding_four(
+    explicit: int | None,
+) -> None:
 
     run = AsyncMock(return_value=[])
     await BenchmarkService(runner=SimpleNamespace(run=run)).run(
         [{"question": "q"}],
         4,
         "judge",
-        **({} if explicit is None else {"max_concurrent": explicit}),
+        max_concurrent=explicit,
     )
-    assert run.await_args.kwargs["max_concurrent"] is explicit
+    assert require_present(run.await_args).kwargs["max_concurrent"] is explicit

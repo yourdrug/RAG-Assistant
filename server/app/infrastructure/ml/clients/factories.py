@@ -9,10 +9,9 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import partial
 import logging
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 import httpx
-from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
@@ -150,29 +149,16 @@ class OpenAIParameters(TypedDict, total=False):
     stream_usage: bool
 
 
-class OllamaParameters(TypedDict, total=False):
-    model: str
-    base_url: str
-    temperature: float
-    top_p: float
-    num_ctx: int
-    num_predict: int
-    client_kwargs: dict[str, Any]
-
-
 def build_chat_model(
     provider: LLMProvider | str,
     role: ChatModelRole,
     **options: Unpack[ChatModelOptions],
-) -> ChatOllama | ChatOpenAI:
+) -> ChatOpenAI:
     """Build a chat client from one settings snapshot and its call role."""
     model = (options.get("model") or settings).model_copy()
     temperature = options.get("temperature")
-    top_p = options.get("top_p")
-    num_ctx = options.get("num_ctx")
     num_predict = options.get("num_predict")
     model_name = options.get("model_name")
-    base_url = options.get("base_url")
     runtime = options.get("runtime")
     output_limits = {
         ChatModelRole.DEFAULT: model.llm_num_predict_narrow,
@@ -185,50 +171,31 @@ def build_chat_model(
         0 if role in (ChatModelRole.AUXILIARY, ChatModelRole.BENCHMARK) else model.llm_temperature
     )
 
-    if provider == LLMProvider.OPENROUTER:
-        default_name = FAST_OPENROUTER_MODEL if role == ChatModelRole.AUXILIARY else model.openrouter_model
-        parameters: OpenAIParameters = {
-            "model_name": model_name if model_name is not None else default_name,
-            "openai_api_key": SecretStr(model.openrouter_api_key) if model.openrouter_api_key else None,
-            "openai_api_base": model.openrouter_base_url,
-            "temperature": temperature if temperature is not None else role_temperature,
-            "max_tokens": num_predict if num_predict is not None else output_limits[role],
-            "max_retries": 0,
-            "http_client": httpx.Client(follow_redirects=False, transport=PaidSyncTransport(runtime=runtime)),
-            "http_async_client": httpx.AsyncClient(
-                follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime)
-            ),
-        }
+    if provider != LLMProvider.OPENROUTER:
+        message = f"Unsupported LLM provider: {provider}"
+        raise ValueError(message)
 
-        if role != ChatModelRole.BENCHMARK:
-            parameters["request_timeout"] = 10 if role == ChatModelRole.AUXILIARY else 120
-
-        if role not in (ChatModelRole.AUXILIARY, ChatModelRole.BENCHMARK):
-            parameters["stream_usage"] = True
-
-        return ChatOpenAI(**parameters)
-
-    ollama_parameters: OllamaParameters = {
-        "model": model_name if model_name is not None else model.llm_model,
-        "base_url": base_url if base_url is not None else model.ollama_base_url,
-        "temperature": temperature
-        if temperature is not None
-        else (0 if role == ChatModelRole.BENCHMARK else model.llm_temperature),
+    default_name = FAST_OPENROUTER_MODEL if role == ChatModelRole.AUXILIARY else model.openrouter_model
+    parameters: OpenAIParameters = {
+        "model_name": model_name if model_name is not None else default_name,
+        "openai_api_key": SecretStr(model.openrouter_api_key) if model.openrouter_api_key else None,
+        "openai_api_base": model.openrouter_base_url,
+        "temperature": temperature if temperature is not None else role_temperature,
+        "max_tokens": num_predict if num_predict is not None else output_limits[role],
+        "max_retries": 0,
+        "http_client": httpx.Client(follow_redirects=False, transport=PaidSyncTransport(runtime=runtime)),
+        "http_async_client": httpx.AsyncClient(
+            follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime)
+        ),
     }
 
     if role != ChatModelRole.BENCHMARK:
-        ollama_parameters["top_p"] = top_p if top_p is not None else model.llm_top_p
-        ollama_parameters["num_ctx"] = (
-            num_ctx
-            if num_ctx is not None
-            else (model.llm_num_ctx_broad if role == ChatModelRole.BROAD else model.llm_num_ctx_narrow)
-        )
-        ollama_parameters["client_kwargs"] = {"timeout": model.llm_request_timeout}
+        parameters["request_timeout"] = 10 if role == ChatModelRole.AUXILIARY else 120
 
-    if role in (ChatModelRole.NARROW, ChatModelRole.BROAD):
-        ollama_parameters["num_predict"] = num_predict if num_predict is not None else output_limits[role]
+    if role not in (ChatModelRole.AUXILIARY, ChatModelRole.BENCHMARK):
+        parameters["stream_usage"] = True
 
-    return ChatOllama(**ollama_parameters)
+    return ChatOpenAI(**parameters)
 
 
 def create_llm(
@@ -239,7 +206,7 @@ def create_llm(
     model: Settings | None = None,
     *,
     runtime: BudgetRuntime | None = None,
-) -> ChatOllama | ChatOpenAI:
+) -> ChatOpenAI:
     """Create LLM based on the configured provider."""
     return build_chat_model(
         (model or settings).llm_provider,
@@ -261,20 +228,17 @@ def create_openrouter_llm(
     runtime: BudgetRuntime | None = None,
 ) -> ChatOpenAI:
     """Create an OpenRouter chat client through the shared provider factory."""
-    return cast(
-        "ChatOpenAI",
-        build_chat_model(
-            LLMProvider.OPENROUTER,
-            ChatModelRole.DEFAULT,
-            model=model,
-            runtime=runtime,
-            temperature=temperature,
-            num_predict=max_tokens,
-        ),
+    return build_chat_model(
+        LLMProvider.OPENROUTER,
+        ChatModelRole.DEFAULT,
+        model=model,
+        runtime=runtime,
+        temperature=temperature,
+        num_predict=max_tokens,
     )
 
 
-def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions]) -> ChatOllama | ChatOpenAI:
+def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions]) -> ChatOpenAI:
     """Create LLM with parameters matching breadth mode."""
     model = options.get("model")
     runtime = options.get("runtime")
@@ -299,7 +263,7 @@ def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions])
 
 def create_fast_llm_for_auxiliary(
     model: Settings | None = None, *, runtime: BudgetRuntime | None = None
-) -> ChatOllama | ChatOpenAI:
+) -> ChatOpenAI:
     """Create the lightweight client for condense, relevance and decomposition."""
     return build_chat_model(
         (model or settings).llm_provider, ChatModelRole.AUXILIARY, model=model, runtime=runtime

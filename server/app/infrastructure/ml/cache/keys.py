@@ -72,7 +72,6 @@ def generation_identity() -> tuple[tuple[str, str | float], ...]:
     model = get_request_settings()
     return (
         ("llm_provider", model.llm_provider),
-        ("llm_model", model.llm_model),
         ("openrouter_model", model.openrouter_model),
         ("ml_provider", model.ml_provider),
         ("llm_temperature", model.llm_temperature),

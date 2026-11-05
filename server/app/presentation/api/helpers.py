@@ -23,7 +23,6 @@ from domain.knowledge.enums import DocumentStatus
 from presentation.api.constants import (
     PAGE_PREVIEW_MAX_CHARS,
     QUALITY_BAD_RATIO_THRESHOLD,
-    JobType,
 )
 from presentation.api.schemas import (
     BenchmarkQuestionCreate,
@@ -38,8 +37,6 @@ from presentation.api.schemas import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from fastapi import UploadFile
 
     from application.documents import DocumentDTO
@@ -90,11 +87,6 @@ class UploadableService(Protocol):
     ) -> DocumentDTO: ...
 
 
-@runtime_checkable
-class JobServiceProtocol(Protocol):
-    async def create_job(self, job_type: str, *, related_id: int | None = None) -> int: ...
-
-
 class UploadRequest(TypedDict):
     file_data: bytes
     filename: str
@@ -112,13 +104,11 @@ class UploadRequest(TypedDict):
 async def upload_and_enqueue(
     *,
     document_service: UploadableService,
-    job_service: JobServiceProtocol,
-    enqueue_fn: Callable[..., Awaitable[None]],
     action_name: str,
     log_fn: ActionLoggerPort | None = None,
     **upload: Unpack[UploadRequest],
 ) -> UploadResult:
-    """Shared upload → job-create → enqueue logic used by multiple routes.
+    """Upload a document and its durable processing job in one transaction.
 
     Returns a dict with ``document_id``, ``filename``, and ``status``.
     """
@@ -142,21 +132,6 @@ async def upload_and_enqueue(
             user_id=upload["user_id"],
             details={"filename": upload["filename"], "visibility": upload["visibility"]},
         )
-
-    job_id = await job_service.create_job(JobType.DOCUMENT_PROCESSING, related_id=result.id)
-
-    await enqueue_fn(
-        document_id=result.id,
-        storage_key=result.storage_key or "",
-        filename=result.filename,
-        visibility=upload["visibility"],
-        owner_id=result.owner_id,
-        group_id=upload["group_id"],
-        replace_id=result.replace_id,
-        doc_domain=upload["doc_domain"],
-        job_id=job_id,
-        principal_id=upload["user_id"],
-    )
 
     return {
         "document_id": result.id,
@@ -300,6 +275,9 @@ def question_create_to_dto(body: BenchmarkQuestionCreate) -> BenchmarkQuestionCr
         expected_answer=body.expected_answer,
         source_hint=body.source_hint,
         annotations=body.annotations,
+        case_id=body.case_id,
+        variant_of=body.variant_of,
+        question_style=body.question_style,
         history=body.history,
         as_of_date=body.as_of_date,
         tags=body.tags,
@@ -334,6 +312,9 @@ def question_to_response(q: BenchmarkQuestion) -> BenchmarkQuestionResponse:
         expected_answer=q.expected_answer,
         source_hint=q.source_hint,
         annotations=q.annotations,
+        case_id=q.case_id,
+        variant_of=q.variant_of,
+        question_style=q.question_style,
         history=q.history,
         as_of_date=q.as_of_date,
         tags=q.tags,

@@ -27,6 +27,7 @@ from infrastructure.ml.clients.managed_llm import ManagedLLM
 from infrastructure.ml.rag.rag_steps import RagOperations
 from infrastructure.repositories.vector.acl import build_search_filter
 from infrastructure.worker import queue
+from presentation.api.dependencies import IdempotencyContext, JobSubmission
 from presentation.api.routes import ingest as ingest_routes
 
 
@@ -161,7 +162,7 @@ async def test_request_keeps_settings_cache_model_and_client_family_during_reloa
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "llm_provider", "openrouter")
-    monkeypatch.setattr(settings, "llm_model", "local-model")
+    monkeypatch.setattr(settings, "openrouter_model", "local-model")
     monkeypatch.setattr(settings, "openrouter_model", "remote-model")
     monkeypatch.setattr(settings, "rag_retrieval_score_threshold", 0.1)
     old_close, new_close = AsyncMock(), AsyncMock()
@@ -229,17 +230,15 @@ async def test_ingestion_duplicate_fails_created_job_and_returns_conflict(single
         "request": request,
         "admin": MagicMock(),
         "service": service,
-        "job_service": jobs,
-        "log": MagicMock(),
-        "job_enqueuer": enqueuer,
-        "idempotency_key": None,
-        "idempotency_store": None,
+        "submission": JobSubmission(jobs=jobs, enqueuer=enqueuer, log=MagicMock()),
+        "idempotency": IdempotencyContext(key=None, store=MagicMock()),
+        "options": ingest_routes.IngestOptions(),
     }
     action: Any = ingest_routes.ingest_documents
 
     if single:
         action = ingest_routes.ingest_single_file
-        parameters["file_path"] = "docs/file.txt"
+        parameters["options"] = ingest_routes.IngestFileOptions(file_path="docs/file.txt")
 
     with pytest.raises(HTTPException) as error:
         await action(**parameters)

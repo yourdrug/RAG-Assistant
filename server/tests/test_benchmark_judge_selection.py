@@ -1,41 +1,40 @@
 """Judge selection survives the API, persistence mapping and worker boundary."""
 
-from infrastructure.worker import runtime
+from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
-import pytest
-
-from application.benchmark.sweep_jobs import SweepJobService
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+import pytest
 
-from application.ports.rate_limit import RateLimitDecision
 from application.benchmark import BenchmarkSweepService
-from domain.benchmark.sweep import BenchmarkSweep
-from domain.shared.exceptions import AppClientError
-from domain.benchmark.sweep import BenchmarkSweepStatus
+from application.benchmark.sweep_jobs import SweepJobService
+from application.ports.rate_limit import RateLimitDecision
+from config import settings
+from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus, SweepEvaluationMode
 from domain.identity.roles import UserKind, UserRole
-from domain.benchmark.sweep import SweepEvaluationMode
-from tests.fakes import FakeUnitOfWorkFactory
-from infrastructure.worker import sweep as worker
+from domain.shared.exceptions import AppClientError
+from infrastructure.worker import runtime, sweep as worker
 from presentation.api.auth_dependencies import get_current_user
-from presentation.api.exception_handlers import handle_client_exception
 from presentation.api.dependencies import (
     create_benchmark_sweep_service,
     create_job_enqueuer,
     create_job_service,
     create_rate_limiter,
 )
+from presentation.api.exception_handlers import handle_client_exception
 from presentation.api.routes.benchmark_admin import router
 from presentation.api.schemas import CurrentUser
 from presentation.api.schemas.benchmark import SweepCreateRequest
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 @pytest.mark.parametrize("model", ["", "  ", "a" * 256])
-def test_blank_or_oversized_judge_model_is_rejected(model):
+def test_blank_or_oversized_judge_model_is_rejected(model: str) -> None:
     with pytest.raises(ValidationError):
         SweepCreateRequest(search_space={}, judge_model=model)
 
@@ -43,19 +42,27 @@ def test_blank_or_oversized_judge_model_is_rejected(model):
 @pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.USER])
 @pytest.mark.parametrize("mode", list(SweepEvaluationMode))
 @pytest.mark.parametrize("operation", ["create", "resume"])
-def test_api_preserves_selected_judge_and_requires_admin(role, mode, operation):
+def test_api_preserves_selected_judge_and_requires_admin(
+    role: UserRole, mode: SweepEvaluationMode, operation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     factory = FakeUnitOfWorkFactory()
     service = BenchmarkSweepService(factory)
+
     if operation == "resume":
-        factory._uow.benchmark_sweeps.get_by_id = AsyncMock(
-            return_value=BenchmarkSweep(
-                id=1,
-                status=BenchmarkSweepStatus.FAILED.value,
-                judge_model="chosen/judge",
-                evaluation_mode=mode.value,
-            )
+        monkeypatch.setattr(
+            factory._uow.fake_benchmark_sweeps,
+            "get_by_id",
+            AsyncMock(
+                return_value=BenchmarkSweep(
+                    id=1,
+                    status=BenchmarkSweepStatus.FAILED,
+                    judge_model="chosen/judge",
+                    evaluation_mode=mode,
+                )
+            ),
         )
-        factory._uow.benchmark_sweeps.requeue = AsyncMock(return_value=True)
+        monkeypatch.setattr(factory._uow.fake_benchmark_sweeps, "requeue", AsyncMock(return_value=True))
+
     jobs = SimpleNamespace(create_job=AsyncMock(return_value=2))
     queue = SimpleNamespace(enqueue_sweep=AsyncMock())
     app = FastAPI()
@@ -80,12 +87,13 @@ def test_api_preserves_selected_judge_and_requires_admin(role, mode, operation):
                 "evaluation_mode": mode.value,
             },
         )
+
     if role == UserRole.ADMIN:
         assert response.status_code == 200, response.text
         assert response.json()["judge_model"] == "chosen/judge"
         assert response.json()["evaluation_mode"] == mode
         queue.enqueue_sweep.assert_awaited_once_with(sweep_id=1, job_id=2)
-        assert factory._uow.benchmark_sweeps.job_ids[1] == 2
+        assert factory._uow.fake_benchmark_sweeps.job_ids[1] == 2
     else:
         assert response.status_code == 403
         jobs.create_job.assert_not_called()
@@ -101,17 +109,19 @@ def test_api_preserves_selected_judge_and_requires_admin(role, mode, operation):
         (None, "", "main-model"),
     ],
 )
-async def test_worker_uses_saved_judge_instead_of_main_model(monkeypatch, selected, configured, expected):
+async def test_worker_uses_saved_judge_instead_of_main_model(
+    monkeypatch: pytest.MonkeyPatch, selected: str | None, configured: str, expected: str
+) -> None:
 
     saved = BenchmarkSweep(id=1, judge_model=selected)
     factory = FakeUnitOfWorkFactory()
-    factory._uow.benchmark_sweeps.get_by_id = AsyncMock(return_value=saved)
+    monkeypatch.setattr(factory._uow.fake_benchmark_sweeps, "get_by_id", AsyncMock(return_value=saved))
     engine = SimpleNamespace(run_sweep=AsyncMock(return_value=[]))
     monkeypatch.setattr(worker, "publish_sweep_event", AsyncMock())
-    monkeypatch.setattr(worker.settings, "llm_model", "main-model")
-    monkeypatch.setattr(worker.settings, "benchmark_judge_model", configured)
+    monkeypatch.setattr(settings, "openrouter_model", "main-model")
+    monkeypatch.setattr(settings, "benchmark_judge_model", configured)
 
-    async def run_action(factory, job_id, action, **kwargs):
+    async def run_action(factory: object, job_id: object, action: Any, **kwargs: Any) -> None:
         await action()
 
     monkeypatch.setattr(runtime, "run_tracked_job", run_action)

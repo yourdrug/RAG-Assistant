@@ -10,7 +10,12 @@ from uuid import uuid4
 
 from config import settings
 from domain.benchmark.evaluation import evaluate_evidence, evaluate_retrieval, evaluate_stage_evidence
-from domain.benchmark.question import validate_annotations
+from domain.benchmark.question import (
+    ABSTENTION_TYPES,
+    answer_type,
+    evaluation_annotations as normalize_annotations,
+    validate_annotations,
+)
 from domain.benchmark.stage_reporting import diagnostic_card
 from infrastructure.benchmark.checkpoint import load_stages, refresh_judge_rubric, save_stages
 from infrastructure.benchmark.evaluation import metrics
@@ -84,7 +89,10 @@ class BenchmarkCaseEvaluator:
         saved = await load_stages(self._checkpoints, checkpoint_path)
         context_token = judge_context.set(
             {
-                "case_id": uuid4().hex,
+                "case_id": question.get("case_id") or uuid4().hex,
+                "answer_type": answer_type(question.get("annotations")),
+                "dataset": question.get("dataset"),
+                "variant_of": question.get("variant_of"),
                 "question_id": question.get("id", idx),
                 "run": run_idx,
                 "checkpoint": str(checkpoint_path) if checkpoint_path else None,
@@ -130,7 +138,7 @@ class BenchmarkCaseEvaluator:
         checkpoint_path: Path | None = None,
     ) -> dict[str, Any]:
 
-        annotations = validate_annotations(question.get("annotations"))
+        annotations = normalize_annotations(validate_annotations(question.get("annotations")))
         started = time.monotonic()
         stages = await load_stages(self._checkpoints, checkpoint_path)
 
@@ -252,7 +260,9 @@ class BenchmarkCaseEvaluator:
         )
         retriever_metrics = {**generated.retriever_metrics, **retrieval}
 
-        if evidence is None or evidence.retrieved is None:
+        if (evidence is None or evidence.retrieved is None) and answer_type(
+            question.get("annotations")
+        ) not in ABSTENTION_TYPES:
             retriever_metrics["source_hit_rate"] = generated.retriever_metrics.get("hit_rate")
             retriever_metrics["source_mrr"] = generated.retriever_metrics.get("mrr")
 
@@ -262,11 +272,15 @@ class BenchmarkCaseEvaluator:
         retriever_metrics.setdefault("retrieved_sources", [])
         diagnostics["judge"] = judge_metrics["details"]
         cost = metrics.estimate_cost_usd(
-            settings.llm_model, generated.input_tokens or 0, generated.output_tokens or 0
+            settings.openrouter_model, generated.input_tokens or 0, generated.output_tokens or 0
         )
         return {
             "id": question.get("id", str(run.idx)),
             "question": question["question"],
+            "case_id": question.get("case_id"),
+            "variant_of": question.get("variant_of"),
+            "question_style": question.get("question_style"),
+            "answer_type": answer_type(question.get("annotations")),
             "tags": question.get("tags") or [],
             "dataset": question.get("dataset"),
             "annotation_validation": validation,

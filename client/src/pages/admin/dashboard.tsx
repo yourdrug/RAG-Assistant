@@ -248,7 +248,7 @@ export function AdminDashboardPage() {
             latency={health.checks?.qdrant?.latency_ms}
           />
           <ServiceCard
-            title={health?.llm_provider === "openrouter" ? "OpenRouter" : "Ollama"}
+            title="OpenRouter"
             icon={<Cpu className="h-5 w-5 text-orange-600 dark:text-orange-400" />}
             status={llmStatus}
             latency={health.checks?.llm?.latency_ms}
@@ -568,48 +568,20 @@ export function AdminDashboardPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Cpu className="h-5 w-5" />
-                {health?.llm_provider === "openrouter" ? "OpenRouter LLM" : "Ollama LLM"}
+                OpenRouter LLM
               </CardTitle>
-              <CardDescription>
-                {health?.llm_provider === "openrouter" ? "Cloud model" : "Loaded models"}
-              </CardDescription>
+              <CardDescription>Cloud model</CardDescription>
             </CardHeader>
             <CardContent>
-              {health?.llm_provider === "openrouter" ? (
-                <div className="space-y-3">
-                  <Badge variant="secondary" className="text-xs">
-                    {health.checks?.llm?.models?.[0] || "—"}
-                  </Badge>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Provider</span>
-                    <span className="font-mono">OpenRouter</span>
-                  </div>
+              <div className="space-y-3">
+                <Badge variant="secondary" className="text-xs">
+                  {health?.checks?.llm?.models?.[0] || "—"}
+                </Badge>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Provider</span>
+                  <span className="font-mono">OpenRouter</span>
                 </div>
-              ) : metrics.ollama && metrics.ollama.length > 0 ? (
-                <div className="space-y-3">
-                  {metrics.ollama.map((m) => (
-                    <div key={m.model} className="space-y-1">
-                      <Badge variant="secondary" className="text-xs">
-                        {m.model}
-                      </Badge>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">GPU</span>
-                        <span className="font-mono">
-                          {(m.gpu_bytes / 1024 / 1024).toFixed(1)} MB
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">RAM</span>
-                        <span className="font-mono">
-                          {(m.ram_bytes / 1024 / 1024).toFixed(1)} MB
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No models loaded</p>
-              )}
+              </div>
             </CardContent>
           </Card>
 

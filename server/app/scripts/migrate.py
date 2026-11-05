@@ -14,11 +14,12 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from sqlalchemy import text
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import text
 
 from infrastructure.database.database import DatabaseManager
+
 
 logger = logging.getLogger("default")
 LOCK_ID = 727271

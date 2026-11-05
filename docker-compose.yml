@@ -47,52 +47,6 @@ services:
     networks:
       - backend
 
-  ollama:
-    image: ollama/ollama:0.9.5
-    logging: *bounded-logging
-    hostname: ollama
-    container_name: rag-ollama
-    # Ollama не умеет в собственную авторизацию — доступ ТОЛЬКО внутри Docker-сети.
-    # Для отладки с хоста: docker exec rag-ollama ollama list
-    # или временно раскомментировать ports ниже.
-    expose:
-      - "11434/tcp"
-    # ports:
-    #   - name: ollama-debug
-    #     target: 11434
-    #     published: 11435
-    #     host_ip: 127.0.0.1
-    #     protocol: tcp
-    #     mode: host
-    volumes:
-      - type: bind
-        source: ./data/ollama_models
-        target: /root/.ollama
-        bind:
-          propagation: rprivate
-          create_host_path: true
-          selinux: Z
-    environment:
-      OLLAMA_MAX_LOADED_MODELS: 1
-      OLLAMA_NUM_PARALLEL: 1
-      OLLAMA_KEEP_ALIVE: 5m   # не держать модель в памяти бесконечно после запроса
-    deploy:
-      resources:
-        limits:
-          cpus: "4"
-          memory: 5G
-        reservations:
-          cpus: "1"
-          memory: 2G
-    healthcheck:
-      test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/11434' || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-    networks:
-      - backend
-
   postgres:
     image: postgres:16.4-alpine
     logging: *bounded-logging
@@ -279,7 +233,9 @@ services:
           create_host_path: true
           selinux: Z
     healthcheck:
-      test: [ "CMD", "curl", "--silent", "--fail", "http://localhost:8001/ready" ]
+      # Keep the UI available for administration when RAG dependencies are degraded.
+      # /ready continues to report whether the full RAG pipeline is ready.
+      test: [ "CMD", "curl", "--silent", "--fail", "http://localhost:8001/live" ]
       interval: 30s
       timeout: 10s
       retries: 10
@@ -296,8 +252,6 @@ services:
       migrate:
         condition: service_completed_successfully
       qdrant:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -337,8 +291,6 @@ services:
       redis:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
     deploy:
       resources:
@@ -429,9 +381,8 @@ services:
       - backend
 
   minio:
-    image: rag-minio:RELEASE.2024-09-22T00-33-43Z
-    build:
-      context: ./docker/minio
+    # Keep the service name and data path for existing endpoints and backups.
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
     logging: *bounded-logging
     hostname: minio
     container_name: rag-minio

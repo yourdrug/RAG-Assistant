@@ -183,7 +183,7 @@ class LiveConfigAdminSettings:
 
     @property
     def llm_model(self) -> str:
-        return settings.llm_model
+        return settings.openrouter_model
 
     @property
     def tei_embed_url(self) -> str:

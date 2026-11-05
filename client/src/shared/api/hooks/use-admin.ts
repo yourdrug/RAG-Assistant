@@ -41,7 +41,6 @@ export interface ModelInfo {
 }
 
 export interface ModelsInfo {
-  ollama_models: ModelInfo[];
   embedding_model: string;
   rerank_model: string;
 }

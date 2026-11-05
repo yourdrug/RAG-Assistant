@@ -6,7 +6,6 @@ import asyncio
 import re
 from typing import TYPE_CHECKING, Any
 
-from application.runtime.enums import LLMProvider
 from config import get_request_settings
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import (
@@ -43,11 +42,7 @@ async def check_relevance(ml_clients: MLClientPort, question: str, docs: list[An
     prompt_text = f"Вопрос: {question}\n\nКонтекст из документов:\n{context}"
 
     client = ml_clients.instructor_client
-    model = (
-        get_request_settings().llm_model
-        if get_request_settings().llm_provider == LLMProvider.OLLAMA
-        else get_request_settings().openrouter_model
-    )
+    model = get_request_settings().openrouter_model
 
     async with client_operation(client):
         try:
@@ -122,10 +117,7 @@ async def assess_sufficiency(
     if llm_client is None:
         llm_client = ml_clients.instructor_client
 
-        if get_request_settings().llm_provider == LLMProvider.OLLAMA:
-            model = get_request_settings().llm_model
-        else:
-            model = get_request_settings().openrouter_model
+        model = get_request_settings().openrouter_model
 
     context = format_docs(docs, max_context_tokens=2000)
     user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"

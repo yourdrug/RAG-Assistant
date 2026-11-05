@@ -48,7 +48,7 @@ tasks:
   data:create:
     desc: Создать все data-директории, необходимые для Docker-сервисов
     cmds:
-      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/paddleocr_cache data/db/postgres data/redis
+      - mkdir -p data/qdrant_storage data/postgres data/minio data/paddleocr_cache data/db/postgres data/redis
       - test -f data/redis/redis.conf || echo '# See data/redis/redis.conf in repo' > data/redis/redis.conf
       - 'echo "Data-директории созданы"'
 
@@ -137,22 +137,11 @@ tasks:
       - "{{.COMPOSE}} logs -f {{.CLI_ARGS | default \"server\"}}"
 
   clean:
-    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/redis — ОПАСНО
-    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama/Redis)?
+    desc: Остановить стек и удалить data/postgres, data/qdrant_storage,, data/redis — ОПАСНО
+    prompt: Удалить все локальные данные (Postgres/Qdrant/Redis)?
     cmds:
       - "{{.COMPOSE}} down -v"
-      - rm -rf data/postgres data/qdrant_storage data/ollama_models data/redis
-
-  # -------------------------------------------------------------------------
-  # Модель LLM (Ollama — сервис в docker-compose.yml)
-  # -------------------------------------------------------------------------
-
-  pull-model:
-    desc: "Скачать LLM в Ollama: task pull-model MODEL=qwen2.5:7b"
-    requires:
-      vars: [MODEL]
-    cmds:
-      - '{{.COMPOSE}} exec ollama ollama pull "{{.MODEL}}"'
+      - rm -rf data/postgres data/qdrant_storage data/redis
 
   # -------------------------------------------------------------------------
   # Проверка и использование
@@ -246,7 +235,7 @@ tasks:
       - |
         status=0
         uv run --frozen --group development ruff check --fix app tests tools typings || status=1
-        uv run --frozen --group development python tools/blank_lines.py --exclude-from blank-lines-baseline.txt app tests tools || status=1
+        uv run --frozen --group development python tools/blank_lines.py app tests tools || status=1
         uv run --frozen --group development ruff format app tests tools typings || status=1
         exit "$status"
 
@@ -256,7 +245,7 @@ tasks:
     cmds:
       - |
         status=0
-        uv run --frozen --group development python tools/blank_lines.py --exclude-from blank-lines-baseline.txt --check app tests tools || status=1
+        uv run --frozen --group development python tools/blank_lines.py --check app tests tools || status=1
         uv run --frozen --group development ruff check app tests tools typings || status=1
         uv run --frozen --group development ruff format --check app tests tools typings || status=1
         uv run --frozen --group development --group testing mypy || status=1
@@ -278,6 +267,11 @@ tasks:
       RUN_INTEGRATION_TESTS: "1"
     cmds:
       - uv run pytest -v -m integration {{.CLI_ARGS}}
+
+  benchmark:validate:
+    desc: "Проверить структуру benchmark v2 без запуска RAG"
+    cmds:
+      - python3 scripts/benchmark/validate_v2.py {{.CLI_ARGS}}
 
   script:
     desc: "Запустить Python-утилиту из scripts/: task script SCRIPT=benchmark/compare_frozen_generation.py -- --help"

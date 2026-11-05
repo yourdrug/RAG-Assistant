@@ -1,17 +1,21 @@
 """Execute deployment failures against Docker fakes, preserving the live stack."""
 
+from __future__ import annotations
+
 import fcntl
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from typing import Any
 
 import pytest
 
+
 ROOT = Path(__file__).resolve().parents[2]
-DOCKER_FAKE = r'''
+DOCKER_FAKE = r"""
 import json, os, sys
 from pathlib import Path
 args = sys.argv[1:]
@@ -44,11 +48,11 @@ elif (
     and not os.environ.get("SERVER_IMAGE", "").startswith("sha256:")
 ):
     sys.exit(1)
-'''
+"""
 
 
 @pytest.fixture
-def deployment(tmp_path):
+def deployment(tmp_path: Path) -> Any:
     shutil.copytree(ROOT / "scripts/operations", tmp_path / "scripts/operations")
     shutil.copytree(ROOT / "deploy", tmp_path / "deploy")
     (tmp_path / "VERSION").write_text("0.1.0")
@@ -69,13 +73,14 @@ def deployment(tmp_path):
         "COMPOSE_PROFILES": "tei",
     }
 
-    def run(**updates):
+    def run(**updates: Any) -> Any:
         result = subprocess.run(  # noqa: S603 -- only repository scripts and controlled test fakes
             ["/bin/bash", str(tmp_path / "deploy/deploy.sh"), "v0.6.0", "--gpu"],
             env={**env, **updates},
             capture_output=True,
             text=True,
             timeout=15,
+            check=False,
         )
         log = tmp_path / "commands.jsonl"
         commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -84,7 +89,7 @@ def deployment(tmp_path):
     return tmp_path, run
 
 
-def test_success_preserves_infrastructure_and_enables_tei(deployment):
+def test_success_preserves_infrastructure_and_enables_tei(deployment: Any) -> None:
     directory, run = deployment
     result, commands = run(DEPLOY_DIR="")
     assert result.returncode == 0, result.stderr
@@ -95,7 +100,7 @@ def test_success_preserves_infrastructure_and_enables_tei(deployment):
 
 
 @pytest.mark.parametrize("stage", ["up", "smoke", "migrate"])
-def test_failure_restores_previous_images_if_schema_unchanged(deployment, stage):
+def test_failure_restores_previous_images_if_schema_unchanged(deployment: Any, stage: str) -> None:
     directory, run = deployment
     result, commands = run(FAIL_STAGE=stage)
     assert result.returncode != 0
@@ -103,7 +108,7 @@ def test_failure_restores_previous_images_if_schema_unchanged(deployment, stage)
     assert not (directory / ".deploy/current.env").exists()
 
 
-def test_changed_schema_blocks_unsafe_rollback(deployment):
+def test_changed_schema_blocks_unsafe_rollback(deployment: Any) -> None:
     _, run = deployment
     result, commands = run(FAIL_STAGE="up", SCHEMA_CHANGED="true")
     assert result.returncode != 0
@@ -113,14 +118,14 @@ def test_changed_schema_blocks_unsafe_rollback(deployment):
     )
 
 
-def test_pull_failure_leaves_running_stack_alone(deployment):
+def test_pull_failure_leaves_running_stack_alone(deployment: Any) -> None:
     _, run = deployment
     result, commands = run(FAIL_STAGE="pull")
     assert result.returncode != 0
     assert not any("up" in command["args"] or "run" in command["args"] for command in commands)
 
 
-def test_deployment_lock_blocks_concurrent_mutations(deployment):
+def test_deployment_lock_blocks_concurrent_mutations(deployment: Any) -> None:
     directory, run = deployment
     (directory / ".deploy").mkdir()
     with (directory / ".deploy/operations.lock").open("w") as lock:
@@ -131,7 +136,7 @@ def test_deployment_lock_blocks_concurrent_mutations(deployment):
     assert not any("pull" in command["args"] or "up" in command["args"] for command in commands)
 
 
-def test_cloud_deployment_does_not_start_tei_from_legacy_provider(deployment):
+def test_cloud_deployment_does_not_start_tei_from_legacy_provider(deployment: Any) -> None:
     _, run = deployment
     result, commands = run(COMPOSE_PROFILES="", ML_PROVIDER="tei")
     assert result.returncode == 0, result.stderr

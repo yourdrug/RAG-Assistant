@@ -19,7 +19,6 @@ import threading
 from typing import TYPE_CHECKING, Self, cast
 
 from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
-from application.runtime.enums import LLMProvider
 from config import request_settings, settings
 from domain.shared.exceptions import SemaphoreTimeoutError
 from infrastructure.corpus.resources import CorpusResources
@@ -280,18 +279,11 @@ class MLClientRegistry(MLClientPort):
                 if self.cached_instructor is None:
                     model = settings.model_copy()
 
-                    if model.llm_provider == LLMProvider.OPENROUTER:
-                        instructor = create_async_instructor_client(
-                            runtime=self.budget_runtime,
-                            base_url=model.openrouter_base_url,
-                            api_key=model.openrouter_api_key,
-                        )
-                    else:
-                        instructor = create_async_instructor_client(
-                            runtime=self.budget_runtime,
-                            base_url=f"{model.ollama_base_url}/v1",
-                            api_key="ollama",
-                        )
+                    instructor = create_async_instructor_client(
+                        runtime=self.budget_runtime,
+                        base_url=model.openrouter_base_url,
+                        api_key=model.openrouter_api_key,
+                    )
 
                     self.cached_instructor = ManagedInstructor(instructor)
 

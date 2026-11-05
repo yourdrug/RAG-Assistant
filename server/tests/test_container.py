@@ -2,32 +2,45 @@
 
 from __future__ import annotations
 
-import sys
 from datetime import date
 from pathlib import Path
+import sys
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock, call, patch
+
+import pytest
+
+from application.runtime.config import ConfigParameter
+from config import Settings
+from domain.knowledge.chunk import ChunkRecord
+from tests.fakes import FakeUnitOfWorkFactory, require_present
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import pytest
-from composition.container import (
-    ApplicationContainer,
-    Container,
-    InfrastructureContainer,
-)
+
+from application.runtime.config import ConfigParameterChanged, ConfigValueType
+from composition.application import ApplicationContainer
+from composition.container import Container
+from composition.infrastructure import InfrastructureContainer
+from composition.service_providers import create_document_processor
+from composition.utils import ContainerNotInitializedError
+from config import settings
+from domain.ingestion.profiles.registry import DomainProfileRegistry
+from domain.shared.exceptions import ValidationError
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.database.database import DatabaseManager
-from config import settings
-from application.runtime.config import ConfigParameter, ConfigParameterChanged
-from application.runtime.config import ConfigValueType
-from domain.shared.exceptions import ValidationError
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
-from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.ml.config.config_subscribers import audit_log_config_change
-from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
+from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.ml.ingestion import ocr
+from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
+
+
+if TYPE_CHECKING:
+    from infrastructure.ml.rag.rag_steps import RagOperations
 
 
 @pytest.fixture
@@ -41,22 +54,22 @@ def mock_database_manager() -> MagicMock:
 
 
 class TestInfrastructureContainer:
-    def test_init_rejects_non_database_manager(self):
+    def test_init_rejects_non_database_manager(self) -> None:
         infra = InfrastructureContainer()
         with pytest.raises(TypeError, match="Expected DatabaseManager"):
-            infra.init("not a database manager")
+            infra.init(cast("DatabaseManager", "not a database manager"))
 
-    def test_init_rejects_none(self):
+    def test_init_rejects_none(self) -> None:
         infra = InfrastructureContainer()
         with pytest.raises(TypeError, match="Expected DatabaseManager"):
-            infra.init(None)
+            infra.init(cast("DatabaseManager", None))
 
     @pytest.mark.asyncio
-    async def test_dispose_is_safe_before_init(self):
+    async def test_dispose_is_safe_before_init(self) -> None:
         infra = InfrastructureContainer()
         await infra.dispose()
 
-    def test_has_expected_sub_containers(self):
+    def test_has_expected_sub_containers(self) -> None:
         infra = InfrastructureContainer()
         assert hasattr(infra, "db")
         assert hasattr(infra, "ml")
@@ -72,7 +85,9 @@ class TestInfrastructureContainer:
 class TestApplicationContainer:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("update_source", ["hot_reload", "db_resync"])
-    async def test_shared_pii_redactor_uses_config_loaded_after_init(self, monkeypatch, update_source):
+    async def test_shared_pii_redactor_uses_config_loaded_after_init(  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
+        self, monkeypatch: pytest.MonkeyPatch, update_source: str
+    ) -> None:
         monkeypatch.setattr(settings, "pii_redaction_enabled", False)
         bus = InProcessEventBus()
         monkeypatch.setattr("infrastructure.events.in_process_event_bus.event_bus", bus)
@@ -80,7 +95,6 @@ class TestApplicationContainer:
         container.infrastructure = MagicMock()
         with patch("composition.application.create_ingestion_service", return_value=MagicMock()):
             container.application.init(container.infrastructure)
-        from config import Settings
 
         configuration = SettingsProviderConfiguration(
             Settings(
@@ -94,16 +108,16 @@ class TestApplicationContainer:
         monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:8080")
         container.infrastructure.configuration = configuration
 
-        chat_redactor = container.application.chat_service._pii_redactor
-        rag_redactor = container.application.rag_service.preparation.pii_redactor
+        chat_redactor = require_present(container.application.chat_service)._pii_redactor
+        preparation = require_present(container.application.rag_service).preparation
+        rag_redactor = require_present(cast("RagOperations", preparation).pii_redactor)
         assert chat_redactor is rag_redactor
         text = "Контакт: private@example.com"
         assert chat_redactor.redact(text) == text
         assert rag_redactor.scan_and_redact(text) == (text, [])
 
-        from application.runtime.config import ConfigParameter
-
         row = ConfigParameter("pii_redaction_enabled", "true", ConfigValueType.BOOL.value, "toggles")
+
         if update_source == "hot_reload":
             configuration.apply([row])
         else:
@@ -120,14 +134,14 @@ class TestApplicationContainer:
         assert chat_redactor.redact(text) == "Контакт: ***"
         assert rag_redactor.scan_and_redact(text) == ("Контакт: ***", ["email"])
 
-    def test_init_requires_infra_initialized(self):
+    def test_init_requires_infra_initialized(self) -> None:
         app = ApplicationContainer()
         infra = InfrastructureContainer()
-        with pytest.raises(RuntimeError, match="Container.init\\(\\) must be called"):
+        with pytest.raises(RuntimeError, match=r"Container.init\(\) must be called"):
             app.init(infra)
 
     @pytest.mark.asyncio
-    async def test_dispose_calls_shutdown(self):
+    async def test_dispose_calls_shutdown(self) -> None:
         app = ApplicationContainer()
         mock_chat = AsyncMock()
         mock_chat.shutdown = AsyncMock()
@@ -136,13 +150,13 @@ class TestApplicationContainer:
         mock_chat.shutdown.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_dispose_safe_when_no_shutdown(self):
+    async def test_dispose_safe_when_no_shutdown(self) -> None:
         app = ApplicationContainer()
         app.chat_service = MagicMock(spec=[])  # no shutdown method
         await app.dispose()
 
     @pytest.mark.asyncio
-    async def test_dispose_safe_when_chat_service_none(self):
+    async def test_dispose_safe_when_chat_service_none(self) -> None:
         app = ApplicationContainer()
         await app.dispose()
 
@@ -153,16 +167,16 @@ class TestApplicationContainer:
 
 
 class TestContainer:
-    def test_initial_state(self):
+    def test_initial_state(self) -> None:
         c = Container()
         assert c._initialized is False
 
-    def test_sub_containers_exist(self):
+    def test_sub_containers_exist(self) -> None:
         c = Container()
         assert isinstance(c.infrastructure, InfrastructureContainer)
         assert isinstance(c.application, ApplicationContainer)
 
-    def test_double_init_raises(self):
+    def test_double_init_raises(self) -> None:
         c = Container()
         mock_db = MagicMock(spec=DatabaseManager)
         with (
@@ -176,12 +190,12 @@ class TestContainer:
                 c.init(mock_db)
 
     @pytest.mark.asyncio
-    async def test_dispose_safe_before_init(self):
+    async def test_dispose_safe_before_init(self) -> None:
         c = Container()
         await c.dispose()
 
     @pytest.mark.asyncio
-    async def test_dispose_resets_flag(self):
+    async def test_dispose_resets_flag(self) -> None:
         c = Container()
         mock_db = MagicMock(spec=DatabaseManager)
         with (
@@ -198,17 +212,17 @@ class TestContainer:
             assert c._initialized is False
 
     @pytest.mark.asyncio
-    async def test_dispose_calls_sub_dispose_in_order(self):
+    async def test_dispose_calls_sub_dispose_in_order(self) -> None:
         c = Container()
         call_order = []
         mock_app = AsyncMock()
         mock_infra = AsyncMock()
         mock_infra.unsubscribe_config_events = MagicMock()
 
-        async def track_app():
+        async def track_app() -> None:
             call_order.append("app")
 
-        async def track_infra():
+        async def track_infra() -> None:
             call_order.append("infra")
 
         mock_app.dispose = track_app
@@ -222,7 +236,7 @@ class TestContainer:
         assert call_order == ["app", "infra"]
 
     @pytest.mark.asyncio
-    async def test_full_init_dispose_cycle(self, mock_database_manager):
+    async def test_full_init_dispose_cycle(self, mock_database_manager: MagicMock) -> None:
         c = Container()
         with (
             patch.object(InfrastructureContainer, "init") as mock_infra_init,
@@ -248,10 +262,11 @@ class TestContainer:
 class TestChunkSearchAdapter:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("as_of_date", [None, date(2024, 1, 1)])
-    async def test_delegates_to_uow_factory(self, as_of_date):
+    async def test_delegates_to_uow_factory(self, as_of_date: Any) -> None:
         mock_uow_factory = MagicMock()
         mock_chunks = AsyncMock()
-        mock_chunks.search_substring.return_value = ["result"]
+        matches: list[ChunkRecord] = [MagicMock(spec=ChunkRecord)]
+        mock_chunks.search_substring.return_value = matches
         mock_uow = AsyncMock()
         mock_uow.chunks = mock_chunks
 
@@ -279,7 +294,7 @@ class TestChunkSearchAdapter:
             as_of_date=as_of_date,
             document_id=None,
         )
-        assert result == ["result"]
+        assert result == matches
 
 
 # ===========================================================================
@@ -288,7 +303,7 @@ class TestChunkSearchAdapter:
 
 
 class TestSubscribeConfigEvents:
-    def test_subscribes_handlers_to_event_bus(self):
+    def test_subscribes_handlers_to_event_bus(self) -> None:
         c = Container()
         c.infrastructure.ml.ml_clients = MagicMock()
 
@@ -305,12 +320,12 @@ class TestSubscribeConfigEvents:
             c.unsubscribe_config_events()
             assert mock_bus.unsubscribe.call_args_list == mock_bus.subscribe.call_args_list
 
-    def test_ml_clients_none_before_init(self):
+    def test_ml_clients_none_before_init(self) -> None:
         c = Container()
         # Before init(), ml_clients is None
         assert c.infrastructure.ml.ml_clients is None
 
-    def test_invalidation_handlers_invalidate_on_event(self):
+    def test_invalidation_handlers_invalidate_on_event(self) -> None:
         c = Container()
         mock_ml = MagicMock()
         c.infrastructure.ml.ml_clients = mock_ml
@@ -322,23 +337,27 @@ class TestSubscribeConfigEvents:
             handlers = [call[0][1] for call in mock_bus.subscribe.call_args_list]
 
             llm_event = ConfigParameterChanged(
-                key="llm_model", old_value="a", new_value="b", value_type="str"
+                key="openrouter_model", old_value="a", new_value="b", value_type="str"
             )
+
             for h in handlers:
                 h(llm_event)
+
             mock_ml.invalidate_llm.assert_called()
 
             mock_ml.reset_mock()
             bm25_event = ConfigParameterChanged(
                 key="hybrid_enabled", old_value="false", new_value="true", value_type="bool"
             )
+
             for h in handlers:
                 h(bm25_event)
+
             mock_ml.invalidate_bm25.assert_not_called()
 
 
 @pytest.mark.parametrize("change", ["language", "unrelated", "invalid"])
-def test_ocr_cache_reacts_to_validated_configuration(monkeypatch, change):
+def test_ocr_cache_reacts_to_validated_configuration(monkeypatch: pytest.MonkeyPatch, change: str) -> None:  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
     monkeypatch.setattr(settings, "ocr_lang_paddle", "ru")
     monkeypatch.setattr(settings, "ocr_dpi", settings.ocr_dpi)
     monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:8080")
@@ -354,15 +373,16 @@ def test_ocr_cache_reacts_to_validated_configuration(monkeypatch, change):
     ocr.get_paddle_ocr.cache_clear()
     try:
         original = ocr.get_paddle_ocr()
-        assert original.lang == "ru"
+        assert cast("SimpleNamespace", original).lang == "ru"
         assert ocr.get_paddle_ocr() is original
+
         if change == "language":
             configuration.apply([ConfigParameter("ocr_lang_paddle", "en", ConfigValueType.STR, "ocr")])
             # Invalidating the cache must not load a model inside the event handler.
             assert paddle.call_count == 1
             updated = ocr.get_paddle_ocr()
             assert updated is not original
-            assert updated.lang == "en"
+            assert cast("SimpleNamespace", updated).lang == "en"
             assert paddle.call_count == 2
             configuration.apply([ConfigParameter("ocr_lang_paddle", "en", ConfigValueType.STR, "ocr")])
             assert ocr.get_paddle_ocr() is updated
@@ -382,3 +402,10 @@ def test_ocr_cache_reacts_to_validated_configuration(monkeypatch, change):
     finally:
         infra.unsubscribe_config_events()
         ocr.get_paddle_ocr.cache_clear()
+
+
+def test_document_processor_requires_settings_when_domain_registry_is_present() -> None:
+    infra = InfrastructureContainer(domain_registry=DomainProfileRegistry())
+
+    with pytest.raises(ContainerNotInitializedError, match="domain_settings not initialized"):
+        create_document_processor(infra, FakeUnitOfWorkFactory())

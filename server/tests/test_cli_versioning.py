@@ -2,30 +2,43 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
 from unittest.mock import AsyncMock, MagicMock
+
+from domain.ingestion.profiles.registry import DomainProfileRegistry
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
+from typing import TYPE_CHECKING
+
 import pytest
-from langchain.schema import Document
 
 from application.act_versioning import ActVersioningService
-from application.ingestion import BatchIngestionWorkflow
-from application.ingestion import S3DocumentLoader
+from application.ingestion import (
+    BatchIngestionWorkflow,
+    DocumentSyncService,
+    IngestionRegistry,
+    IngestionService,
+    S3DocumentLoader,
+    S3IngestionTargets,
+    S3UploadService,
+    SingleFileIngestionWorkflow,
+)
 from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.raw_document import RawDocument as Document
 from tests.fakes import FakeUnitOfWorkFactory
-from application.ingestion import IngestionService
-from application.ingestion import IngestionRegistry
-from application.ingestion import DocumentSyncService
-from application.ingestion import S3IngestionTargets, S3UploadService
-from application.ingestion import SingleFileIngestionWorkflow
+
+
+if TYPE_CHECKING:
+    from application.ingestion.dto import RegistryRecord
 
 
 class FakeSettings:
     def get(self, key: str, domain_key: str = "") -> str:
-        defaults = {
+        _ = domain_key
+        defaults: dict[str, str] = {
             "max_unit_chars": "800",
             "fingerprint_min_points": "1",
             "effective_date_auto_trust_threshold": "0.85",
@@ -40,8 +53,7 @@ _DECREE_TEXT = (
 )
 
 
-def _make_service():
-    from domain.ingestion.profiles.registry import DomainProfileRegistry
+def _make_service() -> tuple[IngestionService, FakeUnitOfWorkFactory, ActVersioningService]:
 
     factory = FakeUnitOfWorkFactory()
     versioning = ActVersioningService(uow_factory=factory, settings=FakeSettings())
@@ -82,8 +94,8 @@ def _make_service():
 
 
 @pytest.mark.asyncio
-async def test_cli_sync_creates_act_version_for_versioned_domain():
-    service, factory, versioning = _make_service()
+async def test_cli_sync_creates_act_version_for_versioned_domain() -> None:
+    service, factory, _versioning = _make_service()
     chunks = [
         Document(
             page_content="1. Мера первая.",
@@ -94,22 +106,24 @@ async def test_cli_sync_creates_act_version_for_versioned_domain():
             metadata={"source": "s3://b/docs/ukaz.rtf", "doc_domain": "decree"},
         ),
     ]
-    registry = {"ukaz.rtf": {"source": "s3://b/docs/ukaz.rtf"}}
+    registry: dict[str, RegistryRecord] = {
+        "ukaz.rtf": {"source": "s3://b/docs/ukaz.rtf", "hash": "test", "chars": 200, "chunks": 2}
+    }
 
     await service._batch._sync.sync_documents_to_db(
         registry, {"s3://b/docs/ukaz.rtf": 200}, chunks, {"s3://b/docs/ukaz.rtf": _DECREE_TEXT}
     )
 
     uow = factory._uow
-    versions = list(uow.act_versions._versions.values())
+    versions = list(uow.fake_act_versions._versions.values())
     assert len(versions) == 1
     version = versions[0]
     assert version.act_id is not None
     # The act was found/created by the extracted number
-    acts = await uow.regulatory_acts.list_all()
+    acts = await uow.fake_regulatory_acts.list_all()
     assert any(a.act_number == "15" for a in acts)
     # Versioning metadata reached the chunks persisted via bulk_insert
-    stored = uow.chunks._chunks
+    stored = uow.fake_chunks._chunks
     assert stored, "chunks must be persisted"
     assert all(c["act_version_id"] == version.id for c in stored)
     assert all(c["domain_metadata"]["decree_number"] == "15" for c in stored)
@@ -118,24 +132,26 @@ async def test_cli_sync_creates_act_version_for_versioned_domain():
 
 
 @pytest.mark.asyncio
-async def test_cli_sync_skips_versioning_for_general_domain():
-    service, factory, versioning = _make_service()
+async def test_cli_sync_skips_versioning_for_general_domain() -> None:
+    service, factory, _versioning = _make_service()
     chunks = [
         Document(
             page_content="Обычный текст.", metadata={"source": "s3://b/docs/doc.md", "doc_domain": "general"}
         ),
     ]
-    registry = {"doc.md": {"source": "s3://b/docs/doc.md"}}
+    registry: dict[str, RegistryRecord] = {
+        "doc.md": {"source": "s3://b/docs/doc.md", "hash": "test", "chars": 20, "chunks": 1}
+    }
 
     await service._batch._sync.sync_documents_to_db(
         registry, {"s3://b/docs/doc.md": 20}, chunks, {"s3://b/docs/doc.md": "Обычный текст."}
     )
 
-    assert len(factory._uow.act_versions._versions) == 0
+    assert len(factory._uow.fake_act_versions._versions) == 0
 
 
 @pytest.mark.asyncio
-async def test_cli_auto_classification_uses_registry():
+async def test_cli_auto_classification_uses_registry() -> None:
     service, _, _ = _make_service()
     text = (
         "УКАЗ ПРЕЗИДЕНТА О МЕРАХ\n"

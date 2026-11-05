@@ -1,39 +1,48 @@
 """Independent paid judge work survives errors, interruption and resume."""
 
+from __future__ import annotations
+
 import asyncio
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
-from application.benchmark.sweep_jobs import SweepJobService
-
-from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
-from tests.fakes import FakeUnitOfWorkFactory
-
-
 from application.benchmark import compute_summary_from_results
+from application.benchmark.sweep_evaluation import SweepEvaluationPlan, SweepFullEvaluator
+from application.benchmark.sweep_jobs import SweepJobService
+from config import settings
 from domain.benchmark.judge import judge_coverage
-from domain.benchmark.sweep import SweepEvaluationMode
-from infrastructure.benchmark.judging import judge
+from domain.benchmark.sweep import BenchmarkSweep, SweepEvaluationMode
+from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.benchmark.evaluation import metrics
-from infrastructure.benchmark.judging import evidence_judge
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
-from application.benchmark.sweep_evaluation import SweepEvaluationPlan, SweepFullEvaluator
+from infrastructure.benchmark.judging import evidence_judge, judge
 from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 from infrastructure.ml.clients.llm_schemas import JudgeScore
+from infrastructure.worker import sweep
+from tests.fakes import FakeUnitOfWorkFactory, require_present
+from tests.test_worker_sweep_lifecycle import SweepFactory, sweep_context
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from domain.rag.context import RagContext
 
 
 @pytest.fixture(autouse=True)
-def individual_judge_mode(monkeypatch):
-    from config import settings
+def individual_judge_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
 
 
 @pytest.mark.asyncio
-async def test_resume_only_missing_generator_context_and_evidence_scores(tmp_path, monkeypatch):
+async def test_resume_only_missing_generator_context_and_evidence_scores(  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     generator = SimpleNamespace(
         generate=AsyncMock(
             return_value=BenchmarkAnswer(
@@ -44,8 +53,9 @@ async def test_resume_only_missing_generator_context_and_evidence_scores(tmp_pat
     calls = []
     failing = True
 
-    def score(client, prompt, model):
+    def score(client: Any, prompt: str, model: str) -> JudgeScore:
         calls.append(prompt)
+
         # Fail a different independent metric in each scoring group.
         if failing and any(
             marker in prompt
@@ -55,11 +65,13 @@ async def test_resume_only_missing_generator_context_and_evidence_scores(tmp_pat
                 "expected_refusal",
             )
         ):
-            raise RuntimeError("judge truncated again")
+            msg = "judge truncated again"
+            raise RuntimeError(msg)
+
         return JudgeScore(score=0, reason="valid zero")
 
-    monkeypatch.setattr(judge, "get_judge_client", lambda *args, runtime=None: object())
-    monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *args, runtime=None: object())
+    monkeypatch.setattr(judge, "get_judge_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(judge, "judge_with_structured_output", score)
     monkeypatch.setattr(evidence_judge, "judge_with_structured_output", score)
     factory = FakeUnitOfWorkFactory()
@@ -67,20 +79,20 @@ async def test_resume_only_missing_generator_context_and_evidence_scores(tmp_pat
     evaluator = BenchmarkCaseEvaluator(generator, "judge", store)
     question = {"question": "q", "expected_answer": "a", "annotations": {"expected_refusal": True}}
     path = tmp_path / "stage.json"
-    first = await evaluator.evaluate(1, question, 1, SimpleNamespace(), path)
+    first = await evaluator.evaluate(1, question, 1, cast("RagContext", SimpleNamespace()), path)
     assert first["generator_metrics"]["faithfulness"] == 0
     assert first["generator_metrics"]["correctness"] == 0
     assert first["generator_metrics"]["relevancy"] is None
     assert first["context_metrics"]["context_precision"] == 0
     assert first["context_metrics"]["context_recall"] is None
     assert first["evidence_metrics"]["refusal_score"] is None
-    saved = await store.load(str(path))
-    assert saved["generator_metrics"]["faithfulness"] == 0
-    assert saved["context_metrics"]["context_precision"] == 0
-    assert saved["evidence_judge"]["details"]["refusal_score"]["error"]
+    saved = cast("dict[str, Any]", await store.load(str(path)))
+    assert require_present(require_present(saved)["generator_metrics"])["faithfulness"] == 0
+    assert require_present(require_present(saved)["context_metrics"])["context_precision"] == 0
+    assert require_present(require_present(saved["evidence_judge"]["details"])["refusal_score"])["error"]
     first_calls = len(calls)
     failing = False
-    second = await evaluator.evaluate(1, question, 1, SimpleNamespace(), path)
+    second = await evaluator.evaluate(1, question, 1, cast("RagContext", SimpleNamespace()), path)
     generator.generate.assert_awaited_once()
     assert len(calls) - first_calls == 3
     assert judge_coverage([second])["judge_error_count"] == 0
@@ -91,7 +103,9 @@ async def test_resume_only_missing_generator_context_and_evidence_scores(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_success_checkpoint_is_written_before_next_metric(tmp_path, monkeypatch):
+async def test_success_checkpoint_is_written_before_next_metric(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "stage.json"
     factory = FakeUnitOfWorkFactory()
     store = DatabaseBenchmarkCheckpoints(factory, 1)
@@ -104,44 +118,53 @@ async def test_success_checkpoint_is_written_before_next_metric(tmp_path, monkey
     )
     calls = 0
 
-    def score(*args):
+    def score(*args: Any) -> JudgeScore:
         nonlocal calls
         calls += 1
+
         if calls == 2:
             assert (
-                factory._uow.benchmark_sweeps.checkpoints[1, str(path)]["generator_metrics"]["faithfulness"]
+                cast("dict[str, Any]", factory._uow.fake_benchmark_sweeps.checkpoints[1, str(path)])[
+                    "generator_metrics"
+                ]["faithfulness"]
                 == 8
             )
-            raise asyncio.CancelledError()
+            raise asyncio.CancelledError
+
         return JudgeScore(score=8, reason="ok")
 
-    monkeypatch.setattr(judge, "get_judge_client", lambda *args, runtime=None: object())
+    monkeypatch.setattr(judge, "get_judge_client", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(judge, "judge_with_structured_output", score)
     with pytest.raises(asyncio.CancelledError):
         await BenchmarkCaseEvaluator(generator, "judge", store).evaluate(
-            1, {"question": "q"}, 1, SimpleNamespace(), path
+            1, {"question": "q"}, 1, cast("RagContext", SimpleNamespace()), path
         )
-    assert (await store.load(str(path)))["generator_metrics"]["faithfulness"] == 8
+    assert (
+        require_present(
+            require_present(cast("dict[str, Any]", await store.load(str(path))))["generator_metrics"]
+        )["faithfulness"]
+        == 8
+    )
 
 
-def test_missing_judge_scores_are_excluded_from_averages_but_counted_as_missing():
-    results = []
-    for value in (8, None):
-        results.append(
-            {
-                "id": "q",
-                "question": "q",
-                "answer": "a",
-                "latency_sec": 1,
-                "generator_metrics": {
-                    "faithfulness": value,
-                    "relevancy": 9,
-                    "correctness": None,
-                    **({"faithfulness_error": "truncated"} if value is None else {}),
-                },
-                "retriever_metrics": {"hit_rate": None, "mrr": None, "avg_similarity": 0},
-            }
-        )
+def test_missing_judge_scores_are_excluded_from_averages_but_counted_as_missing() -> None:
+    results = [
+        {
+            "id": "q",
+            "question": "q",
+            "answer": "a",
+            "latency_sec": 1,
+            "generator_metrics": {
+                "faithfulness": value,
+                "relevancy": 9,
+                "correctness": None,
+                **({"faithfulness_error": "truncated"} if value is None else {}),
+            },
+            "retriever_metrics": {"hit_rate": None, "mrr": None, "avg_similarity": 0},
+        }
+        for value in (8, None)
+    ]
+
     for summarize in (metrics.compute_summary_metrics, compute_summary_from_results):
         summary = summarize(results)
         assert summary["avg_faithfulness"] == 8
@@ -152,7 +175,7 @@ def test_missing_judge_scores_are_excluded_from_averages_but_counted_as_missing(
 
 
 @pytest.mark.asyncio
-async def test_incomplete_config_cannot_win_and_does_not_stop_remaining_configs():
+async def test_incomplete_config_cannot_win_and_does_not_stop_remaining_configs() -> None:
     full = AsyncMock(
         side_effect=[
             {"avg_faithfulness": 10, "faithfulness_evaluated_count": 1, "faithfulness_expected_count": 2},
@@ -174,9 +197,9 @@ async def test_incomplete_config_cannot_win_and_does_not_stop_remaining_configs(
 
 
 @pytest.mark.asyncio
-async def test_worker_retains_partial_sweep_for_resume_and_reports_counts(monkeypatch):
-    from infrastructure.worker import sweep
-    from tests.test_worker_sweep_lifecycle import SweepFactory, sweep_context
+async def test_worker_retains_partial_sweep_for_resume_and_reports_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
     factory = SweepFactory()
     results = [
@@ -200,16 +223,14 @@ async def test_worker_retains_partial_sweep_for_resume_and_reports_counts(monkey
 
 
 @pytest.mark.asyncio
-async def test_worker_never_persists_incomplete_config_as_winner():
-    from domain.benchmark.sweep import BenchmarkSweep
-    from tests.fakes import FakeUnitOfWorkFactory
+async def test_worker_never_persists_incomplete_config_as_winner(monkeypatch: pytest.MonkeyPatch) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    factory._uow.benchmark_runs.create = AsyncMock()
-    factory._uow.benchmark_sweeps.set_best_run = AsyncMock()
+    monkeypatch.setattr(factory._uow.fake_benchmark_runs, "create", AsyncMock())
+    monkeypatch.setattr(factory._uow.fake_benchmark_sweeps, "set_best_run", AsyncMock())
     winner = await SweepJobService(factory, AsyncMock(), AsyncMock()).save_sweep_results(
         BenchmarkSweep(), 1, [{"config": {}, "composite_score": None, "llm_evaluated": True}]
     )
     assert winner is None
-    factory._uow.benchmark_runs.create.assert_awaited_once()
-    factory._uow.benchmark_sweeps.set_best_run.assert_not_awaited()
+    cast("AsyncMock", factory._uow.fake_benchmark_runs.create).assert_awaited_once()
+    cast("AsyncMock", factory._uow.fake_benchmark_sweeps.set_best_run).assert_not_awaited()

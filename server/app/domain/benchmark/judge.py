@@ -14,8 +14,18 @@ def judge_coverage(results: list[dict[str, Any]]) -> dict[str, Any]:
             bool(r.get("expected_answer")) if key == "correctness" else True for r in results
         )
 
+    invalid = sum(r.get("annotation_validation", {}).get("status") == "invalid_annotation" for r in results)
     failed = sum(bool(result_judge_errors(r)) for r in results)
-    coverage.update(judge_evaluated_count=len(results) - failed, judge_error_count=failed)
+    evaluated = sum(
+        r.get("annotation_validation", {}).get("status") != "invalid_annotation"
+        and not result_judge_errors(r)
+        for r in results
+    )
+    coverage.update(
+        judge_evaluated_count=evaluated,
+        judge_error_count=failed,
+        invalid_annotation_count=invalid,
+    )
     return coverage
 
 

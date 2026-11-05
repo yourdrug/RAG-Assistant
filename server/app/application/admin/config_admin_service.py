@@ -11,26 +11,22 @@ from application.runtime.enums import HealthStatus, LLMProvider, MLProvider
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from application.admin.ports import OllamaProbePort, VectorDBInfoPort
+    from application.admin.ports import VectorDBInfoPort
     from application.admin.ports.settings import ConfigAdminSettingsPort
 
 
 class ConfigAdminService:
     def __init__(
         self,
-        ollama_probe: OllamaProbePort,
         vectordb_info: VectorDBInfoPort,
         admin_settings: ConfigAdminSettingsPort,
         openrouter_models_fetcher: Callable[[], Awaitable[list[dict[str, Any]]]] | None = None,
     ) -> None:
-        self._ollama = ollama_probe
         self._vectordb = vectordb_info
         self._settings = admin_settings
         self._openrouter_fetcher = openrouter_models_fetcher
 
     async def get_models_info(self) -> ModelsInfo:
-        ollama_models = await self._ollama.get_models()
-
         if self._settings.ml_provider == MLProvider.DEEPINFRA.value:
             embed_model = self._settings.deepinfra_embed_model
             rerank_model = self._settings.deepinfra_rerank_model
@@ -40,14 +36,13 @@ class ConfigAdminService:
 
         return ModelsInfo(
             llm_provider=self._settings.llm_provider,
-            llm_model=self._settings.llm_model,
+            llm_model=self._settings.openrouter_model,
             tei_embed_url=self._settings.tei_embed_url,
             tei_rerank_url=self._settings.tei_rerank_url,
             embed_model=embed_model,
             rerank_model=rerank_model,
             ocr_engine=self._settings.ocr_engine,
             ocr_enabled=self._settings.ocr_enabled,
-            ollama_models=ollama_models,
             openrouter_model=self._settings.openrouter_model
             if self._settings.llm_provider == LLMProvider.OPENROUTER.value
             else None,

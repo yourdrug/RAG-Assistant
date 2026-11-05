@@ -7,6 +7,8 @@ from pathlib import PurePosixPath
 import re
 from typing import Any
 
+from domain.benchmark.question import ABSTENTION_TYPES, answer_type, evaluation_annotations
+
 
 def parse_source_hints(source_hint: str | None) -> tuple[str, ...]:
     if source_hint is None:
@@ -147,6 +149,7 @@ def evaluate_evidence(
     if annotations is None:
         return metrics, diagnostics
 
+    annotations = evaluation_annotations(annotations) or {}
     fragments = annotations.get("expected_fragments", [])
 
     if fragments and retrieved is not None:
@@ -178,7 +181,11 @@ def evaluate_evidence(
 
 
 def has_retrieval_labels(question: dict[str, Any]) -> bool:
-    annotations = question.get("annotations") or {}
+    annotations = evaluation_annotations(question.get("annotations")) or {}
+
+    if answer_type(annotations) in ABSTENTION_TYPES:
+        return False
+
     return bool(
         parse_source_hints(question.get("source_hint"))
         or annotations.get("expected_fragments")
@@ -205,7 +212,11 @@ def evaluate_retrieval(question: dict[str, Any], documents: list[dict[str, Any]]
             "evidence_completion_rr",
         )
     )
-    annotations = question.get("annotations") or {}
+    annotations = evaluation_annotations(question.get("annotations")) or {}
+
+    if answer_type(annotations) in ABSTENTION_TYPES:
+        return {**result, "annotated": False, "labelled": False, "mrr_labelled": False}
+
     fragments = annotations.get("expected_fragments") or []
     facts = annotations.get("required_facts") or []
     result["annotated"] = bool(fragments or facts)
@@ -307,7 +318,7 @@ def summarize_evidence(results: list[dict[str, Any]]) -> dict[str, Any]:
             continue
 
         summary[f"{metric}_expected_count"] = sum(
-            bool((r.get("annotations") or {}).get(annotation)) for r in results
+            bool((evaluation_annotations(r.get("annotations")) or {}).get(annotation)) for r in results
         )
 
     sizes = [
@@ -336,7 +347,7 @@ def stage_fragment_present(
 def score_evidence_stage(
     annotations: dict[str, Any] | None, stage: dict[str, Any], name: str
 ) -> tuple[dict[str, Any], set[int]]:
-    annotations = annotations or {}
+    annotations = evaluation_annotations(annotations) or {}
     fragments = annotations.get("expected_fragments") or []
     documents = stage["documents"]
     context = stage.get("context") if name == "prompt" else None
@@ -433,7 +444,7 @@ def evaluate_attempt(
 ) -> tuple[dict[str, Any], list[Any]]:
     evaluated: dict[str, Any] = {"attempt": index + 1, "stages": {}}
     issues: list[dict[str, Any]] = []
-    fragments = (annotations or {}).get("expected_fragments") or []
+    fragments = (evaluation_annotations(annotations) or {}).get("expected_fragments") or []
 
     for name in STAGE_NAMES:
         stage = attempt.get("stages", {}).get(name)
@@ -479,6 +490,7 @@ def evaluate_stage_evidence(
 ) -> dict[str, Any]:
     """Pure replay of observed stages. Missing stages are never reconstructed."""
     evidence = evidence or {}
+    annotations = evaluation_annotations(annotations)
     result: dict[str, Any] = {
         "schema_version": evidence.get("schema_version", 1),
         "coverage_method": "lexical",

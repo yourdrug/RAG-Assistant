@@ -42,15 +42,11 @@ def llm_pool_resources(client: object) -> list[object]:
 
 
 async def close_llm_pools(client: object) -> None:
-    """Close the owning clients exposed by OpenAI, Ollama and Instructor."""
+    """Close the owning clients exposed by OpenAI and Instructor."""
     seen: set[int] = set()
 
     for candidate in llm_pool_resources(client):
         resource = candidate
-
-        if type(resource).__module__.startswith("ollama"):
-            pool_attribute = "_client"
-            resource = getattr(resource, pool_attribute)
 
         if resource is None or id(resource) in seen:
             continue

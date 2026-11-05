@@ -1,21 +1,29 @@
 """Tests for DocumentCommandService and DocumentQueryService."""
 
-from unittest.mock import AsyncMock, MagicMock
+from __future__ import annotations
+
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from application.documents import DocumentCommandService, DocumentQueryService
+from application.documents.conflicts import resolve_upload_version_group
 from application.documents.delete import DocumentDeleteCommand
 from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
-from application.documents import DocumentCommandService, DocumentQueryService
-from application.documents.conflicts import resolve_upload_version_group
 from application.identity import UserContextFactory
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
-from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
-from domain.knowledge.enums import DocumentStatus
-from domain.identity.user_context import UserContext
-from domain.knowledge.enums import DocumentVisibility
-
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
+from domain.shared.exceptions import (
+    BusinessRuleViolationError,
+    EntityNotFoundError,
+    UniqueConstraintError,
+    ValidationError,
+)
 from tests.fakes import FakeUnitOfWork, FakeUnitOfWorkFactory
 
 
@@ -25,16 +33,16 @@ from tests.fakes import FakeUnitOfWork, FakeUnitOfWorkFactory
 
 _FAKE_CTX = UserContext(
     user_id=1,
-    user_kind="internal",
-    user_role="admin",
-    group_ids=[],
-    managed_client_ids=[],
-    managed_internal_ids=[],
-    managed_group_ids=[],
+    user_kind=UserKind.INTERNAL,
+    user_role=UserRole.ADMIN,
+    group_ids=(),
+    managed_client_ids=(),
+    managed_internal_ids=(),
+    managed_group_ids=(),
 )
 
 
-def _make_doc(
+def _make_doc(  # noqa: PLR0913 - Explicit inputs for the parametrized scenario/factory.
     *,
     doc_id: int | None = None,
     filename: str = "test.pdf",
@@ -53,14 +61,19 @@ def _make_doc(
         status=status,
         version_group_id=version_group_id,
     )
+
     if doc_id is not None:
         doc.id = doc_id
+
     if source_path is not None:
         doc.source_path = source_path
+
     return doc
 
 
-def _service(uow: FakeUnitOfWork | None = None, file_storage=None):
+def _service(
+    uow: FakeUnitOfWork | None = None, file_storage: MagicMock | None = None
+) -> tuple[DocumentCommandService, DocumentQueryService, FakeUnitOfWork, MagicMock]:
     uow = uow or FakeUnitOfWork()
     factory = FakeUnitOfWorkFactory(uow)
     fs = file_storage or MagicMock()
@@ -78,10 +91,12 @@ def _service(uow: FakeUnitOfWork | None = None, file_storage=None):
 
 
 @pytest.fixture(autouse=True)
-def _patch_user_context_build(monkeypatch):
+def _patch_user_context_build(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace UserContextFactory.build with a stub returning a fixed context."""
 
-    async def _fake_build(self, uow, user_id, user_kind, user_role):
+    async def _fake_build(
+        self: object, uow: object, user_id: object, user_kind: object, user_role: object
+    ) -> UserContext:
         return _FAKE_CTX
 
     monkeypatch.setattr(UserContextFactory, "build", _fake_build)
@@ -93,9 +108,9 @@ def _patch_user_context_build(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_resolve_version_group_explicit_replaces():
+async def test_resolve_version_group_explicit_replaces() -> None:
     """replaces_document_id set → version group from that doc."""
-    cmd, query, uow, _ = _service()
+    _cmd, _query, uow, _ = _service()
     replaces_doc = _make_doc(doc_id=42, version_group_id=10)
     # FakeDocumentRepository.save auto-assigns id=1, ignoring doc_id.
     # We need the doc in the repo with id=1.
@@ -111,9 +126,9 @@ async def test_resolve_version_group_explicit_replaces():
 
 
 @pytest.mark.asyncio
-async def test_resolve_version_group_explicit_replaces_no_version_group():
+async def test_resolve_version_group_explicit_replaces_no_version_group() -> None:
     """replaces_document_id set but no version_group → falls back to doc id."""
-    cmd, query, uow, _ = _service()
+    _cmd, _query, uow, _ = _service()
     replaces_doc = _make_doc(doc_id=7, version_group_id=None)
     saved = await uow.documents.save(replaces_doc)
 
@@ -124,9 +139,9 @@ async def test_resolve_version_group_explicit_replaces_no_version_group():
 
 
 @pytest.mark.asyncio
-async def test_resolve_version_group_explicit_not_found():
+async def test_resolve_version_group_explicit_not_found() -> None:
     """replaces_document_id points to nonexistent doc → EntityNotFoundError."""
-    cmd, query, uow, _ = _service()
+    _cmd, _query, uow, _ = _service()
     with pytest.raises(EntityNotFoundError):
         await resolve_upload_version_group(
             uow, existing=None, replaces_document_id=999, pending_replace_id=None
@@ -134,9 +149,9 @@ async def test_resolve_version_group_explicit_not_found():
 
 
 @pytest.mark.asyncio
-async def test_resolve_version_group_implicit_conflict():
+async def test_resolve_version_group_implicit_conflict() -> None:
     """No explicit replaces but existing DONE → implicit version group."""
-    cmd, query, uow, _ = _service()
+    _cmd, _query, uow, _ = _service()
     existing = _make_doc(doc_id=5, version_group_id=3, status=DocumentStatus.DONE)
     saved = await uow.documents.save(existing)
 
@@ -149,9 +164,9 @@ async def test_resolve_version_group_implicit_conflict():
 
 
 @pytest.mark.asyncio
-async def test_resolve_version_group_implicit_no_version_group():
+async def test_resolve_version_group_implicit_no_version_group() -> None:
     """Existing DONE doc without version_group → falls back to doc id."""
-    cmd, query, uow, _ = _service()
+    _cmd, _query, uow, _ = _service()
     existing = _make_doc(doc_id=9, version_group_id=None, status=DocumentStatus.DONE)
     saved = await uow.documents.save(existing)
 
@@ -163,9 +178,9 @@ async def test_resolve_version_group_implicit_no_version_group():
 
 
 @pytest.mark.asyncio
-async def test_resolve_version_group_no_conflict():
+async def test_resolve_version_group_no_conflict() -> None:
     """No replaces_document_id and no existing → all None."""
-    cmd, query, uow, _ = _service()
+    _cmd, _query, uow, _ = _service()
     vgid, pending, returned = await resolve_upload_version_group(
         uow, existing=None, replaces_document_id=None, pending_replace_id=None
     )
@@ -175,9 +190,9 @@ async def test_resolve_version_group_no_conflict():
 
 
 @pytest.mark.asyncio
-async def test_resolve_version_group_existing_pending():
+async def test_resolve_version_group_existing_pending() -> None:
     """Existing is PENDING (not DONE/FAILED) → no implicit conflict."""
-    cmd, query, uow, _ = _service()
+    _cmd, _query, uow, _ = _service()
     existing = _make_doc(doc_id=3, status=DocumentStatus.PENDING)
     await uow.documents.save(existing)
 
@@ -194,9 +209,9 @@ async def test_resolve_version_group_existing_pending():
 
 
 @pytest.mark.asyncio
-async def test_persist_upload_success():
+async def test_persist_upload_success() -> None:
     """Happy path: save + S3 upload + set_source_path."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     doc = _make_doc()
 
     saved_doc, key = await cmd._upload.persist_upload(
@@ -209,9 +224,9 @@ async def test_persist_upload_success():
 
 
 @pytest.mark.asyncio
-async def test_persist_upload_s3_failure_compensates():
+async def test_persist_upload_s3_failure_compensates() -> None:
     """S3 upload fails → compensating delete of orphaned object."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     fs.upload_file = AsyncMock(side_effect=RuntimeError("S3 down"))
 
     doc = _make_doc()
@@ -223,9 +238,9 @@ async def test_persist_upload_s3_failure_compensates():
 
 
 @pytest.mark.asyncio
-async def test_persist_upload_s3_failure_delete_also_fails():
+async def test_persist_upload_s3_failure_delete_also_fails() -> None:
     """S3 upload fails and compensating delete also fails → original error raised."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     fs.upload_file = AsyncMock(side_effect=RuntimeError("S3 down"))
     fs.delete_file = AsyncMock(side_effect=RuntimeError("delete failed"))
 
@@ -238,14 +253,14 @@ async def test_persist_upload_s3_failure_delete_also_fails():
 
 
 # ---------------------------------------------------------------------------
-# upload (end-to-end)
+# Checks for upload: end-to-end.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_upload_basic():
+async def test_upload_basic() -> None:
     """Basic upload with no conflicts → doc created, DTO returned."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, _uow, fs = _service()
     dto = await cmd.upload(
         filename="report.pdf",
         file_data=b"content",
@@ -262,7 +277,7 @@ async def test_upload_basic():
 
 
 @pytest.mark.asyncio
-async def test_upload_unsupported_extension():
+async def test_upload_unsupported_extension() -> None:
     """Unsupported file extension → ValidationError."""
     cmd, _, _, _ = _service()
     with pytest.raises(ValidationError, match="Unsupported file format"):
@@ -278,7 +293,7 @@ async def test_upload_unsupported_extension():
 
 
 @pytest.mark.asyncio
-async def test_upload_internal_group_no_group_id():
+async def test_upload_internal_group_no_group_id() -> None:
     """INTERNAL_GROUP visibility without group_id → ValidationError."""
     cmd, _, _, _ = _service()
     with pytest.raises(ValidationError, match="group_id required"):
@@ -294,9 +309,9 @@ async def test_upload_internal_group_no_group_id():
 
 
 @pytest.mark.asyncio
-async def test_upload_active_processing_rejected():
+async def test_upload_active_processing_rejected() -> None:
     """Existing doc in PENDING/PROCESSING/INDEXING → BusinessRuleViolationError."""
-    cmd, query, uow, _ = _service()
+    cmd, _query, uow, _ = _service()
     pending_doc = _make_doc(doc_id=10, status=DocumentStatus.PENDING, filename="doc.pdf")
     await uow.documents.save(pending_doc)
 
@@ -313,24 +328,27 @@ async def test_upload_active_processing_rejected():
 
 
 @pytest.mark.asyncio
-async def test_upload_unique_constraint_violation_translates_to_conflict():
+async def test_upload_unique_constraint_violation_translates_to_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A database uniqueness violation is translated to an application conflict."""
-    cmd, query, uow, fs = _service()
-    # Make save raise UniqueConstraintError
-    from domain.shared.exceptions import UniqueConstraintError
+    cmd, _query, uow, _fs = _service()
 
     original_save = uow.documents.save
 
     call_count = 0
 
-    async def failing_save(doc):
+    async def failing_save(doc: Any) -> Document:
         nonlocal call_count
         call_count += 1
+
         if call_count == 1:
-            raise UniqueConstraintError("dup")
+            msg = "dup"
+            raise UniqueConstraintError(msg)
+
         return await original_save(doc)
 
-    uow.documents.save = failing_save
+    monkeypatch.setattr(uow.documents, "save", failing_save)
 
     with pytest.raises(BusinessRuleViolationError, match="already being uploaded"):
         await cmd.upload(
@@ -345,14 +363,14 @@ async def test_upload_unique_constraint_violation_translates_to_conflict():
 
 
 # ---------------------------------------------------------------------------
-# delete_document (characterization)
+# Checks for delete_document: characterization.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_delete_document_happy_path():
+async def test_delete_document_happy_path() -> None:
     """delete_document: outbox enqueued, summary clear, doc deleted, storage deleted."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     fs.copy_file = AsyncMock()
     doc = _make_doc(doc_id=1, source_path="s3://bucket/docs/1/test.pdf")
     await uow.documents.save(doc)
@@ -368,13 +386,13 @@ async def test_delete_document_happy_path():
     await cmd.delete_document(document_id=1, user_id=1, user_role="admin")
 
     # 1. Outbox entry enqueued with DELETE_BY_DOCUMENT
-    outbox_entries = list(uow.vector_outbox._entries.values())
+    outbox_entries = list(uow.fake_vector_outbox._entries.values())
     assert len(outbox_entries) == 1
     assert outbox_entries[0].operation.value == "delete_by_document"
     assert outbox_entries[0].payload == {"document_id": 1}
 
     # 3. Summaries cleared (all in the fake)
-    for conv in uow.conversations._convs.values():
+    for conv in uow.fake_conversations._convs.values():
         assert conv.get("summary") is None
 
     # 4. Document deleted from repository
@@ -385,7 +403,7 @@ async def test_delete_document_happy_path():
 
 
 @pytest.mark.asyncio
-async def test_delete_document_not_found():
+async def test_delete_document_not_found() -> None:
     """delete_document: non-existent doc → EntityNotFoundError."""
     cmd, _, _, _ = _service()
     with pytest.raises(EntityNotFoundError):
@@ -393,9 +411,9 @@ async def test_delete_document_not_found():
 
 
 @pytest.mark.asyncio
-async def test_delete_document_no_source_path():
+async def test_delete_document_no_source_path() -> None:
     """delete_document: doc without source_path → storage delete skipped."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     doc = _make_doc(doc_id=1, source_path=None)
     await uow.documents.save(doc)
 
@@ -405,9 +423,9 @@ async def test_delete_document_no_source_path():
 
 
 @pytest.mark.asyncio
-async def test_delete_document_storage_delete_failure_logs_warning():
+async def test_delete_document_storage_delete_failure_logs_warning() -> None:
     """delete_document: S3 delete fails → warning logged, no exception raised."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     doc = _make_doc(doc_id=1, source_path="s3://bucket/docs/1/test.pdf")
     await uow.documents.save(doc)
     fs.delete_file = AsyncMock(side_effect=RuntimeError("S3 down"))
@@ -421,14 +439,14 @@ async def test_delete_document_storage_delete_failure_logs_warning():
 
 
 # ---------------------------------------------------------------------------
-# rename_document (characterization)
+# Checks for rename_document: characterization.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_rename_document_different_path_copies_and_deletes_old():
+async def test_rename_document_different_path_copies_and_deletes_old() -> None:
     """rename_document: different path → S3 copy, DB updated, outbox enqueued, old file deleted."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     fs.copy_file = AsyncMock()
     doc = _make_doc(doc_id=1, source_path="s3://bucket/u/1/1/old.pdf", filename="old.pdf")
     await uow.documents.save(doc)
@@ -451,7 +469,7 @@ async def test_rename_document_different_path_copies_and_deletes_old():
     assert dto.filename == "new.pdf"
 
     # 3. Outbox entry patches source metadata without recomputing vectors
-    outbox_entries = list(uow.vector_outbox._entries.values())
+    outbox_entries = list(uow.fake_vector_outbox._entries.values())
     assert len(outbox_entries) == 1
     assert outbox_entries[0].operation.value == "rename_document"
 
@@ -460,9 +478,9 @@ async def test_rename_document_different_path_copies_and_deletes_old():
 
 
 @pytest.mark.asyncio
-async def test_rename_document_same_path_no_copy():
+async def test_rename_document_same_path_no_copy() -> None:
     """rename_document: doc without source_path → no S3 copy needed."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     fs.copy_file = AsyncMock()
     doc = _make_doc(doc_id=1, source_path=None, filename="test.pdf")
     await uow.documents.save(doc)
@@ -476,7 +494,7 @@ async def test_rename_document_same_path_no_copy():
 
 
 @pytest.mark.asyncio
-async def test_rename_document_unsupported_extension():
+async def test_rename_document_unsupported_extension() -> None:
     """rename_document: unsupported extension → ValidationError."""
     cmd, _, _, _ = _service()
     with pytest.raises(ValidationError, match="Unsupported file format"):
@@ -484,7 +502,7 @@ async def test_rename_document_unsupported_extension():
 
 
 @pytest.mark.asyncio
-async def test_rename_document_not_found():
+async def test_rename_document_not_found() -> None:
     """rename_document: non-existent doc → EntityNotFoundError."""
     cmd, _, _, _ = _service()
     with pytest.raises(EntityNotFoundError):
@@ -492,9 +510,9 @@ async def test_rename_document_not_found():
 
 
 @pytest.mark.asyncio
-async def test_rename_document_conflict_with_pending_doc():
+async def test_rename_document_conflict_with_pending_doc() -> None:
     """rename_document: existing doc with same name in PENDING → BusinessRuleViolationError."""
-    cmd, query, uow, _ = _service()
+    cmd, _query, uow, _ = _service()
     # Create two docs with different IDs but same name-slot target
     doc1 = _make_doc(doc_id=1, filename="a.pdf", owner_id=1, group_id=None)
     doc2 = _make_doc(doc_id=2, filename="b.pdf", status=DocumentStatus.PENDING, owner_id=1, group_id=None)
@@ -506,9 +524,9 @@ async def test_rename_document_conflict_with_pending_doc():
 
 
 @pytest.mark.asyncio
-async def test_rename_document_conflict_with_done_doc_renames():
+async def test_rename_document_conflict_with_done_doc_renames() -> None:
     """rename_document: existing DONE doc with same name → auto-resolves to unique name."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     fs.copy_file = AsyncMock()
     doc1 = _make_doc(doc_id=1, filename="a.pdf", source_path="s3://bucket/u/1/1/a.pdf", owner_id=1)
     doc2 = _make_doc(doc_id=2, filename="report.pdf", status=DocumentStatus.DONE, owner_id=1)
@@ -527,19 +545,20 @@ async def test_rename_document_conflict_with_done_doc_renames():
 
 
 @pytest.mark.asyncio
-async def test_rename_document_copy_succeeds_db_fails_compensates():
+async def test_rename_document_copy_succeeds_db_fails_compensates(monkeypatch: pytest.MonkeyPatch) -> None:
     """rename_document: S3 copy OK, DB update fails → compensating delete of orphaned copy."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     fs.copy_file = AsyncMock()
 
     doc = _make_doc(doc_id=1, source_path="s3://bucket/u/1/1/old.pdf", filename="old.pdf")
     await uow.documents.save(doc)
 
     # Make update_filename raise to simulate DB failure after S3 copy
-    async def failing_update(*args, **kwargs):
-        raise RuntimeError("DB failure")
+    async def failing_update(*args: Any, **kwargs: Any) -> None:
+        msg = "DB failure"
+        raise RuntimeError(msg)
 
-    uow.documents.update_filename = failing_update
+    monkeypatch.setattr(uow.documents, "update_filename", failing_update)
 
     with pytest.raises(RuntimeError, match="DB failure"):
         await cmd.rename_document(document_id=1, new_filename="new.pdf", user_id=1, user_role="admin")
@@ -553,9 +572,9 @@ async def test_rename_document_copy_succeeds_db_fails_compensates():
 
 
 @pytest.mark.asyncio
-async def test_rename_document_copy_fails_no_compensation():
+async def test_rename_document_copy_fails_no_compensation() -> None:
     """rename_document: S3 copy fails → no compensation delete, exception propagates."""
-    cmd, query, uow, fs = _service()
+    cmd, _query, uow, fs = _service()
     fs.copy_file = AsyncMock(side_effect=RuntimeError("S3 down"))
 
     doc = _make_doc(doc_id=1, source_path="s3://bucket/u/1/1/old.pdf", filename="old.pdf")
@@ -569,14 +588,14 @@ async def test_rename_document_copy_fails_no_compensation():
 
 
 # ---------------------------------------------------------------------------
-# list_documents (characterization)
+# Checks for list_documents: characterization.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_list_documents_admin_sees_all():
+async def test_list_documents_admin_sees_all() -> None:
     """Admin sees all documents."""
-    cmd, query, uow, _ = _service()
+    _cmd, query, uow, _ = _service()
     await uow.documents.save(_make_doc(doc_id=1, filename="a.pdf"))
     await uow.documents.save(_make_doc(doc_id=2, filename="b.pdf"))
 
@@ -588,7 +607,7 @@ async def test_list_documents_admin_sees_all():
 
 
 @pytest.mark.asyncio
-async def test_list_documents_empty():
+async def test_list_documents_empty() -> None:
     """No documents → empty list."""
     _, query, _, _ = _service()
     result = await query.list_documents(user_id=1, user_kind="internal", user_role="user")
@@ -596,9 +615,9 @@ async def test_list_documents_empty():
 
 
 @pytest.mark.asyncio
-async def test_list_documents_user_sees_only_own():
+async def test_list_documents_user_sees_only_own() -> None:
     """Regular user only sees own PRIVATE documents (via ACL)."""
-    cmd, query, uow, _ = _service()
+    _cmd, query, uow, _ = _service()
     await uow.documents.save(
         _make_doc(
             doc_id=1,
@@ -616,17 +635,17 @@ async def test_list_documents_user_sees_only_own():
         )
     )
 
-    from unittest.mock import patch
-
-    async def _user_ctx(self_factory, uow, user_id, user_kind, user_role):
+    async def _user_ctx(
+        self_factory: Any, uow: Any, user_id: Any, user_kind: Any, user_role: Any
+    ) -> UserContext:
         return UserContext(
             user_id=user_id,
             user_kind=user_kind,
             user_role=user_role,
-            group_ids=[],
-            managed_client_ids=[],
-            managed_internal_ids=[],
-            managed_group_ids=[],
+            group_ids=(),
+            managed_client_ids=(),
+            managed_internal_ids=(),
+            managed_group_ids=(),
         )
 
     with patch.object(UserContextFactory, "build", _user_ctx):
@@ -637,9 +656,9 @@ async def test_list_documents_user_sees_only_own():
 
 
 @pytest.mark.asyncio
-async def test_list_documents_client_sees_only_own():
+async def test_list_documents_client_sees_only_own() -> None:
     """Client user only sees own CLIENT_PRIVATE documents."""
-    cmd, query, uow, _ = _service()
+    _cmd, query, uow, _ = _service()
     await uow.documents.save(
         _make_doc(
             doc_id=1,
@@ -657,17 +676,17 @@ async def test_list_documents_client_sees_only_own():
         )
     )
 
-    from unittest.mock import patch
-
-    async def _user_ctx(self_factory, uow, user_id, user_kind, user_role):
+    async def _user_ctx(
+        self_factory: Any, uow: Any, user_id: Any, user_kind: Any, user_role: Any
+    ) -> UserContext:
         return UserContext(
             user_id=user_id,
             user_kind=user_kind,
             user_role=user_role,
-            group_ids=[],
-            managed_client_ids=[],
-            managed_internal_ids=[],
-            managed_group_ids=[],
+            group_ids=(),
+            managed_client_ids=(),
+            managed_internal_ids=(),
+            managed_group_ids=(),
         )
 
     with patch.object(UserContextFactory, "build", _user_ctx):
@@ -678,9 +697,10 @@ async def test_list_documents_client_sees_only_own():
 
 
 @pytest.mark.asyncio
-async def test_list_documents_with_limit_offset():
+async def test_list_documents_with_limit_offset() -> None:
     """Pagination works."""
-    cmd, query, uow, _ = _service()
+    _cmd, query, uow, _ = _service()
+
     for i in range(5):
         await uow.documents.save(_make_doc(filename=f"doc{i}.pdf", owner_id=1))
 
@@ -694,14 +714,14 @@ async def test_list_documents_with_limit_offset():
 
 
 # ---------------------------------------------------------------------------
-# get_document (characterization)
+# Checks for get_document: characterization.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_get_document_happy_path():
+async def test_get_document_happy_path() -> None:
     """get_document: existing doc + ACL OK → returns DTO."""
-    cmd, query, uow, _ = _service()
+    _cmd, query, uow, _ = _service()
     doc = _make_doc(doc_id=1, filename="report.pdf")
     await uow.documents.save(doc)
 
@@ -712,7 +732,7 @@ async def test_get_document_happy_path():
 
 
 @pytest.mark.asyncio
-async def test_get_document_not_found():
+async def test_get_document_not_found() -> None:
     """get_document: non-existent doc → EntityNotFoundError."""
     _, query, _, _ = _service()
     with pytest.raises(EntityNotFoundError):
@@ -720,17 +740,17 @@ async def test_get_document_not_found():
 
 
 # ---------------------------------------------------------------------------
-# list_uploadable_clients (characterization)
+# Checks for list_uploadable_clients: characterization.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_list_uploadable_clients_admin():
+async def test_list_uploadable_clients_admin() -> None:
     """Admin sees all client users."""
-    cmd, query, uow, _ = _service()
-    uow.users.add_user(10, email="client1@test.com", kind="client")
-    uow.users.add_user(20, email="client2@test.com", kind="client")
-    uow.users.add_user(30, email="internal@test.com", kind="internal")
+    _cmd, query, uow, _ = _service()
+    uow.fake_users.add_user(10, email="client1@test.com", kind="client")
+    uow.fake_users.add_user(20, email="client2@test.com", kind="client")
+    uow.fake_users.add_user(30, email="internal@test.com", kind="internal")
 
     result = await query.list_uploadable_clients(user_id=99, user_kind="internal", user_role="admin")
 
@@ -740,14 +760,14 @@ async def test_list_uploadable_clients_admin():
 
 
 @pytest.mark.asyncio
-async def test_list_uploadable_clients_curator():
+async def test_list_uploadable_clients_curator() -> None:
     """Curator sees only managed clients."""
-    cmd, query, uow, _ = _service()
-    uow.users.add_user(10, email="managed@test.com", kind="client")
-    uow.users.add_user(20, email="unmanaged@test.com", kind="client")
-    uow.users.add_user(30, email="other@test.com", kind="client")
-    uow.assignments.set_user_kind(10, "client")
-    uow.assignments.set_user_kind(20, "client")
+    _cmd, query, uow, _ = _service()
+    uow.fake_users.add_user(10, email="managed@test.com", kind="client")
+    uow.fake_users.add_user(20, email="unmanaged@test.com", kind="client")
+    uow.fake_users.add_user(30, email="other@test.com", kind="client")
+    uow.fake_assignments.set_user_kind(10, "client")
+    uow.fake_assignments.set_user_kind(20, "client")
     await uow.assignments.assign_user(manager_id=1, target_user_id=10, assigned_by=99)
 
     result = await query.list_uploadable_clients(user_id=1, user_kind="internal", user_role="curator")
@@ -757,7 +777,7 @@ async def test_list_uploadable_clients_curator():
 
 
 @pytest.mark.asyncio
-async def test_list_uploadable_clients_client_returns_empty():
+async def test_list_uploadable_clients_client_returns_empty() -> None:
     """Client users get empty list."""
     _, query, _, _ = _service()
     result = await query.list_uploadable_clients(user_id=10, user_kind="client", user_role="user")
@@ -765,7 +785,7 @@ async def test_list_uploadable_clients_client_returns_empty():
 
 
 @pytest.mark.asyncio
-async def test_list_uploadable_clients_user_returns_empty():
+async def test_list_uploadable_clients_user_returns_empty() -> None:
     """Regular users get empty list."""
     _, query, _, _ = _service()
     result = await query.list_uploadable_clients(user_id=1, user_kind="internal", user_role="user")
@@ -773,14 +793,14 @@ async def test_list_uploadable_clients_user_returns_empty():
 
 
 # ---------------------------------------------------------------------------
-# list_source_files (characterization)
+# Checks for list_source_files: characterization.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_list_source_files_basic():
+async def test_list_source_files_basic() -> None:
     """Returns distinct filenames."""
-    cmd, query, uow, _ = _service()
+    _cmd, query, uow, _ = _service()
     await uow.documents.save(_make_doc(filename="report.pdf"))
     await uow.documents.save(_make_doc(filename="report.pdf"))
     await uow.documents.save(_make_doc(filename="other.pdf"))
@@ -791,9 +811,9 @@ async def test_list_source_files_basic():
 
 
 @pytest.mark.asyncio
-async def test_list_source_files_with_search():
+async def test_list_source_files_with_search() -> None:
     """Search filters filenames."""
-    cmd, query, uow, _ = _service()
+    _cmd, query, uow, _ = _service()
     await uow.documents.save(_make_doc(filename="report.pdf"))
     await uow.documents.save(_make_doc(filename="data.csv"))
     await uow.documents.save(_make_doc(filename="report_v2.pdf"))
@@ -804,7 +824,7 @@ async def test_list_source_files_with_search():
 
 
 @pytest.mark.asyncio
-async def test_list_source_files_empty():
+async def test_list_source_files_empty() -> None:
     """No documents → empty list."""
     _, query, _, _ = _service()
     result = await query.list_source_files()
@@ -817,25 +837,24 @@ async def test_list_source_files_empty():
 
 
 @pytest.mark.asyncio
-async def test_delete_document_not_owner_not_admin():
+async def test_delete_document_not_owner_not_admin() -> None:
     """Non-owner non-admin → BusinessRuleViolationError (via check_ownership)."""
-    cmd, query, uow, _ = _service()
+    cmd, _query, uow, _ = _service()
     doc = _make_doc(doc_id=1, owner_id=10)
     await uow.documents.save(doc)
 
-    from unittest.mock import patch
-
-    async def _user_ctx(self_factory, uow, user_id, user_kind, user_role):
+    async def _user_ctx(
+        self_factory: object, uow: object, user_id: int, user_kind: UserKind, user_role: UserRole
+    ) -> UserContext:
         return UserContext(
             user_id=user_id,
             user_kind=user_kind,
             user_role=user_role,
-            group_ids=[],
-            managed_client_ids=[],
-            managed_internal_ids=[],
-            managed_group_ids=[],
+            group_ids=(),
+            managed_client_ids=(),
+            managed_internal_ids=(),
+            managed_group_ids=(),
         )
 
-    with patch.object(UserContextFactory, "build", _user_ctx):
-        with pytest.raises(BusinessRuleViolationError):
-            await cmd.delete_document(document_id=1, user_id=99, user_role="user")
+    with patch.object(UserContextFactory, "build", _user_ctx), pytest.raises(BusinessRuleViolationError):
+        await cmd.delete_document(document_id=1, user_id=99, user_role="user")

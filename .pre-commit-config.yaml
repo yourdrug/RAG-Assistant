@@ -23,7 +23,7 @@ repos:
       # 1. Расставляет пустые строки вокруг if/for/while (до ruff format).
       - id: blank-lines
         name: blank lines around if/for/while
-        entry: uv run --frozen --project server --group development --group testing python server/tools/blank_lines.py --exclude-from server/blank-lines-baseline.txt
+        entry: uv run --frozen --project server --group development --group testing python server/tools/blank_lines.py
         language: system
         types: [python]
         files: ^server/(app|tests|tools)/

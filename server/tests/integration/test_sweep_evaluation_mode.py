@@ -1,32 +1,44 @@
 """Evaluation mode persistence, DB invariants and reversible migration."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from tests.fakes import require_present
 
-from domain.benchmark.sweep import BenchmarkSweep
-from domain.benchmark.sweep import BenchmarkStrategy
-from domain.benchmark.sweep import SweepEvaluationMode
-from domain.benchmark.sweep import BenchmarkSweepStatus
+from domain.benchmark.sweep import (
+    BenchmarkStrategy,
+    BenchmarkSweep,
+    BenchmarkSweepStatus,
+    SweepEvaluationMode,
+)
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_sweep_repository import (
     SQLAlchemyBenchmarkSweepRepository,
 )
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
 @pytest.mark.parametrize("mode", list(SweepEvaluationMode))
-async def test_mode_round_trips_through_repository(pg_engine, mode):
+async def test_mode_round_trips_through_repository(pg_engine: AsyncEngine, mode: SweepEvaluationMode) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
         repo = SQLAlchemyBenchmarkSweepRepository(session)
-        created = await repo.create(BenchmarkSweep(evaluation_mode=mode.value, top_n_llm=0))
+        created = await repo.create(BenchmarkSweep(evaluation_mode=mode, top_n_llm=0))
         assert created.evaluation_mode == mode
         sweep_id = created.id
     async with sessions.begin() as session:
         repo = SQLAlchemyBenchmarkSweepRepository(session)
-        assert (await repo.get_by_id(sweep_id)).evaluation_mode == mode
+        assert require_present(await repo.get_by_id(require_present(sweep_id))).evaluation_mode == mode
         assert (await repo.list_items())[0].evaluation_mode == mode
 
 
@@ -34,7 +46,9 @@ async def test_mode_round_trips_through_repository(pg_engine, mode):
     "mode,strategy",
     [("invalid", BenchmarkStrategy.GRID), (SweepEvaluationMode.FULL, BenchmarkStrategy.RANDOM)],
 )
-async def test_database_rejects_invalid_modes_and_nonexhaustive_full_search(pg_engine, mode, strategy):
+async def test_database_rejects_invalid_modes_and_nonexhaustive_full_search(
+    pg_engine: AsyncEngine, mode: str | SweepEvaluationMode, strategy: BenchmarkStrategy
+) -> None:
     async with pg_engine.connect() as conn:
         with pytest.raises(IntegrityError):
             await conn.execute(
@@ -47,7 +61,7 @@ async def test_database_rejects_invalid_modes_and_nonexhaustive_full_search(pg_e
             )
 
 
-async def test_evaluation_mode_default_and_updates(pg_engine):
+async def test_evaluation_mode_default_and_updates(pg_engine: AsyncEngine) -> None:
 
     async with pg_engine.begin() as conn:
         sweep_id = (

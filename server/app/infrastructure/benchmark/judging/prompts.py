@@ -1,6 +1,7 @@
 """Shared prompts and criteria for benchmark judge requests."""
 
 from infrastructure.benchmark.judging.judge_rubric import (
+    ANSWER_BEHAVIOR_CRITERIA,
     CITATION_SUPPORT_CRITERIA,
     CORRECTNESS_CRITERIA,
     FAITHFULNESS_CRITERIA,
@@ -115,11 +116,7 @@ INSTRUCTIONS = {
         "ожидаемый отказ = 10; отказ при доступном эталонном ответе = 0."
     ),
     "correctness": CORRECTNESS_CRITERIA,
-    "refusal_score": (
-        "REFUSAL: соответствует ли поведение expected_refusal? true требует явного отказа без "
-        "выдуманных фактов; false требует содержательного ответа. Оцени смысл, а не слово "
-        "'нет'."
-    ),
+    "refusal_score": ANSWER_BEHAVIOR_CRITERIA,
     "faithfulness": FAITHFULNESS_CRITERIA,
     "citation_support_score": CITATION_SUPPORT_CRITERIA,
     "requirement_preservation_score": (

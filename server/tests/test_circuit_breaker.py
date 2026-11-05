@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock
+
+from infrastructure.resilience.circuit_breaker import CB_FAILURES, CB_STATE
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
 
 from infrastructure.resilience.circuit_breaker import (
+    CBState,
     CircuitBreakerError,
     LLMCircuitBreaker,
-    CBState,
 )
 
 
@@ -24,7 +27,7 @@ class TestLLMCircuitBreaker:
     """Core circuit breaker behaviour."""
 
     @pytest.mark.asyncio
-    async def test_call_passes_when_closed(self):
+    async def test_call_passes_when_closed(self) -> None:
         cb = LLMCircuitBreaker(fail_max=5, timeout_duration=60, operation_name="test")
         mock_fn = AsyncMock(return_value="ok")
         result = await cb.call(mock_fn, 1, 2, key="val")
@@ -33,7 +36,7 @@ class TestLLMCircuitBreaker:
         assert cb.state == "closed"
 
     @pytest.mark.asyncio
-    async def test_opens_after_consecutive_failures(self):
+    async def test_opens_after_consecutive_failures(self) -> None:
         cb = LLMCircuitBreaker(fail_max=3, timeout_duration=60, operation_name="test")
         failing = AsyncMock(side_effect=RuntimeError("LLM down"))
 
@@ -49,7 +52,7 @@ class TestLLMCircuitBreaker:
         assert cb.state == "open"
 
     @pytest.mark.asyncio
-    async def test_rejects_when_open(self):
+    async def test_rejects_when_open(self) -> None:
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=60, operation_name="test")
         failing = AsyncMock(side_effect=RuntimeError("down"))
 
@@ -64,7 +67,7 @@ class TestLLMCircuitBreaker:
             await cb.call(ok_fn)
 
     @pytest.mark.asyncio
-    async def test_success_resets_failure_count(self):
+    async def test_success_resets_failure_count(self) -> None:
         cb = LLMCircuitBreaker(fail_max=3, timeout_duration=60, operation_name="test")
         failing = AsyncMock(side_effect=RuntimeError("err"))
         ok_fn = AsyncMock(return_value="ok")
@@ -80,7 +83,7 @@ class TestLLMCircuitBreaker:
         assert cb.state == "closed"
 
     @pytest.mark.asyncio
-    async def test_decorator_usage(self):
+    async def test_decorator_usage(self) -> None:
         cb = LLMCircuitBreaker(fail_max=5, timeout_duration=60, operation_name="test")
 
         @cb
@@ -92,17 +95,15 @@ class TestLLMCircuitBreaker:
         assert my_func.__name__ == "my_func"
 
     @pytest.mark.asyncio
-    async def test_metrics_updated_on_success(self):
+    async def test_metrics_updated_on_success(self) -> None:
         cb = LLMCircuitBreaker(fail_max=5, timeout_duration=60, operation_name="metrics_test")
         ok_fn = AsyncMock(return_value="ok")
         await cb.call(ok_fn)
 
-        from infrastructure.resilience.circuit_breaker import CB_STATE
-
         assert CB_STATE.labels(operation="metrics_test")._value.get() == 0  # closed
 
     @pytest.mark.asyncio
-    async def test_metrics_updated_on_failure(self):
+    async def test_metrics_updated_on_failure(self) -> None:
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=60, operation_name="metrics_fail")
         failing = AsyncMock(side_effect=RuntimeError("err"))
 
@@ -113,16 +114,13 @@ class TestLLMCircuitBreaker:
 
         assert cb.state == "open"
 
-        # Now rejected calls increment the counter
-        from infrastructure.resilience.circuit_breaker import CB_FAILURES
-
         with pytest.raises(CircuitBreakerError):
             await cb.call(AsyncMock(return_value="nope"))
 
         assert CB_FAILURES.labels(operation="metrics_fail")._value.get() >= 1
 
     @pytest.mark.asyncio
-    async def test_configurable_fail_max(self):
+    async def test_configurable_fail_max(self) -> None:
         cb = LLMCircuitBreaker(fail_max=1, timeout_duration=60, operation_name="cfg_test")
         failing = AsyncMock(side_effect=RuntimeError("err"))
 
@@ -137,7 +135,7 @@ class TestLLMCircuitBreaker:
             await cb.call(AsyncMock(return_value="nope"))
 
     @pytest.mark.asyncio
-    async def test_half_open_after_timeout(self):
+    async def test_half_open_after_timeout(self) -> None:
         cb = LLMCircuitBreaker(fail_max=1, timeout_duration=1, operation_name="half_open_test")
         failing = AsyncMock(side_effect=RuntimeError("err"))
 
@@ -156,7 +154,7 @@ class TestLLMCircuitBreaker:
         assert cb.state == "closed"
 
     @pytest.mark.asyncio
-    async def test_half_open_failure_reopens(self):
+    async def test_half_open_failure_reopens(self) -> None:
         cb = LLMCircuitBreaker(fail_max=1, timeout_duration=1, operation_name="half_open_reopen")
         failing = AsyncMock(side_effect=RuntimeError("err"))
 
@@ -178,11 +176,11 @@ class TestLLMCircuitBreaker:
 class TestLLMCircuitBreakerSplitAPI:
     """Direct tests for check_open, report_success, report_failure split API."""
 
-    def test_check_open_closed_raises_nothing(self):
+    def test_check_open_closed_raises_nothing(self) -> None:
         cb = LLMCircuitBreaker(fail_max=5, timeout_duration=60, operation_name="split_test")
         cb.check_open()  # Should not raise
 
-    def test_check_open_open_raises_circuit_breaker_error(self):
+    def test_check_open_open_raises_circuit_breaker_error(self) -> None:
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=60, operation_name="split_test")
         cb._state = CBState.OPEN
         cb._opened_at = time.monotonic()  # Freshly opened, timeout not expired
@@ -191,7 +189,7 @@ class TestLLMCircuitBreakerSplitAPI:
         with pytest.raises(CircuitBreakerError):
             cb.check_open()
 
-    def test_check_open_open_timeout_allows_probe(self):
+    def test_check_open_open_timeout_allows_probe(self) -> None:
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=1, operation_name="split_test")
         cb._state = CBState.OPEN
         cb._opened_at = 0.0
@@ -201,7 +199,7 @@ class TestLLMCircuitBreakerSplitAPI:
         assert cb._state == CBState.OPEN
 
     @pytest.mark.asyncio
-    async def test_report_success_closes_half_open(self):
+    async def test_report_success_closes_half_open(self) -> None:
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=1, operation_name="split_test")
         cb._state = CBState.HALF_OPEN
         cb._failure_count = 2
@@ -211,7 +209,7 @@ class TestLLMCircuitBreakerSplitAPI:
         assert cb._failure_count == 0
 
     @pytest.mark.asyncio
-    async def test_report_success_resets_failure_count_in_closed(self):
+    async def test_report_success_resets_failure_count_in_closed(self) -> None:
         cb = LLMCircuitBreaker(fail_max=3, timeout_duration=60, operation_name="split_test")
         cb._failure_count = 2
 
@@ -219,7 +217,7 @@ class TestLLMCircuitBreakerSplitAPI:
         assert cb._failure_count == 0
 
     @pytest.mark.asyncio
-    async def test_report_failure_opens_at_threshold(self):
+    async def test_report_failure_opens_at_threshold(self) -> None:
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=60, operation_name="split_test")
 
         await cb.report_failure()
@@ -231,7 +229,7 @@ class TestLLMCircuitBreakerSplitAPI:
         assert cb._failure_count == 2
 
     @pytest.mark.asyncio
-    async def test_report_failure_reopens_half_open_immediately(self):
+    async def test_report_failure_reopens_half_open_immediately(self) -> None:
         cb = LLMCircuitBreaker(fail_max=5, timeout_duration=60, operation_name="split_test")
         cb._state = CBState.HALF_OPEN
 
@@ -239,7 +237,7 @@ class TestLLMCircuitBreakerSplitAPI:
         assert cb.state == "open"
 
     @pytest.mark.asyncio
-    async def test_concurrent_report_success_and_failure(self):
+    async def test_concurrent_report_success_and_failure(self) -> None:
         cb = LLMCircuitBreaker(fail_max=5, timeout_duration=60, operation_name="split_concurrent")
         cb._state = CBState.HALF_OPEN
 

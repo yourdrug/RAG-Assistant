@@ -1,24 +1,35 @@
 """Protect paid replay against changed inputs, gold leakage and duplicate requests."""
 
+from __future__ import annotations
+
 import importlib.util
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 import pytest
 
+from config import settings
+
+
+if TYPE_CHECKING:
+    from types import ModuleType
+
 
 @pytest.fixture
-def comparison():
+def comparison() -> ModuleType:
     path = Path(__file__).parents[2] / "scripts" / "benchmark/compare_frozen_generation.py"
     spec = importlib.util.spec_from_file_location("compare_frozen_generation", path)
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
 @pytest.fixture
-def snapshot(comparison):
+def snapshot(comparison: ModuleType) -> dict[str, Any]:
     run = {
         "id": 10,
         "sweep_id": 6,
@@ -39,23 +50,28 @@ def snapshot(comparison):
             }
         ],
     }
-    return comparison.prepare_snapshot(
-        [run],
-        [{"id": 148, "annotations": {"required_facts": ["annotation-never-sent"]}}],
-        10,
-        [148],
-        [],
+    return cast(
+        "dict[str, Any]",
+        comparison.prepare_snapshot(
+            [run],
+            [{"id": 148, "annotations": {"required_facts": ["annotation-never-sent"]}}],
+            10,
+            [148],
+            [],
+        ),
     )
 
 
-def test_changed_messages_and_context_cannot_be_resumed(comparison, snapshot):
+def test_changed_messages_and_context_cannot_be_resumed(
+    comparison: ModuleType, snapshot: dict[str, Any]
+) -> None:
     previous = comparison.initial_results(snapshot)
     snapshot["cases"][0]["messages"][0]["content"] += " changed"
     with pytest.raises(ValueError, match="messages changed"):
         comparison.initial_results(snapshot, previous)
 
 
-def test_changed_runtime_cannot_reuse_paid_results(comparison, snapshot):
+def test_changed_runtime_cannot_reuse_paid_results(comparison: ModuleType, snapshot: dict[str, Any]) -> None:
     previous = comparison.initial_results(snapshot)
     snapshot["runtime"]["max_tokens"] += 1
     with pytest.raises(ValueError, match="snapshot mismatch"):
@@ -64,27 +80,31 @@ def test_changed_runtime_cannot_reuse_paid_results(comparison, snapshot):
 
 @pytest.mark.asyncio
 async def test_failed_request_resumes_without_repeating_successes(
-    comparison, snapshot, tmp_path, monkeypatch
-):
-    from config import settings
+    comparison: ModuleType, snapshot: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
 
     monkeypatch.setattr(settings, "openrouter_api_key", "fixture-key")
     requests = []
     fail_first = True
 
-    def respond(request):
+    def respond(request: httpx.Request) -> httpx.Response:
         nonlocal fail_first
+
         if request.method == "GET":
             if request.url.path.endswith("/endpoints"):
                 return httpx.Response(200, json={"data": {"endpoints": []}})
+
             return httpx.Response(
                 200, json={"data": [{"id": model} for model in snapshot["runtime"]["models"]]}
             )
+
         payload = json.loads(request.content)
         requests.append(payload)
+
         if fail_first:
             fail_first = False
             return httpx.Response(429, json={"error": "rate limit"})
+
         return httpx.Response(
             200,
             json={
@@ -112,10 +132,12 @@ async def test_failed_request_resumes_without_repeating_successes(
     assert len(result["results"]) == 6
     assert paid_ids.issubset(row["generation_id"] for row in result["results"])
     assert len({(row["id"], row["requested_model"], row["repeat"]) for row in result["results"]}) == 6
+
     for payload in requests:
         serialized = json.dumps(payload)
         assert "reference-never-sent" not in serialized
         assert "annotation-never-sent" not in serialized
         assert payload["messages"] == snapshot["cases"][0]["messages"]
+
     await comparison.run_comparison(snapshot, out)
     assert len(requests) == 7

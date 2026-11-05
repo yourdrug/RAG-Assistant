@@ -174,7 +174,7 @@ def create_document_processor(
     if infra.domain_registry is not None:
         act_versioning = ActVersioningService(
             uow_factory=uow,
-            settings=infra.domain_settings,  # type: ignore[arg-type]
+            settings=require(infra.domain_settings, "domain_settings"),
             cache_invalidator=infra.services.cache_invalidator,
         )
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from application.runtime.enums import LLMProvider, MLProvider
+from application.runtime.enums import LLMProvider
 from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 
 
@@ -118,9 +118,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         1,
     ),
     DynamicParam(
-        "ollama_base_url", str, DynamicParamCategory.LLM, "Ollama endpoint (deployment-approved origin)"
-    ),
-    DynamicParam(
         "openrouter_base_url",
         str,
         DynamicParamCategory.OPENROUTER,
@@ -210,7 +207,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         "LLM provider",
         allowed=[provider.value for provider in LLMProvider],
     ),
-    DynamicParam("llm_model", str, DynamicParamCategory.LLM, "LLM model name"),
     DynamicParam("llm_temperature", float, DynamicParamCategory.LLM, "LLM temperature", 0.0, 2.0),
     DynamicParam("llm_top_p", float, DynamicParamCategory.LLM, "LLM top-p", 0.0, 1.0),
     DynamicParam(
@@ -228,13 +224,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     # ── OpenRouter ──────────────────────────────────────────────
     DynamicParam("openrouter_model", str, DynamicParamCategory.OPENROUTER, "OpenRouter model name"),
     # ── ML Provider ─────────────────────────────────────────────
-    DynamicParam(
-        "ml_provider",
-        str,
-        DynamicParamCategory.ML,
-        "ML provider for embedding/reranking",
-        allowed=[provider.value for provider in MLProvider],
-    ),
     DynamicParam("deepinfra_embed_model", str, DynamicParamCategory.ML, "DeepInfra embedding model"),
     DynamicParam("deepinfra_rerank_model", str, DynamicParamCategory.ML, "DeepInfra reranker model"),
     # ── OCR ─────────────────────────────────────────────────────

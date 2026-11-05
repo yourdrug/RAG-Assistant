@@ -76,6 +76,20 @@ export function useBenchmarkQuestions(params?: {
 
   return useQuery({
     queryKey: ["benchmark", "questions", params],
+    placeholderData: (previousData, previousQuery) => {
+      const previousParams = previousQuery?.queryKey[2] as typeof params;
+      // Preserve the current cards only when paging within the same filtered list.
+      if (
+        previousParams?.dataset === params?.dataset &&
+        previousParams?.tag === params?.tag &&
+        previousParams?.search === params?.search &&
+        previousParams?.is_active === params?.is_active &&
+        previousParams?.limit === params?.limit
+      ) {
+        return previousData;
+      }
+      return undefined;
+    },
     queryFn: async () =>
       (
         await apiClient.get<BenchmarkQuestionsListResponse>(

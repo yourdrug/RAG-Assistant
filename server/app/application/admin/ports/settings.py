@@ -14,9 +14,6 @@ class ConfigAdminSettingsPort(Protocol):
     def llm_provider(self) -> str: ...
 
     @property
-    def llm_model(self) -> str: ...
-
-    @property
     def tei_embed_url(self) -> str: ...
 
     @property

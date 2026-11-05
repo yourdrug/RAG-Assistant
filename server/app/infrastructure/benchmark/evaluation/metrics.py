@@ -71,7 +71,7 @@ def compute_retriever_metrics(
     }
 
 
-# LLM pricing per 1M tokens (USD). Ollama = 0 (self-hosted).
+# LLM pricing per 1M tokens (USD).
 LLM_PRICING: dict[str, dict[str, float]] = {
     "meta-llama/llama-3.1-8b-instruct": {"input": 0.05, "output": 0.05},
     "meta-llama/llama-3.1-70b-instruct": {"input": 0.52, "output": 0.75},
@@ -81,7 +81,7 @@ LLM_PRICING: dict[str, dict[str, float]] = {
 
 def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
     """Estimate cost in USD from token counts and model pricing."""
-    if model in ("ollama", "") or "ollama" in model.lower():
+    if not model:
         return 0.0
 
     pricing = LLM_PRICING.get(model, {"input": 0.5, "output": 0.5})

@@ -1,46 +1,64 @@
 """Evidence-based benchmark regressions independent of external models and indexes."""
 
-from domain.identity.user_context import UserContext
-from infrastructure.benchmark.judging import context_judge
+from __future__ import annotations
+
 import asyncio
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock
 
-import pytest
 from langchain.schema import Document
 from pydantic import ValidationError
+import pytest
 
-
+from config import settings
 from domain.benchmark.evaluation import evaluate_evidence, summarize_evidence
-from domain.benchmark.question import validate_annotations
+from domain.benchmark.question import BenchmarkQuestion, validate_annotations
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
+from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.rag.result import RagResult
-from domain.identity.roles import UserKind
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
+from infrastructure.benchmark.evaluation.runner import validate_questions
+from infrastructure.benchmark.judging import context_judge, evidence_judge, judge
+from infrastructure.database.models import BenchmarkQuestionModel
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
     active_evidence,
     capture_prompt,
     capture_retrieval,
 )
+from infrastructure.ml.rag.context_selection import ExclusionReason
+from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
+    SQLAlchemyBenchmarkQuestionRepository,
+)
+from presentation.api.helpers import question_create_to_dto, question_to_response
+from presentation.api.schemas.benchmark import BenchmarkQuestionCreate
+from tests.fakes import require_present
+from tests.rag_stage_fixtures import build_context as step_build_context, stage_fixture
+from tests.test_rag_pipeline import make_rag
+
+
+if TYPE_CHECKING:
+    from application.chat.ports import ChatRAGPort
 
 
 @pytest.fixture(autouse=True)
-def individual_judge_mode(monkeypatch):
-    from config import settings
+def individual_judge_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
 
 
-def doc(content, source="rules.pdf", **metadata):
+def doc(content: Any, source: str = "rules.pdf", **metadata: Any) -> dict[str, Any]:
     return {"content": content, "metadata": {"source": source, **metadata}}
 
 
 FRAGMENT = {"source": "rules.pdf", "text": "Только для организаций"}
 
 
-def test_correct_file_wrong_fragment_is_a_miss():
+def test_correct_file_wrong_fragment_is_a_miss() -> None:
     metrics, diagnostics = evaluate_evidence(
         {"expected_fragments": [FRAGMENT]}, [doc("Пункт о другом")], [], "", "Ответ"
     )
@@ -49,7 +67,7 @@ def test_correct_file_wrong_fragment_is_a_miss():
     assert diagnostics["missing_fragments"] == [FRAGMENT]
 
 
-def test_exact_source_pages_and_section_are_required():
+def test_exact_source_pages_and_section_are_required() -> None:
     fragment = {**FRAGMENT, "pages": [2], "section": "Пункт 4"}
     candidates = [
         doc(FRAGMENT["text"], "rules.pdf.bak", page=2, section="Пункт 4"),
@@ -63,7 +81,7 @@ def test_exact_source_pages_and_section_are_required():
     assert metrics["fragment_ndcg_at_k"] == pytest.approx(1 / 2.321928094887362)
 
 
-def test_duplicate_chunks_cannot_inflate_ndcg():
+def test_duplicate_chunks_cannot_inflate_ndcg() -> None:
     fragments = [FRAGMENT, {"source": "rules.pdf", "text": "Срок пять дней"}]
     candidates = [doc(FRAGMENT["text"])] * 4
     metrics, _ = evaluate_evidence({"expected_fragments": fragments}, candidates, [], "", "")
@@ -71,7 +89,7 @@ def test_duplicate_chunks_cannot_inflate_ndcg():
     assert 0 < metrics["fragment_ndcg_at_k"] < 1
 
 
-def test_prompt_loss_is_distinct_from_retrieval_success():
+def test_prompt_loss_is_distinct_from_retrieval_success() -> None:
     annotations = {"expected_fragments": [FRAGMENT], "required_conditions": [FRAGMENT["text"]]}
     metrics, diagnostics = evaluate_evidence(annotations, [doc(FRAGMENT["text"])], [], "Другой пункт", "")
     assert metrics["fragment_recall_at_k"] == 1
@@ -80,7 +98,7 @@ def test_prompt_loss_is_distinct_from_retrieval_success():
     assert diagnostics["missing_context_fragments"] == [FRAGMENT]
 
 
-def test_parent_scope_counts_in_context_but_answer_can_drop_condition():
+def test_parent_scope_counts_in_context_but_answer_can_drop_condition() -> None:
     annotations = {"required_facts": [["пять дней", "5 дней"]], "required_conditions": [FRAGMENT["text"]]}
     metrics, diagnostics = evaluate_evidence(
         annotations, [], [], "Только для организаций. Срок 5 дней", "Срок пять дней"
@@ -92,7 +110,7 @@ def test_parent_scope_counts_in_context_but_answer_can_drop_condition():
     assert diagnostics["missing_answer_conditions"] == [FRAGMENT["text"]]
 
 
-def test_unavailable_evidence_and_unannotated_cases_are_not_zero_scores():
+def test_unavailable_evidence_and_unannotated_cases_are_not_zero_scores() -> None:
     metrics, _ = evaluate_evidence({"expected_fragments": [FRAGMENT]}, None, None, None, "")
     assert metrics["fragment_recall_at_k"] is None
     assert metrics["context_fragment_recall"] is None
@@ -115,24 +133,15 @@ def test_unavailable_evidence_and_unannotated_cases_are_not_zero_scores():
         {"unsupported": True},
     ],
 )
-def test_annotation_validation_shared_by_runner_and_api(annotations):
-    from infrastructure.benchmark.evaluation.runner import validate_questions
-    from presentation.api.schemas.benchmark import BenchmarkQuestionCreate
+def test_annotation_validation_shared_by_runner_and_api(annotations: dict[str, Any]) -> None:
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"(annotations|expected_refusal|required_facts|fragment)"):
         validate_questions([{"question": "Q", "annotations": annotations}])
     with pytest.raises(ValidationError):
         BenchmarkQuestionCreate(question="Q", annotations=annotations)
 
 
-def test_lab_annotation_mappers_and_repository_mapping():
-    from domain.benchmark.question import BenchmarkQuestion
-    from infrastructure.database.models import BenchmarkQuestionModel
-    from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
-        SQLAlchemyBenchmarkQuestionRepository,
-    )
-    from presentation.api.helpers import question_create_to_dto, question_to_response
-    from presentation.api.schemas.benchmark import BenchmarkQuestionCreate
+def test_lab_annotation_mappers_and_repository_mapping() -> None:
 
     annotations = {"expected_fragments": [FRAGMENT], "expected_refusal": False}
     dto = question_create_to_dto(BenchmarkQuestionCreate(question="Q", annotations=annotations))
@@ -151,8 +160,8 @@ def test_lab_annotation_mappers_and_repository_mapping():
 
 
 @pytest.mark.asyncio
-async def test_evidence_capture_is_scoped_and_concurrent():
-    async def run(name):
+async def test_evidence_capture_is_scoped_and_concurrent() -> None:
+    async def run(name: str) -> BenchmarkEvidence:
         evidence = BenchmarkEvidence()
         token = active_evidence.set(evidence)
         try:
@@ -170,53 +179,56 @@ async def test_evidence_capture_is_scoped_and_concurrent():
 
 
 @pytest.mark.asyncio
-async def test_full_generator_uses_actual_prompt_not_source_listing():
+async def test_full_generator_uses_actual_prompt_not_source_listing() -> None:
     class Rag:
-        async def invoke(self, **kwargs):
+        async def invoke(self, **kwargs: Any) -> Any:
+            _ = kwargs
             docs = [(Document(page_content="Полный текст", metadata={"source": "rules.pdf"}), 1)]
             capture_prompt(docs, docs, "Фактический контекст с родительскими условиями")
             return RagResult(
                 answer="Ответ", sources=[{"source": "rules.pdf", "content": "Сокращённый текст"}]
             )
 
-    result = await RagBenchmarkGenerator(Rag(), 4, None).generate(
+    result = await RagBenchmarkGenerator(cast("ChatRAGPort", Rag()), 4, None).generate(
         {"question": "Q"},
-        RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user")),
+        RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)),
     )
     assert result.context == "Фактический контекст с родительскими условиями"
-    assert result.evidence.retrieved[0]["content"] == "Полный текст"
+    assert (
+        require_present(require_present(require_present(result.evidence).retrieved)[0])["content"]
+        == "Полный текст"
+    )
     assert active_evidence.get() is None
 
 
 @pytest.mark.asyncio
-async def test_capture_resets_on_generation_failure():
+async def test_capture_resets_on_generation_failure() -> None:
     class Rag:
-        async def invoke(self, **kwargs):
-            raise RuntimeError("failed")
+        async def invoke(self, **kwargs: Any) -> None:
+            _ = kwargs
+            msg = "failed"
+            raise RuntimeError(msg)
 
     with pytest.raises(RuntimeError):
-        await RagBenchmarkGenerator(Rag(), 4, None).generate(
+        await RagBenchmarkGenerator(cast("ChatRAGPort", Rag()), 4, None).generate(
             {"question": "Q"},
-            RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user")),
+            RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)),
         )
     assert active_evidence.get() is None
 
 
 @pytest.mark.asyncio
-async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
-    from infrastructure.benchmark.judging import judge
-    from infrastructure.benchmark.judging import evidence_judge
+async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(
         judge,
         "judge_answer_async",
         AsyncMock(return_value={"faithfulness": 8, "relevancy": 8, "correctness": 8}),
     )
-    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *a, **k: {})
+    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *_a, **_k: {})
     monkeypatch.setattr(
-        evidence_judge, "judge_evidence", lambda *a, **kw: {"scores": {"refusal_score": 10}, "details": {}}
+        evidence_judge, "judge_evidence", lambda *_a, **_kw: {"scores": {"refusal_score": 10}, "details": {}}
     )
-    from infrastructure.ml.rag.context_selection import ExclusionReason
 
     exclusions = [{"reason": ExclusionReason.BUDGET.value, "stage": "context"}]
     candidates = [doc(FRAGMENT["text"])]
@@ -229,13 +241,13 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
         prompt_candidates=candidates,
         prompt_budget=budget,
     )
-    answer = BenchmarkAnswer("Ответ", evidence.context, {}, 10, 2, evidence=evidence)
+    answer = BenchmarkAnswer("Ответ", require_present(evidence.context), {}, 10, 2, evidence=evidence)
     generator = SimpleNamespace(generate=AsyncMock(return_value=answer))
     result = await BenchmarkCaseEvaluator(generator, "judge").evaluate(
         1,
         {"question": "Q", "annotations": {"expected_fragments": [FRAGMENT]}},
         1,
-        RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role="user")),
+        RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)),
     )
     assert result["evidence_metrics"]["fragment_recall_at_k"] == 1
     assert result["evidence_metrics"]["context_fragment_recall"] == 0
@@ -246,13 +258,13 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
     assert result["evidence_diagnostics"]["missing_context_fragments"] == [FRAGMENT]
 
 
-def test_judge_failures_are_unavailable_with_diagnostics(monkeypatch):
-    from infrastructure.benchmark.judging import evidence_judge
+def test_judge_failures_are_unavailable_with_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
 
-    monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *a, runtime=None: object())
+    monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *_a, **_kwargs: object())
 
-    def fail(*args):
-        raise RuntimeError("judge offline")
+    def fail(*args: Any) -> None:
+        msg = "judge offline"
+        raise RuntimeError(msg)
 
     monkeypatch.setattr(evidence_judge, "judge_with_structured_output", fail)
     result = evidence_judge.judge_evidence("Q", "A", "C", {"expected_refusal": True}, "model")
@@ -260,29 +272,24 @@ def test_judge_failures_are_unavailable_with_diagnostics(monkeypatch):
     assert result["details"]["refusal_score"]["error"] == "judge offline"
 
 
-def test_legacy_annotations_skip_extra_judge(monkeypatch):
-    from infrastructure.benchmark.judging import evidence_judge
+def test_legacy_annotations_skip_extra_judge(monkeypatch: pytest.MonkeyPatch) -> None:
 
-    def fail(*args):
-        raise AssertionError("legacy case must not call judge")
+    def fail(*args: Any) -> None:
+        msg = "legacy case must not call judge"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(evidence_judge, "get_judge_client", fail)
     assert evidence_judge.judge_evidence("Q", "A", "C", None, "model") == {"scores": {}, "details": {}}
 
 
-def test_annotation_copy_does_not_mutate_dataset():
+def test_annotation_copy_does_not_mutate_dataset() -> None:
     annotations = {"expected_fragments": [FRAGMENT.copy()]}
     validated = validate_annotations(annotations)
-    validated["expected_fragments"][0]["text"] = "new"
+    require_present(require_present(require_present(validated)["expected_fragments"])[0])["text"] = "new"
     assert annotations["expected_fragments"][0]["text"] == FRAGMENT["text"]
 
 
-def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
-    from domain.rag.breadth import Breadth
-    from domain.identity.roles import UserRole
-    from tests.rag_stage_fixtures import build_context as step_build_context
-    from tests.rag_stage_fixtures import stage_fixture
-    from tests.test_rag_pipeline import make_rag
+def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval() -> None:
 
     raw = [(Document(page_content="Submit application", metadata={"source": "rules.pdf"}), 0.9)]
     enriched = [
@@ -315,16 +322,18 @@ def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
         messages, _ = step_build_context(state, None)
     finally:
         active_evidence.reset(token)
-    assert "Only organizations" in evidence.context
-    assert "Only organizations" not in evidence.retrieved[0]["content"]
+    assert "Only organizations" in require_present(evidence.context)
+    assert "Only organizations" not in require_present(require_present(evidence.retrieved)[0])["content"]
     assert any(evidence.context in message.content for message in messages)
 
 
-def test_judge_client_failure_is_reported_and_missing_context_is_not_scored(monkeypatch):
-    from infrastructure.benchmark.judging import evidence_judge
+def test_judge_client_failure_is_reported_and_missing_context_is_not_scored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
-    def fail(*args, runtime=None):
-        raise RuntimeError("client offline")
+    def fail(*args: Any, runtime: object = None) -> None:
+        msg = "client offline"
+        raise RuntimeError(msg)
 
     monkeypatch.setattr(evidence_judge, "get_judge_client", fail)
     result = evidence_judge.judge_evidence("Q", "A", None, {"expected_refusal": True}, "model")

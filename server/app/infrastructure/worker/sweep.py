@@ -44,7 +44,7 @@ async def run_cancellable_sweep(
     task = asyncio.create_task(
         engine.run_sweep(
             sweep=sweep,
-            judge_model=sweep.judge_model or settings.benchmark_judge_model or settings.llm_model,
+            judge_model=sweep.judge_model or settings.benchmark_judge_model or settings.openrouter_model,
             progress_callback=progress_callback,
             should_cancel=is_cancelled,
         )

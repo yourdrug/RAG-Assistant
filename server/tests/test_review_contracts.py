@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
-from arq import Retry
 import fakeredis.aioredis
 from fastapi import FastAPI
 from langchain.schema import Document as LCDocument
@@ -31,7 +30,7 @@ from infrastructure.ml.clients.managed_llm import ManagedInstructor, ManagedLLM
 from infrastructure.redis.redis_client import RedisClient, redis_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 from infrastructure.scheduling.scheduler import scheduler
-from infrastructure.worker.admission import document_admission
+from infrastructure.worker.runtime import job
 import main
 from tests.fakes import FakeUnitOfWorkFactory
 
@@ -169,35 +168,29 @@ def test_embedding_binding_rejects_same_dimension_different_model() -> None:
 
 
 @pytest.mark.asyncio
-async def test_document_worker_defers_same_owner_and_admits_other_owner() -> None:
+async def test_document_worker_admits_same_and_other_principals() -> None:
 
-    redis = fakeredis.aioredis.FakeRedis()
     started, finish = asyncio.Event(), asyncio.Event()
     ran = []
 
+    @job()
     async def action(ctx: dict[str, Any], **kwargs: Any) -> None:
-        async with document_admission(ctx, kwargs):
-            ran.append(kwargs["job_id"])
+        ran.append(kwargs["job_id"])
 
-            if kwargs["job_id"] == 1:
-                started.set()
-                await finish.wait()
+        if kwargs["job_id"] == 1:
+            started.set()
+            await finish.wait()
 
-    first = asyncio.create_task(action({"redis": redis}, owner_id=10, principal_id=1, job_id=1))
+    ctx = {"uow_factory": FakeUnitOfWorkFactory()}
+    first = asyncio.create_task(action(ctx, owner_id=10, principal_id=1, job_id=1))
     try:
-        await started.wait()
-        with pytest.raises(Retry):
-            await action({"redis": redis}, owner_id=20, principal_id=1, job_id=2)
-        await action({"redis": redis}, owner_id=10, principal_id=2, job_id=3)
-        assert ran == [1, 3]
-        finish.set()
-        await first
-        await action({"redis": redis, "job_try": 2}, owner_id=20, principal_id=1, job_id=2)
-        assert ran == [1, 3, 2]
+        await asyncio.wait_for(started.wait(), timeout=5)
+        await action(ctx, owner_id=20, principal_id=1, job_id=2)
+        await action(ctx, owner_id=10, principal_id=2, job_id=3)
+        assert ran == [1, 2, 3]
     finally:
         finish.set()
         await first
-        await redis.aclose()
 
 
 @pytest.mark.asyncio
@@ -504,6 +497,7 @@ async def test_startup_propagates_collection_error_and_disposes_resources(
     container = startup_container
     infrastructure = container.infrastructure
     infrastructure.bootstrap_configuration = AsyncMock()
+    infrastructure.corpus_control.is_ready = AsyncMock(return_value=True)
     infrastructure.events.config_listener.start = AsyncMock()
     infrastructure.events.outbox_listener.start = AsyncMock()
     infrastructure.ml.vector_store_repo.ensure_collection = AsyncMock(

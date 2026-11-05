@@ -529,8 +529,8 @@ class TestCheckRelevance:
             patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = MagicMock(value="ollama")
-            mock_settings.llm_model = "test-model"
+            mock_settings.llm_provider = MagicMock(value="openrouter")
+            mock_settings.openrouter_model = "test-model"
             mock_settings.llm_auxiliary_timeout = 30
             result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
             assert result[0] is True
@@ -551,8 +551,8 @@ class TestCheckRelevance:
             patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = MagicMock(value="ollama")
-            mock_settings.llm_model = "test-model"
+            mock_settings.llm_provider = MagicMock(value="openrouter")
+            mock_settings.openrouter_model = "test-model"
             mock_settings.llm_auxiliary_timeout = 30
             result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
             assert result[0] is False
@@ -570,7 +570,7 @@ class TestAssessSufficiency:
         assert result.is_sufficient is False
         assert "No documents" in result.reasoning
 
-    def test_ollama_provider_uses_llm_model(self) -> None:
+    def test_configured_model_used_for_sufficiency(self) -> None:
 
         mock_result = MagicMock()
         mock_result.is_sufficient = True
@@ -591,8 +591,8 @@ class TestAssessSufficiency:
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
         with patch("config.settings") as mock_settings:
-            mock_settings.llm_provider = LLMProvider.OLLAMA
-            mock_settings.llm_model = "qwen2.5"
+            mock_settings.llm_provider = LLMProvider.OPENROUTER
+            mock_settings.openrouter_model = "qwen2.5"
             mock_settings.llm_auxiliary_timeout = 30
 
             result = asyncio.run(assess_sufficiency("question", [doc], mock_ml))
@@ -1023,8 +1023,8 @@ class TestCircuitBreakerIntegration:
             patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = MagicMock(value="ollama")
-            mock_settings.llm_model = "test"
+            mock_settings.llm_provider = MagicMock(value="openrouter")
+            mock_settings.openrouter_model = "test"
             mock_settings.llm_auxiliary_timeout = 30
             doc = MagicMock()
             doc.page_content = "context"
@@ -1052,8 +1052,8 @@ class TestCircuitBreakerIntegration:
             patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = MagicMock(value="ollama")
-            mock_settings.llm_model = "test"
+            mock_settings.llm_provider = MagicMock(value="openrouter")
+            mock_settings.openrouter_model = "test"
             mock_settings.llm_auxiliary_timeout = 30
             doc = MagicMock()
             doc.page_content = "context"

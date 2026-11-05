@@ -4,13 +4,14 @@ These are the shared classification functions extracted from pdf_diag.py
 and used by PDF, RTF, and DOCX preview strategies.
 """
 
-import sys
 from pathlib import Path
+import sys
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.ingestion.text_quality import classify_content, is_garbled  # noqa: E402
-from domain.knowledge.enums import PageContentType  # noqa: E402
+from domain.ingestion.text_quality import classify_content, is_garbled
+from domain.knowledge.enums import PageContentType
 
 
 # ---------------------------------------------------------------------------
@@ -19,33 +20,33 @@ from domain.knowledge.enums import PageContentType  # noqa: E402
 
 
 class TestIsGarbled:
-    def test_empty_string(self):
+    def test_empty_string(self) -> None:
         assert is_garbled("") is False
 
-    def test_normal_text(self):
+    def test_normal_text(self) -> None:
         assert is_garbled("Это нормальный текст на русском языке.") is False
 
-    def test_english_text(self):
+    def test_english_text(self) -> None:
         assert is_garbled("This is normal English text.") is False
 
-    def test_garbled_high_ratio(self):
+    def test_garbled_high_ratio(self) -> None:
         # Mostly non-alphanumeric garbage
         assert is_garbled("???###___???") is True
 
-    def test_uniform_replacement(self):
+    def test_uniform_replacement(self) -> None:
         # Single repeated replacement character
         assert is_garbled("????????????????") is True
         assert is_garbled("________________") is True
 
-    def test_table_not_garbled(self):
+    def test_table_not_garbled(self) -> None:
         # Table content with pipes and dashes is not garbled
         assert is_garbled("| колонка1 | колонка2 |\n|----------|----------|") is False
 
-    def test_short_text_not_garbled(self):
+    def test_short_text_not_garbled(self) -> None:
         # Very short text should not be classified as garbled
         assert is_garbled("abc") is False
 
-    def test_mixed_content(self):
+    def test_mixed_content(self) -> None:
         # Mostly normal with some garbage — should not be garbled
         assert is_garbled("Нормальный текст с一点点 мусора") is False
 
@@ -56,23 +57,23 @@ class TestIsGarbled:
 
 
 class TestClassifyContent:
-    def test_empty_text(self):
+    def test_empty_text(self) -> None:
         ptype, desc = classify_content("", 0)
         assert ptype == PageContentType.EMPTY
         assert "пустая" in desc
 
-    def test_short_text_is_scan(self):
+    def test_short_text_is_scan(self) -> None:
         # Under 50 chars with scan_threshold=50 (default)
         ptype, desc = classify_content("Короткий текст", 14)
         assert ptype == PageContentType.SCAN
         assert "скан" in desc
 
-    def test_normal_text(self):
+    def test_normal_text(self) -> None:
         ptype, desc = classify_content("Это достаточно длинный нормальный текст для классификации.", 55)
         assert ptype == PageContentType.TEXT
         assert "текст" in desc
 
-    def test_garbled_text(self):
+    def test_garbled_text(self) -> None:
         # Need scan_threshold=0 to bypass SCAN classification for short garbled text
         ptype, desc = classify_content("???###___???###___", 18, scan_threshold=0)
         assert ptype == PageContentType.GARBLED
@@ -85,17 +86,17 @@ class TestClassifyContent:
 
 
 class TestClassifyContentTable:
-    def test_empty_with_table(self):
+    def test_empty_with_table(self) -> None:
         ptype, desc = classify_content("", 0, has_table=True)
         assert ptype == PageContentType.TABLE
         assert "текстового слоя" in desc
 
-    def test_short_with_table(self):
-        ptype, desc = classify_content("данные", 6, has_table=True)
+    def test_short_with_table(self) -> None:
+        ptype, _desc = classify_content("данные", 6, has_table=True)
         assert ptype == PageContentType.TABLE
 
-    def test_garbled_with_table(self):
-        ptype, desc = classify_content("???###___", 9, has_table=True)
+    def test_garbled_with_table(self) -> None:
+        ptype, _desc = classify_content("???###___", 9, has_table=True)
         assert ptype == PageContentType.TABLE
 
 
@@ -105,19 +106,19 @@ class TestClassifyContentTable:
 
 
 class TestClassifyContentScanThreshold:
-    def test_scan_threshold_zero_disables_scan(self):
+    def test_scan_threshold_zero_disables_scan(self) -> None:
         # With scan_threshold=0, short text is TEXT, not SCAN
-        ptype, desc = classify_content("Короткий", 8, scan_threshold=0)
+        ptype, _desc = classify_content("Короткий", 8, scan_threshold=0)
         assert ptype == PageContentType.TEXT
 
-    def test_scan_threshold_custom(self):
+    def test_scan_threshold_custom(self) -> None:
         # With scan_threshold=10, text under 10 chars is SCAN
-        ptype, desc = classify_content("Текст", 5, scan_threshold=10)
+        ptype, _desc = classify_content("Текст", 5, scan_threshold=10)
         assert ptype == PageContentType.SCAN
 
-    def test_scan_threshold_not_reached(self):
+    def test_scan_threshold_not_reached(self) -> None:
         # Text above threshold is TEXT
-        ptype, desc = classify_content("Достаточно длинный текст", 24, scan_threshold=10)
+        ptype, _desc = classify_content("Достаточно длинный текст", 24, scan_threshold=10)
         assert ptype == PageContentType.TEXT
 
 
@@ -127,7 +128,7 @@ class TestClassifyContentScanThreshold:
 
 
 class TestClassifyContentReturnType:
-    def test_returns_page_content_type_enum(self):
+    def test_returns_page_content_type_enum(self) -> None:
         for text, chars in [("", 0), ("абвгде", 6), ("нормальный текст", 16)]:
             ptype, desc = classify_content(text, chars)
             assert isinstance(ptype, PageContentType)

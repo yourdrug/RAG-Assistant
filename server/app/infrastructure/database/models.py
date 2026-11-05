@@ -350,6 +350,9 @@ class BackgroundJobModel(BaseModel):
         Index("idx_background_jobs_heartbeat", "heartbeat_at"),
     )
 
+    dispatch_payload: Mapped[dict[str, object] | None] = mapped_column(
+        jsonb_type(none_as_null=True).with_variant(JSON(none_as_null=True), "sqlite")
+    )
     job_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=BackgroundJobStatus.PENDING.value)
     related_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -521,6 +524,9 @@ class BenchmarkQuestionModel(BaseModel):
     )
 
     question: Mapped[str] = mapped_column(Text, nullable=False)
+    case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    variant_of: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    question_style: Mapped[str | None] = mapped_column(String(100), nullable=True)
     expected_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
     annotations: Mapped[dict[str, Any] | None] = mapped_column(

@@ -1,6 +1,8 @@
 """Filename slots remain reserved throughout indexing and for completed documents."""
 
-from collections.abc import Iterator
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from sqlalchemy import create_engine
@@ -14,13 +16,19 @@ from infrastructure.database.models import DocumentModel
 from infrastructure.repositories.document.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
 
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+
 class LocalDocumentSession:
     """Execute the repository's real SQL in a synchronous in-memory database."""
 
-    def __init__(self, session: Session):
+    def __init__(self, session: Session) -> None:
         self.session = session
 
-    async def execute(self, statement):
+    async def execute(self, statement: Any) -> Any:
         return self.session.execute(statement)
 
 
@@ -28,13 +36,15 @@ class LocalDocumentSession:
 def document_session() -> Iterator[Session]:
     engine = create_engine("sqlite://")
     with engine.begin() as connection:
-        connection.execute(CreateTable(DocumentModel.__table__))
+        connection.execute(CreateTable(DocumentModel.metadata.tables[DocumentModel.__tablename__]))
     with Session(engine) as session:
         yield session
     engine.dispose()
 
 
-def add_document(session: Session, status: DocumentStatus, owner_id=None, group_id=None):
+def add_document(
+    session: Session, status: DocumentStatus, owner_id: int | None = None, group_id: int | None = None
+) -> DocumentModel:
     doc = DocumentModel(
         filename="report.pdf",
         source_path="report.pdf",
@@ -51,9 +61,11 @@ def add_document(session: Session, status: DocumentStatus, owner_id=None, group_
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", list(DocumentStatus))
 @pytest.mark.parametrize("owner_id,group_id", [(None, None), (1, None), (None, 2)])
-async def test_find_active_slot_preserves_each_lifecycle_status(document_session, status, owner_id, group_id):
+async def test_find_active_slot_preserves_each_lifecycle_status(
+    document_session: Session, status: DocumentStatus, owner_id: int | None, group_id: int | None
+) -> None:
     doc = add_document(document_session, status, owner_id, group_id)
-    repository = SQLAlchemyDocumentRepository(LocalDocumentSession(document_session))
+    repository = SQLAlchemyDocumentRepository(cast("AsyncSession", LocalDocumentSession(document_session)))
     found = await repository.find_active_slot(owner_id, "report.pdf", group_id)
     assert found is not None
     assert found.id == doc.id
@@ -65,12 +77,12 @@ async def test_find_active_slot_preserves_each_lifecycle_status(document_session
 @pytest.mark.parametrize("status", list(DocumentStatus))
 @pytest.mark.parametrize("owner_id,group_id", [(None, None), (1, None), (None, 2), (1, 2)])
 async def test_batch_slots_include_indexing_and_exclude_other_scopes(
-    document_session, status, owner_id, group_id
-):
+    document_session: Session, status: DocumentStatus, owner_id: int | None, group_id: int | None
+) -> None:
     doc = add_document(document_session, status, owner_id=owner_id, group_id=group_id)
     add_document(document_session, status, owner_id=99, group_id=group_id)
     add_document(document_session, status, owner_id=owner_id, group_id=99)
-    repository = SQLAlchemyDocumentRepository(LocalDocumentSession(document_session))
+    repository = SQLAlchemyDocumentRepository(cast("AsyncSession", LocalDocumentSession(document_session)))
     found = await repository.find_active_slots_by_filenames(
         ["report.pdf", "missing.pdf"], owner_id=owner_id, group_id=group_id
     )
@@ -79,13 +91,17 @@ async def test_batch_slots_include_indexing_and_exclude_other_scopes(
 
 
 @pytest.mark.parametrize("owner_id,group_id", [(None, None), (1, None), (None, 2)])
-def test_postgresql_slot_index_rejects_upload_while_indexing(document_session, owner_id, group_id):
+def test_postgresql_slot_index_rejects_upload_while_indexing(
+    document_session: Session, owner_id: int | None, group_id: int | None
+) -> None:
     # PostgreSQL's emitted COALESCE partial-index SQL also executes in SQLite.
     index = next(
-        index for index in DocumentModel.__table__.indexes if index.name == "ux_documents_active_slot"
+        index
+        for index in DocumentModel.metadata.tables[DocumentModel.__tablename__].indexes
+        if index.name == "ux_documents_active_slot"
     )
     document_session.connection().exec_driver_sql(
-        str(CreateIndex(index).compile(dialect=postgresql.dialect()))
+        str(CreateIndex(index).compile(dialect=postgresql.dialect()))  # type: ignore[no-untyped-call]  # SQLAlchemy exposes no typed DDL compiler in this version.
     )
     add_document(document_session, DocumentStatus.INDEXING, owner_id, group_id)
     with pytest.raises(IntegrityError):

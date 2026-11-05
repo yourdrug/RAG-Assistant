@@ -1,9 +1,12 @@
 """Two OS processes retain quota history across dynamic policy changes."""
 
+from __future__ import annotations
+
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 import os
-from concurrent.futures import ProcessPoolExecutor
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -14,8 +17,8 @@ from config import Settings
 from infrastructure.rate_limit.limiter import DynamicRateLimiter
 
 
-def acquire_in_process(url, prefix, quota, enabled=True):
-    async def acquire():
+def acquire_in_process(url: str, prefix: str, quota: int, enabled: bool = True) -> Any:
+    async def acquire() -> Any:
         redis = Redis.from_url(url)
         limiter = DynamicRateLimiter(
             redis,
@@ -37,10 +40,12 @@ def acquire_in_process(url, prefix, quota, enabled=True):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_two_processes_preserve_history_when_quota_changes():
+async def test_two_processes_preserve_history_when_quota_changes() -> None:
     url = os.environ.get("TEST_REDIS_URL")
+
     if not url:
         pytest.skip("Set TEST_REDIS_URL to an isolated test Redis")
+
     prefix = f"test:dynamic-rate:{uuid4().hex}:"
     redis = Redis.from_url(url)
     key = f"{prefix}login:ip:1"
@@ -52,7 +57,7 @@ async def test_two_processes_preserve_history_when_quota_changes():
             ProcessPoolExecutor(max_workers=1, mp_context=context) as second,
         ):
 
-            async def batch(quota, enabled=True):
+            async def batch(quota: Any, enabled: bool = True) -> Any:
                 return sum(
                     await asyncio.gather(
                         *(

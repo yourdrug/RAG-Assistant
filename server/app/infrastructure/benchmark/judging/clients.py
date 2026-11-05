@@ -7,7 +7,6 @@ import httpx
 import instructor
 from openai import AsyncOpenAI, OpenAI
 
-from application.runtime.enums import LLMProvider
 from config import settings
 from infrastructure.benchmark.judging.token_usage import record_judge_usage
 from infrastructure.budget.runtime import BudgetRuntime
@@ -26,12 +25,9 @@ RETIRED_JUDGE_CLIENTS: set[ManagedSyncInstructor] = set()
 
 
 def get_judge_model() -> str:
-    """Resolve the judge model: explicit setting > fast model for OpenRouter > llm_model for Ollama."""
+    """Resolve the judge model: explicit setting > fast model for OpenRouter."""
     if settings.benchmark_judge_model:
         return settings.benchmark_judge_model
-
-    if settings.llm_provider == LLMProvider.OLLAMA:
-        return settings.llm_model
 
     # OpenRouter: use fast/cheap model for judge calls
     return FAST_OPENROUTER_MODEL
@@ -44,8 +40,7 @@ def get_judge_client(model: str, *, runtime: BudgetRuntime | None = None) -> Man
     instance.  This avoids creating a new httpx connection pool per benchmark question.
     """
     snapshot = settings.model_copy()
-    remote = snapshot.llm_provider == LLMProvider.OPENROUTER
-    base_url = snapshot.openrouter_base_url if remote else f"{snapshot.ollama_base_url.rstrip('/')}/v1"
+    base_url = snapshot.openrouter_base_url
     key = (runtime, snapshot.llm_provider, base_url, model)
     with _judge_client_lock:
         RETIRED_JUDGE_CLIENTS.difference_update(
@@ -67,20 +62,12 @@ def get_judge_client(model: str, *, runtime: BudgetRuntime | None = None) -> Man
         # Both modes avoid requiring tool calling from the chosen model.
         raw = OpenAI(
             base_url=base_url,
-            api_key=snapshot.openrouter_api_key
-            if snapshot.llm_provider == LLMProvider.OPENROUTER
-            else "ollama",
+            api_key=snapshot.openrouter_api_key,
             timeout=snapshot.llm_auxiliary_timeout,
             max_retries=0,
-            http_client=httpx.Client(
-                follow_redirects=False, transport=PaidSyncTransport(runtime=runtime) if remote else None
-            ),
+            http_client=httpx.Client(follow_redirects=False, transport=PaidSyncTransport(runtime=runtime)),
         )
-        mode = (
-            instructor.Mode.JSON
-            if snapshot.llm_provider == LLMProvider.OPENROUTER
-            else instructor.Mode.MD_JSON
-        )
+        mode = instructor.Mode.JSON
         client = instructor.from_openai(raw, mode=mode)
 
         client.on("completion:response", record_judge_usage)
@@ -112,13 +99,10 @@ async def close_judge_clients(*, runtime: BudgetRuntime | None = None) -> None:
 
 
 def create_async_judge_client(*, runtime: BudgetRuntime | None = None) -> AsyncOpenAI:
-    remote = settings.llm_provider == LLMProvider.OPENROUTER
     return AsyncOpenAI(
-        base_url=settings.openrouter_base_url if remote else f"{settings.ollama_base_url}/v1",
-        api_key=settings.openrouter_api_key if remote else "ollama",
+        base_url=settings.openrouter_base_url,
+        api_key=settings.openrouter_api_key,
         timeout=settings.llm_auxiliary_timeout,
         max_retries=0,
-        http_client=httpx.AsyncClient(
-            follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime) if remote else None
-        ),
+        http_client=httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime)),
     )

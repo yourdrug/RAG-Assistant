@@ -1,4 +1,4 @@
-"""Health-check endpoint aggregating Postgres, Qdrant, and Ollama status."""
+"""Health-check endpoint aggregating Postgres, Qdrant, and OpenRouter status."""
 
 from __future__ import annotations
 

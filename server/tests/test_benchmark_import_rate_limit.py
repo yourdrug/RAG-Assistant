@@ -3,13 +3,13 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from application.ports.rate_limit import RateLimitDecision, RateLimitPolicyName
-from domain.shared.exceptions import AppClientError
 from domain.identity.roles import UserKind, UserRole
+from domain.shared.exceptions import AppClientError
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_benchmark_question_service, create_rate_limiter
 from presentation.api.exception_handlers import handle_client_exception
@@ -18,10 +18,12 @@ from presentation.api.schemas import CurrentUser
 
 
 @pytest.mark.parametrize("valid,allow_write", [(True, True), (False, True), (True, False)])
-def test_import_uses_write_quota_even_when_benchmark_quota_is_exhausted(valid, allow_write):
+def test_import_uses_write_quota_even_when_benchmark_quota_is_exhausted(
+    valid: bool, allow_write: bool
+) -> None:
     limiter = SimpleNamespace(
         check=AsyncMock(
-            side_effect=lambda policy, principal: RateLimitDecision(
+            side_effect=lambda policy, _principal: RateLimitDecision(
                 allowed=policy == RateLimitPolicyName.WRITE and allow_write,
                 retry_after_sec=60,
                 limit=60,
@@ -54,11 +56,13 @@ def test_import_uses_write_quota_even_when_benchmark_quota_is_exhausted(valid, a
     limiter.check.assert_awaited_once_with(
         RateLimitPolicyName.WRITE, f"user:{UserKind.INTERNAL.value}:{user.id}"
     )
+
     if valid and allow_write:
         assert response.json() == {"imported": 1}
         service.bulk_create.assert_awaited_once()
     else:
         service.bulk_create.assert_not_awaited()
+
     if not allow_write:
         assert response.json()["errors"]["code"] == "rate_limit_exceeded"
         assert response.headers["Retry-After"] == "60"

@@ -2,33 +2,42 @@
 
 from __future__ import annotations
 
-from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from langchain.schema import Document
+import pytest
 
 from application.indexing import process_chunks
-from domain.shared.hashing import content_hash
-from infrastructure.database.models import ChunkModel
-from domain.ingestion.raw_document import RawDocument
-from domain.knowledge.chunk import ChunkInsert, ChunkRecord
-from domain.knowledge.chunk import extract_chunk_context
-from domain.knowledge.enums import DocDomain
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.knowledge.enums import DocumentVisibility
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.chunk import ChunkInsert, ChunkRecord, extract_chunk_context
+from domain.knowledge.enums import DocDomain, DocumentVisibility
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
+from domain.shared.hashing import content_hash
+from infrastructure.database.models import ChunkModel
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.ml.rag.rag_formatting import format_docs
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors
+from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_result
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
+from tests.fakes import FakeUnitOfWorkFactory, require_present
+from tests.test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
+from tests.test_document_commands_characterization import harness, seed
 
 
-def make_context():
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from application.uow.unit_of_work import UnitOfWork
+    from domain.rag.context import RagContext
+
+
+def make_context() -> dict[str, Any]:
     return {
         "parent_units": [{"content": "Only applications submitted after January 2025 are eligible."}],
         "page": 4,
@@ -45,10 +54,10 @@ def make_context():
 
 
 @pytest.mark.asyncio
-async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
-    models = []
+async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> None:  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
+    models: list[Any] = []
 
-    async def flush():
+    async def flush() -> None:
         for number, model in enumerate(models, 1):
             model.id = number
 
@@ -56,10 +65,10 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
     empty_result.scalars.return_value.all.return_value = []
     session = SimpleNamespace(
         execute=AsyncMock(return_value=empty_result),
-        add_all=lambda rows: models.extend(rows),
+        add_all=models.extend,
         flush=AsyncMock(side_effect=flush),
     )
-    repository = SQLAlchemyChunkRepository(session)
+    repository = SQLAlchemyChunkRepository(cast("AsyncSession", session))
     uow = SimpleNamespace(
         chunks=repository,
         vector_outbox=SimpleNamespace(enqueue=AsyncMock()),
@@ -68,7 +77,7 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
     context = make_context()
     chunk = RawDocument("21.2. Submit the passport.", {**context, "document_id": 7})
     await process_chunks(
-        None,
+        FakeUnitOfWorkFactory(),
         7,
         "rules.pdf",
         [chunk],
@@ -76,7 +85,7 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
         owner_id=12,
         group_id=None,
         doc_domain=DocDomain.DECREE.value,
-        _existing_uow=uow,
+        _existing_uow=cast("UnitOfWork", uow),
     )
     assert models[0].context_metadata == context
     assert "document_id" not in models[0].context_metadata
@@ -88,7 +97,7 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
     )
 
     # Return columns from the actual SQL projection, rather than hand-ordered DTO fields.
-    async def execute(stmt):
+    async def execute(stmt: Any) -> SimpleNamespace:
         row = tuple(
             getattr(models[0], column.key) if column.table.name == "chunks" else None
             for column in stmt.selected_columns
@@ -99,9 +108,11 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
     user = UserContext(user_id=12, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
     results = await repository.search_substring("passport", user)
     assert results[0].context_metadata == context
-    candidates = []
+    candidates: list[Any] = []
     search = SimpleNamespace(search_substring=AsyncMock(return_value=results))
-    await apply_exact_search("passport", candidates, user, SimpleNamespace(as_of_date=None), search)
+    await apply_exact_search(
+        "passport", candidates, user, cast("RagContext", SimpleNamespace(as_of_date=None)), search
+    )
     assert len(candidates) == 1
     assert context["parent_units"][0]["content"] in format_docs(candidates)
     assert candidates[0].metadata["page"] == 4
@@ -121,7 +132,7 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
     assert search.get_neighbors.call_args.kwargs["user"] is user
 
 
-def test_stale_context_cannot_override_acl_identity_or_version_state():
+def test_stale_context_cannot_override_acl_identity_or_version_state() -> None:
     poisoned = {
         **make_context(),
         "source": "other.pdf",
@@ -138,7 +149,7 @@ def test_stale_context_cannot_override_acl_identity_or_version_state():
         filename="rules.pdf",
         content="Submit the passport.",
         chunk_index=3,
-        visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
+        visibility=DocumentVisibility.INTERNAL_PRIVATE,
         owner_id=12,
         act_version_id=9,
         effective_from=date(2025, 1, 1),
@@ -148,8 +159,10 @@ def test_stale_context_cannot_override_acl_identity_or_version_state():
     metadata = chunk_result_metadata(result)
     assert metadata["visibility"] == DocumentVisibility.INTERNAL_PRIVATE.value
     assert metadata["owner_id"] == 12
-    assert metadata["document_id"] == 7 and metadata["source"] == "rules.pdf"
-    assert metadata["act_version_id"] == 9 and metadata["effective_from"] == "2025-01-01"
+    assert metadata["document_id"] == 7
+    assert metadata["source"] == "rules.pdf"
+    assert metadata["act_version_id"] == 9
+    assert metadata["effective_from"] == "2025-01-01"
     assert metadata["is_current"] is False
     assert metadata["parent_units"] == poisoned["parent_units"]
     poisoned["parent_units"][0]["content"] = "Modified later"
@@ -157,10 +170,10 @@ def test_stale_context_cannot_override_acl_identity_or_version_state():
 
 
 @pytest.mark.asyncio
-async def test_bulk_chunk_records_keep_fields_defaults_and_isolate_context():
-    models = []
+async def test_bulk_chunk_records_keep_fields_defaults_and_isolate_context() -> None:
+    models: list[Any] = []
 
-    async def flush():
+    async def flush() -> None:
         for number, model in enumerate(models, 1):
             model.id = number
 
@@ -177,7 +190,7 @@ async def test_bulk_chunk_records_keep_fields_defaults_and_isolate_context():
         doc_type="decree",
         context_metadata=context,
     )
-    ids = await SQLAlchemyChunkRepository(session).bulk_insert(
+    ids = await SQLAlchemyChunkRepository(cast("AsyncSession", session)).bulk_insert(
         7,
         "rules.pdf",
         DocumentVisibility.INTERNAL_PRIVATE.value,
@@ -204,27 +217,29 @@ async def test_bulk_chunk_records_keep_fields_defaults_and_isolate_context():
         if field != "content":
             assert getattr(default, field) is None
 
-    assert default.content == "second" and default.context_metadata == {}
+    assert default.content == "second"
+    assert default.context_metadata == {}
     assert saved.context_metadata == make_context()
 
     for model in models:
-        assert model.owner_id == 12 and model.visibility == DocumentVisibility.INTERNAL_PRIVATE.value
-        assert model.act_version_id == 9 and model.effective_from == date(2025, 1, 1)
+        assert model.owner_id == 12
+        assert model.visibility == DocumentVisibility.INTERNAL_PRIVATE.value
+        assert model.act_version_id == 9
+        assert model.effective_from == date(2025, 1, 1)
         assert model.is_current is False
 
     context["parent_units"][0]["content"] = "changed"
     assert saved.context_metadata["parent_units"] == make_context()["parent_units"]
 
 
-def test_context_selection_excludes_transient_parser_offsets():
+def test_context_selection_excludes_transient_parser_offsets() -> None:
     context = make_context()
     selected = extract_chunk_context({**context, "_page_spans": [(0, 4, 1)], "_table_bbox": (1, 2, 3, 4)})
     assert selected == context
 
 
 @pytest.mark.asyncio
-async def test_edit_keeps_scope_and_current_acl_in_vector_outbox():
-    from tests.test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
+async def test_edit_keeps_scope_and_current_acl_in_vector_outbox() -> None:
 
     context = make_context()
     chunk = _make_chunk(
@@ -235,27 +250,25 @@ async def test_edit_keeps_scope_and_current_acl_in_vector_outbox():
     )
     doc = _make_doc(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_id=12)
     uow = _make_uow(doc=doc, chunk=chunk)
-    await _make_service(uow).edit_chunk(
-        1, 10, "Updated passport submission rule. " * 8, 12, UserRole.USER.value
-    )
+    await _make_service(uow).edit_chunk(1, 10, "Updated passport submission rule. " * 8, 12, UserRole.USER)
     metadata = uow.vector_outbox.enqueue.call_args.args[0].payload["points"][0]["metadata"]
     assert metadata["parent_units"] == context["parent_units"]
     assert metadata["page"] == 4
     assert metadata["visibility"] == DocumentVisibility.INTERNAL_PRIVATE.value
     assert metadata["owner_id"] == 12
-    assert metadata["act_version_id"] == 9 and metadata["effective_from"] == "2025-01-01"
+    assert metadata["act_version_id"] == 9
+    assert metadata["effective_from"] == "2025-01-01"
 
 
 @pytest.mark.asyncio
-async def test_manual_chunk_persists_page_and_section_context():
-    from tests.test_chunk_service import _make_service, _make_uow
+async def test_manual_chunk_persists_page_and_section_context() -> None:
 
     uow = _make_uow()
     await _make_service(uow).add_chunk(
         1,
         "A complete manually added passage. " * 8,
         1,
-        UserRole.ADMIN.value,
+        UserRole.ADMIN,
         page=5,
         section="Manual additions",
     )
@@ -266,17 +279,17 @@ async def test_manual_chunk_persists_page_and_section_context():
 
 
 @pytest.mark.asyncio
-async def test_edit_persists_content_and_hash_in_one_flush():
+async def test_edit_persists_content_and_hash_in_one_flush() -> None:
     model = ChunkModel(id=10, document_id=1, content="Old text", content_hash=content_hash("Old text"))
     result = MagicMock()
     result.scalar_one_or_none.return_value = model
     snapshots = []
 
-    async def flush():
+    async def flush() -> None:
         snapshots.append((model.content, model.content_hash, model.edited_at, model.edited_by))
 
     session = SimpleNamespace(execute=AsyncMock(return_value=result), flush=AsyncMock(side_effect=flush))
-    repository = SQLAlchemyChunkRepository(session)
+    repository = SQLAlchemyChunkRepository(cast("AsyncSession", session))
     now = datetime.now(UTC)
 
     for text in ("First edit", "Second edit"):
@@ -287,8 +300,7 @@ async def test_edit_persists_content_and_hash_in_one_flush():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("versioned", [False, True])
-async def test_rename_preserves_chunk_metadata(versioned):
-    from tests.test_document_commands_characterization import harness, seed
+async def test_rename_preserves_chunk_metadata(versioned: bool) -> None:
 
     h = harness()
     doc = await seed(h)
@@ -296,11 +308,11 @@ async def test_rename_preserves_chunk_metadata(versioned):
     context = make_context()
     chunk = ChunkRecord(
         chunk_id=10,
-        document_id=doc.id,
+        document_id=require_present(doc.id),
         filename=doc.filename,
         content="Submit the passport.",
         chunk_index=3,
-        visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
+        visibility=DocumentVisibility.INTERNAL_PRIVATE,
         owner_id=1,
         content_hash="original-hash",
         manual=True,

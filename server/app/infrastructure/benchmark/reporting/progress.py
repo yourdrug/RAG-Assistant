@@ -29,11 +29,11 @@ def log_question_result(idx: int, total: int, q: dict[str, Any], result: dict[st
     logger.info("  Источники: %s", src_list)
 
     gm = result["generator_metrics"]
-    logger.info("  Faithfulness: %s/10  — %s", gm["faithfulness"], gm["faithfulness_reason"])
-    logger.info("  Relevancy:    %s/10  — %s", gm["relevancy"], gm["relevancy_reason"])
+    logger.info("  Faithfulness: %s/10  — %s", gm["faithfulness"], gm.get("faithfulness_reason", ""))
+    logger.info("  Relevancy:    %s/10  — %s", gm["relevancy"], gm.get("relevancy_reason", ""))
 
     if gm["correctness"] is not None:
-        logger.info("  Correctness:  %s/10  — %s", gm["correctness"], gm["correctness_reason"])
+        logger.info("  Correctness:  %s/10  — %s", gm["correctness"], gm.get("correctness_reason", ""))
 
     cm = result.get("context_metrics", {})
     cp = cm.get("context_precision")
@@ -130,4 +130,4 @@ def log_quality_summary(results: list[dict[str, Any]], m: dict[str, Any]) -> Non
             gm = r["generator_metrics"]
             logger.warning("  [%s] %s", r["id"], r["question"][:60])
             logger.warning("        faith=%s  rel=%s", gm["faithfulness"], gm["relevancy"])
-            logger.warning("        %s", gm["faithfulness_reason"])
+            logger.warning("        %s", gm.get("faithfulness_reason", ""))

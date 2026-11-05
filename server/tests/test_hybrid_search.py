@@ -1,6 +1,6 @@
 """Tests for BM25, tokenizer, RRF merge, persistence.
 
-All pure functions, no Qdrant/Ollama needed.
+All pure functions, no Qdrant/LLM needed.
 """
 
 import json

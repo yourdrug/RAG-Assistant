@@ -1,24 +1,27 @@
 """Tests for chunk mutations and manual-document creation."""
 
-from application.ports.cache_invalidator import CacheInvalidatorPort
-from application.chunks import ChunkSettingsPort
-from typing import Any
+from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from application.chunks.mutations import ChunkMutationService
 from application.documents import ManualDocumentService
-from domain.knowledge.document import Document
-from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
-from domain.knowledge.chunk import ChunkRecord, ChunkStats
+from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import compute_owner_and_group
+from domain.knowledge.chunk import ChunkRecord, ChunkStats
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility, SourceType
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 from domain.shared.hashing import content_hash
-from domain.knowledge.enums import DocumentStatus
-from domain.identity.roles import UserRole
-from domain.knowledge.enums import SourceType
-from domain.knowledge.enums import DocumentVisibility
+
+
+if TYPE_CHECKING:
+    from application.chunks import ChunkSettingsPort
+    from application.ports.cache_invalidator import CacheInvalidatorPort
 
 
 # ---------------------------------------------------------------------------
@@ -27,8 +30,11 @@ from domain.knowledge.enums import DocumentVisibility
 
 
 @dataclass
-class _FakeChunkSettings:
+class FakeChunkSettings:
     chunk_size: int = 550
+    chunk_overlap: int = 50
+    legal_chunk_size: int = 550
+    legal_chunk_overlap: int = 50
 
 
 def _make_doc(**overrides: Any) -> Document:
@@ -75,6 +81,7 @@ def _make_uow(doc: Document | None = None, chunk: ChunkRecord | None = None, max
     """Build a mock UoW with document + chunk repos."""
     if doc is None:
         doc = _make_doc()
+
     if chunk is None:
         chunk = _make_chunk()
 
@@ -109,12 +116,12 @@ def _make_service(
 
     return ChunkMutationService(
         factory,
-        chunk_settings or _FakeChunkSettings(),
+        chunk_settings if chunk_settings is not None else FakeChunkSettings(),
         cache_invalidator=cache_invalidator,
     )
 
 
-def make_manual_service(uow):
+def make_manual_service(uow: AsyncMock) -> ManualDocumentService:
     factory = MagicMock()
     factory.create.return_value = AsyncMock(
         __aenter__=AsyncMock(return_value=uow),
@@ -131,29 +138,29 @@ def make_manual_service(uow):
 class TestChunkServiceValidation:
     """Tests for ChunkMutationService validation helpers."""
 
-    def test_validate_chunk_content_empty(self):
+    def test_validate_chunk_content_empty(self) -> None:
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="cannot be empty"):
             svc.validate_chunk_content("")
         with pytest.raises(ValidationError, match="cannot be empty"):
             svc.validate_chunk_content("   ")
 
-    def test_validate_chunk_content_too_short(self):
+    def test_validate_chunk_content_too_short(self) -> None:
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="too short"):
             svc.validate_chunk_content("ab")
 
-    def test_validate_chunk_content_too_long(self):
+    def test_validate_chunk_content_too_long(self) -> None:
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="too long"):
             svc.validate_chunk_content("x" * 2000)
 
-    def test_validate_chunk_content_valid(self):
+    def test_validate_chunk_content_valid(self) -> None:
         svc = _make_service(AsyncMock())
         valid = "This is a valid chunk content with enough text. " * 5
         svc.validate_chunk_content(valid)
 
-    def test_validate_chunk_content_manual_relaxed(self):
+    def test_validate_chunk_content_manual_relaxed(self) -> None:
         svc = _make_service(AsyncMock())
         short_manual = "a" * 27
         svc.validate_chunk_content(short_manual, is_manual=True)
@@ -162,33 +169,36 @@ class TestChunkServiceValidation:
 
 
 class TestComputeOwnerAndGroup:
-    def test_internal_public(self):
+    def test_internal_public(self) -> None:
         owner, group = compute_owner_and_group(DocumentVisibility.INTERNAL_PUBLIC, None, 1)
-        assert owner is None and group is None
+        assert owner is None
+        assert group is None
 
-    def test_internal_group(self):
+    def test_internal_group(self) -> None:
         owner, group = compute_owner_and_group(DocumentVisibility.INTERNAL_GROUP, 42, 1)
-        assert owner is None and group == 42
+        assert owner is None
+        assert group == 42
 
-    def test_internal_private(self):
+    def test_internal_private(self) -> None:
         owner, group = compute_owner_and_group(DocumentVisibility.INTERNAL_PRIVATE, None, 1)
-        assert owner == 1 and group is None
+        assert owner == 1
+        assert group is None
 
 
 class TestDocumentCanEditChunks:
-    def test_admin_can_edit(self):
+    def test_admin_can_edit(self) -> None:
         doc = Document(id=1, visibility=DocumentVisibility.INTERNAL_PUBLIC, owner_id=100)
         assert doc.can_edit_chunks(1, UserRole.ADMIN) is True
 
-    def test_owner_can_edit(self):
+    def test_owner_can_edit(self) -> None:
         doc = Document(id=1, visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_id=100)
         assert doc.can_edit_chunks(100, UserRole.USER) is True
 
-    def test_non_owner_cannot_edit(self):
+    def test_non_owner_cannot_edit(self) -> None:
         doc = Document(id=1, visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_id=100)
         assert doc.can_edit_chunks(200, UserRole.USER) is False
 
-    def test_group_doc_only_admin(self):
+    def test_group_doc_only_admin(self) -> None:
         doc = Document(id=1, visibility=DocumentVisibility.INTERNAL_GROUP, group_id=42, owner_id=None)
         assert doc.can_edit_chunks(1, UserRole.ADMIN) is True
         assert doc.can_edit_chunks(100, UserRole.USER) is False
@@ -201,7 +211,7 @@ class TestDocumentCanEditChunks:
 
 class TestEditChunk:
     @pytest.mark.asyncio
-    async def test_edit_chunk_success(self):
+    async def test_edit_chunk_success(self) -> None:
         """edit_chunk enqueues both retrieval vectors through outbox and updates stats."""
         uow = _make_uow()
         svc = _make_service(uow)
@@ -211,7 +221,7 @@ class TestEditChunk:
             chunk_id=10,
             content="new content " * 20,
             user_id=100,
-            user_role="admin",
+            user_role=UserRole.ADMIN,
         )
 
         assert result.id == 10
@@ -228,7 +238,7 @@ class TestEditChunk:
         uow.documents.update_chunk_stats.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_edit_chunk_no_permission(self):
+    async def test_edit_chunk_no_permission(self) -> None:
         """Non-owner cannot edit a private document."""
         doc = _make_doc(owner_id=1)
         uow = _make_uow(doc=doc)
@@ -240,11 +250,11 @@ class TestEditChunk:
                 chunk_id=10,
                 content="new " * 50,
                 user_id=999,
-                user_role="user",
+                user_role=UserRole.USER,
             )
 
     @pytest.mark.asyncio
-    async def test_edit_chunk_not_found(self):
+    async def test_edit_chunk_not_found(self) -> None:
         """Chunk not in DB raises EntityNotFoundError."""
         uow = _make_uow()
         uow.chunks.get_by_id = AsyncMock(return_value=None)
@@ -256,11 +266,11 @@ class TestEditChunk:
                 chunk_id=999,
                 content="new " * 50,
                 user_id=100,
-                user_role="admin",
+                user_role=UserRole.ADMIN,
             )
 
     @pytest.mark.asyncio
-    async def test_edit_chunk_wrong_document(self):
+    async def test_edit_chunk_wrong_document(self) -> None:
         """Chunk belonging to a different document raises BusinessRuleViolationError."""
         chunk = _make_chunk(document_id=2)
         uow = _make_uow(chunk=chunk)
@@ -272,11 +282,11 @@ class TestEditChunk:
                 chunk_id=10,
                 content="new " * 50,
                 user_id=100,
-                user_role="admin",
+                user_role=UserRole.ADMIN,
             )
 
     @pytest.mark.asyncio
-    async def test_edit_chunk_duplicate_warning(self):
+    async def test_edit_chunk_duplicate_warning(self) -> None:
         """Duplicate content hash produces a warning in the result."""
         uow = _make_uow()
         dup_chunk = _make_chunk(chunk_id=5)
@@ -289,14 +299,14 @@ class TestEditChunk:
             chunk_id=10,
             content=content,
             user_id=100,
-            user_role="admin",
+            user_role=UserRole.ADMIN,
         )
 
         assert result.warning is not None
         assert "existing chunk #5" in result.warning
 
     @pytest.mark.asyncio
-    async def test_edit_without_old_hash_still_enqueues_vectors(self):
+    async def test_edit_without_old_hash_still_enqueues_vectors(self) -> None:
         """A missing old hash does not prevent replacing both vectors."""
         chunk = _make_chunk(content_hash=None)
         uow = _make_uow(chunk=chunk)
@@ -307,7 +317,7 @@ class TestEditChunk:
             chunk_id=10,
             content="new " * 50,
             user_id=100,
-            user_role="admin",
+            user_role=UserRole.ADMIN,
         )
         uow.vector_outbox.enqueue.assert_awaited_once()
 
@@ -319,7 +329,7 @@ class TestEditChunk:
 
 class TestAddChunk:
     @pytest.mark.asyncio
-    async def test_add_chunk_success(self):
+    async def test_add_chunk_success(self) -> None:
         """add_chunk inserts, enqueues outbox, calls BM25 add, updates stats."""
         uow = _make_uow(max_index=3)
         svc = _make_service(uow)
@@ -328,7 +338,7 @@ class TestAddChunk:
             document_id=1,
             content="new chunk text " * 20,
             user_id=100,
-            user_role="admin",
+            user_role=UserRole.ADMIN,
         )
 
         assert result.document_id == 1
@@ -344,7 +354,7 @@ class TestAddChunk:
         uow.documents.update_chunk_stats.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_add_chunk_wrong_status(self):
+    async def test_add_chunk_wrong_status(self) -> None:
         """Cannot add chunks to a FAILED document."""
         doc = _make_doc(status=DocumentStatus.FAILED)
         uow = _make_uow(doc=doc)
@@ -355,11 +365,11 @@ class TestAddChunk:
                 document_id=1,
                 content="new " * 50,
                 user_id=100,
-                user_role="admin",
+                user_role=UserRole.ADMIN,
             )
 
     @pytest.mark.asyncio
-    async def test_add_chunk_no_permission(self):
+    async def test_add_chunk_no_permission(self) -> None:
         """Non-owner cannot add chunks to a private document."""
         doc = _make_doc(owner_id=1)
         uow = _make_uow(doc=doc)
@@ -370,11 +380,11 @@ class TestAddChunk:
                 document_id=1,
                 content="new " * 50,
                 user_id=999,
-                user_role="user",
+                user_role=UserRole.USER,
             )
 
     @pytest.mark.asyncio
-    async def test_add_chunk_status_checked_before_permission(self):
+    async def test_add_chunk_status_checked_before_permission(self) -> None:
         """Original behavior: status check runs before permission check.
 
         A user without permission on a FAILED document gets the status
@@ -389,11 +399,11 @@ class TestAddChunk:
                 document_id=1,
                 content="new " * 50,
                 user_id=999,
-                user_role="user",
+                user_role=UserRole.USER,
             )
 
     @pytest.mark.asyncio
-    async def test_add_chunk_duplicate_warning(self):
+    async def test_add_chunk_duplicate_warning(self) -> None:
         """Duplicate content hash produces a warning."""
         dup = _make_chunk(chunk_id=7)
         uow = _make_uow()
@@ -404,13 +414,13 @@ class TestAddChunk:
             document_id=1,
             content="x" * 300,
             user_id=100,
-            user_role="admin",
+            user_role=UserRole.ADMIN,
         )
         assert result.warning is not None
         assert "existing chunk #7" in result.warning
 
     @pytest.mark.asyncio
-    async def test_add_chunk_with_page_and_section(self):
+    async def test_add_chunk_with_page_and_section(self) -> None:
         """Page and section metadata are passed via outbox payload."""
         uow = _make_uow(max_index=0)
         svc = _make_service(uow)
@@ -419,7 +429,7 @@ class TestAddChunk:
             document_id=1,
             content="x" * 300,
             user_id=100,
-            user_role="admin",
+            user_role=UserRole.ADMIN,
             page=3,
             section="Legal",
         )
@@ -437,13 +447,13 @@ class TestAddChunk:
 
 class TestDeleteChunk:
     @pytest.mark.asyncio
-    async def test_delete_chunk_success(self):
+    async def test_delete_chunk_success(self) -> None:
         """delete_chunk removes SQL row and enqueues deletion of both vectors."""
         chunk = _make_chunk(content_hash="old_hash_abc")
         uow = _make_uow(chunk=chunk)
         svc = _make_service(uow)
 
-        await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role="admin")
+        await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role=UserRole.ADMIN)
 
         uow.chunks.delete_one.assert_awaited_once_with(10)
         enqueue_call = uow.vector_outbox.enqueue.call_args[0][0]
@@ -451,40 +461,40 @@ class TestDeleteChunk:
         uow.documents.update_chunk_stats.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_delete_chunk_no_permission(self):
+    async def test_delete_chunk_no_permission(self) -> None:
         doc = _make_doc(owner_id=1)
         uow = _make_uow(doc=doc)
         svc = _make_service(uow)
 
         with pytest.raises(BusinessRuleViolationError, match="No permission"):
-            await svc.delete_chunk(document_id=1, chunk_id=10, user_id=999, user_role="user")
+            await svc.delete_chunk(document_id=1, chunk_id=10, user_id=999, user_role=UserRole.USER)
 
     @pytest.mark.asyncio
-    async def test_delete_chunk_not_found(self):
+    async def test_delete_chunk_not_found(self) -> None:
         uow = _make_uow()
         uow.chunks.get_by_id = AsyncMock(return_value=None)
         svc = _make_service(uow)
 
         with pytest.raises(EntityNotFoundError):
-            await svc.delete_chunk(document_id=1, chunk_id=999, user_id=100, user_role="admin")
+            await svc.delete_chunk(document_id=1, chunk_id=999, user_id=100, user_role=UserRole.ADMIN)
 
     @pytest.mark.asyncio
-    async def test_delete_chunk_wrong_document(self):
+    async def test_delete_chunk_wrong_document(self) -> None:
         chunk = _make_chunk(document_id=2)
         uow = _make_uow(chunk=chunk)
         svc = _make_service(uow)
 
         with pytest.raises(BusinessRuleViolationError, match="does not belong"):
-            await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role="admin")
+            await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role=UserRole.ADMIN)
 
     @pytest.mark.asyncio
-    async def test_delete_without_hash_still_enqueues_vectors(self):
+    async def test_delete_without_hash_still_enqueues_vectors(self) -> None:
         """Point identity supports deletion without a content hash."""
         chunk = _make_chunk(content_hash=None)
         uow = _make_uow(chunk=chunk)
         svc = _make_service(uow)
 
-        await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role="admin")
+        await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role=UserRole.ADMIN)
         uow.vector_outbox.enqueue.assert_awaited_once()
 
 
@@ -495,7 +505,7 @@ class TestDeleteChunk:
 
 class TestCreateManualDocument:
     @pytest.mark.asyncio
-    async def test_create_manual_document_success(self):
+    async def test_create_manual_document_success(self) -> None:
         """create_manual_document creates a Document with MANUAL source_type."""
         uow = _make_uow()
         saved_doc = _make_doc(id=42, source_type=SourceType.MANUAL.value, filename="My Manual")
@@ -504,10 +514,10 @@ class TestCreateManualDocument:
 
         result = await svc.create_manual_document(
             title="My Manual",
-            visibility="internal_public",
+            visibility=DocumentVisibility.INTERNAL_PUBLIC,
             user_id=100,
-            user_kind="internal",
-            user_role="admin",
+            user_kind=UserKind.INTERNAL,
+            user_role=UserRole.ADMIN,
         )
 
         assert result.id == 42
@@ -515,7 +525,7 @@ class TestCreateManualDocument:
         uow.documents.save.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_create_manual_document_user_cannot_publish_public(self):
+    async def test_create_manual_document_user_cannot_publish_public(self) -> None:
         """Only admin can create internal_public documents."""
         uow = _make_uow()
         svc = make_manual_service(uow)
@@ -523,14 +533,14 @@ class TestCreateManualDocument:
         with pytest.raises(BusinessRuleViolationError):
             await svc.create_manual_document(
                 title="Bad",
-                visibility="internal_public",
+                visibility=DocumentVisibility.INTERNAL_PUBLIC,
                 user_id=100,
-                user_kind="internal",
-                user_role="user",
+                user_kind=UserKind.INTERNAL,
+                user_role=UserRole.USER,
             )
 
     @pytest.mark.asyncio
-    async def test_create_manual_document_group_requires_group_id(self):
+    async def test_create_manual_document_group_requires_group_id(self) -> None:
         """Creating a group-visible document without group_id should fail."""
         uow = _make_uow()
         svc = make_manual_service(uow)
@@ -538,9 +548,9 @@ class TestCreateManualDocument:
         with pytest.raises((ValidationError, BusinessRuleViolationError)):
             await svc.create_manual_document(
                 title="Bad",
-                visibility="internal_group",
+                visibility=DocumentVisibility.INTERNAL_GROUP,
                 user_id=100,
-                user_kind="internal",
-                user_role="user",
+                user_kind=UserKind.INTERNAL,
+                user_role=UserRole.USER,
                 group_id=None,
             )

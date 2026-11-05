@@ -55,7 +55,7 @@ rollback() {
 trap rollback ERR
 # Download every enabled image before touching the application. Preserve old image IDs.
 compose pull
-infra=(postgres redis qdrant ollama minio)
+infra=(postgres redis qdrant minio)
 enabled_services=$(compose config --services)
 if grep -qx tei-embed <<<"$enabled_services"; then infra+=(tei-embed tei-rerank); fi
 # Infrastructure upgrades are a separate maintenance operation.

@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 from arq import Retry
-import fakeredis.aioredis
 import pytest
 
 from application.budget import billing_principal
-from application.runtime.enums import LLMProvider
-from config import settings
 from infrastructure.budget.job_context import job_operations, next_operation_id
 from infrastructure.metrics import metrics
 from infrastructure.redis.redis_client import redis_client
-from infrastructure.worker import runtime, sweep
+from infrastructure.worker import runtime, sweep, tasks
+
+
+if TYPE_CHECKING:
+    from application.documents.dto import ProcessDocumentCommand
 
 
 class JobFactory:
@@ -40,88 +42,108 @@ class JobFactory:
 
 
 @pytest.mark.asyncio
-async def test_admission_waits_preserve_failure_retries_and_billing_scope() -> None:
+async def test_ten_documents_from_same_principal_start_together() -> None:
+    factory = JobFactory()
+    started: set[int] = set()
+    all_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def process(command: ProcessDocumentCommand) -> None:
+        started.add(command.document_id)
+        assert billing_principal.get() == "user:9"
+        assert job_operations.get() is not None
+
+        if len(started) == 10:
+            all_started.set()
+
+        await release.wait()
+
+    processor = SimpleNamespace(process=process)
+    ctx = {"uow_factory": factory, "document_processor": processor}
+    batch = [
+        asyncio.create_task(
+            tasks.process_document(
+                ctx,
+                document_id=document_id,
+                storage_key=f"uploads/{document_id}.txt",
+                filename=f"{document_id}.txt",
+                visibility="internal_public",
+                owner_id=9,
+                principal_id=9,
+                group_id=None,
+                replace_id=None,
+                job_id=document_id,
+                cost_principal="user:9",
+            )
+        )
+        for document_id in range(1, 11)
+    ]
+    try:
+        await asyncio.wait_for(all_started.wait(), timeout=5)
+        assert factory.jobs.mark_running.await_count == 10
+        factory.jobs.mark_done.assert_not_awaited()
+    finally:
+        release.set()
+        await asyncio.gather(*batch)
+    assert started == set(range(1, 11))
+    assert factory.jobs.mark_done.await_count == 10
+    assert billing_principal.get() is None
+    assert job_operations.get() is None
+
+
+@pytest.mark.asyncio
+async def test_processing_retries_preserve_billing_scope() -> None:
     factory = JobFactory()
     observed = []
 
-    @runtime.job(per_principal=True)
+    @runtime.job()
     async def action(ctx: dict[str, int], **kwargs: object) -> None:
         observed.append((ctx["job_try"], billing_principal.get(), next_operation_id()))
         message = "failed"
         raise RuntimeError(message)
 
-    redis = fakeredis.aioredis.FakeRedis()
-    ctx = {
-        "redis": redis,
-        "uow_factory": factory,
-    }
+    ctx = {"uow_factory": factory}
     arguments = {"job_id": 5, "principal_id": 9, "cost_principal": "user:9", "cost_operation_id": "fixed"}
-    try:
-        await redis.set("rag:worker:principal:9", "other")
 
-        for attempt in (1, 2):
-            with pytest.raises(Retry):
-                await action(dict(ctx, job_try=attempt), **arguments)
+    for attempt in (1, 2):
+        with pytest.raises(Retry) as raised:
+            await action(dict(ctx, job_try=attempt), **arguments)
+        assert raised.value.defer_score == 5000 * 2 ** (attempt - 1)
 
-        factory.jobs.mark_running.assert_not_awaited()
-        await redis.delete("rag:worker:principal:9")
-
-        for attempt in (3, 4):
-            with pytest.raises(Retry) as raised:
-                await action(dict(ctx, job_try=attempt), **arguments)
-            assert raised.value.defer_score == 5000 * 2 ** (attempt - 3)
-            assert await redis.get("rag:worker:principal:9") is None
-
-        await action(dict(ctx, job_try=5), **arguments)
-        assert [row[0] for row in observed] == [1, 2, 3]
-        assert all(row[1] == "user:9" for row in observed)
-        assert len({row[2] for row in observed}) == 1
-        factory.jobs.mark_failed.assert_awaited_once_with(5, "failed")
-        factory.jobs.mark_done.assert_not_awaited()
-        assert billing_principal.get() is None
-        assert job_operations.get() is None
-    finally:
-        await redis.aclose()
+    await action(dict(ctx, job_try=3), **arguments)
+    assert [row[0] for row in observed] == [1, 2, 3]
+    assert all(row[1] == "user:9" for row in observed)
+    assert len({row[2] for row in observed}) == 1
+    factory.jobs.mark_failed.assert_awaited_once_with(5, "failed")
+    factory.jobs.mark_done.assert_not_awaited()
+    assert billing_principal.get() is None
+    assert job_operations.get() is None
 
 
 @pytest.mark.asyncio
-async def test_cancellation_releases_admission_and_billing_context() -> None:
+async def test_cancellation_releases_billing_context() -> None:
     factory = JobFactory()
 
-    @runtime.job(per_principal=True)
+    @runtime.job()
     async def action(ctx: dict[str, int], **kwargs: object) -> None:
         raise asyncio.CancelledError
 
-    redis = fakeredis.aioredis.FakeRedis()
-    ctx = {
-        "redis": redis,
-        "uow_factory": factory,
-    }
-    try:
-        with pytest.raises(asyncio.CancelledError):
-            await action(ctx, job_id=7, owner_id=8, cost_principal="user:8")
-        factory.jobs.mark_failed.assert_awaited_once()
-        assert await redis.get("rag:worker:principal:8") is None
-        assert billing_principal.get() is None
-        assert job_operations.get() is None
-    finally:
-        await redis.aclose()
+    ctx = {"uow_factory": factory}
+    with pytest.raises(asyncio.CancelledError):
+        await action(ctx, job_id=7, owner_id=8, cost_principal="user:8")
+    factory.jobs.mark_failed.assert_awaited_once()
+    assert billing_principal.get() is None
+    assert job_operations.get() is None
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider", [LLMProvider.OPENROUTER, LLMProvider.OLLAMA])
-async def test_metrics_only_collect_ollama_for_selected_provider(
-    monkeypatch: pytest.MonkeyPatch, provider: LLMProvider
-) -> None:
-    db, qdrant, ollama = AsyncMock(), AsyncMock(), AsyncMock()
+async def test_infra_metrics_collect_database_and_qdrant(monkeypatch: pytest.MonkeyPatch) -> None:
+    db, qdrant = AsyncMock(), AsyncMock()
     monkeypatch.setattr(metrics, "collect_db_pool_metrics", db)
     monkeypatch.setattr(metrics, "collect_qdrant_metrics", qdrant)
-    monkeypatch.setattr(metrics, "collect_ollama_metrics", ollama)
-    monkeypatch.setattr(settings, "llm_provider", provider.value)
     await metrics.collect_infra_metrics()
     db.assert_awaited_once()
     qdrant.assert_awaited_once()
-    assert ollama.await_count == int(provider == LLMProvider.OLLAMA)
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import httpx
 from qdrant_client.http.exceptions import ResponseHandlingException
@@ -15,7 +15,7 @@ from tenacity import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Coroutine
+    from collections.abc import Callable
 
 transient_retry = retry(
     stop=stop_after_attempt(3),
@@ -33,6 +33,6 @@ transient_retry = retry(
 
 
 def retry_on_transient[**P, R](
-    function: Callable[P, Awaitable[R]],
-) -> Callable[P, Coroutine[object, object, R]]:
-    return cast("Callable[P, Coroutine[object, object, R]]", transient_retry(function))
+    function: Callable[P, R],
+) -> Callable[P, R]:
+    return transient_retry(function)

@@ -4,12 +4,13 @@ import { RotateCcw, Save } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import { apiClient } from "@/shared/api/client";
+import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { Skeleton } from "@/shared/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
+import { ConfigurationDiagnostics, type EffectiveParameter } from "./configuration-diagnostics";
 import { CorpusControl } from "./corpus-control";
 import { CostRates } from "./cost-rates";
 
@@ -31,16 +32,6 @@ interface ConfigurationStatus {
   error: string | null;
 }
 
-interface EffectiveParameter {
-  key: string;
-  source: string;
-  configured_value: string | null;
-  applied_value: string | null;
-  application_mode: string;
-  present: boolean | null;
-  domain_key: string | null;
-}
-
 interface OpenRouterModel {
   id: string;
   name: string;
@@ -48,158 +39,227 @@ interface OpenRouterModel {
   pricing: { prompt: number; completion: number };
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  toggles: "Feature Toggles",
-  rag: "RAG Pipeline",
-  hybrid: "Hybrid Search",
-  reranker: "Reranker",
-  ingestion: "Ingestion",
-  llm: "LLM",
-  openrouter: "OpenRouter",
-  ml: "ML Provider",
-  ocr: "OCR",
-  storage: "Storage",
-  rate_limit: "Rate limits",
-  jobs: "Job retention",
-  cost: "USD budgets",
-};
+interface SettingsBlock {
+  id: string;
+  label: string;
+  description: string;
+  categories?: string[];
+  keys?: string[];
+}
 
-const DOMAIN_LABELS: Record<string, string> = {
-  legal: "Legal",
-  decree: "Decree",
-};
-
-const CATEGORY_ORDER = [
-  "toggles",
-  "rag",
-  "hybrid",
-  "reranker",
-  "ingestion",
-  "llm",
-  "openrouter",
-  "ml",
-  "ocr",
-  "storage",
-  "rate_limit",
-  "jobs",
-  "cost",
-];
-
-const TAB_GROUPS = [
+const SETTINGS_SECTIONS = [
   {
-    id: "general",
-    label: "General",
-    categories: ["toggles", "storage", "rate_limit", "jobs", "cost"],
+    id: "chat",
+    label: "Chat & answers",
+    description: "Control conversation memory, answer generation and privacy.",
+    blocks: [
+      {
+        id: "generation",
+        label: "Answer generation",
+        description: "Model selection, creativity and response length.",
+        categories: ["llm"],
+        keys: ["openrouter_model"],
+      },
+      {
+        id: "conversation",
+        label: "Conversation & memory",
+        description: "Use previous messages to understand follow-up questions.",
+        keys: ["history_window", "condense_enabled", "rolling_summary_enabled"],
+      },
+      {
+        id: "privacy",
+        label: "Privacy & caching",
+        description: "Personal data protection and reuse of previous answers.",
+        keys: ["pii_redaction_enabled", "cache_enabled"],
+      },
+    ],
   },
-  { id: "rag", label: "RAG", categories: ["rag", "hybrid", "reranker"] },
-  { id: "ingestion", label: "Ingestion", categories: ["ingestion"] },
-  { id: "llm", label: "LLM", categories: ["llm", "openrouter", "ml"] },
-  { id: "ocr", label: "OCR", categories: ["ocr"] },
-];
+  {
+    id: "search",
+    label: "Search & sources",
+    description: "Tune how documents are found, ranked and selected as sources.",
+    blocks: [
+      {
+        id: "retrieval",
+        label: "Document retrieval",
+        description: "Candidate and result counts for focused and broad questions.",
+        categories: ["rag"],
+        keys: ["decomposition_enabled", "relevance_gate_enabled"],
+      },
+      {
+        id: "hybrid",
+        label: "Hybrid search",
+        description: "Combine semantic similarity with keyword matches.",
+        categories: ["hybrid"],
+      },
+      {
+        id: "ranking",
+        label: "Ranking & citations",
+        description: "Refine result ordering and filter sources for the answer.",
+        categories: ["reranker"],
+      },
+    ],
+  },
+  {
+    id: "documents",
+    label: "Document processing",
+    description: "Configure uploads, text splitting, indexing and scanned pages.",
+    blocks: [
+      {
+        id: "uploads",
+        label: "Uploads & previews",
+        description: "File size limits and preview lifetime.",
+        keys: ["max_upload_size_mb", "preview_max_size_mb", "preview_cache_ttl_seconds"],
+      },
+      {
+        id: "indexing",
+        label: "Text splitting & indexing",
+        description: "Split document text into overlapping chunks and create embeddings.",
+        categories: ["ingestion"],
+        keys: ["chunk_size", "chunk_overlap"],
+      },
+      {
+        id: "ocr",
+        label: "Scanned pages (OCR)",
+        description: "Recognize text in images and pages without a usable text layer.",
+        categories: ["ocr"],
+      },
+    ],
+  },
+  {
+    id: "models",
+    label: "Model connections",
+    description: "Service endpoints and embedding and reranking model connections.",
+    blocks: [
+      {
+        id: "openrouter",
+        label: "OpenRouter connection",
+        description: "Connection used by the answer model selected in Chat & answers.",
+        categories: ["openrouter"],
+      },
+      {
+        id: "embeddings",
+        label: "Embedding service",
+        description: "Convert document chunks and questions into vectors for semantic search.",
+        keys: [
+          "tei_embed_url",
+          "deepinfra_embed_model",
+          "embedding_http_max_connections",
+          "embedding_http_max_keepalive_connections",
+        ],
+      },
+      {
+        id: "reranking-service",
+        label: "Reranking service",
+        description: "Model connection used to refine the order of retrieved documents.",
+        keys: [
+          "tei_rerank_url",
+          "deepinfra_rerank_model",
+          "rerank_http_max_connections",
+          "rerank_http_max_keepalive_connections",
+        ],
+      },
+      {
+        id: "ml",
+        label: "Shared ML connection",
+        description: "Provider endpoint shared by embedding and reranking models.",
+        categories: ["ml"],
+      },
+    ],
+  },
+  {
+    id: "costs",
+    label: "Spending & pricing",
+    description: "Set user spending limits and maintain model prices.",
+    blocks: [
+      {
+        id: "cost",
+        label: "User spending limits",
+        description: "Hourly and daily USD budgets, including pending reservations.",
+        categories: ["cost"],
+      },
+    ],
+  },
+  {
+    id: "system",
+    label: "System & limits",
+    description: "Request limits, background job recovery and retention.",
+    blocks: [
+      {
+        id: "requests",
+        label: "Request limits",
+        description: "Limit how often users can sign in, chat, search and upload.",
+        categories: ["rate_limit"],
+      },
+      {
+        id: "jobs",
+        label: "Background jobs",
+        description: "Recover stuck work and clean up old job records.",
+        categories: ["jobs"],
+      },
+      {
+        id: "storage",
+        label: "Storage",
+        description: "Application storage settings.",
+        categories: ["storage"],
+      },
+      {
+        id: "other",
+        label: "Other settings",
+        description: "Additional application parameters.",
+        categories: ["toggles"],
+      },
+    ],
+  },
+] satisfies { id: string; label: string; description: string; blocks: SettingsBlock[] }[];
 
-// Which domain keys have overrides in which tab (derived from params at render time).
-// This map defines the structural relationship — the actual pills are shown only
-// when params exist for a given domain within the tab's categories.
-const DOMAIN_TAB_MAP: Record<string, string[]> = {
-  rag: ["legal", "decree"],
-  ingestion: ["legal", "decree"],
+const PARAMETER_LABELS: Record<string, string> = {
+  llm_provider: "Answer provider",
+  openrouter_model: "Answer model",
+  llm_temperature: "Creativity (temperature)",
+  llm_top_p: "Token diversity (top-p)",
+  llm_num_ctx_narrow: "Context tokens · focused questions",
+  llm_num_ctx_broad: "Context tokens · broad questions",
+  llm_num_predict_narrow: "Maximum answer tokens · focused questions",
+  llm_num_predict_broad: "Maximum answer tokens · broad questions",
+  retriever_fetch_k: "Candidates · focused questions",
+  retriever_fetch_k_broad: "Candidates · broad questions",
+  retriever_top_k: "Results · focused questions",
+  retriever_top_k_broad: "Results · broad questions",
+  history_window: "Conversation history window",
+  condense_enabled: "Rewrite follow-up questions",
+  rolling_summary_enabled: "Summarize conversation history",
+  decomposition_enabled: "Split complex questions",
+  relevance_gate_enabled: "Check question relevance",
+  pii_redaction_enabled: "Redact personal data",
+  cache_enabled: "Cache answers",
+  chunk_size: "Chunk size (characters)",
+  chunk_overlap: "Chunk overlap (characters)",
+  source_min_score: "Minimum source relevance",
+  cost_rate_limit_enabled: "Enable spending limits",
+  cost_hourly_limit: "Hourly limit per user (USD)",
+  cost_daily_limit: "Daily limit per user (USD)",
 };
 
-function DomainSubTabs({
-  domainKeys,
-  params,
-  onSave,
-  updateMutation,
-  renderValue,
-  edits,
-  onReset,
-}: {
-  domainKeys: string[];
-  params: ConfigParam[];
-  onSave: (key: string, domain: string) => void;
-  updateMutation: { isPending: boolean };
-  renderValue: (p: ConfigParam) => React.ReactNode;
-  edits: Record<string, string>;
-  onReset: (key: string) => void;
-}) {
-  const [selected, setSelected] = useState<string>(domainKeys[0] ?? "");
+const DOMAIN_LABELS: Record<string, string> = { legal: "Legal", decree: "Decree" };
+const SETTINGS_BLOCKS: SettingsBlock[] = SETTINGS_SECTIONS.flatMap((section) => section.blocks);
 
-  const domainParams = params.filter((p) => p.domain_key === selected);
-
-  if (domainKeys.length === 0) return null;
-
+function parameterBlock(param: ConfigParam): string | undefined {
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-base">Domain overrides</CardTitle>
-            <CardDescription>Per-domain parameter overrides for this section</CardDescription>
-          </div>
-          <div className="flex gap-1 rounded-lg border bg-muted p-0.5">
-            {domainKeys.map((dk) => (
-              <button
-                key={dk}
-                onClick={() => setSelected(dk)}
-                className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
-                  selected === dk
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {DOMAIN_LABELS[dk] ?? dk}
-              </button>
-            ))}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {domainParams.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No domain parameters in this section.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[180px]">Key</TableHead>
-                <TableHead className="w-[300px]">Value</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="w-[80px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {domainParams.map((p) => {
-                const isEdited = edits[p.key] !== undefined;
-                return (
-                  <TableRow key={`${p.domain_key}-${p.key}`}>
-                    <TableCell className="font-mono text-sm">{p.key}</TableCell>
-                    <TableCell>{renderValue(p)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{p.description}</TableCell>
-                    <TableCell>
-                      {isEdited && (
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => onSave(p.key, p.domain_key!)}
-                            disabled={updateMutation.isPending}
-                          >
-                            <Save className="h-4 w-4" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => onReset(p.key)}>
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
-  );
+    SETTINGS_BLOCKS.find((block) => block.keys?.includes(param.key)) ??
+    SETTINGS_BLOCKS.find((block) =>
+      block.categories?.includes(param.category.replace(/^domain:/, "")),
+    )
+  )?.id;
+}
+
+function parameterLabel(param: ConfigParam): string {
+  const label = param.key.replaceAll("_", " ");
+  return PARAMETER_LABELS[param.key] ?? label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function editKey(param: ConfigParam): string {
+  return param.domain_key ? `${param.domain_key}:${param.key}` : param.key;
 }
 
 export function AdminSettingsPage() {
@@ -227,26 +287,10 @@ export function AdminSettingsPage() {
     queryFn: async () => (await apiClient.get<ConfigParam[]>("/admin/config")).data,
   });
 
-  const { data: modelsInfo } = useQuery({
-    queryKey: ["admin", "models"],
-    queryFn: async () =>
-      (
-        await apiClient.get<{ ollama_models: string[] | null; llm_provider: string }>(
-          "/admin/models/info",
-        )
-      ).data,
-  });
-
   const { data: openrouterData, isLoading: isLoadingOpenRouter } = useQuery({
     queryKey: ["admin", "openrouter-models"],
     queryFn: async () =>
       (await apiClient.get<{ models: OpenRouterModel[] }>("/admin/models/openrouter")).data,
-    enabled: (() => {
-      const providerParam = params?.find((p) => p.key === "llm_provider");
-      const currentProvider =
-        edits["llm_provider"] || providerParam?.value || modelsInfo?.llm_provider;
-      return currentProvider === "openrouter";
-    })(),
   });
 
   const updateMutation = useMutation({
@@ -259,9 +303,12 @@ export function AdminSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["admin", "config-status"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "models"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "openrouter-models"] });
+      if (variables.key.startsWith("cost_")) {
+        void queryClient.invalidateQueries({ queryKey: ["cost-models"] });
+      }
       setEdits((prev) => {
         const next = { ...prev };
-        delete next[variables.key];
+        delete next[variables.domain ? `${variables.domain}:${variables.key}` : variables.key];
         return next;
       });
       toast.success(`"${variables.key}" saved; checking application`);
@@ -272,7 +319,7 @@ export function AdminSettingsPage() {
   });
 
   const handleSave = (key: string, domain?: string) => {
-    const val = edits[key];
+    const val = edits[domain ? `${domain}:${key}` : key];
     if (val === undefined) return;
     updateMutation.mutate({ key, value: val, domain });
   };
@@ -285,31 +332,28 @@ export function AdminSettingsPage() {
     });
   };
 
-  const categories = CATEGORY_ORDER.filter((cat) => params?.some((p) => p.category === cat));
-
-  // Get current provider value
-  const providerParam = params?.find((p) => p.key === "llm_provider");
-  const currentProvider =
-    edits["llm_provider"] || providerParam?.value || modelsInfo?.llm_provider || "ollama";
-
   const renderValue = (p: ConfigParam) => {
-    const isEdited = edits[p.key] !== undefined;
-    const displayValue = isEdited ? edits[p.key] : p.value;
+    const isEdited = edits[editKey(p)] !== undefined;
+    const displayValue = isEdited ? edits[editKey(p)] : p.value;
 
     if (p.value_type === "bool") {
       return (
         <div className="flex items-center gap-2">
           <Button
+            aria-label={`Enable ${parameterLabel(p)}`}
+            aria-pressed={displayValue === "true"}
             size="sm"
             variant={displayValue === "true" ? "default" : "outline"}
-            onClick={() => setEdits((prev) => ({ ...prev, [p.key]: "true" }))}
+            onClick={() => setEdits((prev) => ({ ...prev, [editKey(p)]: "true" }))}
           >
             ON
           </Button>
           <Button
+            aria-label={`Disable ${parameterLabel(p)}`}
+            aria-pressed={displayValue === "false"}
             size="sm"
             variant={displayValue === "false" ? "destructive" : "outline"}
-            onClick={() => setEdits((prev) => ({ ...prev, [p.key]: "false" }))}
+            onClick={() => setEdits((prev) => ({ ...prev, [editKey(p)]: "false" }))}
           >
             OFF
           </Button>
@@ -317,40 +361,8 @@ export function AdminSettingsPage() {
       );
     }
 
-    // Special handling for llm_provider - dropdown with ollama/openrouter options
     if (p.key === "llm_provider") {
-      return (
-        <select
-          value={displayValue}
-          onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          <option value="ollama">Ollama (local)</option>
-          <option value="openrouter">OpenRouter (cloud)</option>
-        </select>
-      );
-    }
-
-    // Special handling for llm_model - show Ollama models when provider is ollama
-    if (
-      p.value_type === "str" &&
-      p.key === "llm_model" &&
-      currentProvider === "ollama" &&
-      modelsInfo?.ollama_models
-    ) {
-      return (
-        <select
-          value={displayValue}
-          onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          {modelsInfo.ollama_models.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      );
+      return <span className="text-sm">OpenRouter (cloud)</span>;
     }
 
     // Special handling for openrouter_model - show OpenRouter models dropdown
@@ -363,8 +375,9 @@ export function AdminSettingsPage() {
         return (
           <div className="space-y-2">
             <select
+              aria-label={parameterLabel(p)}
               value={displayValue}
-              onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
+              onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               {openrouterData.models.map((m) => (
@@ -385,10 +398,11 @@ export function AdminSettingsPage() {
       return (
         <div className="space-y-2">
           <Input
+            aria-label={parameterLabel(p)}
             type="text"
             value={displayValue}
-            onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
-            className="w-64"
+            onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
+            className="w-full"
             placeholder="e.g. qwen/qwen-2.5-7b-instruct"
           />
         </div>
@@ -398,21 +412,23 @@ export function AdminSettingsPage() {
     if (p.value_type === "str") {
       return (
         <Input
+          aria-label={parameterLabel(p)}
           type="text"
           value={displayValue}
-          onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
-          className="w-64"
+          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
+          className="w-full"
         />
       );
     }
 
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
+          aria-label={parameterLabel(p)}
           type="number"
           step={p.value_type === "float" ? "0.1" : "1"}
           value={displayValue}
-          onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
+          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
           className="w-28"
         />
         {p.min_value !== null && p.max_value !== null && (
@@ -426,14 +442,14 @@ export function AdminSettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-[14px] space-y-6">
         <div>
           <Skeleton className="h-8 w-48 mb-2" />
           <Skeleton className="h-4 w-72" />
         </div>
         {[1, 2].map((i) => (
           <Card key={i}>
-            <CardContent className="pt-6">
+            <CardContent className="p-[14px]">
               <Skeleton className="h-40 w-full" />
             </CardContent>
           </Card>
@@ -442,190 +458,195 @@ export function AdminSettingsPage() {
     );
   }
 
-  // A tab is visible if it has category params OR domain overrides for its categories
-  const availableTabs = TAB_GROUPS.filter((tab) => {
-    const hasCategoryParams = tab.categories?.some((cat) => categories.includes(cat));
-    if (hasCategoryParams) return true;
-    // Check if any domain has params in this tab's categories
-    const domainKeys = DOMAIN_TAB_MAP[tab.id] ?? [];
-    return domainKeys.some((dk) =>
-      params?.some(
-        (p) => p.domain_key === dk && tab.categories?.includes(p.category.replace("domain:", "")),
-      ),
+  const availableSections = SETTINGS_SECTIONS.filter(
+    (section) =>
+      section.id === "costs" ||
+      section.blocks.some((block) => params?.some((param) => parameterBlock(param) === block.id)),
+  );
+
+  const renderParameter = (param: ConfigParam) => {
+    const id = editKey(param);
+    const isEdited = edits[id] !== undefined;
+    return (
+      <div
+        key={id}
+        className={`grid items-center gap-3 py-[10px] md:grid-cols-[minmax(0,1fr)_minmax(240px,360px)] md:gap-8 ${isEdited ? "bg-muted/30" : ""}`}
+      >
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm font-medium">{parameterLabel(param)}</p>
+          {param.description && (
+            <p className="text-sm text-muted-foreground">{param.description}</p>
+          )}
+          <p className="break-all font-mono text-xs text-muted-foreground/70">{param.key}</p>
+        </div>
+        <div className="min-w-0 space-y-2" role="group" aria-label={parameterLabel(param)}>
+          {renderValue(param)}
+          {isEdited && (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => handleSave(param.key, param.domain_key ?? undefined)}
+                disabled={updateMutation.isPending}
+              >
+                <Save className="mr-2 h-3.5 w-3.5" />
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => handleReset(id)}>
+                <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                Discard
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
     );
-  });
+  };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-[14px] space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-muted-foreground">
-          Manage dynamic configuration. Changes apply after validation; active requests finish with
-          their current clients.
+          Configure application behavior, model pricing and document search.
         </p>
       </div>
 
-      <div className="space-y-2 text-sm" role="status" aria-live="polite">
-        <p className={status?.error ? "text-destructive" : "text-muted-foreground"}>
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm"
+      >
+        <Badge
+          variant={
+            statusUnavailable
+              ? "warning"
+              : status?.error
+                ? "destructive"
+                : status?.ready
+                  ? "success"
+                  : "secondary"
+          }
+        >
           {statusUnavailable
-            ? "Application status unavailable. Saved settings may still be pending."
+            ? "Status unavailable"
             : !status
-              ? "Checking application status…"
+              ? "Checking settings…"
               : status.error
-                ? "Settings could not be applied. The API continues to use its previous configuration. Correct the saved values and retry."
+                ? "Application failed"
                 : status.ready
-                  ? "Saved settings are applied on this API process."
-                  : "Saved settings are waiting to be applied on this API process."}
-        </p>
-        {status && (
-          <p className="break-all text-muted-foreground">
-            Saved: {status.saved_version?.slice(0, 12) ?? "none"} · Applied:{" "}
-            {status.applied_version?.slice(0, 12) ?? "none"}
-          </p>
-        )}
-        <Button variant="outline" size="sm" onClick={() => refreshStatus()}>
-          Refresh application status
-        </Button>
+                  ? "Settings applied"
+                  : "Applying settings…"}
+        </Badge>
+        <span className="text-muted-foreground">
+          {statusUnavailable
+            ? "Could not check whether saved changes have been applied."
+            : status?.error
+              ? "Previous settings remain active. Review your changes and check diagnostics."
+              : status?.ready
+                ? "Saved changes are active on this server."
+                : "Waiting for this server to apply saved changes."}
+        </span>
       </div>
 
-      <CostRates />
-      <CorpusControl />
-      <details className="rounded-lg border p-4">
-        <summary className="cursor-pointer font-medium">
-          Effective configuration on this API process
-        </summary>
-        <p className="my-3 text-sm text-muted-foreground">
-          Database changes apply to the next operation. Job retention applies on the next hourly
-          cleanup; reducing it deletes older completed and failed jobs. Deployment values require
-          container recreation. Uploads share a 64 MiB request ceiling including multipart metadata
-          (maximum 63 MiB per file).
-        </p>
-        {effectiveUnavailable && <p role="alert">Effective configuration is unavailable.</p>}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Key</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Configured</TableHead>
-              <TableHead>Applied</TableHead>
-              <TableHead>Application</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {effective?.map((p) => (
-              <TableRow key={`${p.domain_key ?? "global"}:${p.key}`}>
-                <TableCell className="font-mono break-all">
-                  {p.key}
-                  {p.domain_key ? ` (${p.domain_key})` : ""}
-                </TableCell>
-                <TableCell>{p.source}</TableCell>
-                <TableCell className="break-all">{p.configured_value ?? "—"}</TableCell>
-                <TableCell className="break-all">
-                  {p.present === null
-                    ? (p.applied_value ?? "—")
-                    : p.present
-                      ? "Present"
-                      : "Missing"}
-                </TableCell>
-                <TableCell>{p.application_mode}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </details>
-
-      <Tabs defaultValue={availableTabs[0]?.id}>
-        <TabsList>
-          {availableTabs.map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id}>
-              {tab.label}
+      <Tabs
+        defaultValue={availableSections[0]?.id ?? "corpus"}
+        orientation="vertical"
+        className="flex flex-col gap-6 lg:flex-row lg:items-start"
+      >
+        <TabsList
+          aria-label="Settings sections"
+          className="h-auto w-full shrink-0 flex-row flex-wrap justify-start gap-1 bg-transparent p-0 lg:sticky lg:top-6 lg:w-56 lg:flex-col lg:items-stretch"
+        >
+          {availableSections.map((section) => (
+            <TabsTrigger
+              key={section.id}
+              value={section.id}
+              className="justify-start whitespace-normal px-3 py-2.5 text-left data-[state=active]:bg-muted data-[state=active]:shadow-none"
+            >
+              {section.label}
             </TabsTrigger>
           ))}
+          <div className="hidden border-t my-2 lg:block" />
+          <TabsTrigger
+            value="corpus"
+            className="justify-start px-3 py-2.5 data-[state=active]:bg-muted"
+          >
+            Search collection
+          </TabsTrigger>
+          <TabsTrigger
+            value="diagnostics"
+            className="justify-start px-3 py-2.5 data-[state=active]:bg-muted"
+          >
+            Diagnostics
+          </TabsTrigger>
         </TabsList>
 
-        {availableTabs.map((tab) => {
-          const domainKeys = DOMAIN_TAB_MAP[tab.id] ?? [];
-          return (
-            <TabsContent key={tab.id} value={tab.id} className="space-y-6">
-              {/* Category-based params */}
-              {tab.categories
-                ?.filter((cat) => categories.includes(cat))
-                .map((cat) => {
-                  const catParams =
-                    params?.filter((p) => p.category === cat && !p.domain_key) ?? [];
-                  return (
-                    <Card key={cat}>
-                      <CardHeader>
-                        <CardTitle>{CATEGORY_LABELS[cat] ?? cat}</CardTitle>
-                        <CardDescription>
-                          {catParams.length} parameter{catParams.length !== 1 ? "s" : ""}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="w-[180px]">Key</TableHead>
-                              <TableHead className="w-[300px]">Value</TableHead>
-                              <TableHead>Description</TableHead>
-                              <TableHead className="w-[80px]"></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {catParams.map((p) => {
-                              const isEdited = edits[p.key] !== undefined;
-                              return (
-                                <TableRow key={p.key}>
-                                  <TableCell className="font-mono text-sm">{p.key}</TableCell>
-                                  <TableCell>{renderValue(p)}</TableCell>
-                                  <TableCell className="text-sm text-muted-foreground">
-                                    {p.description}
-                                  </TableCell>
-                                  <TableCell>
-                                    {isEdited && (
-                                      <div className="flex items-center gap-1">
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => handleSave(p.key)}
-                                          disabled={updateMutation.isPending}
-                                        >
-                                          <Save className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => handleReset(p.key)}
-                                        >
-                                          <RotateCcw className="h-4 w-4" />
-                                        </Button>
-                                      </div>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              {/* Domain overrides */}
-              {domainKeys.length > 0 && (
-                <DomainSubTabs
-                  domainKeys={domainKeys}
-                  params={params ?? []}
-                  onSave={handleSave}
-                  updateMutation={updateMutation}
-                  renderValue={renderValue}
-                  edits={edits}
-                  onReset={handleReset}
-                />
-              )}
+        <div className="min-w-0 flex-1">
+          {availableSections.map((section) => (
+            <TabsContent key={section.id} value={section.id} className="mt-0 space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold">{section.label}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>
+              </div>
+              {section.blocks.map((block) => {
+                const blockParams =
+                  params?.filter((param) => parameterBlock(param) === block.id) ?? [];
+                if (blockParams.length === 0) return null;
+                const globalParams = blockParams.filter((param) => !param.domain_key);
+                const domains = [
+                  ...new Set(
+                    blockParams.flatMap((param) => (param.domain_key ? [param.domain_key] : [])),
+                  ),
+                ];
+                return (
+                  <Card key={block.id}>
+                    <CardHeader className="p-[14px] pb-0">
+                      <CardTitle className="text-base">{block.label}</CardTitle>
+                      <CardDescription>{block.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-[14px] pt-0">
+                      <div className="divide-y">{globalParams.map(renderParameter)}</div>
+                      {domains.map((domain) => (
+                        <div key={domain} className="mt-4 rounded-lg border px-4">
+                          <div className="border-b py-3">
+                            <p className="text-sm font-medium">
+                              {DOMAIN_LABELS[domain] ?? domain} overrides
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Applies only to documents in this domain.
+                            </p>
+                          </div>
+                          <div className="divide-y">
+                            {blockParams
+                              .filter((param) => param.domain_key === domain)
+                              .map(renderParameter)}
+                          </div>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+              {section.id === "costs" && <CostRates />}
             </TabsContent>
-          );
-        })}
+          ))}
+          <TabsContent value="corpus">
+            <CorpusControl />
+          </TabsContent>
+          <TabsContent value="diagnostics">
+            <ConfigurationDiagnostics
+              parameters={effective}
+              descriptions={params}
+              unavailable={effectiveUnavailable}
+              status={status}
+              statusUnavailable={statusUnavailable}
+              onRefresh={() => {
+                void refreshStatus();
+                void queryClient.invalidateQueries({ queryKey: ["admin", "config-effective"] });
+              }}
+            />
+          </TabsContent>
+        </div>
       </Tabs>
     </div>
   );

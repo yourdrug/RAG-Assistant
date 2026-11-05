@@ -1,20 +1,23 @@
 """Regression coverage for source labels across all benchmark paths."""
 
-from infrastructure.benchmark.sweep.settings import settings_snapshot
+from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock
 
-import pytest
 from langchain.schema import Document
+import pytest
 
+from composition.service_providers import build_sweep_engine
 from domain.benchmark.sweep import BenchmarkSweep
 from infrastructure.benchmark.evaluation.case_metrics import compute_retriever_metrics_from_sources
 from infrastructure.benchmark.evaluation.metrics import compute_retriever_metrics, compute_summary_metrics
-from composition.service_providers import build_sweep_engine
 from infrastructure.benchmark.sweep.scoring import score_config_cheap
+from infrastructure.benchmark.sweep.settings import settings_snapshot
+from tests.fakes import FakeUnitOfWorkFactory
 
 
-def sweep_score(questions, filenames):
+def sweep_score(questions: list[dict[str, Any]], filenames: list[str]) -> dict[str, Any]:
     docs = [Document(page_content=name, metadata={"filename": name}) for name in filenames]
     return score_config_cheap(
         {"top_k": 10, "fetch_k": 10, "dense_weight": 1, "sparse_weight": 0},
@@ -28,15 +31,17 @@ def sweep_score(questions, filenames):
 
 
 @pytest.fixture(params=["documents", "rag_sources", "sweep"])
-def evaluate(request):
-    def score(hint, filenames):
+def evaluate(request: pytest.FixtureRequest) -> Any:
+    def score(hint: str | None, filenames: list[str]) -> dict[str, Any]:
         if request.param == "documents":
             docs = [Document(page_content=name, metadata={"source": name}) for name in filenames]
             return compute_retriever_metrics([(doc, 0.8) for doc in docs], hint)
+
         if request.param == "rag_sources":
             return compute_retriever_metrics_from_sources(
                 [{"source": name, "max_score": 0.8} for name in filenames], hint
             )
+
         result = sweep_score([{"question": "q", "source_hint": hint}], filenames)
         return {"hit_rate": result["avg_hit_rate"], "mrr": result["avg_mrr"]}
 
@@ -44,7 +49,7 @@ def evaluate(request):
 
 
 @pytest.mark.parametrize(
-    ("hint", "filenames", "hit", "mrr"),
+    "hint, filenames, hit, mrr",
     [
         ("FIRST.pdf; SECOND.pdf", ["other.pdf", "second.pdf"], 1, 0.5),
         ("first.pdf; second.pdf", ["first.pdf", "second.pdf"], 1, 1.0),
@@ -55,7 +60,9 @@ def evaluate(request):
         ("missing.pdf;", ["other.pdf"], 0, 0.0),
     ],
 )
-def test_multiple_sources_match_any_hint_at_first_relevant_rank(evaluate, hint, filenames, hit, mrr):
+def test_multiple_sources_match_any_hint_at_first_relevant_rank(
+    evaluate: Any, hint: str, filenames: list[str] | list[Any], hit: int, mrr: float
+) -> None:
     _, score = evaluate
     result = score(hint, filenames)
     assert result["hit_rate"] == hit
@@ -64,18 +71,21 @@ def test_multiple_sources_match_any_hint_at_first_relevant_rank(evaluate, hint, 
 
 @pytest.mark.parametrize("hint", [None, "", "  \t\n", ";", " ; ; "])
 @pytest.mark.parametrize("filenames", [[], ["other.pdf"]])
-def test_unlabelled_questions_have_no_retrieval_metrics(evaluate, hint, filenames):
+def test_unlabelled_questions_have_no_retrieval_metrics(
+    evaluate: Any, hint: str | None, filenames: list[Any] | list[str]
+) -> None:
     kind, score = evaluate
     result = score(hint, filenames)
     expected = None
     assert result["hit_rate"] == expected
     assert result["mrr"] == expected
+
     if kind != "sweep":
         assert result["retrieved_sources"] == filenames
         assert result["avg_similarity"] == (0.8 if filenames else 0.0)
 
 
-def test_sweep_excludes_blank_hints_from_average():
+def test_sweep_excludes_blank_hints_from_average() -> None:
     result = sweep_score(
         [
             {"question": "blank", "source_hint": ""},
@@ -87,7 +97,7 @@ def test_sweep_excludes_blank_hints_from_average():
     assert result["avg_mrr"] == 0
 
 
-def test_summary_excludes_blank_hints_from_average():
+def test_summary_excludes_blank_hints_from_average() -> None:
     results = [
         {
             "retriever_metrics": compute_retriever_metrics_from_sources(
@@ -105,8 +115,8 @@ def test_summary_excludes_blank_hints_from_average():
 
 
 @pytest.mark.asyncio
-async def test_sweep_does_not_fetch_candidates_for_blank_hints(monkeypatch):
-    engine = build_sweep_engine(uow_factory=None)
+async def test_sweep_does_not_fetch_candidates_for_blank_hints(monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = build_sweep_engine(uow_factory=FakeUnitOfWorkFactory())
     valid = {"question": "valid", "source_hint": "first.pdf; second.pdf"}
     monkeypatch.setattr(
         engine,

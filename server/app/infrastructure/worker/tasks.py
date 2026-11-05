@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-@job(per_principal=True)
+@job()
 async def process_document(ctx: dict[str, Any], **request: Unpack[DocumentProcessingRequest]) -> None:
     """Process an uploaded document (parse → split → vectorize → store)."""
     processor = ctx["document_processor"]

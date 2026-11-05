@@ -53,21 +53,29 @@ async def list_act_versions(
         include_act_ids={v.act_id for v in versions if v.act_id is not None}
     )
 
-    return ActVersionListResponse(
-        versions=[
+    items = []
+
+    for version in versions:
+        if version.id is None:
+            message = "ActVersion saved with None id"
+            raise RuntimeError(message)
+
+        items.append(
             ActVersionReviewItem(
-                id=v.id,  # type: ignore[arg-type]
-                act_id=v.act_id,
-                document_id=v.document_id,
-                document_filename=doc_filenames.get(v.document_id, f"#{v.document_id}"),
-                effective_from=v.effective_from,
-                effective_to=v.effective_to,
-                is_current=v.is_current,
-                date_source=v.date_source,
-                date_confidence=v.date_confidence,
+                id=version.id,
+                act_id=version.act_id,
+                document_id=version.document_id,
+                document_filename=doc_filenames.get(version.document_id, f"#{version.document_id}"),
+                effective_from=version.effective_from,
+                effective_to=version.effective_to,
+                is_current=version.is_current,
+                date_source=version.date_source,
+                date_confidence=version.date_confidence,
             )
-            for v in versions
-        ],
+        )
+
+    return ActVersionListResponse(
+        versions=items,
         total=total,
         next_offset=(offset + len(versions) if review == "all" and offset + len(versions) < total else None),
         acts=[ActSummary.model_validate(act) for act in acts],

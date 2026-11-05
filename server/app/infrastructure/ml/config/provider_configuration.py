@@ -364,6 +364,7 @@ class SettingsProviderConfiguration:
                 candidate,
                 keys,
                 applied=self._status.applied_version is not None,
+                allow_unavailable=previous_version is None and (require_complete or self.require_complete),
             )
 
             verified = verify is None or await verify()
@@ -470,7 +471,7 @@ def validate_provider_credentials(candidate: Settings) -> None:
 
     errors = candidate.check_ml_provider()
 
-    if candidate.llm_provider == LLMProvider.OPENROUTER.value and not candidate.openrouter_api_key:
+    if not candidate.openrouter_api_key:
         errors.append("OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter")
 
     if candidate.llm_provider not in {provider.value for provider in LLMProvider}:

@@ -1,48 +1,59 @@
 """Failures discovered while reviewing the benchmark execution paths."""
 
-from infrastructure.benchmark.judging import context_judge
+from __future__ import annotations
 
 import asyncio
+from datetime import date
 import threading
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from domain.identity.user_context import UserContext
-from domain.rag.context import RagContext
-from config import get_setting
-from domain.benchmark.sweep import BenchmarkSweep
-from domain.benchmark.sweep import BenchmarkStrategy
-from domain.shared.exceptions import ValidationError
-from infrastructure.benchmark.evaluation.runner import run_benchmark_async
+from application.act_versioning import ActVersioningService
 from application.benchmark.sweep_ports import SweepCancelled
 from composition.service_providers import build_sweep_engine
+from config import _settings_overrides, get_setting
+from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep
+from domain.identity.roles import UserKind
+from domain.identity.user_context import UserContext
+from domain.knowledge.acts.models import ActVersion
+from domain.rag.context import RagContext
+from domain.shared.exceptions import ValidationError
+from infrastructure.benchmark.evaluation.answer_generators import RagBenchmarkGenerator
+from infrastructure.benchmark.evaluation.runner import run_benchmark_async
+from infrastructure.benchmark.judging import context_judge, judge
+from tests.fakes import FakeUnitOfWorkFactory, require_present
+
+
+if TYPE_CHECKING:
+    from application.benchmark.sweep import SweepEngine
 
 
 @pytest.fixture
-def optuna_engine(monkeypatch):
-    engine = build_sweep_engine(uow_factory=None)
+def optuna_engine(monkeypatch: pytest.MonkeyPatch) -> SweepEngine:
+    engine = build_sweep_engine(uow_factory=FakeUnitOfWorkFactory())
     monkeypatch.setattr(
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )
     monkeypatch.setattr(engine, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
     monkeypatch.setattr(
-        engine, "score_config_cheap", lambda cfg, *a, **_kwargs: {"composite_score": cfg["top_k"]}
+        engine, "score_config_cheap", lambda cfg, *_a, **_kwargs: {"composite_score": cfg["top_k"]}
     )
     return engine
 
 
-def optuna_sweep():
+def optuna_sweep() -> BenchmarkSweep:
     return BenchmarkSweep(
-        strategy=BenchmarkStrategy.OPTUNA_TPE.value,
+        strategy=BenchmarkStrategy.OPTUNA_TPE,
         search_space={"top_k": {"values": [2, 5]}, "fetch_k": {"min": 8, "max": 16}, "_n_trials": 3},
         top_n_llm=0,
     )
 
 
 @pytest.mark.asyncio
-async def test_optuna_accepts_scalar_fetch_k_and_integer_range_without_step(optuna_engine):
+async def test_optuna_accepts_scalar_fetch_k_and_integer_range_without_step(optuna_engine: Any) -> None:
     results = await optuna_engine.run_sweep(optuna_sweep())
     assert len(results) == 3
     assert all(8 <= r["config"]["fetch_k"] <= 16 for r in results)
@@ -50,30 +61,30 @@ async def test_optuna_accepts_scalar_fetch_k_and_integer_range_without_step(optu
 
 
 @pytest.mark.asyncio
-async def test_unmigrated_legacy_strategy_is_rejected(optuna_engine):
+async def test_unmigrated_legacy_strategy_is_rejected(optuna_engine: Any) -> None:
     sweep = optuna_sweep()
-    sweep.strategy = "successive_halving"
+    sweep.strategy = cast("BenchmarkStrategy", "successive_halving")
     with pytest.raises(ValidationError, match="Invalid BenchmarkStrategy"):
         await optuna_engine.run_sweep(sweep)
 
 
 @pytest.mark.asyncio
-async def test_optuna_rejects_explicit_zero_step(optuna_engine):
+async def test_optuna_rejects_explicit_zero_step(optuna_engine: Any) -> None:
     sweep = optuna_sweep()
     sweep.search_space["fetch_k"]["step"] = 0
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="step"):
         await optuna_engine.run_sweep(sweep)
 
 
 @pytest.mark.asyncio
-async def test_optuna_checks_cancellation_between_trials_on_event_loop(optuna_engine):
+async def test_optuna_checks_cancellation_between_trials_on_event_loop(optuna_engine: Any) -> None:
     progress = []
 
-    def callback(*args):
+    def callback(*args: Any) -> None:
         asyncio.get_running_loop()
         progress.append(args)
 
-    async def cancelled():
+    async def cancelled() -> bool:
         return len(progress) == 1
 
     with pytest.raises(SweepCancelled):
@@ -82,18 +93,21 @@ async def test_optuna_checks_cancellation_between_trials_on_event_loop(optuna_en
 
 
 @pytest.mark.asyncio
-async def test_optuna_keeps_event_loop_responsive_during_scoring(optuna_engine, monkeypatch):
-    started = threading.Event()
+async def test_optuna_keeps_event_loop_responsive_during_scoring(
+    optuna_engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started = asyncio.Event()
+    loop = asyncio.get_running_loop()
     released = threading.Event()
 
-    def score(cfg, *args, **_kwargs):
-        started.set()
+    def score(cfg: dict[str, Any], *args: Any, **_kwargs: Any) -> dict[str, Any]:
+        loop.call_soon_threadsafe(started.set)
         assert released.wait(2), "event loop was blocked during trial scoring"
         return {"composite_score": cfg["top_k"]}
 
-    async def heartbeat():
-        while not started.is_set():
-            await asyncio.sleep(0)
+    async def heartbeat() -> None:
+        await started.wait()
+
         released.set()
 
     monkeypatch.setattr(optuna_engine, "score_config_cheap", score)
@@ -108,13 +122,14 @@ async def test_optuna_keeps_event_loop_responsive_during_scoring(optuna_engine, 
 
 
 @pytest.mark.asyncio
-async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch):
+async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     questions = [{"question": "q"}]
 
-    async def invoke(**kwargs):
+    async def invoke(**kwargs: Any) -> None:
         assert get_setting("retriever_top_k") == 7
         assert get_setting("retriever_fetch_k") == 23
-        raise RuntimeError("limits checked")
+        msg = "limits checked"
+        raise RuntimeError(msg)
 
     with pytest.raises(RuntimeError, match="limits checked"):
         await run_benchmark_async(
@@ -123,14 +138,12 @@ async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellation():
-    from config import _settings_overrides
-    from infrastructure.benchmark.evaluation.answer_generators import RagBenchmarkGenerator
+async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellation() -> None:
 
-    inherited = {"retriever_fetch_k": 23, "dense_weight": 0.75, "cache_enabled": True}
+    inherited: dict[str, object] = {"retriever_fetch_k": 23, "dense_weight": 0.75, "cache_enabled": True}
     token = _settings_overrides.set(inherited)
 
-    async def invoke(**kwargs):
+    async def invoke(**kwargs: Any) -> None:
         assert get_setting("retriever_fetch_k") == 23
         assert get_setting("dense_weight") == 0.75
         assert get_setting("cache_enabled") is False
@@ -140,7 +153,7 @@ async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellati
         generator = RagBenchmarkGenerator(SimpleNamespace(invoke=invoke), 7, None)
         with pytest.raises(asyncio.CancelledError):
             await generator.generate(
-                {"question": "q"}, RagContext(user=UserContext(user_id=1, user_kind="internal"))
+                {"question": "q"}, RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL))
             )
         assert _settings_overrides.get() == inherited
     finally:
@@ -148,23 +161,21 @@ async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellati
 
 
 @pytest.mark.asyncio
-async def test_async_judge_uses_explicit_model(monkeypatch):
-    from infrastructure.benchmark.judging import judge
+async def test_async_judge_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
     create = MagicMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-    monkeypatch.setattr(judge, "get_judge_client", lambda model, *, runtime=None: client)
+    monkeypatch.setattr(judge, "get_judge_client", lambda _model, **_kwargs: client)
     monkeypatch.setattr(judge, "get_judge_model", lambda: "default-model")
     result = await judge.judge_answer_async("question", "answer", "context", judge_model="requested-model")
     assert result["faithfulness"] == 8.0
     assert all(call.kwargs["model"] == "requested-model" for call in create.call_args_list)
 
 
-def test_context_judge_uses_same_explicit_model(monkeypatch):
-    from infrastructure.benchmark.judging import judge
+def test_context_judge_uses_same_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
     score = MagicMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
-    monkeypatch.setattr(judge, "get_judge_client", lambda model, *, runtime=None: object())
+    monkeypatch.setattr(judge, "get_judge_client", lambda _model, **_kwargs: object())
     monkeypatch.setattr(judge, "get_judge_model", lambda: "default-model")
     monkeypatch.setattr(judge, "judge_with_structured_output", score)
     result = context_judge.compute_context_precision_recall(
@@ -175,16 +186,14 @@ def test_context_judge_uses_same_explicit_model(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_version_update_rolls_back_rows_and_skips_cache_when_outbox_fails(monkeypatch):
-    from datetime import date
-    from application.act_versioning import ActVersioningService
-    from domain.knowledge.acts.models import ActVersion
-    from tests.fakes import FakeUnitOfWorkFactory
+async def test_version_update_rolls_back_rows_and_skips_cache_when_outbox_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
     factory = FakeUnitOfWorkFactory()
     cache = SimpleNamespace(invalidate_by_document_ids=AsyncMock())
     service = ActVersioningService(factory, SimpleNamespace(), cache)
-    version = await factory._uow.act_versions.create(
+    version = await factory._uow.fake_act_versions.create(
         ActVersion(
             id=None,
             act_id=None,
@@ -193,7 +202,7 @@ async def test_version_update_rolls_back_rows_and_skips_cache_when_outbox_fails(
             date_source="extracted",
         )
     )
-    factory._uow.chunks._chunks.append(
+    factory._uow.fake_chunks._chunks.append(
         {
             "id": 1,
             "document_id": 1,
@@ -203,13 +212,13 @@ async def test_version_update_rolls_back_rows_and_skips_cache_when_outbox_fails(
         }
     )
     monkeypatch.setattr(
-        factory._uow.vector_outbox, "enqueue", AsyncMock(side_effect=RuntimeError("outbox failed"))
+        factory._uow.fake_vector_outbox, "enqueue", AsyncMock(side_effect=RuntimeError("outbox failed"))
     )
     with pytest.raises(RuntimeError, match="outbox failed"):
-        await service.update_version(version.id, effective_from=date(2025, 1, 1))
-    restored = await factory._uow.act_versions.get_by_id(version.id)
-    assert restored.effective_from == date(2024, 1, 1)
-    assert restored.date_source == "extracted"
-    assert factory._uow.chunks._chunks[0]["effective_from"] == date(2024, 1, 1)
+        await service.update_version(require_present(version.id), effective_from=date(2025, 1, 1))
+    restored = await factory._uow.fake_act_versions.get_by_id(require_present(version.id))
+    assert require_present(restored).effective_from == date(2024, 1, 1)
+    assert require_present(restored).date_source == "extracted"
+    assert factory._uow.fake_chunks._chunks[0]["effective_from"] == date(2024, 1, 1)
     assert factory._uow._rolled_back
     cache.invalidate_by_document_ids.assert_not_awaited()

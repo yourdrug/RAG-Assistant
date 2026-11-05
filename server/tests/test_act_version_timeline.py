@@ -19,7 +19,7 @@ def timeline() -> ActVersionTimeline:
     )
 
 
-def test_correction_preserves_original_snapshot_and_closes_historical_gap():
+def test_correction_preserves_original_snapshot_and_closes_historical_gap() -> None:
     original = timeline()
     edited = replace(original.get_version(2), effective_from=date(2026, 1, 1))
     corrected = original.correct(edited, end_provided=False, today=date(2026, 6, 1))
@@ -31,7 +31,7 @@ def test_correction_preserves_original_snapshot_and_closes_historical_gap():
     assert corrected.get_version(2).effective_from == date(2026, 1, 1)
 
 
-def test_future_correction_demotes_before_promoting_previous_edition():
+def test_future_correction_demotes_before_promoting_previous_edition() -> None:
     original = timeline()
     edited = replace(original.get_version(2), effective_from=date(2028, 1, 1))
     corrected = original.correct(edited, end_provided=False, today=date(2026, 6, 1))
@@ -39,18 +39,19 @@ def test_future_correction_demotes_before_promoting_previous_edition():
     assert [(version.id, version.is_current) for version in changes] == [(2, False), (1, True)]
 
 
-def test_same_date_supersession_keeps_empty_edition_valid():
+def test_same_date_supersession_keeps_empty_edition_valid() -> None:
     original = timeline()
     edited = replace(original.get_version(2), effective_from=date(2024, 1, 1))
     corrected = original.correct(edited, end_provided=False, today=date(2026, 6, 1))
     first = corrected.get_version(1)
     assert first.effective_to == first.effective_from
-    assert not first.is_current and corrected.get_version(2).is_current
+    assert not first.is_current
+    assert corrected.get_version(2).is_current
     first.validate_dates()
 
 
 @pytest.mark.parametrize("expiry", [date(2025, 1, 1), date(2024, 1, 1)])
-def test_explicit_nonpositive_interval_is_rejected_before_snapshot_changes(expiry):
+def test_explicit_nonpositive_interval_is_rejected_before_snapshot_changes(expiry: date) -> None:
     original = timeline()
     edited = replace(original.get_version(2), effective_to=expiry)
     with pytest.raises(ValidationError, match="later"):
@@ -58,19 +59,19 @@ def test_explicit_nonpositive_interval_is_rejected_before_snapshot_changes(expir
     assert original.get_version(2).effective_to is None
 
 
-def test_expired_version_cannot_remain_current():
+def test_expired_version_cannot_remain_current() -> None:
     original = timeline()
     edited = replace(original.get_version(2), effective_to=date(2026, 1, 1))
     corrected = original.correct(edited, end_provided=True, today=date(2026, 6, 1))
     assert not any(version.is_current for version in corrected.versions)
 
 
-def test_unknown_edition_cannot_be_corrected():
+def test_unknown_edition_cannot_be_corrected() -> None:
     with pytest.raises(EntityNotFoundError):
         timeline().correct(ActVersion(99, 10, 99), end_provided=False, today=date(2026, 6, 1))
 
 
-def test_insertion_closes_previous_edition_without_mutating_snapshot():
+def test_insertion_closes_previous_edition_without_mutating_snapshot() -> None:
     original = timeline()
     changed = original.insert_boundary(date(2026, 1, 1), today=date(2026, 6, 1))
     assert original.get_version(2).is_current
@@ -80,7 +81,9 @@ def test_insertion_closes_previous_edition_without_mutating_snapshot():
 
 
 @pytest.mark.parametrize("removed_id, remaining_id, expected_end", [(2, 1, None), (1, 2, None)])
-def test_removal_reopens_derived_boundaries_and_selects_current(removed_id, remaining_id, expected_end):
+def test_removal_reopens_derived_boundaries_and_selects_current(
+    removed_id: int, remaining_id: int, expected_end: None
+) -> None:
     original = timeline()
     remaining = original.remove(removed_id, today=date(2026, 6, 1))
     assert len(remaining.versions) == 1
@@ -89,7 +92,7 @@ def test_removal_reopens_derived_boundaries_and_selects_current(removed_id, rema
     assert len(original.versions) == 2
 
 
-def test_removal_preserves_explicit_expiry():
+def test_removal_preserves_explicit_expiry() -> None:
     original = ActVersionTimeline(
         (
             ActVersion(1, 10, 1, date(2024, 1, 1), date(2024, 6, 1), False),
@@ -101,12 +104,12 @@ def test_removal_preserves_explicit_expiry():
     assert not remaining.get_version(1).is_current
 
 
-def test_removal_of_only_edition_leaves_empty_timeline():
+def test_removal_of_only_edition_leaves_empty_timeline() -> None:
     original = ActVersionTimeline((timeline().get_version(2),))
     assert original.remove(2, today=date(2026, 6, 1)).versions == ()
 
 
-def test_removal_of_middle_edition_connects_remaining_neighbors():
+def test_removal_of_middle_edition_connects_remaining_neighbors() -> None:
     original = ActVersionTimeline(
         (
             *timeline().versions,
@@ -119,7 +122,7 @@ def test_removal_of_middle_edition_connects_remaining_neighbors():
     assert not remaining.get_version(3).is_current
 
 
-def test_expired_insert_and_current_selection_share_rebuild_semantics():
+def test_expired_insert_and_current_selection_share_rebuild_semantics() -> None:
     original = ActVersionTimeline((ActVersion(1, 10, 1, date(2020, 1, 1)),))
     remaining, inserted = original.inserting(
         date(2024, 1, 1), effective_to=date(2025, 1, 1), today=date(2026, 1, 1)
@@ -130,7 +133,7 @@ def test_expired_insert_and_current_selection_share_rebuild_semantics():
     assert remaining.get_version(1).effective_to == date(2024, 1, 1)
 
 
-def test_relink_tie_break_uses_persisted_identity_and_survives_noop_correction():
+def test_relink_tie_break_uses_persisted_identity_and_survives_noop_correction() -> None:
     start = date(2024, 1, 1)
     today = date(2026, 1, 1)
     target = ActVersionTimeline((ActVersion(10, 1, 10, start),))

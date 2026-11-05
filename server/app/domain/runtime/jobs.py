@@ -40,6 +40,7 @@ class BackgroundJob:
     heartbeat_at: datetime | None = None
     error_message: str | None = None
     creation_date: datetime | None = None
+    dispatch_payload: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         self.status = BackgroundJobStatus(self.status)

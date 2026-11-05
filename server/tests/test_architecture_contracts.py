@@ -23,7 +23,6 @@ CONTRACTS = {
     [
         ("langchain.schema", False),
         ("langchain_core.documents", False),
-        ("langchain_ollama", False),
         ("langchain_openai", False),
         ("sqlalchemy.orm", False),
         ("typing", True),

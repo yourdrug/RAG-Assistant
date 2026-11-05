@@ -21,7 +21,6 @@ from application.rag.dto import (
     TerminalResponse,
 )
 from application.rag.stream_events import SourcesEvent, TextChunk, UsageReport
-from application.runtime.enums import LLMProvider
 from config import get_request_settings
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
@@ -187,9 +186,7 @@ class RagOperations:
             build_rag_settings(),
             time.monotonic(),
             req_id,
-            get_request_settings().openrouter_model
-            if get_request_settings().llm_provider == LLMProvider.OPENROUTER
-            else get_request_settings().llm_model,
+            get_request_settings().openrouter_model,
             generation_config=generation_identity(),
         )
 

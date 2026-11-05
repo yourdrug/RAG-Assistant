@@ -14,8 +14,7 @@ from infrastructure.ml.clients import factories
 
 @pytest.fixture
 def constructors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    ollama, openrouter = Mock(), Mock()
-    monkeypatch.setattr(factories, "ChatOllama", ollama)
+    openrouter = Mock()
     monkeypatch.setattr(factories, "ChatOpenAI", openrouter)
     http_client = Mock(return_value="sync")
     async_http_client = Mock(return_value="async")
@@ -24,7 +23,7 @@ def constructors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(factories, "PaidSyncTransport", Mock(return_value="paid-sync"))
     monkeypatch.setattr(factories, "PaidAsyncTransport", Mock(return_value="paid-async"))
     return SimpleNamespace(
-        ollama=ollama, openrouter=openrouter, http_client=http_client, async_http_client=async_http_client
+        openrouter=openrouter, http_client=http_client, async_http_client=async_http_client
     )
 
 
@@ -32,7 +31,6 @@ def constructors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 def model_settings() -> Settings:
     return settings.model_copy(
         update={
-            "llm_model": "local",
             "openrouter_model": "remote",
             "openrouter_api_key": "test",
             "llm_temperature": 0.3,
@@ -54,7 +52,6 @@ def test_openrouter_roles_preserve_options(
     is_broad = role == factories.ChatModelRole.BROAD
     auxiliary = role == factories.ChatModelRole.AUXILIARY
     benchmark = role == factories.ChatModelRole.BENCHMARK
-    constructors.ollama.assert_not_called()
     options = constructors.openrouter.call_args.kwargs
     assert options["model_name"] == (factories.FAST_OPENROUTER_MODEL if auxiliary else "remote")
     assert options["max_tokens"] == (200 if auxiliary else 222 if is_broad or benchmark else 111)
@@ -73,45 +70,20 @@ def test_openrouter_roles_preserve_options(
     constructors.async_http_client.assert_called_once_with(follow_redirects=False, transport="paid-async")
 
 
-@pytest.mark.parametrize("role", list(factories.ChatModelRole))
-def test_ollama_roles_preserve_options(
-    constructors: SimpleNamespace, model_settings: Settings, role: factories.ChatModelRole
-) -> None:
-    factories.build_chat_model(LLMProvider.OLLAMA, role, model=model_settings)
-    is_broad = role == factories.ChatModelRole.BROAD
-    benchmark = role == factories.ChatModelRole.BENCHMARK
+def test_retired_provider_is_rejected(constructors: SimpleNamespace) -> None:
+    with pytest.raises(ValueError, match="Unsupported LLM provider"):
+        factories.build_chat_model("ollama", factories.ChatModelRole.DEFAULT)
     constructors.openrouter.assert_not_called()
-    options = constructors.ollama.call_args.kwargs
-    assert options["model"] == "local"
-    assert options["temperature"] == (0 if benchmark else 0.3)
-
-    if benchmark:
-        assert set(options) == {"model", "base_url", "temperature"}
-    else:
-        assert options["num_ctx"] == (444 if is_broad else 333)
-        assert options["top_p"] == 0.8
-        assert options["client_kwargs"] == {"timeout": 55}
-
-    if role in (factories.ChatModelRole.NARROW, factories.ChatModelRole.BROAD):
-        assert options["num_predict"] == (222 if is_broad else 111)
-    else:
-        assert "num_predict" not in options
 
 
 @pytest.mark.parametrize("provider", list(LLMProvider))
 def test_factory_overrides_and_breadth_fallback(constructors: SimpleNamespace, provider: LLMProvider) -> None:
     model = settings.model_copy(update={"llm_provider": provider})
     factories.create_llm(temperature=0, top_p=0, num_ctx=0, num_predict=0, model=model)
-    options = (
-        constructors.openrouter if provider == LLMProvider.OPENROUTER else constructors.ollama
-    ).call_args.kwargs
+    options = constructors.openrouter.call_args.kwargs
     assert options["temperature"] == 0
 
-    if provider == LLMProvider.OPENROUTER:
-        assert options["max_tokens"] == 0
-    else:
-        assert options["num_ctx"] == 0
-        assert options["top_p"] == 0
+    assert options["max_tokens"] == 0
 
     factories.create_llm_for_breadth(
         "broad",
@@ -119,15 +91,9 @@ def test_factory_overrides_and_breadth_fallback(constructors: SimpleNamespace, p
         num_predict_broad=0,
         model=model,
     )
-    options = (
-        constructors.openrouter if provider == LLMProvider.OPENROUTER else constructors.ollama
-    ).call_args.kwargs
+    options = constructors.openrouter.call_args.kwargs
 
-    if provider == LLMProvider.OPENROUTER:
-        assert options["max_tokens"] == model.llm_num_predict_broad
-    else:
-        assert options["num_ctx"] == model.llm_num_ctx_broad
-        assert options["num_predict"] == model.llm_num_predict_broad
+    assert options["max_tokens"] == model.llm_num_predict_broad
 
 
 def test_judge_and_auxiliary_share_default_model(

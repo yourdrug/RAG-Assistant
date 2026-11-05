@@ -9,7 +9,6 @@ interface ModelsInfo {
   llm_provider: string;
   llm_model: string;
   openrouter_model: string;
-  ollama_models: string[] | null;
 }
 
 interface OpenRouterModel {
@@ -36,22 +35,18 @@ export function BenchmarkJudgeModel({
     queryKey: ["admin", "openrouter-models"],
     queryFn: async () =>
       (await apiClient.get<{ models: OpenRouterModel[] }>("/admin/models/openrouter")).data,
-    enabled: info?.llm_provider === "openrouter",
   });
 
   useEffect(() => {
     if (value === null && info) {
-      onChange(info.llm_provider === "openrouter" ? info.openrouter_model : info.llm_model);
+      onChange(info.openrouter_model);
     }
   }, [value, info, onChange]);
 
-  const models =
-    info?.llm_provider === "openrouter"
-      ? (catalog?.models ?? []).map((model) => ({
-          id: model.id,
-          label: `${model.name} (${model.context_length.toLocaleString()} ctx, $${model.pricing.prompt.toFixed(2)}/M)`,
-        }))
-      : (info?.ollama_models ?? []).map((model) => ({ id: model, label: model }));
+  const models = (catalog?.models ?? []).map((model) => ({
+    id: model.id,
+    label: `${model.name} (${model.context_length.toLocaleString()} ctx, $${model.pricing.prompt.toFixed(2)}/M)`,
+  }));
   const selected = value ?? "";
   const loading = isLoading || catalogLoading;
 

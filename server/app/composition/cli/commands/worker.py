@@ -26,7 +26,8 @@ from infrastructure.worker.cron import (
     cron_recover_stuck_processing,
 )
 from infrastructure.worker.document_deletion import delete_document
-from infrastructure.worker.queue import QUEUE_NAME
+from infrastructure.worker.document_dispatch import cron_dispatch_documents
+from infrastructure.worker.queue import QUEUE_NAME, close_arq_pool
 from infrastructure.worker.sweep import run_sweep_task as run_sweep
 from infrastructure.worker.tasks import (
     process_document,
@@ -62,7 +63,7 @@ def worker(
 
         functions: Sequence[Function] = [
             arq_func(delete_document, timeout=_PROCESS_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
-            arq_func(process_document, timeout=_PROCESS_TIMEOUT, keep_result=0, max_tries=10000),
+            arq_func(process_document, timeout=_PROCESS_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
             arq_func(run_full_ingest, timeout=_FULL_INGEST_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
             arq_func(
                 run_single_ingest,
@@ -81,6 +82,7 @@ def worker(
         ]
 
         cron_jobs = [
+            cron(cron_dispatch_documents, second={0, 30}, timeout=_CRON_TIMEOUT, run_at_startup=True),
             cron(cron_sweep_checkpoint_cleanup, minute=set(range(60)), timeout=_CRON_TIMEOUT),
             cron(cron_job_cleanup, hour={1, 13}, timeout=_CRON_TIMEOUT),
             cron(cron_recover_orphaned_jobs, minute={0, 15, 30, 45}, timeout=_CRON_TIMEOUT),
@@ -164,8 +166,11 @@ async def on_shutdown(ctx: dict[str, Any]) -> None:
             logger.info("Worker: container disposed")
     finally:
         try:
-            await redis_client.aclose()
-            logger.info("Worker: Redis disconnected")
+            try:
+                await close_arq_pool()
+            finally:
+                await redis_client.aclose()
+                logger.info("Worker: Redis disconnected")
         finally:
             await database.disconnect()
             logger.info("Worker: database disconnected")

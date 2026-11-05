@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     "provider, base_url, mode",
     [
         (LLMProvider.OPENROUTER, "https://openrouter.ai/api/v1", instructor.Mode.JSON),
-        (LLMProvider.OLLAMA, "http://localhost:11434/v1", instructor.Mode.MD_JSON),
     ],
 )
 def test_judge_client_provider_compatibility(
@@ -56,7 +55,6 @@ def test_judge_client_provider_compatibility(
     monkeypatch.setattr(settings, "llm_provider", provider)
     monkeypatch.setattr(settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
     monkeypatch.setattr(settings, "openrouter_api_key", "test-key")
-    monkeypatch.setattr(settings, "ollama_base_url", "http://localhost:11434")
     monkeypatch.setattr(judge_clients, "_judge_client_cache", {})
     runtime = BudgetRuntime()
     records: list[dict[str, Any]] = []

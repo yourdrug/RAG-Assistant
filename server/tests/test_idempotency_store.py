@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
+import sys
 
 import fakeredis.aioredis
 import pytest
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from application.ports.idempotency_store import IdempotencyClaimStatus  # noqa: E402
-from infrastructure.rate_limit.idempotency import IdempotencyStore  # noqa: E402
+from application.ports.idempotency_store import IdempotencyClaimStatus
+from infrastructure.rate_limit.idempotency import IdempotencyStore
 
 
 @pytest.mark.asyncio

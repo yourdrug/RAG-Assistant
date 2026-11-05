@@ -1216,19 +1216,6 @@ wheels = [
 ]
 
 [[package]]
-name = "langchain-ollama"
-version = "0.2.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "langchain-core" },
-    { name = "ollama" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ed/37/f62b2344764b2aa8d1a59e9f2d07b5251ef501bce8069144c4fac2db931f/langchain_ollama-0.2.1.tar.gz", hash = "sha256:752b112d233a6e079259cb10138a5af836f42d26781cac6d7eb1b1e0d2ae9a0d", size = 12401, upload-time = "2024-12-02T21:23:06.714Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/ed/85abb581c396a2627b9ebbed535ff73ccfda3edc336c77356de89e2a3dfc/langchain_ollama-0.2.1-py3-none-any.whl", hash = "sha256:033916150cc9c341d72274512b9987a0ebf014cf808237687012fc7af4a81ee3", size = 15673, upload-time = "2024-12-02T21:23:05.702Z" },
-]
-
-[[package]]
 name = "langchain-openai"
 version = "0.3.19"
 source = { registry = "https://pypi.org/simple" }
@@ -1869,19 +1856,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ollama"
-version = "0.6.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpx" },
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/fc/72/5f12423b6b39ca8430fbe56f77fcf4ef60f63067c7c4a2e30e200ed9ec16/ollama-0.6.2.tar.gz", hash = "sha256:936d55daa684f474364c098611c933626f8d6c7d67065c5b7ae0c477b508b07f", size = 53145, upload-time = "2026-04-29T21:21:15.018Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/ab/d6722beeb2d10f7a3b9ff49375708904fde18f82b5609a0bc4aeb5996a4d/ollama-0.6.2-py3-none-any.whl", hash = "sha256:3ad7daab28e5a973445c36a73882a3ef698c2ebb00e21e308652741577509f7d", size = 15115, upload-time = "2026-04-29T21:21:13.794Z" },
-]
-
-[[package]]
 name = "openai"
 version = "1.109.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2469,7 +2443,6 @@ dependencies = [
     { name = "instructor" },
     { name = "langchain" },
     { name = "langchain-core" },
-    { name = "langchain-ollama" },
     { name = "langchain-openai" },
     { name = "mammoth" },
     { name = "numpy" },
@@ -2545,7 +2518,6 @@ requires-dist = [
     { name = "instructor", specifier = ">=1.7.0" },
     { name = "langchain", specifier = "==0.3.7" },
     { name = "langchain-core", specifier = "==0.3.63" },
-    { name = "langchain-ollama", specifier = "==0.2.1" },
     { name = "langchain-openai", specifier = ">=0.2.0" },
     { name = "mammoth", specifier = ">=1.8.0" },
     { name = "numpy", specifier = "==1.26.4" },

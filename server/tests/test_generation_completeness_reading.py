@@ -1,14 +1,18 @@
 """Production prompt assembly for unchanged fields, table pairs and complete lists."""
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from infrastructure.ml.evidence_profiles.belarus.reading import evidence_reading_reminder
 from infrastructure.ml.evidence_profiles.belarus.focus import enumeration_anchors, table_lookup_anchors
+from infrastructure.ml.evidence_profiles.belarus.reading import evidence_reading_reminder
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.rag_prompts import build_prompt
+
 
 SNAPSHOT = json.loads(
     (Path(__file__).parent / "fixtures" / "generation_completeness_reading.json").read_text()
@@ -17,7 +21,7 @@ SNAPSHOT = json.loads(
 
 @pytest.mark.parametrize("case", SNAPSHOT["cases"], ids=lambda case: str(case["id"]))
 @pytest.mark.parametrize("enumerate_cases", [False, True])
-def test_reading_checks_reach_model_after_frozen_context(case, enumerate_cases):
+def test_reading_checks_reach_model_after_frozen_context(case: Any, enumerate_cases: bool) -> None:
     prompt = build_prompt(question=case["question"], enumerate_cases=enumerate_cases)
     messages = format_generation_messages(
         prompt, context=case["context"], history=[], question=case["question"]
@@ -27,8 +31,11 @@ def test_reading_checks_reach_model_after_frozen_context(case, enumerate_cases):
     assert messages[-1].content == case["question"] + evidence_reading_reminder(case["question"])
     system = messages[0].content
     reminder = messages[-1].content
+    assert isinstance(reminder, str)
+
     if case["id"] == 140:
-        assert "не изменилось" in system and "не изменилось" in reminder
+        assert "не изменилось" in system
+        assert "не изменилось" in reminder
         assert "одному полю (номер И название)" in reminder
         assert "подтверждённым исходной и запрошенной редакциям" in reminder
         assert "не делай вывод о неизменности из отсутствия данных" in reminder
@@ -47,11 +54,11 @@ def test_reading_checks_reach_model_after_frozen_context(case, enumerate_cases):
         assert "не добавляй" in reminder.lower()
 
 
-def test_unrelated_question_does_not_receive_reading_checklist():
+def test_unrelated_question_does_not_receive_reading_checklist() -> None:
     assert evidence_reading_reminder("Где скачать приложение?") == ""
 
 
-def test_code_lookup_binds_value_to_target_row_instead_of_neighbor():
+def test_code_lookup_binds_value_to_target_row_instead_of_neighbor() -> None:
     case = next(case for case in SNAPSHOT["cases"] if case["id"] == 148)
     anchors = table_lookup_anchors(case["context"], case["question"])
     assert len(anchors) == 1
@@ -62,24 +69,27 @@ def test_code_lookup_binds_value_to_target_row_instead_of_neighbor():
     assert table_lookup_anchors("", case["question"]) == []
 
 
-def test_code_lookup_keeps_ambiguous_rows_for_model_to_check():
+def test_code_lookup_keeps_ambiguous_rows_for_model_to_check() -> None:
     context = "| 001 | Северная область | Страна А |\n| 002 | Северная область | Страна Б |"
     assert len(table_lookup_anchors(context, "Какой код Северной области?")) == 2
 
 
 @pytest.mark.parametrize("question_id", [154, 155])
-def test_enumeration_focus_preserves_all_saved_cases_and_exact_text(question_id):
+def test_enumeration_focus_preserves_all_saved_cases_and_exact_text(question_id: int) -> None:
     case = next(case for case in SNAPSHOT["cases"] if case["id"] == question_id)
     anchors = enumeration_anchors(case["context"], case["question"])
     assert all(anchor in case["context"] for anchor in anchors)
     focus = "\n".join(anchors)
+
     if question_id == 154:
         for phrase in ["При передаче", "При отгрузке", "письменного указания", "ТН-2", "стоимостных"]:
             assert phrase in focus
     else:
         for phrase in ["потребительской", "отсутствии", "групповой", "набора", "комплекта"]:
             assert phrase in focus
+
         assert "знак защиты на незащищенный" not in focus  # belongs to 5.3, not requested 5.1
+
     messages = format_generation_messages(
         build_prompt(question=case["question"]),
         context=case["context"],
@@ -90,12 +100,13 @@ def test_enumeration_focus_preserves_all_saved_cases_and_exact_text(question_id)
     assert messages[-2].type == "human"
 
 
-def test_enumeration_focus_cannot_supply_missing_or_wrong_subpoint_evidence():
+def test_enumeration_focus_cannot_supply_missing_or_wrong_subpoint_evidence() -> None:
     question = "Какие случаи предусмотрены п. 5.1?"
     assert enumeration_anchors("", question) == []
     assert (
         enumeration_anchors(
-            "[Раздел: point 5 › subpoint_num 5.10]\nв упаковке - неверный подпункт;", question
+            "[Раздел: point 5 › subpoint_num 5.10]\nв упаковке - неверный подпункт;",  # noqa: RUF001 - Literal source separator.
+            question,
         )
         == []
     )

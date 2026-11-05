@@ -43,7 +43,6 @@ if TYPE_CHECKING:
 
 
 ENDPOINT_KEYS = (
-    "ollama_base_url",
     "openrouter_base_url",
     "tei_embed_url",
     "tei_rerank_url",
@@ -67,6 +66,7 @@ def row(key: str, value: object) -> ConfigParameter:
 def model() -> Settings:
     return Settings(
         _env_file=None,
+        ml_provider="tei",
         tei_embed_url="http://tei-embed:8080",
         tei_rerank_url="http://tei-rerank:8080",
         ml_internal_allowed_origins=[
@@ -128,9 +128,9 @@ def test_invalid_pool_snapshot_is_rejected_before_mutation(model: Settings, key:
         ("deepinfra_base_url", "https://api.deepinfra.com.evil.example/v1"),
         ("tei_embed_url", "http://169.254.169.254/latest/meta-data"),
         ("tei_rerank_url", "http://unapproved:8080"),
-        ("ollama_base_url", "file:///etc/passwd"),
-        ("ollama_base_url", "http://user:password@ollama:11434"),
-        ("ollama_base_url", "http://ollama:11434/?token=secret"),
+        ("tei_embed_url", "file:///etc/passwd"),
+        ("tei_embed_url", "http://user:password@tei-embed:8080"),
+        ("tei_embed_url", "http://tei-embed:8080/?token=secret"),
     ],
 )
 def test_untrusted_origins_rejected_without_http_request(model: Settings, key: str, value: str) -> None:
@@ -178,17 +178,19 @@ def successful_response(request: httpx.Request) -> httpx.Response:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fault", [None, "wrong-model", "wrong-dimension", "offline"])
+@pytest.mark.parametrize("fault", [None, "wrong-model", "wrong-dimension", "unauthorized"])
 async def test_cold_bootstrap_probes_default_encoder_before_readiness(
     model: Settings, monkeypatch: pytest.MonkeyPatch, fault: str | None
 ) -> None:
+    tei_defaults = build_defaults()
+
     requests = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request.url.path)
 
-        if fault == "offline":
-            return httpx.Response(503)
+        if fault == "unauthorized":
+            return httpx.Response(401)
 
         if fault == "wrong-model" and request.url.path == "/info":
             return httpx.Response(200, json={"model_id": "another-model"})
@@ -206,16 +208,52 @@ async def test_cold_bootstrap_probes_default_encoder_before_readiness(
     try:
         if fault:
             with pytest.raises((ValidationError, httpx.HTTPError)):
-                await config.apply_async(build_defaults(), require_complete=True)
+                await config.apply_async(tei_defaults, require_complete=True)
             assert not config.status().ready
             assert config.status().applied_version is None
             assert registry.cached_embeddings is None
         else:
-            await config.apply_async(build_defaults(), require_complete=True)
+            await config.apply_async(tei_defaults, require_complete=True)
             assert config.status().ready
             assert "/info" in requests
+
             assert "/embed" in requests
             assert await registry.embeddings().embed_query("query") == [0.25] * 1024
+    finally:
+        await registry.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault", ["offline", "dns"])
+@pytest.mark.parametrize("path", ["/info", "/embed"])
+async def test_cold_bootstrap_warns_when_embedding_endpoint_is_unavailable(
+    model: Settings, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, fault: str, path: str
+) -> None:
+    tei_defaults = build_defaults()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == path:
+            if fault == "dns":
+                message = "Temporary failure in name resolution"
+                raise httpx.ConnectError(message, request=request)
+
+            return httpx.Response(503)
+
+        return successful_response(request)
+
+    wire_http(monkeypatch, handler)
+    registry = MLClientRegistry()
+    config = SettingsProviderConfiguration(
+        model, DomainSettingsAdapter(), bus=InProcessEventBus(), ml_clients=registry
+    )
+    try:
+        await config.apply_async(tei_defaults, require_complete=True)
+        assert config.status().ready
+        assert config.status().applied_version is not None
+        assert registry.cached_embeddings is not None
+        assert model.ml_provider == "tei"
+        assert "endpoint is unavailable during startup" in caplog.text
+        assert "corpus migration" in caplog.text
     finally:
         await registry.close()
 
@@ -261,13 +299,17 @@ async def test_switch_keeps_active_request_then_closes_old_pool(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "failure", ["offline", "wrong-model", "wrong-revision", "wrong-dimension", "redirect"]
+    "failure", ["offline", "dns", "wrong-model", "wrong-revision", "wrong-dimension", "redirect"]
 )
 async def test_failed_preparation_retains_applied_resource(
     model: Settings, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "replacement":
+            if failure == "dns":
+                message = "Temporary failure in name resolution"
+                raise httpx.ConnectError(message, request=request)
+
             if failure in {"offline", "redirect"}:
                 return httpx.Response(
                     503 if failure == "offline" else 302, headers={"Location": "http://evil.example"}
@@ -486,8 +528,8 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(
     model: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
-    model.ollama_base_url = "http://old:11434"
-    model.ml_internal_allowed_origins += ["http://old:11434", "http://new:11434"]
+    model.openrouter_base_url = "https://openrouter.ai/old/v1"
+    model.ml_internal_allowed_origins += ["https://openrouter.ai/old/v1", "https://openrouter.ai/new/v1"]
     wire_http(monkeypatch, successful_response)
     monkeypatch.setattr(factories, "settings", model)
     registry, started, finish = llm_family(model, monkeypatch)
@@ -501,17 +543,17 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(
     stream = asyncio.create_task(consume())
     await started.wait()
     try:
-        await config.apply_async([row("ollama_base_url", "http://new:11434")])
-        assert (await registry.llm().ainvoke("new")).content == "http://new:11434"
-        assert (await registry.fast_llm().ainvoke("new")).content == "http://new:11434"
+        await config.apply_async([row("openrouter_base_url", "https://openrouter.ai/new/v1")])
+        assert (await registry.llm().ainvoke("new")).content == "https://openrouter.ai/new/v1"
+        assert (await registry.fast_llm().ainvoke("new")).content == "https://openrouter.ai/new/v1"
         assert (
             await registry.llm_for_breadth(Breadth.BROAD.value).ainvoke("new")
-        ).content == "http://new:11434"
+        ).content == "https://openrouter.ai/new/v1"
         assert not cast("httpx.AsyncClient", cast("SimpleNamespace", old.client).root_async_client).is_closed
         finish.set()
         await stream
         await old.close()
-        assert parts == ["http://old:11434", "http://old:11434"]
+        assert parts == ["https://openrouter.ai/old/v1", "https://openrouter.ai/old/v1"]
         assert cast("httpx.AsyncClient", cast("SimpleNamespace", old.client).root_async_client).is_closed
     finally:
         finish.set()
@@ -716,7 +758,7 @@ def llm_family(
     initial_settings = model
 
     def llm(*_args: object, model: Settings | None = None, **_kwargs: Any) -> LLM:
-        return LLM((model or initial_settings).ollama_base_url)
+        return LLM((model or initial_settings).openrouter_base_url)
 
     monkeypatch.setattr(factories, "create_llm", llm)
     monkeypatch.setattr(factories, "create_fast_llm_for_auxiliary", llm)

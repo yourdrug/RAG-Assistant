@@ -1,27 +1,35 @@
 """Fresh CLI processes must load domain config before auto classification."""
 
+from __future__ import annotations
+
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
+from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
+from composition.cli.commands import ingest
 from composition.infrastructure import InfrastructureContainer
+from config import Settings
 from domain.ingestion.profiles.registry import DomainProfileRegistry
-from application.runtime.config import ConfigParameterChanged
-from application.runtime.config import ConfigValueType
 from infrastructure.database.database import database
-from infrastructure.redis.redis_client import redis_client
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import InProcessEventBus
-from composition.cli.commands import ingest
+from infrastructure.events.postgres_config_listener import PostgresConfigListener
+from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+from infrastructure.redis.redis_client import redis_client
+from tests.fakes import FakeUnitOfWorkFactory, require_present
 
 
-def build_infrastructure(monkeypatch):
-    from config import Settings
-    from tests.fakes import FakeUnitOfWorkFactory
-    from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
-    from infrastructure.events.postgres_config_listener import PostgresConfigListener
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def build_infrastructure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[InfrastructureContainer, InProcessEventBus]:
 
     adapter = DomainSettingsAdapter()
     registry = DomainProfileRegistry()
@@ -30,7 +38,8 @@ def build_infrastructure(monkeypatch):
     monkeypatch.setattr("composition.infrastructure.event_bus", bus)
     infra = InfrastructureContainer(domain_settings=adapter, domain_registry=registry)
     infra.corpus_control = AsyncMock()
-    infra.db.uow_factory = FakeUnitOfWorkFactory()
+    monkeypatch.setattr(infra.db, "uow_factory", FakeUnitOfWorkFactory())
+
     model = Settings(
         _env_file=None, tei_embed_url="http://tei-embed:80", tei_rerank_url="http://tei-rerank:80"
     )
@@ -38,24 +47,31 @@ def build_infrastructure(monkeypatch):
     infra.events.config_listener = PostgresConfigListener(
         infra.db.uow, configuration=infra.configuration, database=database
     )
-    infra.ml.ml_clients = SimpleNamespace(
-        invalidate_llm=lambda: None,
-        invalidate_bm25=lambda: None,
-        invalidate_embeddings=lambda: None,
-        invalidate_reranker=lambda: None,
-        close=AsyncMock(),
+    monkeypatch.setattr(
+        infra.ml,
+        "ml_clients",
+        SimpleNamespace(
+            invalidate_llm=lambda: None,
+            invalidate_bm25=lambda: None,
+            invalidate_embeddings=lambda: None,
+            invalidate_reranker=lambda: None,
+            close=AsyncMock(),
+        ),
     )
     infra.subscribe_config_events()
     return infra, bus
 
 
 @pytest.mark.asyncio
-async def test_cli_loads_global_and_domain_settings_before_auto_classification(monkeypatch):
-    from application.runtime.config import ConfigParameter
+async def test_cli_loads_global_and_domain_settings_before_auto_classification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
     infra, bus = build_infrastructure(monkeypatch)
-    infra.init = lambda database: setattr(infra, "_initialized", True)
-    await infra.db.uow_factory._uow.config_parameters.save(
+    monkeypatch.setattr(infra, "init", lambda _database: setattr(infra, "_initialized", True))
+    await require_present(
+        cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
+    ).save(
         ConfigParameter(
             "fingerprint_min_articles",
             "7",
@@ -64,22 +80,22 @@ async def test_cli_loads_global_and_domain_settings_before_auto_classification(m
             domain_key="legal",
         )
     )
-    await infra.db.uow_factory._uow.config_parameters.save(
-        ConfigParameter("llm_model", "db-model", "str", "llm")
-    )
+    await require_present(
+        cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
+    ).save(ConfigParameter("openrouter_model", "db-model", "str", "llm"))
     monkeypatch.setattr(ingest, "InfrastructureContainer", lambda: infra)
     monkeypatch.setattr(database, "connect", AsyncMock())
     monkeypatch.setattr(database, "disconnect", AsyncMock())
     monkeypatch.setattr(redis_client, "init", AsyncMock())
     monkeypatch.setattr(redis_client, "aclose", AsyncMock())
 
-    async def classify(infrastructure):
-        assert infrastructure.configuration.settings.llm_model == "db-model"
+    async def classify(infrastructure: Any) -> Any:
+        assert infrastructure.configuration.settings.openrouter_model == "db-model"
         assert infrastructure.domain_settings.get("fingerprint_min_articles", "legal") == "7"
         infrastructure.domain_registry.classify("An ordinary document.", settings=infra.domain_settings)
-        await infra.db.uow_factory._uow.config_parameters.update_value(
-            "fingerprint_min_articles", "8", "legal"
-        )
+        await require_present(
+            cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
+        ).update_value("fingerprint_min_articles", "8", "legal")
         bus.publish(
             ConfigParameterChanged(
                 key="fingerprint_min_articles",
@@ -89,7 +105,7 @@ async def test_cli_loads_global_and_domain_settings_before_auto_classification(m
                 value_type=ConfigValueType.INT,
             )
         )
-        await infra.events.config_listener.resync()
+        await require_present(infra.events.config_listener).resync()
         return infrastructure.domain_settings.get("fingerprint_min_articles", "legal")
 
     assert await ingest.run_with_infrastructure(classify) == "8"
@@ -102,13 +118,15 @@ async def test_cli_loads_global_and_domain_settings_before_auto_classification(m
             value_type=ConfigValueType.INT,
         )
     )
-    assert infra.domain_settings.get("fingerprint_min_articles", "legal") == "8"
+    assert require_present(infra.domain_settings).get("fingerprint_min_articles", "legal") == "8"
 
 
 @pytest.mark.asyncio
-async def test_configuration_bootstrap_is_idempotent_and_releases_only_owned_handlers(monkeypatch):
+async def test_configuration_bootstrap_is_idempotent_and_releases_only_owned_handlers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     infra, bus = build_infrastructure(monkeypatch)
-    observed = []
+    observed: list[Any] = []
     bus.subscribe(ConfigParameterChanged, observed.append)
     registered = list(bus._handlers[ConfigParameterChanged])
     await infra.bootstrap_configuration()
@@ -125,15 +143,16 @@ async def test_configuration_bootstrap_is_idempotent_and_releases_only_owned_han
     )
     bus.publish(event)
     assert observed == [event]
-    assert infra.domain_settings.get(event.key, event.domain_key) != "5"
+    assert require_present(infra.domain_settings).get(event.key, require_present(event.domain_key)) != "5"
 
 
 @pytest.mark.asyncio
-async def test_configuration_bootstrap_propagates_database_failure_and_releases_subscription(monkeypatch):
+async def test_configuration_bootstrap_propagates_database_failure_and_releases_subscription(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     infra, bus = build_infrastructure(monkeypatch)
-    infra.db.uow_factory._uow.config_parameters.get_all = AsyncMock(
-        side_effect=RuntimeError("database unavailable")
-    )
+    repository = cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
+    monkeypatch.setattr(repository, "get_all", AsyncMock(side_effect=RuntimeError("database unavailable")))
     with pytest.raises(RuntimeError, match="database unavailable"):
         await infra.bootstrap_configuration()
     await infra.dispose()
@@ -141,15 +160,18 @@ async def test_configuration_bootstrap_propagates_database_failure_and_releases_
 
 
 @pytest.mark.parametrize("fails", [False, True])
-def test_cli_upload_closes_container_storage_before_loop_exit(monkeypatch, tmp_path, fails):
+def test_cli_upload_closes_container_storage_before_loop_exit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fails: bool
+) -> None:
     path = tmp_path / "report.txt"
     path.write_bytes(b"content")
     events = []
     storage = SimpleNamespace(upload_file=AsyncMock(), aclose=AsyncMock())
+
     if fails:
         storage.upload_file.side_effect = OSError("storage unavailable")
 
-    async def run(action):
+    async def run(action: Any) -> Any:
         try:
             return await action(SimpleNamespace(ml=SimpleNamespace(storage=storage)))
         finally:
@@ -157,12 +179,14 @@ def test_cli_upload_closes_container_storage_before_loop_exit(monkeypatch, tmp_p
             events.append("closed")
 
     monkeypatch.setattr(ingest, "run_with_infrastructure", run)
+
     if fails:
         with pytest.raises(SystemExit) as caught:
             ingest.ingest_upload(str(path), key="docs/report.txt")
         assert caught.value.code == 1
     else:
         ingest.ingest_upload(str(path), key="docs/report.txt")
+
     storage.upload_file.assert_awaited_once_with("docs/report.txt", b"content")
     storage.aclose.assert_awaited_once()
     assert events == ["closed"]
