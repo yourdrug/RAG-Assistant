@@ -9,9 +9,12 @@ from typing import Any, Never
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import docx
+import instructor
+from instructor.core.exceptions import InstructorRetryException
 from langchain_core.documents import Document
 from langchain_core.language_models import FakeListChatModel
 from langchain_core.messages import AIMessage, HumanMessage
+from openai.types.chat import ChatCompletion
 import pytest
 
 from application.runtime.enums import LLMProvider
@@ -479,6 +482,53 @@ class TestShouldEnumerateCases:
 
 
 class TestCheckRelevance:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("is_relevant", [True, False, None])
+    async def test_malformed_json_gets_one_correction_attempt(self, is_relevant: bool | None) -> None:
+        malformed = '{"synced_objects": {"is_relevant": true}}'
+        responses = [malformed]
+        responses.append(
+            malformed
+            if is_relevant is None
+            else f'{{"is_relevant": {str(is_relevant).lower()}, "reason": "checked"}}'
+        )
+        create = AsyncMock(
+            side_effect=[
+                ChatCompletion.model_validate(
+                    {
+                        "id": "relevance-test",
+                        "object": "chat.completion",
+                        "created": 0,
+                        "model": "test-model",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "finish_reason": "stop",
+                                "message": {"role": "assistant", "content": content},
+                            }
+                        ],
+                    },
+                )
+                for content in responses
+            ]
+        )
+        client = instructor.AsyncInstructor(
+            client=None,
+            create=instructor.patch(create=create, mode=instructor.Mode.JSON),
+            mode=instructor.Mode.JSON,
+        )
+        ml_clients = SimpleNamespace(instructor_client=client)
+
+        if is_relevant is None:
+            with pytest.raises(InstructorRetryException):
+                await rag_rel.check_relevance(ml_clients, "question", [_doc("context")])
+        else:
+            result = await rag_rel.check_relevance(ml_clients, "question", [_doc("context")])
+            assert result == (is_relevant, "checked")
+
+        assert create.await_count == 2
+        assert "Field required" in str(create.call_args.kwargs["messages"])
+
     @pytest.mark.parametrize("provider", list(LLMProvider))
     def test_timeout_identifies_stage_model_and_limit(
         self, monkeypatch: pytest.MonkeyPatch, provider: LLMProvider
@@ -564,6 +614,65 @@ class TestCheckRelevance:
 
 
 class TestAssessSufficiency:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("is_sufficient", [True, False, None])
+    async def test_schema_response_gets_one_correction_attempt(self, is_sufficient: bool | None) -> None:
+        malformed = (
+            '{"/description": "Structured response for self-RAG sufficiency check.", '
+            '"/properties": {"/is_sufficient": {"type": "boolean", "value": true}}}'
+        )
+        corrected = (
+            malformed
+            if is_sufficient is None
+            else f'{{"is_sufficient": {str(is_sufficient).lower()}, '
+            '"reasoning": "checked", "suggested_refinement": "refined query"}'
+        )
+        create = AsyncMock(
+            side_effect=[
+                ChatCompletion.model_validate(
+                    {
+                        "id": "sufficiency-test",
+                        "object": "chat.completion",
+                        "created": 0,
+                        "model": "test-model",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "finish_reason": "stop",
+                                "message": {"role": "assistant", "content": content},
+                            }
+                        ],
+                    },
+                )
+                for content in [malformed, corrected]
+            ]
+        )
+        client = instructor.AsyncInstructor(
+            client=None,
+            create=instructor.patch(create=create, mode=instructor.Mode.JSON),
+            mode=instructor.Mode.JSON,
+        )
+        ml_clients = SimpleNamespace(instructor_client=client, auxiliary_semaphore=asyncio.Semaphore(1))
+        breaker = SimpleNamespace(
+            check_open=MagicMock(), report_success=AsyncMock(), report_failure=AsyncMock()
+        )
+        with patch.object(rag_rel, "get_breaker", return_value=breaker):
+            if is_sufficient is None:
+                with pytest.raises(InstructorRetryException):
+                    await assess_sufficiency("question", [_doc("context")], ml_clients)
+                breaker.report_failure.assert_awaited_once()
+                breaker.report_success.assert_not_awaited()
+            else:
+                result = await assess_sufficiency("question", [_doc("context")], ml_clients)
+                assert result.is_sufficient is is_sufficient
+                assert result.reasoning == "checked"
+                assert result.suggested_refinement == "refined query"
+                breaker.report_success.assert_awaited_once()
+                breaker.report_failure.assert_not_awaited()
+
+        assert create.await_count == 2
+        assert "Field required" in str(create.call_args.kwargs["messages"])
+
     def test_empty_docs_returns_insufficient(self) -> None:
 
         result = asyncio.run(assess_sufficiency("question", [], MagicMock()))

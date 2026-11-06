@@ -319,7 +319,7 @@ class TestStreamRelevanceGate:
             events = await collect_events(service, "obscure question")
             text_chunks = [e for e in events if isinstance(e, TextChunk)]
             assert len(text_chunks) == 1
-            assert "не нашёл релевантной информации" in text_chunks[0].text
+            assert "в выбранном контексте недостаточно подтверждённой информации" in text_chunks[0].text
 
     @pytest.mark.asyncio
     async def test_pass_yields_answer(self) -> None:

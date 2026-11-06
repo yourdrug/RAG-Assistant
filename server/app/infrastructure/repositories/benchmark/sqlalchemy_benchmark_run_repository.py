@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import JSON, case, column, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import with_expression
 
 from domain.benchmark.evaluation import EVIDENCE_METRICS, summarize_evidence
 from domain.benchmark.run import BenchmarkRun
@@ -205,6 +206,44 @@ class SQLAlchemyBenchmarkRunRepository:
         offset: int = 0,
     ) -> list[BenchmarkRun]:
         sort_col = getattr(BenchmarkRunModel, sort_by, BenchmarkRunModel.creation_date)
+        # Lists need only evidence scores for legacy summary recovery, never the
+        # multi-megabyte answers, contexts and retrieval traces of each question.
+        questions = (
+            func.json_array_elements(
+                case(
+                    (
+                        func.json_typeof(BenchmarkRunModel.per_question_results) == "array",
+                        BenchmarkRunModel.per_question_results,
+                    ),
+                    else_=None,
+                )
+            )
+            .table_valued(column("value", JSON))
+            .alias("questions")
+        )
+        evidence = (
+            select(
+                func.json_agg(
+                    func.json_build_object(
+                        "evidence_metrics",
+                        func.coalesce(questions.c.value["evidence_metrics"], func.json_build_object()),
+                    )
+                )
+            )
+            .select_from(questions)
+            .correlate(BenchmarkRunModel)
+            .scalar_subquery()
+        )
+        needs_recovery = or_(
+            *(
+                BenchmarkRunModel.summary_metrics[f"avg_{metric}"].as_string().is_(None)
+                for metric in EVIDENCE_METRICS
+            )
+        )
+        projection = with_expression(
+            BenchmarkRunModel.per_question_results,
+            case((needs_recovery, evidence), else_=None),
+        )
 
         if sort_order == "asc":
             stmt = select(BenchmarkRunModel).order_by(sort_col.asc())
@@ -217,7 +256,7 @@ class SQLAlchemyBenchmarkRunRepository:
         if dataset is not None:
             stmt = stmt.where(BenchmarkRunModel.dataset == dataset)
 
-        stmt = stmt.offset(offset).limit(limit)
+        stmt = stmt.options(projection).offset(offset).limit(limit)
         result = await self._db.execute(stmt)
         return [self.to_entity(orm) for orm in result.scalars().all()]
 

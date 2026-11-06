@@ -30,8 +30,15 @@ class Instructor:
 class AsyncInstructor:
     client: AsyncOpenAI
     chat: AsyncChat
+    def __init__(
+        self,
+        client: AsyncOpenAI | None,
+        create: Callable[..., object],
+        mode: Mode = ...,
+    ) -> None: ...
     def on(self, name: str, handler: Callable[..., object]) -> None: ...
 
+def patch(*, create: Callable[..., object], mode: Mode = ...) -> Callable[..., object]: ...
 @overload
 def from_openai(client: OpenAI, *, mode: Mode) -> Instructor: ...
 @overload

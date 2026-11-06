@@ -82,6 +82,7 @@ class PreparedContext:
     budget: ContextBudget
     grounded_answer: str | None
     evidence: EvidenceAssessment | None
+    evidence_context: str = ""
 
 
 @dataclass(frozen=True)

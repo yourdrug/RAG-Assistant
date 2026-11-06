@@ -9,6 +9,8 @@ import time
 from typing import TYPE_CHECKING, Any, cast
 import uuid
 
+from langchain_core.documents import Document as LCDocument
+
 from application.rag.dto import (
     CompletedAnswer,
     ContextBudget,
@@ -317,6 +319,11 @@ class RagOperations:
             work.use_exact_ref_boost = result.exact_ref_boost
             work.query_domain = result.domain
             work.docs = lc_documents(result.documents)
+            work.candidates = [
+                LCDocument(page_content=chunk.content, metadata=dict(chunk.metadata))
+                for chunk in result.candidates
+            ]
+            work.evidence_query = result.prepared.query
             work.sub_queries = list(result.sub_queries)
             work.enumerate_cases = result.enumerate_cases
 
@@ -354,7 +361,7 @@ class RagOperations:
             raise ValueError(message)
 
         return RetrievalResult(
-            query,
+            previous.prepared if previous is not None else query,
             work.breadth,
             work.query_domain,
             work.fetch_k,
@@ -379,17 +386,26 @@ class RagOperations:
         return None
 
     async def relevant(self, result: RetrievalResult) -> bool:
+        context = (
+            self.build(result, capture=False)
+            if result.prepared.request.settings.features.relevance_gate_enabled
+            else None
+        )
         return await handle_relevance_gate(
             result.prepared.query,
             lc_documents(result.documents),
             result.breadth,
             result.prepared.request.settings,
             self.ml,
+            context=context.evidence_context if context is not None else None,
         )
 
     async def assess(self, result: RetrievalResult) -> Sufficiency:
         t0 = time.monotonic()
-        assessment = await assess_sufficiency(result.prepared.query, lc_documents(result.documents), self.ml)
+        context = self.build(result, capture=False)
+        assessment = await assess_sufficiency(
+            result.prepared.query, lc_documents(result.documents), self.ml, context=context.evidence_context
+        )
         RAG_STAGE_DURATION.labels("sufficiency_assess").observe(time.monotonic() - t0)
 
         if assessment.is_sufficient:
@@ -418,7 +434,11 @@ class RagOperations:
         )
 
     def build(
-        self, result: RetrievalResult, token_counter: Callable[[list[BaseMessage]], int] | None = None
+        self,
+        result: RetrievalResult,
+        token_counter: Callable[[list[BaseMessage]], int] | None = None,
+        *,
+        capture: bool = True,
     ) -> PreparedContext:
         state = self.retrieval_work(result.prepared, result)
 
@@ -482,7 +502,9 @@ class RagOperations:
                     history = history[2:]
                     continue
 
-                capture_prompt(state.docs, [], context, exclusions=exclusions, status="prepared")
+                capture_prompt(
+                    state.docs, [], context, exclusions=exclusions, status="prepared" if capture else None
+                )
                 raise ContextBudgetExceededError
 
             messages = format_generation_messages(
@@ -503,7 +525,7 @@ class RagOperations:
             selected,
             context,
             exclusions=exclusions,
-            status="prepared",
+            status="prepared" if capture else None,
             messages=[{"role": message.type, "content": message.content} for message in messages],
             budget={
                 "num_ctx": num_ctx,
@@ -523,6 +545,7 @@ class RagOperations:
             budget,
             grounded_answer,
             evidence_assessment,
+            context,
         )
 
     async def generate(self, context: PreparedContext) -> SanitizedAnswer:

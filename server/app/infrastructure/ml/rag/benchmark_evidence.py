@@ -108,11 +108,11 @@ def capture_prompt(
     exclusions: list[dict[str, Any]] | None = None,
     budget: dict[str, Any] | None = None,
     messages: Sequence[dict[str, Any]] | None = None,
-    status: str = "executed",
+    status: str | None = "executed",
 ) -> None:
     evidence = active_evidence.get()
 
-    if evidence is not None:
+    if status is not None and evidence is not None:
         if evidence.retrieved is None:
             evidence.retrieved = snapshot_documents(docs)
 
@@ -260,3 +260,13 @@ def capture_prepared_query(query: str) -> None:
 
     if evidence is not None and evidence.request is not None:
         evidence.request["search_query"] = query
+
+
+def capture_gate(stage: str, question: str, context: str, result: dict[str, Any]) -> None:
+    """Capture judge inputs and structured decisions only in benchmark diagnostics."""
+    evidence = active_evidence.get()
+
+    if evidence is not None and evidence.attempts:
+        evidence.attempts[-1].setdefault("checks", []).append(
+            {"stage": stage, "question": question, "context": context, "result": deepcopy(result)}
+        )

@@ -13,6 +13,7 @@ from infrastructure.ml.clients.llm_schemas import (
     SufficiencyAssessment,
     create_structured_response,
 )
+from infrastructure.ml.rag.benchmark_evidence import capture_gate
 from infrastructure.ml.rag.prompts import SUFFICIENCY_ASSESSMENT_SYSTEM
 from infrastructure.ml.rag.rag_formatting import format_docs
 from infrastructure.resilience.circuit_breaker import get_breaker
@@ -25,20 +26,26 @@ RELEVANCE_SYSTEM = (
     "Оцени, достаточно ли предоставленного контекста для ответа на вопрос пользователя.\n"
     "Если контекст достаточен — установи is_relevant=true.\n"
     "Если контекст недостаточен — установи is_relevant=false и кратко укажи причину.\n"
-    "Не отвечай на сам вопрос — только оцени достаточность контекста."
+    "Не отвечай на сам вопрос — только оцени достаточность контекста.\n"
+    "Верни JSON-объект с полями is_relevant (boolean) и reason (строка) на верхнем уровне, "
+    'без дополнительных обёрток. Пример: {"is_relevant": false, "reason": "Нет данных"}.'
 )
 
 
-async def check_relevance(ml_clients: MLClientPort, question: str, docs: list[Any]) -> tuple[bool, str]:
+async def check_relevance(
+    ml_clients: MLClientPort, question: str, docs: list[Any], *, context: str | None = None
+) -> tuple[bool, str]:
     """Semantic check: check if the retrieved context is sufficient to answer the question.
 
-    Uses instructor's ``max_retries=1`` (combined with auxiliary semaphore timeout
-    to bound total hold time).
+    Allows two Instructor attempts (one format correction), bounded together by
+    the auxiliary timeout.
     """
     if not docs:
         return False, "Нет документов для проверки"
 
-    context = format_docs(docs, max_context_tokens=2000)
+    if context is None:
+        context = format_docs(docs)
+
     prompt_text = f"Вопрос: {question}\n\nКонтекст из документов:\n{context}"
 
     client = ml_clients.instructor_client
@@ -56,7 +63,7 @@ async def check_relevance(ml_clients: MLClientPort, question: str, docs: list[An
                     ],
                     max_tokens=get_request_settings().llm_num_predict_narrow,
                     response_model=RelevanceCheck,
-                    max_retries=1,
+                    max_retries=2,
                 ),
                 timeout=get_request_settings().llm_auxiliary_timeout,
             )
@@ -68,6 +75,7 @@ async def check_relevance(ml_clients: MLClientPort, question: str, docs: list[An
             )
             raise TimeoutError(message) from exc
 
+    capture_gate("relevance", question, context, result.model_dump())
     return result.is_relevant, result.reason
 
 
@@ -101,11 +109,13 @@ async def assess_sufficiency(
     ml_clients: MLClientPort,
     llm_client: object | None = None,
     model: str = "",
+    *,
+    context: str | None = None,
 ) -> SufficiencyAssessment:
     """Self-RAG: assess whether retrieved context is sufficient to answer.
 
-    Uses instructor's ``max_retries=1`` (combined with auxiliary semaphore timeout
-    to bound total hold time).
+    Allows two Instructor attempts (one format correction), bounded together by
+    the auxiliary timeout.
     """
     if not docs:
         return SufficiencyAssessment(
@@ -119,7 +129,9 @@ async def assess_sufficiency(
 
         model = get_request_settings().openrouter_model
 
-    context = format_docs(docs, max_context_tokens=2000)
+    if context is None:
+        context = format_docs(docs)
+
     user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"
 
     breaker = get_breaker("llm_auxiliary")
@@ -137,7 +149,7 @@ async def assess_sufficiency(
                     ],
                     max_tokens=get_request_settings().llm_num_predict_narrow,
                     response_model=SufficiencyAssessment,
-                    max_retries=1,
+                    max_retries=2,
                 ),
                 timeout=get_request_settings().llm_auxiliary_timeout,
             )
@@ -145,4 +157,5 @@ async def assess_sufficiency(
             await breaker.report_failure()
             raise
         await breaker.report_success()
+    capture_gate("sufficiency", question, context, result.model_dump())
     return result

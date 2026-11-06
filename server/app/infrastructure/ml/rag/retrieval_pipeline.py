@@ -11,6 +11,7 @@ from langchain.schema import Document as LCDocument
 
 from domain.knowledge.enums import SearchMode
 from domain.rag.classification import should_enumerate_cases
+from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.retrieval import ContextBudgetOptions, compute_context_budget, select_final_top_k
 from domain.shared.hashing import content_hash
 from infrastructure.domain_profile.answer_policy import policy_for
@@ -283,8 +284,7 @@ async def rerank_and_enrich(
         )
     RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
-    if state.ctx.as_of_date is not None:
-        docs = retained_temporal_candidates(docs)
+    docs = retained_temporal_candidates(docs)
 
     if policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus:
         docs = await apply_legal_rerank_fallback(
@@ -388,7 +388,8 @@ class RetrievalPipeline:
 
     async def run(self, query: str, state: RetrievalWork) -> RetrievalWork:
         begin_attempt(state.question, query)
-        candidates, state.sub_queries = await retrieve_with_decomposition(query, state, self.ml_clients)
+        candidates, sub_queries = await retrieve_with_decomposition(query, state, self.ml_clients)
+        state.sub_queries = list(dict.fromkeys([*state.sub_queries, *sub_queries]))
 
         evidence = active_evidence.get()
 
@@ -398,10 +399,17 @@ class RetrievalPipeline:
         if state.use_exact_ref_boost:
             await apply_exact_search(query, candidates, state.user, state.ctx, self.chunk_search)
 
-        state.candidates = await filter_documents(candidates, self.document_access, state.user)
+        # Scores from different queries are incomparable: re-authorize and rerank
+        # the entire pool, including previously enriched evidence, from scratch.
+        pooled = await filter_documents(
+            [*candidates, *state.candidates, *(doc for doc, _ in state.docs)],
+            self.document_access,
+            state.user,
+        )
+        state.candidates = merge_evidence_candidates(pooled)
         state.enumerate_cases = should_enumerate_cases([doc.page_content for doc in state.candidates])
         state.docs, _, state.avg_sim = await rerank_and_enrich(
-            query,
+            state.evidence_query or query,
             state.candidates,
             state,
             self.ml_clients,
@@ -426,3 +434,23 @@ def retained_temporal_candidates(docs: list[tuple[LCDocument, float]]) -> list[t
         ]
     )
     return docs
+
+
+def merge_evidence_candidates(candidates: list[LCDocument]) -> list[LCDocument]:
+    """Keep distinct sources, versions and parent conditions when pooling attempts."""
+    seen = set()
+    merged = []
+
+    for doc in candidates:
+        key = (
+            doc.metadata.get("document_id"),
+            doc.metadata.get("act_version_id"),
+            doc.metadata.get("section") or doc.metadata.get("heading"),
+            content_hash(content_with_parent_scope(doc)),
+        )
+
+        if key not in seen:
+            seen.add(key)
+            merged.append(doc)
+
+    return merged

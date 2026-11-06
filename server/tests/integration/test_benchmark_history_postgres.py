@@ -16,6 +16,7 @@ from tests.integration.uow import session_factory
 from application.benchmark import BenchmarkExportService
 from composition.service_providers import build_sweep_engine
 from config import settings
+from domain.benchmark.evaluation import EVIDENCE_METRICS
 from domain.benchmark.run import BenchmarkRun
 from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
@@ -136,6 +137,56 @@ async def test_export_pages_real_json_array_and_nullable_legacy_results(pg_engin
         assert saved.artifacts["json"]["status"] == "ready"
         assert saved.artifacts["json"]["size_bytes"] == len(uploaded[0][1])
         assert saved.per_question_results == [{"id": n} for n in range(4)]
+
+
+async def test_run_list_projects_legacy_scores_and_preserves_full_details(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    details = [
+        {"answer": "large trace" * 1000, "evidence_metrics": {"answer_condition_coverage": value}}
+        for value in (0, 1, 1)
+    ]
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBenchmarkRunRepository(session)
+        legacy = await repo.create(BenchmarkRun(dataset="legacy", per_question_results=details))
+        await repo.create(BenchmarkRun(dataset="other"))
+
+    async with sessions() as session:
+        repo = SQLAlchemyBenchmarkRunRepository(session)
+        runs = await repo.list_items(dataset="legacy", sort_by="id", sort_order="asc", limit=1)
+        assert [run.id for run in runs] == [legacy.id]
+        assert runs[0].summary_metrics["avg_answer_condition_coverage"] == 0.6667
+        assert runs[0].summary_metrics["answer_condition_coverage_evaluated_count"] == 3
+        assert runs[0].per_question_results == [
+            {"evidence_metrics": row["evidence_metrics"]} for row in details
+        ]
+        assert await repo.list_items(dataset="legacy", offset=1) == []
+
+    async with sessions() as session:
+        repo = SQLAlchemyBenchmarkRunRepository(session)
+        assert legacy.id is not None
+        full = await repo.get_by_id(legacy.id)
+        assert full is not None
+        assert full.per_question_results == details
+        assert (
+            await session.scalar(
+                select(BenchmarkRunModel.summary_metrics).where(BenchmarkRunModel.id == legacy.id)
+            )
+            == {}
+        )
+
+
+async def test_run_list_skips_details_when_all_evidence_averages_are_saved(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    summary = {f"avg_{metric}": 0.0 for metric in EVIDENCE_METRICS}
+    async with sessions.begin() as session:
+        await SQLAlchemyBenchmarkRunRepository(session).create(
+            BenchmarkRun(summary_metrics=summary, per_question_results=[{"answer": "large trace" * 1000}])
+        )
+    async with sessions() as session:
+        runs = await SQLAlchemyBenchmarkRunRepository(session).list_items()
+        assert len(runs) == 1
+        assert runs[0].summary_metrics == summary
+        assert runs[0].per_question_results is None
 
 
 async def test_db_retention_preserves_active_and_recent_failed_checkpoints(pg_engine: AsyncEngine) -> None:

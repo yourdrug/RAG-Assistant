@@ -8,7 +8,12 @@ from langchain_core.documents import Document
 
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.guardrails.sanitization import sanitize_for_prompt
-from domain.rag.ranking import RetrievalDocument
+from domain.rag.ranking import (
+    CONTINUATION_SCORE_RATIO,
+    MAX_PROVISION_CHUNKS,
+    RetrievalDocument,
+    same_evidence_block,
+)
 from domain.shared.hashing import content_hash
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.ml.rag.benchmark_evidence import snapshot_documents
@@ -90,12 +95,16 @@ def select_context[ItemT: Document | tuple[Document, float]](
         entry = max(remaining, key=priority)
         remaining.remove(entry)
         _, item, _, terms = entry
-        trial_context, trial_selected = render_selected_docs([*chosen, item])
+        companions = evidence_companions(item, remaining, budget, count_tokens)
+        trial_context, trial_selected = render_selected_docs(
+            [*chosen, item, *(other[1] for other in companions)]
+        )
         trial_tokens = count_tokens(trial_context)
 
         if trial_tokens <= budget:
-            chosen.append(item)
-            covered.update(terms)
+            chosen.extend([item, *(other[1] for other in companions)])
+            covered.update(terms, *(companion[3] for companion in companions))
+            remaining[:] = [candidate for candidate in remaining if candidate not in companions]
             context, selected = trial_context, trial_selected
             continue
 
@@ -153,3 +162,27 @@ def record_budget_exclusion(
             item, reason, "context", tokens=trial_tokens, single_tokens=single_tokens, budget=budget
         )
     )
+
+
+def evidence_companions[ItemT: Document | tuple[Document, float]](
+    item: ItemT,
+    remaining: list[tuple[int, ItemT, float, set[str]]],
+    budget: int,
+    count_tokens: Callable[[str], int],
+) -> list[tuple[int, ItemT, float, set[str]]]:
+    """Treat a bounded provision continuation as one evidence selection unit."""
+    doc, score = item if isinstance(item, tuple) else (item, 0.0)
+    companions = [
+        other
+        for other in remaining
+        if same_evidence_block(doc, other[1][0] if isinstance(other[1], tuple) else other[1])
+        and other[2] >= score * CONTINUATION_SCORE_RATIO
+    ][: MAX_PROVISION_CHUNKS - 1]
+
+    if not companions:
+        return []
+
+    block_context, _ = render_selected_docs([item, *(other[1] for other in companions)])
+    # Leave room for independent provisions and question parts.
+    block_cost = count_tokens(block_context) - count_tokens("")
+    return companions if block_cost <= (budget - count_tokens("")) / 2 else []

@@ -38,6 +38,7 @@ class RetrievalWork:
     history_messages: list[BaseMessage] = field(default_factory=list)
 
     # ── Mutable pipeline state ──────────────────────────────────────────
+    evidence_query: str = ""
     query_for_search: str = ""
     breadth: Breadth | None = None
     fetch_k: int = 0

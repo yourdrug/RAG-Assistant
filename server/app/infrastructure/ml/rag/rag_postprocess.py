@@ -20,6 +20,7 @@ from domain.knowledge.enums import PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.evidence.table_context import requests_table_overview
 from domain.rag.ports import ChunkRetrievalRepository
+from domain.rag.ranking import provision_identity, same_evidence_block
 from domain.rag.settings import RagSettings
 from infrastructure.metrics.metrics import (
     RAG_RELEVANCE_GATE_TOTAL,
@@ -44,6 +45,8 @@ async def handle_relevance_gate(
     breadth: Breadth,
     rag: RagSettings,
     ml_clients: MLClientPort,
+    *,
+    context: str | None = None,
 ) -> bool:
     """Check relevance gate. Returns True if relevant, False if rejected."""
     del breadth
@@ -58,7 +61,7 @@ async def handle_relevance_gate(
 
     async with ml_clients.auxiliary_semaphore:
         try:
-            is_relevant, reason = await check_relevance(ml_clients, query_for_search, docs)
+            is_relevant, reason = await check_relevance(ml_clients, query_for_search, docs, context=context)
         except Exception:
             await breaker.report_failure()
             raise
@@ -82,8 +85,8 @@ async def reject_not_relevant(
 ) -> AsyncIterator[StreamEvent]:
     """Yield a rejection message when relevance gate fails."""
     yield TextChunk(
-        text="К сожалению, я не нашёл релевантной информации "
-        "в загруженных документах для ответа на ваш вопрос."
+        text="К сожалению, в выбранном контексте недостаточно подтверждённой информации "
+        "для полного ответа на ваш вопрос."
     )
     record_rag_answer(
         breadth=breadth.value,
@@ -183,15 +186,26 @@ async def fetch_context_neighbors(
         return []
 
     if doc.metadata.get("content_type") != PageContentType.TABLE.value:
-        if not enumerate_cases:
+        if not enumerate_cases and provision_identity(doc) is None:
             return []
 
-        return await chunk_search.get_neighbors(
+        neighbors = await chunk_search.get_neighbors(
             document_id,
             chunk_index,
-            window=3,
+            window=3 if enumerate_cases else 1,
             exclude_hashes=hashes,
             user=user,
+        )
+        return (
+            neighbors
+            if enumerate_cases
+            else [
+                neighbor
+                for neighbor in neighbors
+                if same_evidence_block(
+                    doc, LCDocument(page_content=neighbor.content, metadata=chunk_result_metadata(neighbor))
+                )
+            ]
         )
 
     return await fetch_table_context(doc, chunk_search, user, hashes, scopes, full_table=full_table)

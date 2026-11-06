@@ -25,12 +25,11 @@ class RetrievalDocument(Protocol):
 def prioritize_distinct_provisions[ItemT: RetrievalDocument | tuple[RetrievalDocument, float]](
     items: list[ItemT],
 ) -> list[ItemT]:
-    """Stable first pass over provisions, followed by their remaining chunks.
+    """Prefer distinct provisions without trading away strong continuations.
 
-    Accept documents or (document, score) pairs. Sentence splits share their
-    parent's provision. Unstructured chunks and tables retain their own slots.
-    Scope includes the document/version so unrelated provisions never collapse.
-    No text is removed: remaining chunks can fill any unused budget.
+    Unscored retrieval keeps the diversity pass. Scored evidence can retain up
+    to three chunks of a provision ahead of a substantially weaker provision.
+    Nearby scores still favor diversity; source and version boundaries are kept.
     """
     seen = set()
     first: list[ItemT] = []
@@ -38,32 +37,88 @@ def prioritize_distinct_provisions[ItemT: RetrievalDocument | tuple[RetrievalDoc
 
     for item in items:
         doc = item[0] if isinstance(item, tuple) else item
-        metadata = doc.metadata
-        section = metadata.get("section") or metadata.get("heading")
-        source = metadata.get("document_id") or metadata.get("source")
+        key = provision_identity(doc)
 
-        if not section or not source or metadata.get("table_id"):
+        if key is None or key not in seen:
             first.append(item)
-            continue
 
-        parts = section.replace(" \u203a ", " > ").split(" > ")
-
-        if parts[-1] == SENTENCE_UNIT_KIND:
-            parts = parts[:-1]
-
-        if not parts:
-            first.append(item)
-            continue
-
-        key = (source, metadata.get("act_version_id"), tuple(parts))
-
-        if key in seen:
-            remaining.append(item)
+            if key is not None:
+                seen.add(key)
         else:
-            seen.add(key)
-            first.append(item)
+            remaining.append(item)
 
-    return first + remaining
+    return rank_provision_continuations(first, remaining)
+
+
+def rank_provision_continuations[ItemT: RetrievalDocument | tuple[RetrievalDocument, float]](
+    first: list[ItemT],
+    remaining: list[ItemT],
+) -> list[ItemT]:
+    """Allow bounded strong continuations ahead of weaker distinct evidence."""
+    ranked: list[ItemT] = []
+    anchors: dict[tuple[object, ...], RetrievalDocument] = {}
+    counts: dict[tuple[object, ...], int] = {}
+
+    for item in first:
+        if isinstance(item, tuple):
+            for continuation in list(remaining):
+                if not isinstance(continuation, tuple):
+                    continue
+
+                doc, score = continuation
+                key = provision_identity(doc)
+
+                if (
+                    key in anchors
+                    and counts[key] < MAX_PROVISION_CHUNKS
+                    and score * CONTINUATION_SCORE_RATIO > item[1]
+                    and same_evidence_block(anchors[key], doc)
+                ):
+                    ranked.append(continuation)
+                    remaining.remove(continuation)
+                    counts[key] += 1
+
+        ranked.append(item)
+        doc = item[0] if isinstance(item, tuple) else item
+        key = provision_identity(doc)
+
+        if key is not None:
+            anchors[key] = doc
+            counts[key] = 1
+
+    return ranked + remaining
+
+
+MAX_PROVISION_CHUNKS = 3
+CONTINUATION_SCORE_RATIO = 0.85
+
+
+def provision_identity(doc: RetrievalDocument) -> tuple[object, ...] | None:
+    metadata = doc.metadata
+    section = metadata.get("section") or metadata.get("heading")
+    source = metadata.get("document_id") or metadata.get("source")
+
+    if not section or not source or metadata.get("table_id"):
+        return None
+
+    parts = section.replace(" \u203a ", " > ").split(" > ")
+
+    if parts[-1] == SENTENCE_UNIT_KIND:
+        parts = parts[:-1]
+
+    return (source, metadata.get("act_version_id"), tuple(parts)) if parts else None
+
+
+def same_evidence_block(anchor: RetrievalDocument, candidate: RetrievalDocument) -> bool:
+    """Recognize bounded continuations without crossing provisions or versions."""
+    key = provision_identity(anchor)
+
+    if key is None or key != provision_identity(candidate):
+        return False
+
+    start = anchor.metadata.get("chunk_index")
+    end = candidate.metadata.get("chunk_index")
+    return start is None or end is None or abs(end - start) < MAX_PROVISION_CHUNKS
 
 
 def compute_reranker_score(sources: Sequence[object]) -> float | None:
