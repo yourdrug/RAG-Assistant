@@ -224,7 +224,7 @@ async def test_neighbor_expansion_cannot_reintroduce_forbidden_evidence(
 
 
 @pytest.mark.asyncio
-async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evidence(
+async def test_self_rag_retry_reuses_authorized_pipeline_and_merges_query_evidence(
     database_access: tuple[DocumentAccessService, FakeUnitOfWorkFactory], monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
@@ -232,7 +232,8 @@ async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evid
     _ = [event async for event in service.stream("initial", [], ctx)]
     assert searches == ["initial", "refined"]
     assert [call.args[0] for call in exact.await_args_list] == searches
-    assert captured[-1].sub_queries == ("refined", "probe refined")
+    assert captured[-1].sub_queries == ("initial", "probe initial", "refined", "probe refined")
+    assert captured[-1].prepared == captured[0].prepared
     assert [d.chunk.content for d in captured[-1].documents] == ["allowed"]
 
 
@@ -303,7 +304,8 @@ def capture_retry(
 
     monkeypatch.setattr(service.retrieval, "retrieve", with_exact)
 
-    def build(result: RetrievalResult) -> PreparedContext:
+    def build(result: RetrievalResult, *, capture: bool = True) -> PreparedContext:
+        del capture
         return PreparedContext(result, (), (), result.documents, ContextBudget(0, 0, 0, 0), "answer", None)
 
     monkeypatch.setattr(service.context, "build", build)
