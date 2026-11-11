@@ -217,6 +217,9 @@ def test_tokenizers_keep_numbers_and_normalize_yo(tokenizer: Callable[[str], lis
         "04",
         "2026",
         "учет",
+        # Compound numbers are also kept whole so "пункт 3.2" differs from "2.3".
+        "5.1",
+        "14.04.2026",
     ]
 
 

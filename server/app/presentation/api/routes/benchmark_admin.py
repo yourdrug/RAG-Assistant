@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 import json
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -324,6 +324,16 @@ async def list_sweeps(
         sweeps=[sweep_to_response(s) for s in sweeps],
         total=total,
     )
+
+
+@router.get("/admin/benchmark/sweep/{sweep_id}/progress")
+async def get_sweep_progress(
+    *,
+    sweep_id: int,
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[BenchmarkSweepService, Depends(create_benchmark_sweep_service)],
+) -> dict[str, Any] | None:
+    return await service.progress(sweep_id)
 
 
 @router.get("/admin/benchmark/sweep/{sweep_id}/stream")

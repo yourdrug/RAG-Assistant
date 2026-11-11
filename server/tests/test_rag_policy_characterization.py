@@ -14,12 +14,7 @@ from domain.rag.classification import (
 from domain.rag.guardrails.sanitization import (
     sanitize_for_prompt,
 )
-from domain.rag.retrieval import (
-    ContextBudgetOptions,
-    compute_context_budget,
-    compute_retrieval_params,
-    select_final_top_k,
-)
+from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.ml.rag.prompts import (
     build_context_message,
     build_system_prompt,
@@ -32,14 +27,14 @@ from tests.test_rag_pipeline import make_rag
 @pytest.mark.parametrize(
     "breadth,enumerate_cases,with_addendum,expected_digest",
     [
-        ("narrow", False, False, "ca56ff54041f61ac329462f5d57736ed64cd885c1e6159b56cfde6f929403d00"),
-        ("narrow", False, True, "911ec3480ad2020164b796c3ebcf7232d69d5fdf81021d9f9889a9053ce96561"),
-        ("narrow", True, False, "1213302cbb1e07bffaa21af6d06ed671ff048b9dea4eba464c7b2e8b6f2ffaf7"),
-        ("narrow", True, True, "28596e545f259557ea3e8d193b830c5a9bdf2c1785cb8a042bc0290ab3edd9e4"),
-        ("broad", False, False, "4af0b0c11ab06f538d6545e66ce25b7e14e96f97e386e7a5d83809e21e783473"),
-        ("broad", False, True, "ee629b48b9c587751a27db7ad909cae7110861d80f8cbbcb146f4e3220867c02"),
-        ("broad", True, False, "89fe57df12100f14081825983ceb589dbfe47a746affa14d88d84a62393fbad9"),
-        ("broad", True, True, "425d204faf65eac84321fea68afd6f4c4e0ceb04e259bc5a3ba6b3cc6d8b6e14"),
+        ("narrow", False, False, "7c2fd83fde28d283fc8583eaddec28322fa6bfbbdb9f09d20c8b50201746f296"),
+        ("narrow", False, True, "9d2eaff3473fad2bf71e3c8250f8329da10565cc998fbd8a4b8d4b8e7a91ea4e"),
+        ("narrow", True, False, "cb81c0a37c74a311dfa60dffa774a1d1546fe2d50a0f7bd98755145deec9eb56"),
+        ("narrow", True, True, "42c9692c9831a08a08f20f4a5ec8bd0f38830e6c4be8d574d9809bcd5d52645b"),
+        ("broad", False, False, "8135951945951ad69b5bfe131ffd48a6915677f394cb54711c6d6462f689370d"),
+        ("broad", False, True, "dc56181dd285444ff3635b29d4c128dc51710b82f6e2d1abe5c929a7d2a52f25"),
+        ("broad", True, False, "034997eff6249b0d7b78ac293718446c3df52f375bb448d05a589b55768cfb02"),
+        ("broad", True, True, "ed1b51e4b9cab1c0648d4c0e081969e61ffdb27734e62292cba362364d1ea207"),
     ],
 )
 def test_system_prompt_text_is_unchanged(
@@ -100,51 +95,6 @@ def test_unicode_obfuscation_is_normalized_before_escaping() -> None:
     assert sanitize_for_prompt("Корпоративный документ [1]") == "Корпоративный документ [1]"
 
 
-@pytest.mark.parametrize(
-    "breadth,enumerate_cases,history_chars,question_chars,expected",
-    [
-        (Breadth.NARROW, False, 0, 0, 2196),
-        (Breadth.BROAD, False, 0, 0, 4644),
-        (Breadth.NARROW, True, 0, 0, 4644),
-        (Breadth.NARROW, False, 4000, 1000, 1696),
-        (Breadth.BROAD, False, 4001, 1002, 4144),
-        (Breadth.NARROW, False, 100000, 1000, 1000),
-    ],
-)
-def test_context_budget_reservations_and_floor(
-    breadth: Breadth, enumerate_cases: bool, history_chars: int, question_chars: int, expected: int
-) -> None:
-    assert compute_context_budget(
-        breadth,
-        enumerate_cases=enumerate_cases,
-        history_chars=history_chars,
-        question_chars=question_chars,
-        num_ctx_narrow=4096,
-        num_ctx_broad=8192,
-    ) == (expected)
-
-
-def test_context_budget_custom_limits() -> None:
-    assert (
-        compute_context_budget(
-            Breadth.NARROW,
-            enumerate_cases=False,
-            history_chars=4000,
-            question_chars=1000,
-            num_ctx_narrow=8000,
-            num_ctx_broad=16000,
-            options=ContextBudgetOptions(
-                chars_per_token=2,
-                reserved_overhead=1000,
-                min_context_tokens=500,
-                num_predict_narrow=1000,
-                num_predict_broad=3000,
-            ),
-        )
-        == 4000
-    )
-
-
 @pytest.mark.parametrize("breadth", [Breadth.NARROW, Breadth.BROAD])
 @pytest.mark.parametrize("query,boosted", [("обычный вопрос", False), ("СТ. 15", True)])
 def test_retrieval_params_preserve_weights_and_settings(breadth: Breadth, query: str, boosted: bool) -> None:
@@ -157,7 +107,3 @@ def test_retrieval_params_preserve_weights_and_settings(breadth: Breadth, query:
         "use_exact_ref_boost": boosted,
     }
     assert settings.hybrid_search.sparse_weight == 0.5
-    assert select_final_top_k(breadth, enumerate_cases=False, rag_settings=settings) == (
-        4 if breadth == Breadth.NARROW else 10
-    )
-    assert select_final_top_k(breadth, enumerate_cases=True, rag_settings=settings) == 10

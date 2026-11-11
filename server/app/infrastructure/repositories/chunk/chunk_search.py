@@ -13,6 +13,7 @@ from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.enums import SearchMode
+from domain.rag.classification import extract_structural_references
 from infrastructure.database.models import ActVersionModel, ChunkModel
 from infrastructure.repositories.sql_acl import render_visibility_conditions
 
@@ -154,6 +155,48 @@ def build_exact_search_stmt(
     return stmt
 
 
+def build_provision_search_stmt(
+    query: str, acl_clauses: list[ColumnElement[bool]], document_id: int | None, limit: int | None
+) -> Select[Any]:
+    """Locate a named provision ("Статья 5", "Пункт 3") by structural metadata.
+
+    Chunks without stored structural metadata fall back to a heading-line match.
+    A query without a structural reference degrades to the literal exact match.
+    """
+    references = extract_structural_references(query)
+
+    if not references:
+        return build_exact_search_stmt(query, acl_clauses, document_id, limit)
+
+    reference = references[0]
+    field = ChunkModel.context_metadata[reference.kind + "_number"].as_string()
+    number = re.escape(reference.value)
+    marker = {"article": "Статья", "chapter": "Глава", "section": "Раздел", "clause": "Параграф"}.get(
+        reference.kind
+    )
+    fallback = (
+        rf"(^|[\n\r])[ \t]*{marker}[ \t]+{number}([.)[:space:]]|$)"
+        if marker
+        else rf"(^|[\n\r])[ \t]*{number}[.)][[:space:]]"
+    )
+    predicate = or_(
+        field == reference.value,
+        and_(field.is_(None), ChunkModel.content.regexp_match(fallback, flags="i")),
+    )
+    stmt = (
+        select(*_SEARCH_COLUMNS)
+        .where(predicate)
+        .where(or_(*acl_clauses) if acl_clauses else text("true"))
+        .order_by(ChunkModel.chunk_index, ChunkModel.id)
+        .limit(limit)
+    )
+
+    if document_id is not None:
+        stmt = stmt.where(ChunkModel.document_id == document_id)
+
+    return stmt
+
+
 def build_fuzzy_search_stmt(
     query: str, acl_clauses: list[ColumnElement[bool]], document_id: int | None, limit: int | None
 ) -> Select[Any]:
@@ -202,7 +245,11 @@ def build_substring_search_stmt(
         user.managed_internal_ids,
         user.managed_group_ids,
     )
-    builder = build_exact_search_stmt if mode == SearchMode.EXACT.value else build_fuzzy_search_stmt
+    builders = {
+        SearchMode.EXACT.value: build_exact_search_stmt,
+        SearchMode.PROVISION.value: build_provision_search_stmt,
+    }
+    builder = builders.get(mode, build_fuzzy_search_stmt)
     return (
         builder(query, acl_clauses, document_id, limit)
         .outerjoin(ActVersionModel, ChunkModel.act_version_id == ActVersionModel.id)

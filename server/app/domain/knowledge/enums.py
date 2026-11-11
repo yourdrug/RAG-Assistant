@@ -75,6 +75,8 @@ class SourceType(StrEnum):
 class SearchMode(StrEnum):
     EXACT = "exact"
     ICONTAINS = "icontains"
+    # Internal RAG probe for "Статья N"/"Пункт N"; not accepted by the public API.
+    PROVISION = "provision"
 
 
 class PageContentType(StrEnum):

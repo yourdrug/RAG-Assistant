@@ -12,10 +12,10 @@ from config import settings
 from domain.rag.breadth import Breadth
 from domain.rag.classification import classify_question_breadth
 from domain.rag.settings import RagSettings
+from infrastructure.ml.rag.prompt_blocks import is_not_found_answer as _is_not_found_answer
 from infrastructure.ml.rag.prompts import build_context_message, build_system_prompt
 from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings
 from infrastructure.ml.rag.rag_formatting import format_docs
-from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer
 import infrastructure.ml.rag.rag_reranking as rag_rr
 import infrastructure.ml.rag.rag_sources as rag_src
 
@@ -83,7 +83,7 @@ class TestIsNotFoundAnswer:
         assert _is_not_found_answer("информация не найдена в документах.") is True
 
     def test_partial_match(self) -> None:
-        assert _is_not_found_answer("Информация не найдена в документах. Вот что я знаю:") is True
+        assert _is_not_found_answer("Информация не найдена в документах. Вот что я знаю:") is False
 
     def test_normal_answer(self) -> None:
         assert _is_not_found_answer("Пароль необходимо менять каждые 90 дней.") is False

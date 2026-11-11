@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from domain.rag.breadth import Breadth
 from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
 from infrastructure.ml.rag.prompt_blocks import (
@@ -82,7 +84,12 @@ def build_system_prompt(
         SOURCE_REFERENCE_STYLE_BLOCK,
     ]
 
-    if enumerate_cases:
+    if enumerate_cases or re.search(
+        r"\b(?:ровно|не\s+(?:менее|более|ниже|выше)|свыше|сверх|превыш\w*|"
+        r"менее|более|исключени\w*|при\s+условии)\b",
+        question,
+        re.IGNORECASE,
+    ):
         parts.append(CONDITIONAL_RULES_BLOCK)
 
     if domain_addendum:

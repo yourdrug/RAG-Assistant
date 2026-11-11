@@ -108,11 +108,12 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> No
     user = UserContext(user_id=12, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
     results = await repository.search_substring("passport", user)
     assert results[0].context_metadata == context
-    candidates: list[Any] = []
+    candidates: list[Any] = [Document(page_content="seed", metadata={"document_id": 7})]
     search = SimpleNamespace(search_substring=AsyncMock(return_value=results))
     await apply_exact_search(
-        "passport", candidates, user, cast("RagContext", SimpleNamespace(as_of_date=None)), search
+        "подпункт 21.2", candidates, user, cast("RagContext", SimpleNamespace(as_of_date=None)), search
     )
+    candidates = candidates[1:]
     assert len(candidates) == 1
     assert context["parent_units"][0]["content"] in format_docs(candidates)
     assert candidates[0].metadata["page"] == 4

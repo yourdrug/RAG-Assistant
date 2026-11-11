@@ -185,6 +185,25 @@ class BenchmarkSweepService:
 
         return sweep
 
+    async def progress(self, sweep_id: int) -> dict[str, Any] | None:
+        async with self._uow_factory.create() as uow:
+            sweep = await uow.benchmark_sweeps.get_by_id(sweep_id)
+
+            if sweep is None:
+                message = "BenchmarkSweep"
+                raise EntityNotFoundError(message, sweep_id)
+
+            snapshot = await uow.benchmark_sweeps.load_checkpoint(sweep_id, "progress.json")
+
+        if (
+            not isinstance(snapshot, dict)
+            or snapshot.get("job_id") != sweep.job_id
+            or sweep.status == BenchmarkSweepStatus.PENDING
+        ):
+            return None
+
+        return snapshot
+
     async def list(self, limit: int = 50, offset: int = 0) -> tuple[builtins.list[BenchmarkSweep], int]:
         async with self._uow_factory.create() as uow:
             sweeps = await uow.benchmark_sweeps.list_items(limit=limit, offset=offset)

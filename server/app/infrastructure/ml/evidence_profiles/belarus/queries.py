@@ -5,6 +5,17 @@ import re
 
 def evidence_search_queries(question: str) -> list[str]:
     queries = [question]
+    classifier = re.search(
+        r"\bклассификатор\w*\s+(.+?)(?=,|[?]|\s+согласно\b|\s+на\s+котор|$)",
+        question,
+        re.IGNORECASE,
+    )
+
+    if classifier and re.search(r"утвержда|утверд|какой\s+орган|кем", question, re.IGNORECASE):
+        # Search the referenced object without the referring EDI/waybill
+        # structure dominating both lexical and dense candidate generation.
+        queries.append(f"Утверждение: классификатор {classifier[1].strip()}")
+
     table = re.search(r"таблиц\w*\s+(\d+(?:\.\d+)*)", question, re.IGNORECASE)
 
     if table:

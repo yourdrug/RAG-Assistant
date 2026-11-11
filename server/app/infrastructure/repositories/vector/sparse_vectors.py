@@ -8,7 +8,7 @@ from qdrant_client.models import NamedSparseVector, SparseVector
 from infrastructure.bm25.tokenizer import tokenize
 
 
-SPARSE_VECTOR_NAME = "bm25_ru_v1"
+SPARSE_VECTOR_NAME = "bm25_ru_v2"
 BM25_K1 = 1.5
 BM25_B = 0.75
 # Fixed normalization avoids rewriting all vectors when corpus size changes.

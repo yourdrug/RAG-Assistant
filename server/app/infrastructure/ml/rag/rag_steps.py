@@ -65,6 +65,7 @@ from infrastructure.ml.rag.benchmark_evidence import (
 )
 from infrastructure.ml.rag.document_access import cache_is_accessible
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
+from infrastructure.ml.rag.generation_budget import prepare_generation_budget
 from infrastructure.ml.rag.langchain_mapping import (
     chunk_value,
     lc_documents,
@@ -72,19 +73,17 @@ from infrastructure.ml.rag.langchain_mapping import (
     message_values,
     scored_values,
 )
-from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER
+from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER, is_not_found_answer
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection, history_to_messages
 from infrastructure.ml.rag.rag_postprocess import (
     handle_relevance_gate,
-    is_not_found_answer,
+    mark_partial_answer,
     reject_not_relevant,
 )
 from infrastructure.ml.rag.rag_prompts import (
-    build_prompt,
     condense_question,
-    domain_prompt_addendum,
 )
 from infrastructure.ml.rag.rag_relevance import assess_sufficiency, filter_cited_documents
 from infrastructure.ml.rag.rag_sources import extract_sources
@@ -100,7 +99,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
     from langchain_core.messages import BaseMessage
-    from langchain_core.prompts import ChatPromptTemplate
     from langchain_core.runnables import Runnable
 
     from application.chat.ports import PIIRedactorPort
@@ -291,6 +289,7 @@ class RagOperations:
         access_filter = build_qdrant_filter(user, list(ctx.user_group_ids), **managed)
         work = RetrievalWork(
             domain_registry=self.domain_registry,
+            domain_keys=self.domain_keys,
             rag=request.settings,
             t_pipeline_start=request.started,
             question=request.question,
@@ -448,34 +447,8 @@ class RagOperations:
 
         effective_breadth = Breadth.BROAD if state.enumerate_cases else state.breadth
 
-        domain_addendum = domain_prompt_addendum(
-            state.query_domain,
-            state.ctx,
-            self.domain_keys,
-            self.domain_registry,
-        )
-        prompt = build_prompt(
-            effective_breadth,
-            summary=state.ctx.summary,
-            domain_addendum=domain_addendum,
-            enumerate_cases=state.enumerate_cases,
-            question=state.question,
-        )
-
-        num_ctx = (
-            state.rag.llm_num_ctx_broad
-            if effective_breadth == Breadth.BROAD
-            else state.rag.llm_num_ctx_narrow
-        )
-        num_predict = (
-            state.rag.llm_num_predict_broad
-            if effective_breadth == Breadth.BROAD
-            else state.rag.llm_num_predict_narrow
-        )
         count_tokens = token_counter or estimate_message_tokens
-        history = list(state.history_messages)
-
-        history = fit_base_history(prompt, history, state.question, num_ctx - num_predict, count_tokens)
+        prompt, history, num_ctx, num_predict, _ = prepare_generation_budget(state, count_tokens)
 
         input_budget = num_ctx - num_predict
 
@@ -569,6 +542,7 @@ class RagOperations:
 
         capture_generation_finish(last_chunk)
         full_answer, output_verdict = OutputScanner().sanitize_output("".join(answer_parts))
+        full_answer = mark_partial_answer(full_answer)
 
         if not output_verdict.safe:
             capture_completion("output_safety")
@@ -683,27 +657,6 @@ def capture_generation_finish(last_chunk: LLMMessagePort | None) -> None:
         metadata = getattr(last_chunk, "response_metadata", None)
         reason = metadata.get("finish_reason") if isinstance(metadata, dict) else None
         capture_prompt_delivery(sent=True, finish_reason=reason if isinstance(reason, str) else None)
-
-
-def fit_base_history(
-    prompt: ChatPromptTemplate,
-    history: list[BaseMessage],
-    question: str,
-    input_budget: int,
-    count_tokens: Callable[[list[BaseMessage]], int],
-) -> list[BaseMessage]:
-    while True:
-        base_messages = format_generation_messages(prompt, context="", history=history, question=question)
-        max_context_tokens = input_budget - count_tokens(base_messages)
-
-        if max_context_tokens > 0:
-            return history
-
-        if not history:
-            raise ContextBudgetExceededError
-
-        # Drop oldest complete user/assistant turns, preserving recent context.
-        history = history[2:]
 
 
 def generation_chunk_text(chunk: LLMMessagePort) -> str:

@@ -3,6 +3,7 @@
 Extracted from RagService to isolate post-processing logic from pipeline orchestration.
 """
 
+from collections import deque
 from collections.abc import AsyncIterator
 from datetime import date as _date
 import logging
@@ -20,7 +21,7 @@ from domain.knowledge.enums import PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.evidence.table_context import requests_table_overview
 from domain.rag.ports import ChunkRetrievalRepository
-from domain.rag.ranking import provision_identity, same_evidence_block
+from domain.rag.ranking import evidence_identity, same_evidence_block
 from domain.rag.settings import RagSettings
 from infrastructure.metrics.metrics import (
     RAG_RELEVANCE_GATE_TOTAL,
@@ -29,8 +30,10 @@ from infrastructure.metrics.metrics import (
     record_rag_answer,
 )
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
-from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN
+from infrastructure.ml.rag.context_rendering import render_selected_docs
+from infrastructure.ml.rag.context_selection import select_context
+from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER, is_not_found_answer
+from infrastructure.ml.rag.prompt_budget import estimate_text_tokens
 from infrastructure.ml.rag.rag_relevance import check_relevance, filter_cited_sources
 from infrastructure.ml.rag.table_context import focus_table_rows
 from infrastructure.resilience import circuit_breaker
@@ -84,10 +87,7 @@ async def reject_not_relevant(
     t_pipeline_start: float,
 ) -> AsyncIterator[StreamEvent]:
     """Yield a rejection message when relevance gate fails."""
-    yield TextChunk(
-        text="К сожалению, в выбранном контексте недостаточно подтверждённой информации "
-        "для полного ответа на ваш вопрос."
-    )
+    yield TextChunk(text=NOT_FOUND_ANSWER)
     record_rag_answer(
         breadth=breadth.value,
         answer="",
@@ -186,9 +186,6 @@ async def fetch_context_neighbors(
         return []
 
     if doc.metadata.get("content_type") != PageContentType.TABLE.value:
-        if not enumerate_cases and provision_identity(doc) is None:
-            return []
-
         neighbors = await chunk_search.get_neighbors(
             document_id,
             chunk_index,
@@ -234,13 +231,15 @@ async def enrich_with_neighbors(
     if not chunk_search:
         return docs
 
-    existing_hashes = {h for h in (doc.metadata.get("content_hash") for doc, _ in docs) if h is not None}
-    new_docs: list[tuple[Document, float]] = []
-    current_chars = sum(len(doc.page_content) for doc, _ in docs)
-    max_chars = max_context_tokens * CHARS_PER_TOKEN
+    # Select anchors before expansion and reserve half the context for their
+    # continuations. Keep the original candidate pool for the final prompt's
+    # exact token counter, which may have a different remaining budget.
+    anchors = select_neighbor_anchors(docs, max_context_tokens, query)
+    existing = {evidence_identity(doc) for doc, _ in docs}
     scopes: set[tuple[int, str, int | None, int | None]] = set()
+    queues: list[tuple[float, deque[ChunkRecord]]] = []
 
-    for doc, score in docs:
+    for doc, score in anchors:
         try:
             neighbors = await fetch_context_neighbors(
                 doc,
@@ -248,7 +247,9 @@ async def enrich_with_neighbors(
                 user,
                 full_table=full_table,
                 enumerate_cases=enumerate_cases,
-                hashes=existing_hashes,
+                # Equal bodies can carry different conditions even within one
+                # document; deduplicate complete evidence after fetching it.
+                hashes=set(),
                 scopes=scopes,
             )
         except Exception:
@@ -257,9 +258,48 @@ async def enrich_with_neighbors(
             )
             continue
 
-        for neighbor in neighbors:
-            if not neighbor.content_hash or neighbor.content_hash in existing_hashes:
+        queues.append((score, deque(neighbors)))
+
+    expanded = pack_context_neighbors(
+        anchors, queues, existing, max_context_tokens, full_table=full_table, query=query
+    )
+    return docs + expanded[len(anchors) :]
+
+
+def select_neighbor_anchors(
+    docs: list[tuple[Document, float]], max_context_tokens: int, query: str
+) -> list[tuple[Document, float]]:
+    """Reserve expansion space without excluding a large, stronger anchor."""
+    for item in sorted(docs, key=lambda item: -item[1]):
+        cost = estimate_text_tokens(render_selected_docs([item])[0])
+
+        if cost <= max_context_tokens:
+            anchor_budget = max(1, max_context_tokens // 2, cost)
+            _, selected = select_context(docs, anchor_budget, estimate_text_tokens, [query])
+            selected_keys = {evidence_identity(doc) for doc, _ in selected}
+            return [item for item in docs if evidence_identity(item[0]) in selected_keys]
+
+    return []
+
+
+def pack_context_neighbors(
+    docs: list[tuple[Document, float]],
+    queues: list[tuple[float, deque[ChunkRecord]]],
+    existing: set[tuple[object, ...]],
+    max_context_tokens: int,
+    *,
+    full_table: bool,
+    query: str,
+) -> list[tuple[Document, float]]:
+    new_docs: list[tuple[Document, float]] = []
+
+    # Give each retrieved scope a turn before adding its second neighbor.
+    while any(queue for _, queue in queues):
+        for score, queue in queues:
+            if not queue:
                 continue
+
+            neighbor = queue.popleft()
 
             neighbor_doc = LCDocument(
                 page_content=neighbor.content,
@@ -267,33 +307,33 @@ async def enrich_with_neighbors(
             )
 
             neighbor_doc = neighbor_doc if full_table else focus_table_rows(neighbor_doc, query)
+            identity = evidence_identity(neighbor_doc)
 
-            neighbor_chars = len(neighbor_doc.page_content)
+            if identity in existing:
+                continue
 
-            if current_chars + neighbor_chars > max_chars:
-                break
+            trial = [*docs, *new_docs, (neighbor_doc, score * 0.9)]
+
+            if estimate_text_tokens(render_selected_docs(trial)[0]) > max_context_tokens:
+                continue
 
             new_docs.append((neighbor_doc, score * 0.9))
-            existing_hashes.add(neighbor.content_hash)
-            current_chars += neighbor_chars
+            existing.add(identity)
 
     return docs + new_docs
 
 
-def is_not_found_answer(answer: str) -> bool:
-    """Return True if the LLM answer indicates information was not found."""
-    lower = answer.lower().strip()
+def mark_partial_answer(answer: str) -> str:
+    """Replace a standalone refusal appended to a substantive answer."""
+    if is_not_found_answer(answer):
+        return answer
 
-    if "информация не найдена в документах" in lower:
-        return True
-
-    if len(lower) < NOT_FOUND_SHORT_LIMIT and not re.search(r"\[\d+\]", answer):
-        return any(p in lower for p in NOT_FOUND_PATTERNS)
-
-    return False
-
-
-NOT_FOUND_SHORT_LIMIT = 50
+    return re.sub(
+        r"(?:^|(?<=[.!?])\s+|\n+)информация не найдена в документах(?:\.(?=\s|$)|$)",
+        "\n\nОтвет частичный: остальная информация не подтверждена документами.",
+        answer,
+        flags=re.IGNORECASE,
+    )
 
 
 def effective_from_for(doc: Document) -> _date:

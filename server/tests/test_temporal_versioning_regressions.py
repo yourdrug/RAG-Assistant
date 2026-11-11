@@ -395,18 +395,18 @@ async def test_exact_candidates_include_temporal_metadata_and_request_date() -> 
         is_current=False,
     )
     search = SimpleNamespace(search_substring=AsyncMock(return_value=[result]))
-    candidates: list[Any] = []
+    candidates: list[Any] = [SearchDocument(page_content="seed", metadata={"document_id": 2})]
     await apply_exact_search(
-        "rules",
+        "Что предусматривает пункт 5?",
         candidates,
         UserContext(1, UserKind.INTERNAL),
         cast("RagContext", SimpleNamespace(as_of_date=date(2024, 1, 1))),
         search,
     )
     assert search.search_substring.call_args.kwargs["as_of_date"] == date(2024, 1, 1)
-    assert candidates[0].metadata["act_id"] == 4
-    assert candidates[0].metadata["act_version_id"] == 6
-    assert candidates[0].metadata["effective_from"] == "2024-01-01"
+    assert candidates[-1].metadata["act_id"] == 4
+    assert candidates[-1].metadata["act_version_id"] == 6
+    assert candidates[-1].metadata["effective_from"] == "2024-01-01"
 
 
 @pytest.mark.asyncio

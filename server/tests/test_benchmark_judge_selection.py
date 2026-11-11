@@ -40,6 +40,29 @@ def test_blank_or_oversized_judge_model_is_rejected(model: str) -> None:
 
 
 @pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.USER])
+def test_progress_snapshot_requires_admin(role: UserRole) -> None:
+    snapshot = {"phase": "full_evaluation", "evaluated": 1, "total": 2}
+    service = SimpleNamespace(progress=AsyncMock(return_value=snapshot))
+    app = FastAPI()
+    app.include_router(router)
+    app.add_exception_handler(AppClientError, handle_client_exception)
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        id=7, email="user@example.com", role=role.value, kind=UserKind.INTERNAL.value, is_active=True
+    )
+    app.dependency_overrides[create_benchmark_sweep_service] = lambda: service
+    with TestClient(app) as client:
+        response = client.get("/admin/benchmark/sweep/1/progress")
+
+    if role == UserRole.ADMIN:
+        assert response.status_code == 200
+        assert response.json() == snapshot
+        service.progress.assert_awaited_once_with(1)
+    else:
+        assert response.status_code == 403
+        service.progress.assert_not_awaited()
+
+
+@pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.USER])
 @pytest.mark.parametrize("mode", list(SweepEvaluationMode))
 @pytest.mark.parametrize("operation", ["create", "resume"])
 def test_api_preserves_selected_judge_and_requires_admin(

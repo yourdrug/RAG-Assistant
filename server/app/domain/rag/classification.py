@@ -5,6 +5,7 @@ Rules are ordered explicitly; all matching is independent of retrieval and LLM c
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from typing import TYPE_CHECKING
 
@@ -90,7 +91,11 @@ _CONDITIONAL_MARKERS = [
 ]
 
 
-_EXACT_REF_RE = re.compile(r"(статья|пункт|раздел|глава|параграф|п\.|ст\.)\s*\d+", re.IGNORECASE)
+_EXACT_REF_RE = re.compile(
+    r"\b(стать(?:я|и|ю|е|ей)|(?:под)?пункт[аеу]?|раздел[аеу]?|глав[аыеу]|параграф[аеу]?|пп?\.|ст\.)"
+    r"\s*(\d+(?:\.\d+)*)\b",
+    re.IGNORECASE,
+)
 
 
 _OUT_OF_DOMAIN_PATTERNS = [
@@ -175,6 +180,50 @@ def classify_query_domain(question: str, patterns: Mapping[str, tuple[str, ...]]
 def has_exact_reference(question: str) -> bool:
     """Check if question contains an exact structural reference (article, paragraph, etc.)."""
     return bool(_EXACT_REF_RE.search(question))
+
+
+@dataclass(frozen=True)
+class ExactReference:
+    """A provision kind from structural profiles and its complete number."""
+
+    kind: str
+    value: str
+
+
+def extract_structural_references(question: str) -> list[ExactReference]:
+    """Retain the structural kind as well as the complete provision number."""
+    references = []
+    kinds = (
+        ("ст", "article"),
+        ("глав", "chapter"),
+        ("раздел", "section"),
+        ("параграф", "clause"),
+        ("подпункт", "subpoint_num"),
+        ("пп.", "subpoint_num"),
+    )
+
+    for match in _EXACT_REF_RE.finditer(question):
+        label, number = match.groups()
+        kind = next((kind for stem, kind in kinds if label.lower().startswith(stem)), "point")
+        reference = ExactReference(kind, number)
+
+        if reference not in references:
+            references.append(reference)
+
+    return references
+
+
+def extract_exact_references(question: str) -> list[str]:
+    """Serialize typed references for the existing substring search port."""
+    labels = {
+        "article": "Статья",
+        "chapter": "Глава",
+        "section": "Раздел",
+        "clause": "Параграф",
+        "point": "Пункт",
+        "subpoint_num": "Подпункт",
+    }
+    return [f"{labels[ref.kind]} {ref.value}" for ref in extract_structural_references(question)]
 
 
 def is_out_of_domain(question: str) -> bool:

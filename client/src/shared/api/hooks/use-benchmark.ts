@@ -14,6 +14,7 @@ import type {
   BenchmarkRunsListResponse,
   RunCompareResponse,
   SweepCreateRequest,
+  SweepProgressSnapshot,
   SweepResponse,
   SweepsListResponse,
 } from "../types";
@@ -214,6 +215,19 @@ export function useSweeps() {
       query.state.data?.sweeps.some((s) => s.status === "pending" || s.status === "running")
         ? 3000
         : 10000,
+  });
+}
+
+export function useSweepProgress(sweepId: number, active: boolean) {
+  return useQuery({
+    queryKey: ["benchmark", "sweep-progress", sweepId],
+    queryFn: async () =>
+      (
+        await apiClient.get<SweepProgressSnapshot | null>(
+          `/admin/benchmark/sweep/${sweepId}/progress`,
+        )
+      ).data,
+    refetchInterval: active ? 3000 : false,
   });
 }
 

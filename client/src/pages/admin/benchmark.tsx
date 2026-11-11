@@ -41,7 +41,12 @@ import {
   useSweeps,
   useUpdateBenchmarkQuestion,
 } from "@/shared/api/hooks";
-import type { BenchmarkQuestion, BenchmarkQuestionCreate, BenchmarkRun } from "@/shared/api/types";
+import type {
+  BenchmarkQuestion,
+  BenchmarkQuestionCreate,
+  BenchmarkRun,
+  SweepResponse,
+} from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -55,6 +60,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Textarea } from "@/shared/ui/textarea";
 import { BenchmarkJudgeModel } from "./benchmark-judge-model";
+import { SweepProgressDialog } from "./benchmark-sweep-progress";
 import { BenchmarkTrendsTab } from "./benchmark-trends";
 
 // ─── Reusable widgets ─────────────────────────────────────────────────────
@@ -1051,11 +1057,22 @@ function SweepProgressTab({
   const cancelSweep = useCancelSweep();
   const resumeSweep = useResumeSweep();
   const restartSweep = useCreateSweep();
+  const [detailSweep, setDetailSweep] = useState<SweepResponse | null>(null);
+
+  function selectSweep(sweep: SweepResponse) {
+    onSweepSelect(sweep.id);
+    if (sweep.status === "pending" || sweep.status === "running") setDetailSweep(sweep);
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Sweeps</h3>
+        <div>
+          <h3 className="text-lg font-semibold">Sweeps</h3>
+          <p className="text-sm text-muted-foreground">
+            Click an active sweep for live execution details.
+          </p>
+        </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-1" /> Refresh
         </Button>
@@ -1088,11 +1105,29 @@ function SweepProgressTab({
                 <TableRow
                   key={s.id}
                   className={
-                    activeSweepId === s.id ? "bg-muted/50" : "cursor-pointer hover:bg-muted/30"
+                    activeSweepId === s.id
+                      ? "cursor-pointer bg-muted/50"
+                      : "cursor-pointer hover:bg-muted/30"
                   }
-                  onClick={() => onSweepSelect(s.id)}
+                  onClick={() => selectSweep(s)}
                 >
-                  <TableCell className="font-mono">#{s.id}</TableCell>
+                  <TableCell className="font-mono">
+                    {s.status === "pending" || s.status === "running" ? (
+                      <button
+                        type="button"
+                        className="underline underline-offset-4"
+                        aria-label={`View progress for sweep #${s.id}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          selectSweep(s);
+                        }}
+                      >
+                        #{s.id}
+                      </button>
+                    ) : (
+                      `#${s.id}`
+                    )}
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={s.status} />
                     {s.status === "failed" && <SweepJobError jobId={s.job_id ?? null} />}
@@ -1211,6 +1246,13 @@ function SweepProgressTab({
             </TableBody>
           </Table>
         </div>
+      )}
+      {detailSweep && (
+        <SweepProgressDialog
+          key={detailSweep.id}
+          initialSweep={detailSweep}
+          onClose={() => setDetailSweep(null)}
+        />
       )}
     </div>
   );

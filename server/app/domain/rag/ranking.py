@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any, Protocol
 
-from domain.knowledge.chunk import SENTENCE_UNIT_KIND
+from domain.knowledge.chunk import CHUNK_CONTEXT_FIELDS, SENTENCE_UNIT_KIND
+from domain.knowledge.enums import PageContentType
 from domain.shared.hashing import content_hash
 
 
@@ -113,11 +115,31 @@ def same_evidence_block(anchor: RetrievalDocument, candidate: RetrievalDocument)
     """Recognize bounded continuations without crossing provisions or versions."""
     key = provision_identity(anchor)
 
-    if key is None or key != provision_identity(candidate):
+    if key != provision_identity(candidate):
         return False
 
     start = anchor.metadata.get("chunk_index")
     end = candidate.metadata.get("chunk_index")
+
+    if key is None:
+        # Plain text has no provision label. Only immediate chunks within the
+        # same document, edition and inherited conditions form a neighborhood.
+        source = anchor.metadata.get("document_id") or anchor.metadata.get("source")
+        other_source = candidate.metadata.get("document_id") or candidate.metadata.get("source")
+        return bool(
+            source
+            and source == other_source
+            and anchor.metadata.get("act_version_id") == candidate.metadata.get("act_version_id")
+            and not anchor.metadata.get("table_id")
+            and not candidate.metadata.get("table_id")
+            and anchor.metadata.get("content_type") != PageContentType.TABLE.value
+            and candidate.metadata.get("content_type") != PageContentType.TABLE.value
+            and anchor.metadata.get("parent_units") == candidate.metadata.get("parent_units")
+            and start is not None
+            and end is not None
+            and abs(end - start) <= 1
+        )
+
     return start is None or end is None or abs(end - start) < MAX_PROVISION_CHUNKS
 
 
@@ -156,15 +178,34 @@ def rrf_merge(
 
 
 def deduplicate_docs[DocumentT: RetrievalDocument](docs: list[DocumentT]) -> list[DocumentT]:
-    """Remove near-duplicate chunks by content_hash to improve context diversity."""
-    seen_hashes: set[str] = set()
+    """Merge repeated evidence only within the same source, edition and scope."""
+    seen: set[tuple[object, ...]] = set()
     unique_docs: list[DocumentT] = []
 
     for doc in docs:
-        h = content_hash(doc.page_content)
+        identity = evidence_identity(doc)
 
-        if h not in seen_hashes:
-            seen_hashes.add(h)
+        if identity not in seen:
+            seen.add(identity)
             unique_docs.append(doc)
 
     return unique_docs
+
+
+def evidence_identity(doc: RetrievalDocument) -> tuple[object, ...]:
+    """Keep every interpretation field, including complete parent conditions."""
+    metadata = doc.metadata
+    document_id = metadata.get("document_id")
+    source = (
+        ("document", document_id)
+        if document_id is not None
+        else ("source", metadata.get("source") or metadata.get("filename"))
+    )
+    scope = {key: value for key, value in metadata.items() if key in CHUNK_CONTEXT_FIELDS}
+    return (
+        source,
+        metadata.get("act_id"),
+        metadata.get("act_version_id"),
+        content_hash(doc.page_content),
+        content_hash(json.dumps(scope, sort_keys=True, ensure_ascii=False, default=str)),
+    )

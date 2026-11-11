@@ -9,8 +9,7 @@ from langchain_core.documents import Document
 
 from application.search import HybridRetriever
 from domain.rag.evidence.context import content_with_parent_scope
-from domain.rag.ranking import RetrievalDocument, prioritize_distinct_provisions
-from domain.shared.hashing import content_hash
+from domain.rag.ranking import RetrievalDocument, evidence_identity, prioritize_distinct_provisions
 from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions, capture_stage
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
@@ -26,7 +25,7 @@ def deduplicate_docs[DocumentT: RetrievalDocument](docs: list[DocumentT]) -> lis
     selected: list[DocumentT] = []
 
     for doc in docs:
-        identity = content_hash(doc.page_content)
+        identity = evidence_identity(doc)
 
         if identity in seen:
             if active_evidence.get() is not None:
@@ -141,4 +140,5 @@ def reranker_text(doc: Document) -> str:
     if section:
         prefix += f" ({section})"
 
-    return f"{prefix} {doc.page_content}" if prefix else doc.page_content
+    content = content_with_parent_scope(doc)
+    return f"{prefix} {content}" if prefix else content

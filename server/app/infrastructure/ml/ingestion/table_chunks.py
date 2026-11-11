@@ -64,7 +64,9 @@ def table_document_chunks(doc: Document, chunk_size: int, max_rows: int) -> list
     if len(lines) < MIN_TABLE_LINES:
         return text_document_chunks(doc, chunk_size, 0)
 
-    header = "\n".join(lines[:2])
+    # GFM delimiter cells need only one hyphen ("|-|:-:|"), with optional colons.
+    header_size = 2 if re.fullmatch(r"\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?", lines[1]) else 1
+    header = "\n".join(lines[:header_size])
     metadata = {**doc.metadata, "table_header": header}
     prefix = context_prefix(metadata, chunk_size)
     row_budget = chunk_size - len(prefix) - len(header) - 1
@@ -72,7 +74,7 @@ def table_document_chunks(doc: Document, chunk_size: int, max_rows: int) -> list
     if row_budget <= 0:
         return text_document_chunks(Document(page_content=doc.page_content, metadata=metadata), chunk_size, 0)
 
-    return _pack_rows(lines[2:], prefix, header, metadata, row_budget, max_rows=max_rows)
+    return _pack_rows(lines[header_size:], prefix, header, metadata, row_budget, max_rows=max_rows)
 
 
 def _pack_rows(

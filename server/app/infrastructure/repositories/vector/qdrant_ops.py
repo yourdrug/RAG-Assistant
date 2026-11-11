@@ -27,6 +27,7 @@ from qdrant_client.models import (
 
 from application.ports.ml_clients import AsyncSemaphorePort
 from config import settings
+from domain.rag.evidence.context import content_with_parent_scope
 from domain.shared.hashing import content_hash
 from infrastructure.corpus.snapshot import collection_for
 from infrastructure.ml.clients.client_lease import client_operation
@@ -210,7 +211,7 @@ def build_points(chunks: list[Document], vectors: list[list[float]]) -> list[Poi
     return [
         PointStruct(
             id=doc.metadata["chunk_id"],
-            vector=point_vectors(doc.page_content, vector),
+            vector=point_vectors(content_with_parent_scope(doc), vector),
             payload={"page_content": doc.page_content, "metadata": doc.metadata},
         )
         for doc, vector in zip(chunks, vectors, strict=True)
@@ -247,14 +248,11 @@ def filter_upload_chunks(chunks: list[Document]) -> list[Document]:
 
 
 def prepare_upload_texts(chunks: list[Document]) -> list[str]:
-    # Pre-compute all content hashes (faster than per-doc)
-    texts = [doc.page_content for doc in chunks]
-    hashes = [content_hash(t) for t in texts]
+    # Body hashes remain stable for persistence; all search models see full scope.
+    for doc in chunks:
+        doc.metadata["content_hash"] = content_hash(doc.page_content)
 
-    for doc, h in zip(chunks, hashes, strict=False):
-        doc.metadata["content_hash"] = h
-
-    return texts
+    return [content_with_parent_scope(doc) for doc in chunks]
 
 
 def log_upload_progress(done: int, total: int, t0: float) -> None:

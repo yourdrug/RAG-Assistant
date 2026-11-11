@@ -12,13 +12,12 @@ from domain.rag.ranking import (
     CONTINUATION_SCORE_RATIO,
     MAX_PROVISION_CHUNKS,
     RetrievalDocument,
+    evidence_identity,
     same_evidence_block,
 )
-from domain.shared.hashing import content_hash
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.ml.rag.benchmark_evidence import snapshot_documents
-from infrastructure.ml.rag.context_rendering import build_header, render_selected_docs
-from infrastructure.ml.rag.document_sources import document_identity
+from infrastructure.ml.rag.context_rendering import render_selected_docs
 
 
 class ExclusionReason(StrEnum):
@@ -95,7 +94,7 @@ def select_context[ItemT: Document | tuple[Document, float]](
         entry = max(remaining, key=priority)
         remaining.remove(entry)
         _, item, _, terms = entry
-        companions = evidence_companions(item, remaining, budget, count_tokens)
+        companions = evidence_companions(item, remaining, budget, count_tokens, chosen)
         trial_context, trial_selected = render_selected_docs(
             [*chosen, item, *(other[1] for other in companions)]
         )
@@ -125,15 +124,13 @@ def context_candidates[ItemT: Document | tuple[Document, float]](
     )
     parts = [set(tokenize(part)) for part in query_parts if part.strip()]
     parts = [part for part in parts if part]
-    seen: set[tuple[tuple[str, object], str, str]] = set()
+    seen: set[tuple[object, ...]] = set()
     remaining = []
 
     for index, item in ranked:
         doc, score = item if isinstance(item, tuple) else (item, 0.0)
         scoped = sanitize_for_prompt(content_with_parent_scope(doc))
-        # Equal text can have different legal scope/source metadata. Only merge
-        # blocks with the same document, header and complete parent conditions.
-        identity = (document_identity(doc), build_header(doc, 1), content_hash(scoped))
+        identity = evidence_identity(doc)
 
         if identity in seen:
             if exclusions is not None:
@@ -169,8 +166,9 @@ def evidence_companions[ItemT: Document | tuple[Document, float]](
     remaining: list[tuple[int, ItemT, float, set[str]]],
     budget: int,
     count_tokens: Callable[[str], int],
+    chosen: Sequence[ItemT] = (),
 ) -> list[tuple[int, ItemT, float, set[str]]]:
-    """Treat a bounded provision continuation as one evidence selection unit."""
+    """Group bounded provision continuations only when they fit with chosen evidence."""
     doc, score = item if isinstance(item, tuple) else (item, 0.0)
     companions = [
         other
@@ -185,4 +183,11 @@ def evidence_companions[ItemT: Document | tuple[Document, float]](
     block_context, _ = render_selected_docs([item, *(other[1] for other in companions)])
     # Leave room for independent provisions and question parts.
     block_cost = count_tokens(block_context) - count_tokens("")
-    return companions if block_cost <= (budget - count_tokens("")) / 2 else []
+
+    if block_cost > (budget - count_tokens("")) / 2:
+        return []
+
+    # Optional continuations must fit alongside the accepted context. Otherwise
+    # let the higher-ranked fragment compete on its own before its tail.
+    trial_context, _ = render_selected_docs([*chosen, item, *(other[1] for other in companions)])
+    return companions if count_tokens(trial_context) <= budget else []

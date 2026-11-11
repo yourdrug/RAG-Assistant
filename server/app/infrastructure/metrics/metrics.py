@@ -17,7 +17,7 @@ from prometheus_client import Counter, Gauge, Histogram
 from config import settings
 from infrastructure.database.database import database
 from infrastructure.ml.clients import factories
-from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
+from infrastructure.ml.rag.prompt_blocks import is_not_found_answer
 from infrastructure.ml.usage_capture import extract_usage_from_langchain  # noqa: F401
 
 
@@ -315,8 +315,7 @@ def record_rag_answer(
     RAG_SIMILARITY_SCORES.observe(avg_similarity)
     RAG_ANSWER_LENGTH.observe(len(answer))
 
-    lower = answer.lower()
-    is_not_found = any(p in lower for p in NOT_FOUND_PATTERNS)
+    is_not_found = is_not_found_answer(answer)
     answer_type = "not_found" if is_not_found else "found"
     RAG_QUERIES_TOTAL.labels(breadth=breadth, answer_type=answer_type).inc()
 

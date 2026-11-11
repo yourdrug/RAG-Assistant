@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 from langchain_core.messages import HumanMessage
 import pytest
 
+from domain.benchmark.evaluation import evaluate_evidence
 from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
@@ -56,6 +57,25 @@ def test_marginal_coverage_prioritizes_an_uncovered_question_part() -> None:
         docs, 2, context_counter=counter, query_parts=["registration passport", "delivery invoice"]
     )
     assert [d.page_content for d, _ in selected] == ["registration passport", "delivery invoice"]
+
+
+@pytest.mark.parametrize("prompt_overhead", [0, 1000])
+def test_nonfitting_continuation_does_not_displace_its_fitting_anchor(prompt_overhead: int) -> None:
+    first = (doc("Primary evidence " * 100, 1), 1.0)
+    anchor = (doc("21.2. Submit the required application. " * 8, 2), 0.95)
+    tail = (doc("Additional details. " * 8, 2), 0.9)
+    anchor[0].metadata.update(section="point 21 > subpoint_num 21.2", chunk_index=0)
+    tail[0].metadata.update(section="point 21 > subpoint_num 21.2", chunk_index=1)
+
+    def counter(text: str) -> int:
+        return prompt_overhead + estimate_text_tokens(text)
+
+    expected, _ = render_selected_docs([first, anchor])
+    budget = counter(expected)
+    context, selected = format_docs_with_selection([first, anchor, tail], budget, context_counter=counter)
+    assert [d.page_content for d, _ in selected] == [first[0].page_content, anchor[0].page_content]
+    assert context == expected
+    assert counter(context) <= budget
 
 
 def test_rejected_oversized_block_does_not_mark_question_part_as_covered() -> None:
@@ -192,8 +212,19 @@ def saved_snapshot_replay() -> dict[str, Any]:
     root = Path(__file__).resolve().parents[2]
     script = root / "scripts/benchmark/replay_context_snapshots.py"
     snapshot = Path(__file__).parent / "fixtures" / "context_budget_replay.json"
-    result = runpy.run_path(str(script))["replay"](json.loads(snapshot.read_text(encoding="utf-8")))
+    saved = json.loads(snapshot.read_text(encoding="utf-8"))
+    result = runpy.run_path(str(script))["replay"](saved)
     assert isinstance(result, dict)
+
+    # Baseline comes from the capture: current prompts and rendering deliberately
+    # differ from the old ones, so reconstruction is no longer byte-identical.
+    for question in result["questions"]:
+        original = next(q for q in saved["questions"] if q["id"] == question["id"])
+        evidence = original["evidence"]
+        question["captured_recall"] = evaluate_evidence(
+            original["annotations"], evidence["retrieved"], evidence["selected"], evidence["context"], ""
+        )[0]["context_fragment_recall"]
+
     return result
 
 
@@ -202,10 +233,8 @@ def test_saved_snapshot_loss_is_reproduced_and_repaired(
     saved_snapshot_replay: dict[str, Any], question_id: int
 ) -> None:
     question = next(q for q in saved_snapshot_replay["questions"] if q["id"] == question_id)
-    assert question["legacy_context_exact_match"]
-    legacy = question["variants"]["legacy"]
     rebuilt = question["variants"]["new"]
-    assert legacy["context_fragment_recall"] < 1
+    assert question["captured_recall"] < 1
     assert rebuilt["context_fragment_recall"] == 1
     assert rebuilt["input_tokens"] <= question["input_budget"]
     assert rebuilt["missing_context_fragments"] == []

@@ -74,21 +74,66 @@ def is_row_annotation(row: str) -> bool:
     return not key or bool(re.match(r"\(|примечан|услови|исключени", key, re.IGNORECASE))
 
 
-def row_matches_query(row: str, query: str) -> bool:
+def row_matches_query(row: str, query: str) -> bool:  # noqa: PLR0911
     cells = re.split(r"(?<!\\)\|", row.strip())[1:-1]
 
     if not cells or not cells[0].strip():
         return False
 
-    candidates = [cells[0].strip()]
+    key = cells[0].strip()
 
-    if len(cells) > 1:
-        name = re.sub(r"\u2039br\u203a|<br\s*/?>|\b(?:an|n|a)\.\.\d+", " ", cells[1])
-        name = re.sub(r"\s+", " ", name).strip()
+    if key.isdigit():
+        if re.search(
+            r"(?:\b(?:пол[еяю]|строк[аиеу]|граф[аыеу]|позици[яию]|пункт\w*|п\.)|№)\s*"
+            + re.escape(key)
+            + r"(?![\w.])",
+            query,
+            re.IGNORECASE,
+        ):
+            return True
+    elif re.search(r"(?<!\w)" + re.escape(key) + r"(?!\w)", query, re.IGNORECASE):
+        return True
 
-        if name and not name.isdigit():
-            candidates.append(name)
+    if len(cells) <= 1:
+        return False
 
-    return any(
-        re.search(r"(?<!\w)" + re.escape(value) + r"(?!\w)", query, re.IGNORECASE) for value in candidates
+    name = re.sub(r"\u2039br\u203a|<br\s*/?>|\b(?:an|n|a)\.\.\d+", " ", cells[1])
+
+    tokens = word_stems(name)
+    query_stems = word_stems(query)
+    return bool(tokens) and all(
+        any(stems_match(token, candidate) for candidate in query_stems) for token in tokens
+    )
+
+
+WORD_ENDING_RE = re.compile(
+    r"(?:иями|иях|ием|ией|ями|ами|ого|его|ому|ему|ыми|ими|ия|ии|ию|ой|ей|ий|ый|ая|яя|ое|ее|ие|ые"
+    r"|ов|ев|ам|ям|ом|ем|ах|ях|ы|и|у|ю|я|е|а|о)$"
+)
+MIN_PREFIX_STEM_LENGTH = 5
+MAX_STEM_LENGTH_DIFFERENCE = 2
+
+
+def word_stems(text: str) -> set[str]:
+    """Approximate stems for inflection-tolerant name matching in table rows."""
+    return {
+        WORD_ENDING_RE.sub("", word) for word in re.findall(r"[а-яёa-z]{3,}", text.lower().replace("ё", "е"))
+    }
+
+
+def stems_match(left: str, right: str) -> bool:
+    """Treat stems as equal when one extends the other by a short ending remnant.
+
+    Suffix stripping cannot normalize every case pair ("наименован" from
+    "наименование", "наименовани" from "наименования" in some paths), so a
+    long shared prefix with a small length difference also counts.
+    """
+    if left == right:
+        return True
+
+    shorter, longer = sorted((left, right), key=len)
+    return (
+        len(shorter) >= MIN_PREFIX_STEM_LENGTH
+        and len(longer) - len(shorter) <= MAX_STEM_LENGTH_DIFFERENCE
+        and longer.startswith(shorter)
     )

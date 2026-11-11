@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING
 
 from domain.knowledge.enums import PageContentType
-from infrastructure.ml.ingestion.sections import Section
+from infrastructure.ml.ingestion.sections import Section, table_context_sections
 
 
 if TYPE_CHECKING:
@@ -168,10 +168,12 @@ def parse_markdown_sections(file_path: Path) -> list[Section]:
     matches = list(_MD_HEADER_RE.finditer(masked))
 
     if not matches:
-        return [
-            Section(None, text, PageContentType(ctype))
-            for ctype, text in split_markdown_tables(_clean_markdown_text(raw))
-        ]
+        return table_context_sections(
+            [
+                Section(None, text, PageContentType(ctype))
+                for ctype, text in split_markdown_tables(_clean_markdown_text(raw))
+            ]
+        )
 
     result: list[Section] = []
 
@@ -206,7 +208,7 @@ def parse_markdown_sections(file_path: Path) -> list[Section]:
             for ctype, text in split_markdown_tables(content):
                 result.append(Section(breadcrumb, text, PageContentType(ctype)))
 
-    return result
+    return table_context_sections(result)
 
 
 def parse_markdown(file_path: Path) -> str:

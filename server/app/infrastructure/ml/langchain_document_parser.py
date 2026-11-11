@@ -14,9 +14,11 @@ from langchain.schema import Document
 from domain.ingestion.doc_type import DOC_TYPE_SAMPLE_CHARS, classify_doc_type
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocDomain, PageContentType
+from infrastructure.ml.ingestion.act_identity import act_heading_title
 from infrastructure.ml.ingestion.amendment_context import attach_table_replacement_scope
 from infrastructure.ml.ingestion.markdown import extract_date_from_filename
 from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS, FormatContext
+from infrastructure.ml.ingestion.sections import table_context_sections
 from infrastructure.ml.ingestion.splitting import split_documents
 
 
@@ -140,6 +142,21 @@ def heading_context(sections: list[Section]) -> dict[str, Any]:
     }
 
 
+def act_title_with_subject(requisites: str, title: str | None) -> str:
+    """Prefix a descriptive document title with the act requisites instead of replacing it.
+
+    Titles that merely repeat the act kind/heading ("ПОСТАНОВЛЕНИЕ ...") carry
+    no subject and are dropped.
+    """
+    subject = (title or "").strip().strip('«»"')
+    kind = requisites.split(" ", 1)[0].casefold()
+
+    if not subject or subject.casefold().startswith(kind) or subject in requisites:
+        return requisites
+
+    return f"{requisites} «{subject}»"
+
+
 class LangchainDocumentParser:
     """Parses files into domain RawDocuments using LangChain infrastructure."""
 
@@ -183,7 +200,22 @@ class LangchainDocumentParser:
                 for section in parsed.sections
             ]
 
-        return self._apply_doc_level_fallbacks(docs, file_path)
+        # Only a title from document properties names the act's subject; the
+        # filename and first-section fallbacks below do not.
+        parser_title = next((d.metadata["doc_title"] for d in docs if d.metadata.get("doc_title")), None)
+        docs = self._apply_doc_level_fallbacks(docs, file_path)
+        heading_text = "\n".join(f"{doc.metadata.get('section', '')}\n{doc.page_content}" for doc in docs[:3])
+        identity = act_heading_title(heading_text)
+
+        if identity is not None:
+            requisites, issued = identity
+
+            for doc in docs:
+                doc.metadata["doc_title"] = act_title_with_subject(requisites, parser_title)
+                doc.metadata["doc_date"] = issued
+                doc.metadata.pop("_doc_title_fallback", None)
+
+        return docs
 
     @staticmethod
     def _apply_doc_level_fallbacks(docs: list[RawDocument], file_path: Path) -> list[RawDocument]:
@@ -230,6 +262,7 @@ class LangchainDocumentParser:
         file_path: Path,
         page_meta: dict[str, Any] | None = None,
     ) -> list[RawDocument]:
+        sections = table_context_sections(sections)
         ctx = heading_context(sections)
         total = sum(bool(section.content.strip()) for section in sections)
         docs: list[RawDocument] = []

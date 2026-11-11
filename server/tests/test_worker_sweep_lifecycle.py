@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from application.benchmark.services import BenchmarkSweepService
 from application.benchmark.sweep_jobs import SweepJobService
 from composition import worker as worker_composition
 from composition.cli.commands import worker
@@ -87,6 +88,7 @@ class SweepFactory:
             update_progress=AsyncMock(),
             delete_checkpoints=AsyncMock(),
             load_checkpoint=AsyncMock(return_value=None),
+            save_checkpoint=AsyncMock(),
         )
         self.sweeps.set_best_run = AsyncMock()
         self.runs = SimpleNamespace(save_for_sweep=AsyncMock(return_value=SimpleNamespace(id=1)))
@@ -116,6 +118,39 @@ class SweepUow:
     async def __aexit__(self, *args: object) -> None:
         if not args[0]:
             self.factory.committed_progress = list(self.benchmark_sweeps.update_progress.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_progress_snapshot_survives_late_observers_without_answer_content() -> None:
+    factory = SweepFactory()
+    factory.saved.job_id = 2
+    factory.saved.status = BenchmarkSweepStatus.RUNNING
+    service = SweepJobService(cast("UnitOfWorkFactory", factory), AsyncMock(), AsyncMock())
+    result = {"config": {"top_k": 3}, "avg_hit_rate": 0.5, "results": [{"answer": "private"}]}
+    await service.record_sweep_progress(factory.saved, 1, 2, 4, result)
+    snapshot = factory.sweeps.save_checkpoint.await_args.args[2]
+    assert snapshot["phase"] == "retrieval"
+    assert snapshot["evaluated"] == 2
+    assert snapshot["total"] == 4
+    assert snapshot["latest"] == {"config": {"top_k": 3}, "avg_hit_rate": 0.5}
+    assert snapshot["updated_at"]
+    factory.sweeps.load_checkpoint.return_value = snapshot
+    reader = BenchmarkSweepService(cast("UnitOfWorkFactory", factory))
+    assert await reader.progress(1) == snapshot
+    factory.saved.job_id = 3
+    assert await reader.progress(1) is None
+
+
+@pytest.mark.asyncio
+async def test_progress_snapshot_records_phase_reset() -> None:
+    factory = SweepFactory()
+    service = SweepJobService(cast("UnitOfWorkFactory", factory), AsyncMock(), AsyncMock())
+    await service.record_sweep_progress(factory.saved, 1, 0, 2, {"phase": "full_evaluation"})
+    snapshot = factory.sweeps.save_checkpoint.await_args.args[2]
+    assert snapshot["phase"] == "full_evaluation"
+    assert snapshot["evaluated"] == 0
+    assert snapshot["total"] == 2
+    assert snapshot["latest"] == {}
 
 
 @pytest.mark.asyncio

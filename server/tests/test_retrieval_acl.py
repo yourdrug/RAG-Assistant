@@ -238,8 +238,10 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter() -> None
             AsyncMock(return_value=[]),
         ) as search,
         patch("infrastructure.ml.rag.retrieval_pipeline.enrich_with_neighbors", AsyncMock(return_value=[])),
-        patch("infrastructure.ml.rag.retrieval_pipeline.select_final_top_k", return_value=5),
-        patch("infrastructure.ml.rag.retrieval_pipeline.compute_context_budget", return_value=1000),
+        patch(
+            "infrastructure.ml.rag.retrieval_pipeline.prepare_generation_budget",
+            return_value=(MagicMock(), [], 4096, 400, 1000),
+        ),
     ):
         await rerank_and_enrich(
             "query",

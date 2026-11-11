@@ -343,7 +343,9 @@ class Chunker:
                 if key == DocDomain.LEGAL.value
                 else settings.decree_chunk_overlap
             )
-            self.chunk_overlap = domain_setting(domain_settings, f"{key}_chunk_overlap", key, default_overlap)
+            self.chunk_overlap = domain_setting(
+                domain_settings, f"{key}_chunk_overlap", key, default_overlap, allow_zero=True
+            )
             self.patterns = [level.pattern for level in self.profile.content_boundaries()]
         elif domain == DocDomain.LEGAL.value:
             self.chunk_size = self.table_size

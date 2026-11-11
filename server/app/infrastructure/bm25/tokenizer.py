@@ -17,4 +17,6 @@ def tokenize(text: str) -> list[str]:
 
 def tokenize_raw(text: str) -> list[str]:
     """Lowercase + split on non-alphanumeric without stemming. For indexing."""
-    return [t for t in _TOKEN_RE.findall(text.lower().replace("ё", "е")) if len(t) > 1 or t.isdigit()]
+    return [
+        t for t in _TOKEN_RE.findall(text.lower().replace("ё", "е")) if len(t) > 1 or t.isdigit()
+    ] + re.findall(r"\b\d+(?:\.\d+)+\b", text)

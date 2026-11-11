@@ -9,6 +9,7 @@ the event sequence produced by stream().
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -26,6 +27,7 @@ from domain.rag.classification import classify_question_breadth
 from domain.rag.context import RagContext
 from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
+from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER
 from infrastructure.ml.rag.rag_postprocess import apply_citation_filter, resolve_temporal_conflicts
 from infrastructure.ml.rag.rag_steps import RagOperations
 from tests.test_rag_pipeline import make_rag
@@ -143,7 +145,7 @@ _STREAM_PATCHES = {
     "infrastructure.ml.rag.rag_steps.classify_query_domain": MagicMock(return_value="general"),
     "infrastructure.ml.rag.rag_steps.is_out_of_domain": MagicMock(return_value=False),
     "infrastructure.ml.rag.rag_steps.condense_question": AsyncMock(return_value="condensed question"),
-    "infrastructure.ml.rag.rag_steps.build_prompt": MagicMock(
+    "infrastructure.ml.rag.generation_budget.build_prompt": MagicMock(
         return_value=MagicMock(
             messages=[SystemMessage(content="system prompt")],
             format_messages=lambda **_kw: [
@@ -172,17 +174,13 @@ _STREAM_PATCHES = {
 @pytest.fixture(autouse=True)
 def _patch_stream_deps() -> Iterator[None]:
     """Patch all I/O-dependent imports for RagService.stream()."""
-    patchers = []
+    # ExitStack undoes already-started patches if a later target is missing,
+    # so a failed setup cannot leak mocks into other test modules.
+    with ExitStack() as stack:
+        for target, mock_val in _STREAM_PATCHES.items():
+            stack.enter_context(patch(target, mock_val))
 
-    for target, mock_val in _STREAM_PATCHES.items():
-        p = patch(target, mock_val)
-        p.start()
-        patchers.append(p)
-
-    yield
-
-    for p in patchers:
-        p.stop()
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +317,7 @@ class TestStreamRelevanceGate:
             events = await collect_events(service, "obscure question")
             text_chunks = [e for e in events if isinstance(e, TextChunk)]
             assert len(text_chunks) == 1
-            assert "в выбранном контексте недостаточно подтверждённой информации" in text_chunks[0].text
+            assert text_chunks[0].text == NOT_FOUND_ANSWER
 
     @pytest.mark.asyncio
     async def test_pass_yields_answer(self) -> None:

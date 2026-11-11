@@ -290,7 +290,7 @@ async def test_pipeline_top_k_neighbor_recovery_acl_and_prompt_parity(
     async def neighbors(
         selected: list[tuple[Document, float]], *args: Any, **kwargs: Any
     ) -> list[tuple[Document, float]]:
-        return [*selected, docs[2], (denied, 0.7)]
+        return [*selected, (denied, 0.7)]
 
     monkeypatch.setattr(retrieval_pipeline, "enrich_with_neighbors", neighbors)
 
@@ -337,11 +337,11 @@ async def test_pipeline_top_k_neighbor_recovery_acl_and_prompt_parity(
     observed, messages, evidence = await run(True)
     assert (observed, messages) == (control, control_messages)
     stages = evidence.attempts[0]["stages"]
-    assert [len(stages[name]["documents"]) for name in ("candidates", "retained", "enriched")] == [4, 2, 3]
+    assert [len(stages[name]["documents"]) for name in ("candidates", "retained", "enriched")] == [4, 4, 4]
     assert "PRIVATE document" not in str(asdict(evidence))
     assert stages["prompt"]["status"] == "prepared"
     assert any(evidence.context in message.content for message in messages)
-    assert any(item["reason"] == "final_top_k" for item in evidence.exclusions)
+    assert not any(item["reason"] == "final_top_k" for item in evidence.exclusions)
 
 
 @pytest.mark.asyncio

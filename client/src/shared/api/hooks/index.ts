@@ -48,6 +48,7 @@ export {
   useResumeSweep,
   useSourceFiles,
   useSweep,
+  useSweepProgress,
   useSweeps,
   useUpdateBenchmarkQuestion,
 } from "./use-benchmark";

@@ -53,6 +53,16 @@ def attach_table_replacement_scope(docs: Sequence[RetrievalDocument]) -> None:
             ]
         )
         parent = {"content": content}
+        normalized = " ".join(content.split())
 
         for doc in (old, new):
-            doc.metadata["parent_units"] = [*doc.metadata.get("parent_units", []), dict(parent)]
+            # The atomic scope supersedes generic adjacent-text table context
+            # (table_context_sections), which would otherwise repeat the target
+            # or bridge, or pull in earlier amendments from the same paragraph.
+            kept = [
+                unit
+                for unit in doc.metadata.get("parent_units", [])
+                if unit.get("unit_kind") != "table_context"
+                and " ".join(unit.get("content", "").split()) not in normalized
+            ]
+            doc.metadata["parent_units"] = [*kept, dict(parent)]

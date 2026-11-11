@@ -33,9 +33,11 @@ from domain.rag.settings import (
     RerankConfig,
     RetrieverConfig,
 )
-from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_PATTERNS
+from infrastructure.ml.rag.prompt_blocks import (
+    NOT_FOUND_PATTERNS,
+    is_not_found_answer as _is_not_found_answer,
+)
 from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings
-from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer
 from infrastructure.ml.rag.rag_steps import RagOperations
 
 
@@ -121,11 +123,10 @@ class TestIsNotFoundAnswer:
     def test_case_insensitive(self) -> None:
         assert _is_not_found_answer("ИНФОРМАЦИЯ НЕ НАЙДЕНА") is True
 
-    def test_all_patterns_covered(self) -> None:
-        for pattern in NOT_FOUND_PATTERNS:
-            # Use short answers so the pattern-check branch is triggered (< 50 chars)
-            answer = f"Ответ: {pattern}"
-            assert _is_not_found_answer(answer) is True, f"Pattern '{pattern}' not detected"
+    @pytest.mark.parametrize("pattern", NOT_FOUND_PATTERNS)
+    def test_patterns_in_substantive_answers_do_not_clear_sources(self, pattern: str) -> None:
+        answer = f"Термин «{pattern}» используется в описании проверки. См. [1]."
+        assert _is_not_found_answer(answer) is False
 
     def test_empty_string(self) -> None:
         assert _is_not_found_answer("") is False

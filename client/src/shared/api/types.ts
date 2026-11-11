@@ -561,6 +561,14 @@ export interface SweepProgressEvent {
   best_run_id?: number | null;
 }
 
+export interface SweepProgressSnapshot {
+  phase: string;
+  evaluated: number;
+  total: number;
+  latest: NonNullable<SweepProgressEvent["latest"]>;
+  updated_at: string;
+}
+
 // ─── Admin Quality ────────────────────────────────────────────────────────────
 
 export interface DocumentQualityItem {

@@ -31,6 +31,7 @@ class RetrievalWork:
     access_filter: object
     retrieval_filter: object
     domain_registry: DomainProfileRegistry | None = None
+    domain_keys: tuple[str, ...] | None = None
     req_id: str = ""
     visibility_conditions: list[VisibilityCondition] = field(default_factory=list)
 

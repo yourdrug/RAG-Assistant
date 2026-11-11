@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
@@ -199,6 +200,25 @@ class SweepJobService:
     ) -> None:
         async with self.uow_factory.create(master=True) as uow:
             await uow.benchmark_sweeps.update_progress(sweep_id, ev, tot)
+            # Keep a small snapshot for observers joining between progress events.
+            # Never store answers or per-question document content here.
+            latest = {
+                key: res[key]
+                for key in ("config", "avg_hit_rate", "avg_mrr", "composite_score")
+                if res and key in res
+            }
+            await uow.benchmark_sweeps.save_checkpoint(
+                sweep_id,
+                "progress.json",
+                {
+                    "job_id": sweep.job_id,
+                    "phase": (res or {}).get("phase", "retrieval"),
+                    "evaluated": ev,
+                    "total": tot,
+                    "latest": latest,
+                    "updated_at": datetime.now(UTC).isoformat(),
+                },
+            )
 
         if res and res.get("phase") == "full_evaluation" and "config" in res:
             await self.save_sweep_run(sweep, sweep_id, res)

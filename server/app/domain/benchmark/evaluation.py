@@ -45,6 +45,8 @@ EVIDENCE_METRICS = DETERMINISTIC_EVIDENCE_METRICS + JUDGED_EVIDENCE_METRICS
 
 
 def normalize_text(text: str) -> str:
+    text = text.replace("\u2039", "<").replace("\u203a", ">")
+    text = re.sub(r"<br\s*/?>", " ", text, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", text.casefold()).strip()
 
 

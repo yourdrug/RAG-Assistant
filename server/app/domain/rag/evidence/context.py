@@ -4,7 +4,7 @@ from domain.knowledge.enums import PageContentType
 from domain.rag.ranking import RetrievalDocument
 
 
-def content_with_parent_scope(doc: RetrievalDocument) -> str:
+def content_with_parent_scope(doc: RetrievalDocument, shown_scopes: set[str] | None = None) -> str:
     """Include full structural conditions that did not fit inside the chunk."""
     parts = []
     normalized = " ".join(doc.page_content.split())
@@ -17,9 +17,12 @@ def content_with_parent_scope(doc: RetrievalDocument) -> str:
         content = scope_text.strip()
         scope = " ".join(content.split())
 
-        if scope and scope not in normalized:
+        if scope and scope not in normalized and (shown_scopes is None or scope not in shown_scopes):
             parts.append(content)
             normalized += " " + scope
+
+        if scope and shown_scopes is not None:
+            shown_scopes.add(scope)
 
     parts.append(doc.page_content)
     return "\n".join(parts)

@@ -10,6 +10,7 @@ from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, TINY_FRAGMENT_MAX_CHARS
+from domain.shared.breadcrumb import shorten_breadcrumb
 
 
 MAX_CONTEXT_CHARS = 300
@@ -139,7 +140,7 @@ def context_prefix(metadata: dict[str, Any], chunk_size: int, *, include_unit: b
 
     if section and budget > len("[Раздел: ]\n"):
         label_budget = min(budget, 120)
-        parts.append(f"[Раздел: {shorten_context(section, label_budget - len('[Раздел: ]'))}]")
+        parts.append(f"[Раздел: {shorten_breadcrumb(section, label_budget - len('[Раздел: ]'))}]")
 
     body_reserve = min(MIN_STRUCTURAL_CHUNK_CHARS, chunk_size // 2)
     remaining = chunk_size - body_reserve - sum(len(part) + 1 for part in parts)
@@ -358,7 +359,10 @@ def text_document_chunks(
     if heading and heading in prefix and len(bodies) > 1:
         bodies = [body for body in bodies if body.strip() != heading]
 
-    chunks = [Document(page_content=prefix + body, metadata=dict(doc.metadata)) for body in bodies]
+    chunks = [
+        Document(page_content=prefix + body, metadata={**doc.metadata, "context_prefix": prefix})
+        for body in bodies
+    ]
     assign_chunk_pages(chunks, doc, bodies, overlap)
     return chunks
 

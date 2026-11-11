@@ -118,12 +118,11 @@ def amendment_field_response(context: str, question: str) -> tuple[str, Evidence
 
     for source, block in sourced_context_blocks(context):
         for projection in evidence_reading_map(block, question):
-            if (
-                projection.startswith("Поле ")
-                and "ПОСЛЕ изменения" in projection
-                and f"{projection} [{source}]" not in parts
-            ):
-                parts.append(f"{projection} [{source}]")
+            if projection.startswith("Поле ") and "ПОСЛЕ изменения" in projection:
+                summary = f"{amendment_summary(projection, question)} [{source}]"
+
+                if summary not in parts:
+                    parts.append(summary)
 
     if not parts:
         return (
@@ -134,6 +133,28 @@ def amendment_field_response(context: str, question: str) -> tuple[str, Evidence
     # Quote the verified replacement only; do not infer history of other fields.
     parts.append("Приведены подтверждённые замены; история остальных полей не подтверждена.")
     return "\n\n".join(parts), EvidenceAssessment(EvidenceStatus.PARTIAL)
+
+
+def amendment_summary(projection: str, question: str) -> str:
+    """Show the obligation column instead of XML examples for status questions."""
+    if not re.search(r"статус|обязательност", question, re.IGNORECASE):
+        return projection
+
+    before, after = projection.split("ПОСЛЕ изменения:", 1)
+    old_rows = [line for line in before.splitlines() if line.startswith("|")]
+    new_rows = [line for line in after.splitlines() if line.startswith("|")]
+
+    if len(old_rows) != 1 or len(new_rows) != 1:
+        return projection
+
+    old_cells, new_cells = old_rows[0].split("|"), new_rows[0].split("|")
+
+    if min(len(old_cells), len(new_cells)) < STATUS_COLUMN_MIN_CELLS:
+        return projection
+
+    old = re.sub(r"<br\s*/?>|\u2039br\u203a", " ", old_cells[3], flags=re.IGNORECASE).strip()
+    new = re.sub(r"<br\s*/?>|\u2039br\u203a", " ", new_cells[3], flags=re.IGNORECASE).strip()
+    return f"{projection.splitlines()[0]}: ДО изменения — {old}; ПОСЛЕ изменения — {new}."
 
 
 def field_rows_response(context: str, question: str) -> tuple[str, EvidenceAssessment]:
@@ -263,7 +284,9 @@ def extractive_table_comparison_response(context: str, question: str) -> str | N
             return None
 
     return (
-        "\n\n".join(answers) + "\n\nПоправку к одному полю нельзя переносить на другое поле."
+        "Нет, такое же изменение для обоих полей контекстом не подтверждено.\n\n"
+        + "\n\n".join(answers)
+        + "\n\nПоправку к одному полю нельзя переносить на другое поле."
         if replacements == 1
         else None
     )
@@ -285,6 +308,7 @@ def extractive_procedure_response(
 
 
 COMPARISON_FIELD_COUNT = 2
+STATUS_COLUMN_MIN_CELLS = 5
 
 
 def scoped_field_response(

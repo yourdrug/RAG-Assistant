@@ -50,6 +50,33 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+@pytest.mark.parametrize("profile_type", [LegalDomainProfile, DecreeDomainProfile])
+@pytest.mark.parametrize("overlap", [0, 200])
+def test_structured_splitter_respects_configured_overlap(
+    profile_type: type[LegalDomainProfile | DecreeDomainProfile], overlap: int
+) -> None:
+    settings = DomainSettingsAdapter()
+    profile = profile_type(settings)
+    values = {(default.key, profile.key): default.value for default in profile.config_defaults()}
+    values[f"{profile.key}_chunk_overlap", profile.key] = str(overlap)
+    settings.replace_snapshot(values)
+    registry = DomainProfileRegistry()
+    registry.register(profile)
+    words = [f"word{index:04d}" for index in range(300)]
+    source = RawDocument("21.2. " + " ".join(words), {"source": "rules.txt"})
+
+    chunks = LangchainDocumentSplitter(registry, settings).split([source], profile.key)
+
+    assert len(chunks) > 1
+    body_words = re.findall(r"word\d+", " ".join(chunk.page_content for chunk in chunks))
+    assert set(body_words) == set(words)
+
+    if overlap == 0:
+        assert body_words == words
+    else:
+        assert len(body_words) > len(words)
+
+
 def make_pdf(path: Path, texts: list[str]) -> None:
     with fitz.Document() as pdf:
         font = fitz.Font("cjk")

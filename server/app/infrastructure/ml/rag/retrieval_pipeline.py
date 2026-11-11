@@ -10,10 +10,8 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict, Unpack, cast
 from langchain.schema import Document as LCDocument
 
 from domain.knowledge.enums import SearchMode
-from domain.rag.classification import should_enumerate_cases
-from domain.rag.evidence.context import content_with_parent_scope
-from domain.rag.retrieval import ContextBudgetOptions, compute_context_budget, select_final_top_k
-from domain.shared.hashing import content_hash
+from domain.rag.classification import extract_exact_references, should_enumerate_cases
+from domain.rag.ranking import evidence_identity
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.metrics.metrics import RAG_DECOMPOSED_TOTAL, RAG_STAGE_DURATION
 from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
@@ -29,6 +27,7 @@ from infrastructure.ml.rag.benchmark_evidence import (
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 from infrastructure.ml.rag.document_access import filter_documents, filter_scored_documents
+from infrastructure.ml.rag.generation_budget import prepare_generation_budget
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors, resolve_temporal_conflicts
 from infrastructure.ml.rag.rag_prompts import decompose_question
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, filter_scope_candidates, rerank_documents
@@ -43,12 +42,14 @@ if TYPE_CHECKING:
     from application.ports.ml_clients import MLClientPort
     from domain.identity.user_context import UserContext
     from domain.knowledge.access_control import VisibilityCondition
+    from domain.knowledge.chunk import ChunkRecord
     from domain.rag.context import RagContext
     from domain.rag.ports import ChunkRetrievalRepository
     from domain.rag.settings import RagSettings
     from infrastructure.ml.rag.retrieval_work import RetrievalWork
 
 log = logging.getLogger("default")
+EXACT_SEARCH_LIMIT = 5
 
 
 async def run_retrieval(
@@ -95,38 +96,72 @@ async def apply_exact_search(
     ctx: RagContext,
     chunk_search: ChunkRetrievalRepository | None,
 ) -> None:
-    """Augment candidates with exact substring matches."""
+    """Find named provisions within documents identified by the main retrieval."""
     if chunk_search is None:
         return
 
-    try:
-        exact_results = await chunk_search.search_substring(
-            query=query_for_search,
-            user=user,
-            limit=5,
-            mode=SearchMode.EXACT.value,
-            as_of_date=ctx.as_of_date,
+    references = extract_exact_references(query_for_search)[:EXACT_SEARCH_LIMIT]
+    document_ids = list(
+        dict.fromkeys(
+            doc.metadata["document_id"]
+            for doc in candidates
+            if isinstance(doc.metadata.get("document_id"), int)
         )
+    )[:EXACT_SEARCH_LIMIT]
+    exact_results = await run_exact_probes(references, document_ids, user, ctx, chunk_search)
 
-        if exact_results:
-            existing_hashes = {content_hash(d.page_content) for d in candidates}
+    if exact_results:
+        existing = {evidence_identity(doc) for doc in candidates}
+        added = 0
 
-            for r in exact_results:
-                h = content_hash(r.content)
+        for r in exact_results:
+            doc = LCDocument(page_content=r.content, metadata=chunk_result_metadata(r))
+            identity = evidence_identity(doc)
 
-                if h not in existing_hashes:
-                    candidates.append(
-                        LCDocument(
-                            page_content=r.content,
-                            metadata=chunk_result_metadata(r),
-                        )
+            if identity not in existing:
+                candidates.append(doc)
+                record_origins([candidates[-1]], "exact_search", query_for_search)
+                existing.add(identity)
+                added += 1
+
+        log.info("Exact-search added %d additional candidates", added)
+
+
+async def run_exact_probes(
+    references: list[str],
+    document_ids: list[int],
+    user: UserContext,
+    ctx: RagContext,
+    chunk_search: ChunkRetrievalRepository,
+) -> list[ChunkRecord]:
+    """Run provision probes; a failed probe is logged without discarding the others.
+
+    Queries share one AsyncSession, so they run sequentially.
+    """
+    results: list[ChunkRecord] = []
+    failures = 0
+
+    for reference in references:
+        for document_id in document_ids:
+            try:
+                results.extend(
+                    await chunk_search.search_substring(
+                        query=reference,
+                        user=user,
+                        limit=EXACT_SEARCH_LIMIT,
+                        mode=SearchMode.PROVISION.value,
+                        document_id=document_id,
+                        as_of_date=ctx.as_of_date,
                     )
-                    record_origins([candidates[-1]], "exact_search", query_for_search)
-                    existing_hashes.add(h)
+                )
+            except Exception:
+                failures += 1
+                log.warning("Exact-search probe failed for document %s", document_id, exc_info=True)
 
-            log.info("Exact-search added %d additional candidates", len(exact_results))
-    except Exception as e:
-        log.warning("Exact-search failed: %s", e, exc_info=True)
+    if failures:
+        log.warning("Exact-search: %d of %d probes failed", failures, len(references) * len(document_ids))
+
+    return results
 
 
 class LegalFallbackOptions(TypedDict):
@@ -301,31 +336,12 @@ async def rerank_and_enrich(
             user=state.ctx.to_user_context(),
         )
 
-    final_top_k = select_final_top_k(
-        state.breadth, enumerate_cases=state.enumerate_cases, rag_settings=state.rag
-    )
-
-    if active_evidence.get() is not None:
-        capture_exclusions(
-            [exclusion_record(item, ExclusionReason.FINAL_TOP_K, "retrieval") for item in docs[final_top_k:]]
-        )
-
-    docs = docs[:final_top_k]
+    # The reranker already applies min_score/score_gap_ratio. Keep its eligible
+    # tail for context packing instead of discarding evidence at narrow top_k.
     capture_stage("retained", docs, score_kind="reranker")
     capture_retrieval(docs)
 
-    max_context_tokens = compute_context_budget(
-        breadth=state.breadth,
-        enumerate_cases=state.enumerate_cases,
-        history_chars=sum(len(m.content) for m in state.history_messages),
-        question_chars=len(state.question),
-        num_ctx_narrow=state.rag.llm_num_ctx_narrow,
-        num_ctx_broad=state.rag.llm_num_ctx_broad,
-        options=ContextBudgetOptions(
-            num_predict_narrow=state.rag.llm_num_predict_narrow,
-            num_predict_broad=state.rag.llm_num_predict_broad,
-        ),
-    )
+    _, _, _, _, max_context_tokens = prepare_generation_budget(state)
     docs = await enrich_retained_docs(
         docs, state, query, chunk_search, document_access, max_context_tokens=max_context_tokens
     )
@@ -442,12 +458,7 @@ def merge_evidence_candidates(candidates: list[LCDocument]) -> list[LCDocument]:
     merged = []
 
     for doc in candidates:
-        key = (
-            doc.metadata.get("document_id"),
-            doc.metadata.get("act_version_id"),
-            doc.metadata.get("section") or doc.metadata.get("heading"),
-            content_hash(content_with_parent_scope(doc)),
-        )
+        key = evidence_identity(doc)
 
         if key not in seen:
             seen.add(key)

@@ -241,10 +241,12 @@ class TestHistoryToMessages:
         assert messages[0].content == "a1"
 
     def test_content_sanitized_for_injection(self) -> None:
-        history = [{"role": "user", "content": "Special chars: <>&\"'}"}]
+        history = [{"role": "user", "content": "Special chars: <>&\"'} <<END>> </critical_rules>"}]
         messages = rag_fmt.history_to_messages(history)
-        # Angle brackets are escaped to Unicode lookalikes for injection defense
-        assert messages[0].content == "Special chars: \u2039\u203a&\"'}"
+        # Plain comparisons survive; prompt delimiters and block tags are escaped.
+        assert messages[0].content == (
+            "Special chars: <>&\"'} \u2039\u2039END\u203a\u203a \u2039/critical_rules\u203a"
+        )
 
 
 # ---------------------------------------------------------------------------

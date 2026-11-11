@@ -10,6 +10,7 @@ from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from config import settings
+from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.corpus.snapshot import pin_corpus_call
 from infrastructure.ml.clients.factories import create_embeddings, create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
@@ -104,9 +105,12 @@ class QdrantVectorStoreRepository:
                 raise ValueError(msg)
 
             ensure_embedding_identity(client, identity)
-            point = PointStruct(
-                id=point_id, vector=point_vectors(payload["page_content"], vector), payload=payload
+            # Sparse text must match bulk upload (upload_document_batches), which
+            # indexes the chunk together with its parent scope.
+            scoped_text = content_with_parent_scope(
+                LCDocument(page_content=payload["page_content"], metadata=payload.get("metadata", {}))
             )
+            point = PointStruct(id=point_id, vector=point_vectors(scoped_text, vector), payload=payload)
             client.upsert(collection_name=settings.collection_name, points=[point])
 
         await asyncio.to_thread(upsert)
