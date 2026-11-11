@@ -71,6 +71,7 @@ class PipelineMetaEvent:
 
     breadth: Breadth | None = None
     domain: str = ""
+    generation_sec: float | None = None
     ttft_sec: float | None = None
 
 

@@ -24,10 +24,12 @@ from domain.identity.roles import UserRole
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus
+from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.database.database import database
 from infrastructure.ml.cache import answers as answer_cache
 from infrastructure.ml.clients.managed_llm import ManagedInstructor, ManagedLLM
 from infrastructure.redis.redis_client import RedisClient, redis_client
+from infrastructure.repositories.vector import embedding_identity
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 from infrastructure.scheduling.scheduler import scheduler
 from infrastructure.worker.runtime import job
@@ -165,6 +167,36 @@ def test_embedding_binding_rejects_same_dimension_different_model() -> None:
             ensure_embedding_identity(client, "provider:model-b:v1")
     finally:
         client.close()
+
+
+def test_embedding_binding_is_verified_once_per_pinned_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(embedding_identity, "verified_snapshot_bindings", set())
+    inner = QdrantClient(":memory:")
+    calls: list[str] = []
+
+    class PinnedClient:
+        snapshot = CorpusSnapshot("http://qdrant", "docs", "docs_v1", "provider:model-a:v1", "gen-1")
+
+        def __getattr__(self, name: str) -> Any:
+            calls.append(name)
+            return getattr(inner, name)
+
+    client = cast("Any", PinnedClient())
+    try:
+        assert ensure_embedding_identity(client) == "provider:model-a:v1"
+        verified_calls = len(calls)
+        assert verified_calls > 0
+        assert ensure_embedding_identity(client) == "provider:model-a:v1"
+        assert len(calls) == verified_calls
+        # A different model on the same pinned corpus is still checked and rejected.
+        with pytest.raises(ValueError, match="different embedding model"):
+            ensure_embedding_identity(client, "provider:model-b:v1")
+        # A new snapshot generation is verified again.
+        client.snapshot = CorpusSnapshot("http://qdrant", "docs", "docs_v1", "provider:model-a:v1", "gen-2")
+        ensure_embedding_identity(client)
+        assert len(calls) > verified_calls
+    finally:
+        inner.close()
 
 
 @pytest.mark.asyncio

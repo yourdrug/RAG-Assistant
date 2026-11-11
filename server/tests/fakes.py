@@ -57,7 +57,7 @@ from domain.shared.pagination import CursorPage, encode_cursor
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
+    from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Sequence
     from datetime import date, datetime
     from types import TracebackType
 
@@ -328,8 +328,9 @@ class FakeChunkRepository:
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         as_of_date: date | None = None,
+        document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
-        del query, user, limit, mode, document_id, as_of_date
+        del query, user, limit, mode, document_id, as_of_date, document_ids
         return []
 
     async def search_substring_page(

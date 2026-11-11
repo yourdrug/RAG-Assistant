@@ -108,6 +108,10 @@ async def apply_exact_search(
             if isinstance(doc.metadata.get("document_id"), int)
         )
     )[:EXACT_SEARCH_LIMIT]
+
+    if not references or not document_ids:
+        return
+
     exact_results = await run_exact_probes(references, document_ids, user, ctx, chunk_search)
 
     if exact_results:
@@ -134,32 +138,31 @@ async def run_exact_probes(
     ctx: RagContext,
     chunk_search: ChunkRetrievalRepository,
 ) -> list[ChunkRecord]:
-    """Run provision probes; a failed probe is logged without discarding the others.
+    """Run one provision probe per reference across all documents (each document keeps its own limit).
 
-    Queries share one AsyncSession, so they run sequentially.
+    A failed probe is logged without discarding the others.
     """
     results: list[ChunkRecord] = []
     failures = 0
 
     for reference in references:
-        for document_id in document_ids:
-            try:
-                results.extend(
-                    await chunk_search.search_substring(
-                        query=reference,
-                        user=user,
-                        limit=EXACT_SEARCH_LIMIT,
-                        mode=SearchMode.PROVISION.value,
-                        document_id=document_id,
-                        as_of_date=ctx.as_of_date,
-                    )
+        try:
+            results.extend(
+                await chunk_search.search_substring(
+                    query=reference,
+                    user=user,
+                    limit=EXACT_SEARCH_LIMIT,
+                    mode=SearchMode.PROVISION.value,
+                    document_ids=document_ids,
+                    as_of_date=ctx.as_of_date,
                 )
-            except Exception:
-                failures += 1
-                log.warning("Exact-search probe failed for document %s", document_id, exc_info=True)
+            )
+        except Exception:
+            failures += 1
+            log.warning("Exact-search probe failed for %d documents", len(document_ids), exc_info=True)
 
     if failures:
-        log.warning("Exact-search: %d of %d probes failed", failures, len(references) * len(document_ids))
+        log.warning("Exact-search: %d of %d probes failed", failures, len(references))
 
     return results
 
@@ -274,11 +277,11 @@ async def retrieve_with_decomposition(
     profile = active_evidence_profile.get()
     probes = [*profile.search_queries(query)[1:], *profile.act_queries(query)]
 
-    for probe in probes:
-        if probe in sub_queries:
-            continue
+    pending = [probe for probe in dict.fromkeys(probes) if probe not in sub_queries]
+    # Probes are independent searches; Qdrant/embedding semaphores bound concurrency.
+    extras = await asyncio.gather(*(run_retrieval(probe, state, ml_clients) for probe in pending))
 
-        extra = await run_retrieval(probe, state, ml_clients)
+    for probe, extra in zip(pending, extras, strict=True):
         candidates = deduplicate_docs([*candidates, *extra])
         sub_queries.append(probe)
 

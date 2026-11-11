@@ -93,7 +93,12 @@ class RagService:
             confidence=completed.confidence,
             usage=answer.usage,
         )
-        yield PipelineMetaEvent(breadth=result.breadth, domain=result.domain, ttft_sec=answer.ttft_sec)
+        yield PipelineMetaEvent(
+            breadth=result.breadth,
+            domain=result.domain,
+            generation_sec=answer.generation_sec,
+            ttft_sec=answer.ttft_sec,
+        )
 
     async def prepare(self, request: RagRequest) -> PreparedQuery | TerminalResponse:
         query = await self.preparation.condense(request)
@@ -120,10 +125,13 @@ class RagService:
                 if assessment.sufficient:
                     return result
 
-                if assessment.refinement:
-                    self.evidence.retry(assessment.refinement)
-                    query = replace(result.prepared, query=assessment.refinement)
-                    result = await self.retrieval.retrieve(query, previous=result)
+                if not assessment.refinement:
+                    # Re-gating the unchanged evidence would only repeat the rejection.
+                    break
+
+                self.evidence.retry(assessment.refinement)
+                query = replace(result.prepared, query=assessment.refinement)
+                result = await self.retrieval.retrieve(query, previous=result)
 
         return await self.evidence.reject(result)
 
@@ -146,6 +154,7 @@ class RagService:
         reranker_score: float | None = None
         confidence: float | None = None
         usage_report = None
+        generation_sec: float | None = None
         ttft_sec: float | None = None
 
         async for event in self.events(request):
@@ -157,6 +166,9 @@ class RagService:
                 breadth = event.breadth or breadth
 
                 domain = event.domain or domain
+
+                if event.generation_sec is not None:
+                    generation_sec = event.generation_sec
 
                 if event.ttft_sec is not None:
                     ttft_sec = event.ttft_sec
@@ -179,5 +191,6 @@ class RagService:
             model_used=request.model,
             input_tokens=usage_report.input_tokens if usage_report else None,
             output_tokens=usage_report.output_tokens if usage_report else None,
+            generation_sec=generation_sec,
             ttft_sec=ttft_sec,
         )

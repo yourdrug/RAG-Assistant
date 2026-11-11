@@ -23,6 +23,7 @@ class RagResult:
     model_used: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    generation_sec: float | None = None
     ttft_sec: float | None = None
 
     def __post_init__(self) -> None:

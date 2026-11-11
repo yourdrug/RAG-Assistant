@@ -7,7 +7,7 @@ from datetime import datetime
 import re
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, func, or_, select, text, true
+from sqlalchemy import and_, func, or_, select, text, true, union_all
 
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from datetime import date
 
     from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy.sql import Select
+    from sqlalchemy.sql import CompoundSelect, Select
     from sqlalchemy.sql.elements import ColumnElement
 
     from domain.identity.user_context import UserContext
@@ -270,11 +270,31 @@ class SQLAlchemyChunkSearchRepository:
         mode: str = "exact",
         document_id: int | None = None,
         as_of_date: date | None = None,
+        document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
+        """Search chunks; ``document_ids`` runs one limited probe per document in a single query."""
         if len(query.strip()) < MIN_SUBSTRING_LENGTH:
             return []
 
-        stmt = build_substring_search_stmt(query, user, mode, document_id, as_of_date, limit=limit)
+        stmt: Select[Any] | CompoundSelect
+
+        if document_ids is None:
+            stmt = build_substring_search_stmt(query, user, mode, document_id, as_of_date, limit=limit)
+        else:
+            if document_id is not None:
+                message = "Pass either document_id or document_ids, not both"
+                raise ValueError(message)
+
+            scoped = [
+                build_substring_search_stmt(query, user, mode, doc_id, as_of_date, limit=limit)
+                for doc_id in dict.fromkeys(document_ids)
+            ]
+
+            if not scoped:
+                return []
+
+            stmt = scoped[0] if len(scoped) == 1 else union_all(*scoped)
+
         result = await self._session.execute(stmt)
         return [row_to_search_result(row) for row in result.all()]
 

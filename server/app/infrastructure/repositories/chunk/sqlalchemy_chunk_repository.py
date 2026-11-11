@@ -20,7 +20,7 @@ from infrastructure.repositories.chunk.chunk_versioning import SQLAlchemyChunkVe
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Sequence
     from datetime import date, datetime
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -242,9 +242,16 @@ class SQLAlchemyChunkRepository:
         mode: str = "exact",
         document_id: int | None = None,
         as_of_date: date | None = None,
+        document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
         return await self._search.search_substring(
-            query=query, user=user, limit=limit, mode=mode, document_id=document_id, as_of_date=as_of_date
+            query=query,
+            user=user,
+            limit=limit,
+            mode=mode,
+            document_id=document_id,
+            as_of_date=as_of_date,
+            document_ids=document_ids,
         )
 
     async def search_substring_page(

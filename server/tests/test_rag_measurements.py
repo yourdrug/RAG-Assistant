@@ -11,11 +11,13 @@ import pytest
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
+from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.judging.token_usage import judge_usage, record_judge_usage
 from infrastructure.ml.clients.managed_llm import ManagedLLM
+from infrastructure.ml.rag import rag_steps
 from infrastructure.ml.usage_capture import active_llm_usage, record_model_response, summarize_usage
 
 
@@ -68,6 +70,7 @@ async def test_rag_elapsed_includes_retrieval_and_usage_without_judge() -> None:
             sources=[],
             input_tokens=None,
             output_tokens=None,
+            generation_sec=None,
             ttft_sec=None,
             breadth=None,
             domain=None,
@@ -238,3 +241,26 @@ async def test_failed_judge_preserves_paid_responses_for_checkpoint(monkeypatch:
         assert records[0]["cost_usd"] == 0.002
     finally:
         judge_usage.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_collect_generation_reports_first_non_empty_chunk_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def stream(messages: Any) -> AsyncIterator[AIMessageChunk]:
+        del messages
+
+        for text in ("", "Ответ", " готов"):
+            yield AIMessageChunk(content=text)
+
+    ticks = iter([5.0, 9.0])
+    monkeypatch.setattr("infrastructure.ml.rag.rag_steps.time.monotonic", lambda: next(ticks))
+    ml = SimpleNamespace(
+        generation_semaphore=asyncio.Semaphore(1),
+        llm_for_breadth=lambda _breadth: SimpleNamespace(astream=stream),
+    )
+    operations = rag_steps.RagOperations(ml, document_access=SimpleNamespace())
+
+    parts, last_chunk, first_token_at = await operations.collect_generation([], Breadth.NARROW)
+
+    assert parts == ["Ответ", " готов"]
+    assert last_chunk is not None
+    assert first_token_at == 5.0

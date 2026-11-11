@@ -9,6 +9,7 @@ from domain.knowledge.enums import SearchMode
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import date
 
     from domain.identity.user_context import UserContext
@@ -28,6 +29,7 @@ class ChunkSearchRepository(Protocol):
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         as_of_date: date | None = None,
+        document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]: ...
 
 

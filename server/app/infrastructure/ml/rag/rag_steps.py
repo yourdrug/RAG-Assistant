@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from contextlib import AsyncExitStack, asynccontextmanager
-from dataclasses import replace
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 import logging
 import time
 from typing import TYPE_CHECKING, Any, cast
@@ -86,6 +87,7 @@ from infrastructure.ml.rag.rag_prompts import (
     condense_question,
 )
 from infrastructure.ml.rag.rag_relevance import assess_sufficiency, filter_cited_documents
+from infrastructure.ml.rag.rag_retrieval import query_vector_scope
 from infrastructure.ml.rag.rag_sources import extract_sources
 from infrastructure.ml.rag.retrieval_pipeline import RetrievalPipeline
 from infrastructure.ml.rag.retrieval_work import RetrievalWork
@@ -110,10 +112,29 @@ if TYPE_CHECKING:
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.rag.context import RagContext
     from domain.rag.ports import ChunkRetrievalRepository
+    from infrastructure.ml.evidence_profiles.profiles import EvidenceProfile
 
 
 MIN_HISTORY_CHARS = 3
 log = logging.getLogger("default")
+
+
+@dataclass(frozen=True)
+class ContextAssembly:
+    result: RetrievalResult
+    token_counter: Callable[[list[BaseMessage]], int] | None
+    profile: EvidenceProfile
+    prepared: PreparedContext
+    docs: tuple[Any, ...]
+    selected: tuple[Any, ...]
+    context: str
+    exclusions: tuple[dict[str, Any], ...]
+    messages: tuple[dict[str, Any], ...]
+    budget: dict[str, Any]
+
+
+# Per-request (per-task) memo of the last packed context; never shared across requests.
+context_assembly_memo: ContextVar[ContextAssembly | None] = ContextVar("context_assembly_memo", default=None)
 
 
 class RagOperations:
@@ -140,6 +161,7 @@ class RagOperations:
             stack.enter_context(
                 evidence_profile_scope(EVIDENCE_PROFILES[get_request_settings().evidence_profile])
             )
+            stack.enter_context(query_vector_scope())
 
             if isinstance(self.ml, MLClientRegistry):
                 await stack.enter_async_context(self.ml.corpus_operation())
@@ -439,6 +461,50 @@ class RagOperations:
         *,
         capture: bool = True,
     ) -> PreparedContext:
+        assembly = self.assemble(result, token_counter, capture=capture)
+        capture_prompt(
+            assembly.docs,
+            assembly.selected,
+            assembly.context,
+            exclusions=list(assembly.exclusions),
+            status="prepared" if capture else None,
+            messages=list(assembly.messages),
+            budget=assembly.budget,
+        )
+        return assembly.prepared
+
+    def assemble(
+        self,
+        result: RetrievalResult,
+        token_counter: Callable[[list[BaseMessage]], int] | None,
+        *,
+        capture: bool,
+    ) -> ContextAssembly:
+        # relevant(), assess() and the final build() pack the same result into the
+        # token budget; reuse the packing while the inputs are the same objects.
+        profile = active_evidence_profile.get()
+        cached = context_assembly_memo.get()
+
+        if (
+            cached is not None
+            and cached.result is result
+            and cached.token_counter is token_counter
+            and cached.profile is profile
+        ):
+            return cached
+
+        assembly = self.pack_context(result, token_counter, profile, capture=capture)
+        context_assembly_memo.set(assembly)
+        return assembly
+
+    def pack_context(
+        self,
+        result: RetrievalResult,
+        token_counter: Callable[[list[BaseMessage]], int] | None,
+        profile: EvidenceProfile,
+        *,
+        capture: bool,
+    ) -> ContextAssembly:
         state = self.retrieval_work(result.prepared, result)
 
         if state.breadth is None:
@@ -483,34 +549,17 @@ class RagOperations:
             messages = format_generation_messages(
                 prompt, context=context, history=history, question=state.question
             )
+            input_tokens = count_tokens(messages)
 
-            if count_tokens(messages) > input_budget:
+            if input_tokens > input_budget:
                 raise ContextBudgetExceededError
 
-            grounded_answer, evidence_assessment = active_evidence_profile.get().scoped_response(
-                selected, context, state.question
-            )
+            grounded_answer, evidence_assessment = profile.scoped_response(selected, context, state.question)
             break
 
-        budget = ContextBudget(num_ctx, num_predict, count_tokens(messages), count_context(""))
-        capture_prompt(
-            state.docs,
-            selected,
-            context,
-            exclusions=exclusions,
-            status="prepared" if capture else None,
-            messages=[{"role": message.type, "content": message.content} for message in messages],
-            budget={
-                "num_ctx": num_ctx,
-                "num_predict": num_predict,
-                "input_tokens": count_tokens(messages),
-                "base_tokens": count_context(""),
-                "effective_breadth": effective_breadth.value,
-                "enumerate_cases": state.enumerate_cases,
-                "query_parts": state.sub_queries or [state.question],
-            },
-        )
-        return PreparedContext(
+        base_tokens = count_context("")
+        budget = ContextBudget(num_ctx, num_predict, input_tokens, base_tokens)
+        prepared = PreparedContext(
             result,
             message_values(messages),
             message_values(history),
@@ -520,6 +569,26 @@ class RagOperations:
             evidence_assessment,
             context,
         )
+        return ContextAssembly(
+            result=result,
+            token_counter=token_counter,
+            profile=profile,
+            prepared=prepared,
+            docs=tuple(state.docs),
+            selected=tuple(selected),
+            context=context,
+            exclusions=tuple(exclusions),
+            messages=tuple({"role": message.type, "content": message.content} for message in messages),
+            budget={
+                "num_ctx": num_ctx,
+                "num_predict": num_predict,
+                "input_tokens": input_tokens,
+                "base_tokens": base_tokens,
+                "effective_breadth": effective_breadth.value,
+                "enumerate_cases": state.enumerate_cases,
+                "query_parts": state.sub_queries or [state.question],
+            },
+        )
 
     async def generate(self, context: PreparedContext) -> SanitizedAnswer:
         result = context.retrieval
@@ -528,15 +597,15 @@ class RagOperations:
         effective_breadth = Breadth.BROAD if result.enumerate_cases else result.breadth
 
         t0 = time.monotonic()
-        answer_parts: list[str] = []
-        last_chunk = None
 
-        if context.grounded_answer is not None:
+        if context.grounded_answer is None:
+            answer_parts, last_chunk, first_token_at = await self.collect_generation(
+                messages, effective_breadth
+            )
+        else:
             capture_prompt_delivery(sent=False)
             capture_completion("grounded_response")
-            answer_parts.append(context.grounded_answer)
-        else:
-            answer_parts, last_chunk = await self.collect_generation(messages, effective_breadth)
+            answer_parts, last_chunk, first_token_at = [context.grounded_answer], None, None
 
         RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
@@ -575,14 +644,20 @@ class RagOperations:
             )
 
         return SanitizedAnswer(
-            context, full_answer, usage_report, round(time.monotonic() - t0, 4) if full_answer else None
+            context,
+            full_answer,
+            usage_report,
+            round(time.monotonic() - t0, 4) if full_answer else None,
+            round(first_token_at - t0, 4) if first_token_at is not None else None,
         )
 
     async def collect_generation(
         self, messages: list[BaseMessage], breadth: Breadth
-    ) -> tuple[list[str], LLMMessagePort | None]:
+    ) -> tuple[list[str], LLMMessagePort | None, float | None]:
+        """Stream the LLM answer; also return the monotonic time of the first non-empty chunk."""
         answer_parts: list[str] = []
         last_chunk: LLMMessagePort | None = None
+        first_token_at: float | None = None
         breaker = get_breaker("llm_generate")
         breaker.check_open()
         capture_prompt_delivery(sent=True)
@@ -593,12 +668,15 @@ class RagOperations:
                     text = generation_chunk_text(chunk)
 
                     if text:
+                        if first_token_at is None:
+                            first_token_at = time.monotonic()
+
                         answer_parts.append(text)
             except Exception:
                 await breaker.report_failure()
                 raise
             await breaker.report_success()
-        return answer_parts, last_chunk
+        return answer_parts, last_chunk, first_token_at
 
     def finalize(self, answer: SanitizedAnswer) -> CompletedAnswer:
         context = answer.context

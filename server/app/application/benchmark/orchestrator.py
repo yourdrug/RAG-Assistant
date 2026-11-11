@@ -100,6 +100,7 @@ def compute_summary_from_results(results: list[dict[str, Any]]) -> dict[str, Any
                 "evidence_diagnostics": r.get("evidence_diagnostics", {}),
                 "evidence": r.get("evidence", {}),
                 "latency_sec": r["latency_sec"],
+                "generation_sec": r.get("generation_sec"),
                 "ttft_sec": r.get("ttft_sec"),
                 "breadth": r.get("breadth"),
             }

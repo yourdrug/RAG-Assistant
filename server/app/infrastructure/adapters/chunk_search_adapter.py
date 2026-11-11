@@ -8,6 +8,7 @@ from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import date
 
     from application.uow.factory import UnitOfWorkFactory
@@ -36,6 +37,7 @@ class ChunkSearchAdapter:
         mode: str = "exact",
         as_of_date: date | None = None,
         document_id: int | None = None,
+        document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
         async with self._uow_factory.create() as uow:
             repository: ChunkRetrievalRepository = uow.chunks
@@ -46,6 +48,7 @@ class ChunkSearchAdapter:
                 mode=mode,
                 as_of_date=as_of_date,
                 document_id=document_id,
+                document_ids=document_ids,
             )
 
     async def get_neighbors(

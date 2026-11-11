@@ -51,7 +51,7 @@ def workflow() -> tuple[RagService, MagicMock, list[str]]:
     query = PreparedQuery(request, "question")
     retrieval = RetrievalResult(query, Breadth.NARROW, "general", 25, 4, 1, 1, False, (), (), (), False, 0)
     context = PreparedContext(retrieval, (), (), (), ContextBudget(4096, 400, 0, 0), None, None)
-    answer = SanitizedAnswer(context, "safe answer", None, 0.1)
+    answer = SanitizedAnswer(context, "safe answer", None, 0.1, 0.02)
     operations = MagicMock()
     operations.request.return_value = request
     operations.condense = AsyncMock(return_value=query)
@@ -202,7 +202,8 @@ async def test_invoke_collects_stream_values_using_one_request_snapshot() -> Non
     assert result.confidence == 0
     assert result.breadth == Breadth.NARROW
     assert result.domain == "general"
-    assert result.ttft_sec == 0.1
+    assert result.generation_sec == 0.1
+    assert result.ttft_sec == 0.02
     assert result.model_used == "model"
     operations.request.assert_called_once()
     assert leases == ["acquired", "released"]
@@ -231,3 +232,17 @@ def test_document_stage_conversion_preserves_acl_temporal_and_structural_metadat
     converted[0][0].metadata["domain_metadata"]["act_number"] = "changed"
     assert values[0].chunk.metadata["domain_metadata"]["act_number"] == "17"
     assert doc.metadata["domain_metadata"]["act_number"] == "17"
+
+
+@pytest.mark.asyncio
+async def test_rejection_without_refinement_does_not_regate_unchanged_evidence() -> None:
+    service, operations, _ = workflow()
+    operations.relevant.return_value = False
+    operations.assess.return_value = Sufficiency(False, None)
+
+    events = [event async for event in service.stream("question", [], operations.request.return_value.ctx)]
+
+    assert events[-1] == TextChunk("rejected")
+    operations.relevant.assert_awaited_once()
+    operations.retrieve.assert_awaited_once()
+    operations.reject.assert_awaited_once()

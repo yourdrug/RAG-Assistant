@@ -7,6 +7,8 @@ rag_service.py to reduce its size and isolate the retrieval I/O layer.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
+from contextvars import ContextVar
 import logging
 import time
 from typing import TYPE_CHECKING, NotRequired, TypedDict, Unpack, cast
@@ -25,6 +27,8 @@ from infrastructure.resilience.retry import retry_on_transient
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from qdrant_client import QdrantClient
     from qdrant_client.models import ScoredPoint
 
@@ -35,6 +39,39 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 _retriever = HybridRetriever()
+
+# Per-request memo of query vectors: domain fallback and legal rerank fallback
+# re-search the same text, which otherwise costs one embedding call each.
+query_vectors: ContextVar[dict[tuple[str | None, str], list[float]] | None] = ContextVar(
+    "query_vectors", default=None
+)
+
+
+@contextmanager
+def query_vector_scope() -> Iterator[None]:
+    token = query_vectors.set({})
+    try:
+        yield
+    finally:
+        query_vectors.reset(token)
+
+
+async def embed_search_query(query: str, ml_clients: MLClientPort) -> list[float]:
+    embeddings = ml_clients.embeddings()
+    key = (getattr(embeddings, "embedding_identity", None), query)
+    cache = query_vectors.get()
+
+    if cache is not None and key in cache:
+        return cache[key]
+
+    async with ml_clients.embedding_semaphore:
+        # Admission can wait through a pool switch; identity is unchanged by endpoint/pool updates.
+        vector = await ml_clients.embeddings().embed_query(query)
+
+    if cache is not None:
+        cache[key] = vector
+
+    return vector
 
 
 @pin_corpus_call
@@ -119,9 +156,7 @@ async def qdrant_dense_search(
         ensure_embedding_identity, client, getattr(embeddings, "embedding_identity", None)
     )
 
-    async with ml_clients.embedding_semaphore:
-        # Admission can wait through a pool switch; identity is unchanged by endpoint/pool updates.
-        query_vector = await ml_clients.embeddings().embed_query(query)
+    query_vector = await embed_search_query(query, ml_clients)
 
     raw_threshold: object = (
         score_threshold

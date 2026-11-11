@@ -31,6 +31,7 @@ class BenchmarkAnswer:
     retriever_metrics: dict[str, Any]
     input_tokens: int | None
     output_tokens: int | None
+    generation_sec: float | None = None
     ttft_sec: float | None = None
     breadth: str | None = None
     domain: str | None = None
@@ -115,6 +116,7 @@ class RagBenchmarkGenerator:
             ),
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
+            generation_sec=result.generation_sec,
             ttft_sec=result.ttft_sec,
             breadth=result.breadth,
             domain=result.domain,

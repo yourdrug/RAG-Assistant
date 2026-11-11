@@ -45,7 +45,7 @@ async def test_exact_probe_extracts_reference_and_preserves_document_acl_and_dat
         user=user,
         limit=5,
         mode=SearchMode.PROVISION.value,
-        document_id=42,
+        document_ids=[42],
         as_of_date=ctx.as_of_date,
     )
     assert candidates[-1].page_content == match.content
@@ -73,7 +73,7 @@ async def test_exact_probe_requires_a_reference_and_document_scope(
 
 
 @pytest.mark.asyncio
-async def test_each_reference_is_searched_once_per_retrieved_document() -> None:
+async def test_each_reference_is_searched_once_across_retrieved_documents() -> None:
     user = UserContext(7, UserKind.INTERNAL, UserRole.USER)
     candidates = [
         Document(page_content="First", metadata={"document_id": 42}),
@@ -88,9 +88,9 @@ async def test_each_reference_is_searched_once_per_retrieved_document() -> None:
     )
 
     assert [
-        (call.kwargs["query"], call.kwargs["document_id"])
+        (call.kwargs["query"], call.kwargs["document_ids"])
         for call in repository.search_substring.await_args_list
-    ] == [("Пункт 21.2", 42), ("Пункт 21.2", 43), ("Пункт 5", 42), ("Пункт 5", 43)]
+    ] == [("Пункт 21.2", [42, 43]), ("Пункт 5", [42, 43])]
     assert len(candidates) == 3
 
 
@@ -123,6 +123,36 @@ async def test_failed_probe_keeps_results_of_other_probes() -> None:
     repository = AsyncMock()
     repository.search_substring.side_effect = [RuntimeError("db"), [match]]
 
-    await apply_exact_search("Что предусматривает пункт 2?", candidates, user, RagContext(user), repository)
+    await apply_exact_search("Сравни пункт 1 и пункт 2", candidates, user, RagContext(user), repository)
 
     assert candidates[-1].page_content == match.content
+
+
+@pytest.mark.asyncio
+async def test_multi_document_probe_is_one_query_with_per_document_acl_and_limit() -> None:
+    user = UserContext(7, UserKind.INTERNAL, UserRole.USER)
+    session = AsyncMock()
+    session.execute.return_value.all = list
+    repository = SQLAlchemyChunkSearchRepository(session)
+
+    assert await repository.search_substring("Пункт 21.2", user, limit=5, document_ids=[42, 43, 42]) == []
+
+    session.execute.assert_awaited_once()
+    sql = str(session.execute.await_args.args[0].compile())
+    assert sql.count("UNION ALL") == 1
+    assert sql.count("chunks.document_id = ") == 2
+    assert sql.count("LIMIT") == 2
+    assert sql.count("chunks.owner_id = ") == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_document_scope_skips_query_and_rejects_mixed_scope() -> None:
+    user = UserContext(7, UserKind.INTERNAL, UserRole.USER)
+    session = AsyncMock()
+    repository = SQLAlchemyChunkSearchRepository(session)
+
+    assert await repository.search_substring("Пункт 21.2", user, document_ids=[]) == []
+    session.execute.assert_not_awaited()
+
+    with pytest.raises(ValueError, match="document_id"):
+        await repository.search_substring("Пункт 21.2", user, document_id=1, document_ids=[2])

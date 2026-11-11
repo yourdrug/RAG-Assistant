@@ -329,6 +329,7 @@ class BenchmarkCaseEvaluator:
             "input_tokens": generated.input_tokens,
             "output_tokens": generated.output_tokens,
             "estimated_generation_cost_usd": round(cost, 6),
+            "generation_sec": generated.generation_sec,
             "ttft_sec": generated.ttft_sec,
             "breadth": generated.breadth,
             "domain": generated.domain,

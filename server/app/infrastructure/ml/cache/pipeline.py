@@ -85,7 +85,7 @@ async def handle_cache_hit(
     RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
     sources = [] if output_verdict.leak_detected or output_verdict.echo_detected else cached["sources"]
     yield SourcesEvent(sources=sources, confidence=None)
-    yield PipelineMetaEvent(breadth=None, domain="", ttft_sec=0.0)
+    yield PipelineMetaEvent(breadth=None, domain="", generation_sec=0.0)
 
 
 async def store_answer_cache(

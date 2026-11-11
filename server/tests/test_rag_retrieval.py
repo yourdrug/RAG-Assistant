@@ -21,7 +21,12 @@ from domain.rag.settings import (
     RerankConfig,
     RetrieverConfig,
 )
-from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search, resolve_hashes_batch, run_hybrid_search
+from infrastructure.ml.rag.rag_retrieval import (
+    qdrant_dense_search,
+    query_vector_scope,
+    resolve_hashes_batch,
+    run_hybrid_search,
+)
 from infrastructure.repositories.vector.acl import build_qdrant_filter
 from tests.test_rag_pipeline import make_rag
 
@@ -451,3 +456,34 @@ async def test_sparse_errors_and_cancellation_propagate(
             user_id=42,
             user_group_ids=[],
         )
+
+
+@pytest.mark.asyncio
+@patch("config.settings")
+async def test_dense_search_reuses_query_vector_within_request_scope(mock_settings: MagicMock) -> None:
+    mock_settings.collection_name = "test_col"
+    mock_settings.qdrant_timeout = 10
+    mock_client = MagicMock()
+    mock_client.search.return_value = []
+    mock_embeddings = MagicMock()
+    mock_embeddings.embedding_identity = "test:model:v1"
+    mock_embeddings.embed_query = AsyncMock(return_value=[0.1] * 384)
+    ml_clients = MagicMock()
+    ml_clients.qdrant_client.return_value = mock_client
+    ml_clients.embeddings.return_value = mock_embeddings
+    acl = build_qdrant_filter({"id": 10, "kind": "internal", "role": "user"}, [])
+
+    with query_vector_scope():
+        await qdrant_dense_search("same query", 5, acl, ml_clients)
+        await qdrant_dense_search("same query", 5, acl, ml_clients)
+        await qdrant_dense_search("other query", 5, acl, ml_clients)
+
+    assert [call.args[0] for call in mock_embeddings.embed_query.await_args_list] == [
+        "same query",
+        "other query",
+    ]
+    assert mock_client.search.call_count == 3
+
+    # Outside a request scope nothing is memoized across calls.
+    await qdrant_dense_search("same query", 5, acl, ml_clients)
+    assert mock_embeddings.embed_query.await_count == 3

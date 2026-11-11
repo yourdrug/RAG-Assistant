@@ -293,6 +293,7 @@ class TestChunkSearchAdapter:
             mode="exact",
             as_of_date=as_of_date,
             document_id=None,
+            document_ids=None,
         )
         assert result == matches
 

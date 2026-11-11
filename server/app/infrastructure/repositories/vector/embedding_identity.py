@@ -16,6 +16,11 @@ if TYPE_CHECKING:
     from infrastructure.repositories.vector.client_types import VectorClient
 
 
+# Bindings are immutable, so a pinned snapshot verified once stays valid; keyed by
+# snapshot namespace (endpoint, physical collection, generation) and fingerprint.
+verified_snapshot_bindings: set[tuple[str, str]] = set()
+
+
 def ensure_embedding_identity(client: VectorClient, identity: str | None = None) -> str:
     """Reject model changes and unversioned nonempty corpora before reads/writes.
 
@@ -30,6 +35,20 @@ def ensure_embedding_identity(client: VectorClient, identity: str | None = None)
         else configured_embedding_identity()
     )
     fingerprint = hashlib.sha256(identity.encode()).hexdigest()
+    cache_key = (snapshot.namespace, fingerprint) if isinstance(snapshot, CorpusSnapshot) else None
+
+    if cache_key is not None and cache_key in verified_snapshot_bindings:
+        return identity
+
+    verify_binding(client, snapshot, fingerprint)
+
+    if cache_key is not None:
+        verified_snapshot_bindings.add(cache_key)
+
+    return identity
+
+
+def verify_binding(client: VectorClient, snapshot: object, fingerprint: str) -> None:
     corpus = (
         snapshot.physical_collection if isinstance(snapshot, CorpusSnapshot) else settings.collection_name
     )
@@ -66,5 +85,3 @@ def ensure_embedding_identity(client: VectorClient, identity: str | None = None)
             "Re-index into a new collection and switch the alias after validation."
         )
         raise ValueError(msg)
-
-    return identity

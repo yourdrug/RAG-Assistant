@@ -23,7 +23,8 @@ from infrastructure.ml.rag.context_selection import ExclusionReason
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens, estimate_text_tokens
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection, render_selected_docs
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, rerank_documents
-from tests.rag_stage_fixtures import build_context as step_build_context
+from infrastructure.ml.rag.rag_steps import RagOperations
+from tests.rag_stage_fixtures import build_context as step_build_context, retrieval_result
 from tests.test_rag_improvements import doc, state_for
 
 
@@ -176,6 +177,46 @@ def test_no_fitting_block_preserves_exclusion_before_raising() -> None:
         active_evidence.reset(token)
     assert evidence.selected == []
     assert evidence.exclusions[0]["reason"] == ExclusionReason.OVERSIZED_BLOCK
+
+
+def test_repeated_builds_of_one_result_pack_context_once_and_still_capture() -> None:
+    state = state_for([(doc("Primary evidence " * 20, 1), 0.9), (doc("Amendment rule " * 20, 2), 0.8)])
+    result = retrieval_result(state)
+    operations = RagOperations(MagicMock(), document_access=MagicMock())
+    counter = MagicMock(side_effect=estimate_message_tokens)
+    evidence = BenchmarkEvidence()
+    token = active_evidence.set(evidence)
+    try:
+        gate = operations.build(result, counter, capture=False)
+        calls_after_first_pack = counter.call_count
+        assessed = operations.build(result, counter, capture=False)
+        context_before_final = evidence.context
+        final = operations.build(result, counter)
+    finally:
+        active_evidence.reset(token)
+    assert calls_after_first_pack > 0
+    assert counter.call_count == calls_after_first_pack
+    assert gate is assessed is final
+    assert context_before_final is None
+    assert evidence.context == final.evidence_context
+    assert evidence.prompt_budget is not None
+    assert evidence.prompt_budget["input_tokens"] == final.budget.input_tokens
+
+
+def test_context_is_repacked_for_another_result_or_counter() -> None:
+    state = state_for([(doc("Primary evidence " * 20, 1), 0.9)])
+    operations = RagOperations(MagicMock(), document_access=MagicMock())
+    first = retrieval_result(state)
+    counter = MagicMock(side_effect=estimate_message_tokens)
+
+    packed = operations.build(first, counter, capture=False)
+    calls = counter.call_count
+
+    assert operations.build(retrieval_result(state), counter, capture=False) is not packed
+    assert counter.call_count > calls
+    other_counter = MagicMock(side_effect=estimate_message_tokens)
+    assert operations.build(first, other_counter, capture=False) is not packed
+    assert other_counter.call_count > 0
 
 
 @pytest.mark.asyncio
