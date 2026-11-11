@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from datetime import date
+import json
+import math
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
@@ -117,9 +119,13 @@ async def test_tei_sorted_response_selects_the_actually_relevant_document(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     real_client = httpx.AsyncClient
-    transport = httpx.MockTransport(
-        lambda _request: httpx.Response(200, json=[{"index": 1, "score": 0.99}, {"index": 0, "score": 0.01}])
-    )
+    payloads: list[dict[str, object]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, json=[{"index": 1, "score": 4.6}, {"index": 0, "score": -4.6}])
+
+    transport = httpx.MockTransport(respond)
     monkeypatch.setattr(
         httpx, "AsyncClient", lambda **kwargs: real_client(**{**kwargs, "transport": transport})
     )
@@ -127,9 +133,19 @@ async def test_tei_sorted_response_selects_the_actually_relevant_document(
     try:
         selected = await rerank_documents("Q", [doc("irrelevant", 1), doc("relevant", 2)], 1, reranker)
         assert selected[0][0].metadata["document_id"] == 2
-        assert selected[0][1] == 0.99
+        assert selected[0][1] == pytest.approx(1 / (1 + math.exp(-4.6)))
+        assert payloads[0]["raw_scores"] is True
     finally:
         await reranker.close()
+
+
+def test_tei_strong_matches_stay_distinct_instead_of_tying_at_one() -> None:
+    """float32 sigmoid in TEI maps logits above ~17 to 1.0; local float64 keeps the order."""
+    response = [{"index": 0, "score": 18.0}, {"index": 1, "score": 25.0}, {"index": 2, "score": -800.0}]
+    scores = TEIRerankerClient.ordered_scores(response, 3)
+    assert scores[0] < scores[1] < 1.0
+    assert scores[2] == 0.0
+    assert scores[1] > 0.9999999
 
 
 @pytest.mark.parametrize(

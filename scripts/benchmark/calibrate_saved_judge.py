@@ -39,7 +39,13 @@ def save(path: Path, value: object) -> None:
 
 def groups(case: dict[str, Any]) -> list[tuple[dict[str, Any], list[str]]]:
     q = case["question"]
-    annotations = q.get("annotations") or {}
+    annotations = dict(q.get("annotations") or {})
+    for kind in ("facts", "conditions"):
+        # Answer-only conclusions are judged together with source requirements.
+        annotations[f"required_{kind}"] = [
+            *annotations.get(f"required_{kind}", []),
+            *annotations.pop(f"answer_{kind}", []),
+        ]
     quality = ["relevancy", "correctness"]
     if "expected_refusal" in annotations:
         quality.append("refusal_score")

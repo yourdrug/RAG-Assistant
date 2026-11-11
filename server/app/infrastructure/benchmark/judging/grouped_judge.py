@@ -4,7 +4,7 @@ import asyncio
 import time
 from typing import Any, Unpack
 
-from domain.benchmark.question import ABSTENTION_TYPES, ANSWER_BEHAVIORS, answer_type
+from domain.benchmark.question import ABSTENTION_TYPES, ANSWER_BEHAVIORS, answer_annotations, answer_type
 from infrastructure.benchmark.judging.callbacks import GroupedMetricOptions
 from infrastructure.benchmark.judging.clients import create_async_judge_client
 from infrastructure.benchmark.judging.judge_diagnostics import (
@@ -62,7 +62,7 @@ async def judge_case_grouped(
 def judge_groups(
     question: dict[str, Any], answer: str, context: str, evidence_context: str | None
 ) -> list[tuple[dict[str, Any], list[str]]]:
-    annotations = question.get("annotations") or {}
+    annotations = answer_annotations(question.get("annotations") or {})
     kind = answer_type(annotations)
     rubric = {
         "answer_type": kind,

@@ -25,6 +25,8 @@ ANNOTATION_FIELDS = frozenset(
         "expected_fragments",
         "required_facts",
         "required_conditions",
+        "answer_facts",
+        "answer_conditions",
         "expected_refusal",
         "answer_type",
         "expected_behavior",
@@ -37,6 +39,7 @@ ANNOTATION_FIELDS = frozenset(
         "variant_kind",
     }
 )
+REQUIREMENT_FIELDS = ("required_facts", "required_conditions", "answer_facts", "answer_conditions")
 FRAGMENT_FIELDS = frozenset({"source", "text", "pages", "section", "document_id", "act_version_id", "anchor"})
 
 
@@ -61,7 +64,7 @@ def validate_annotations(value: object) -> dict[str, Any] | None:
     validate_fragments(value.get("expected_fragments", []))
     validate_fragments(value.get("gold_evidence", []))
 
-    for field_name in ("required_facts", "required_conditions"):
+    for field_name in REQUIREMENT_FIELDS:
         groups = value.get(field_name, [])
 
         if not isinstance(groups, list) or len(groups) > MAX_ANNOTATION_ITEMS:
@@ -194,12 +197,49 @@ def evaluation_annotations(annotations: dict[str, Any] | None) -> dict[str, Any]
     result = deepcopy(annotations)
 
     if result.get("gold_evidence"):
-        result["expected_fragments"] = result["gold_evidence"]
+        result["expected_fragments"] = [gold_fragment(item) for item in result["gold_evidence"]]
 
     if answer_type(result) in ABSTENTION_TYPES:
         result["expected_fragments"] = []
-        result["required_facts"] = []
-        result["required_conditions"] = []
+
+        for field_name in REQUIREMENT_FIELDS:
+            result[field_name] = []
+
+    return result
+
+
+def gold_fragment(item: dict[str, Any]) -> dict[str, Any]:
+    """Gold text was verified against raw DOCX; its anchor locates it in chunks.
+
+    A long gold passage may span chunk boundaries, so its anchor (a short
+    phrase of the same source) is accepted as an alternative match.
+    """
+    anchor = item.get("anchor")
+    fragment = {key: value for key, value in item.items() if key != "anchor"}
+
+    if not nonempty(anchor) or anchor == fragment.get("text"):
+        return fragment
+
+    return {"alternatives": [fragment, {**fragment, "text": anchor}]}
+
+
+def answer_requirements(annotations: dict[str, Any], kind: str) -> list[Any]:
+    """Source requirements plus answer-only conclusions for one kind (fact/condition).
+
+    ``answer_facts``/``answer_conditions`` hold conclusions such as "нет" or
+    "не изменился" that a correct answer states but source text never contains.
+    They are checked in answers only, never in retrieval or context coverage.
+    """
+    return [*annotations.get(f"required_{kind}s", []), *annotations.get(f"answer_{kind}s", [])]
+
+
+def answer_annotations(annotations: dict[str, Any]) -> dict[str, Any]:
+    """Annotation view for answer judges: answer-only requirements are merged in."""
+    result = dict(annotations)
+
+    for kind in ("fact", "condition"):
+        result[f"required_{kind}s"] = answer_requirements(annotations, kind)
+        result.pop(f"answer_{kind}s", None)
 
     return result
 

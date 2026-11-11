@@ -26,6 +26,15 @@ TEI_TIMEOUT = 60.0
 MAX_ERROR_INDICES = 10
 
 
+def probability(logit: float) -> float:
+    """Overflow-safe float64 sigmoid that keeps strong matches distinguishable."""
+    if logit >= 0:
+        return 1.0 / (1.0 + math.exp(-logit))
+
+    exp = math.exp(logit)
+    return exp / (1.0 + exp)
+
+
 class TEIResponseError(RuntimeError):
     """TEI returned an invalid embedding response."""
 
@@ -92,7 +101,9 @@ class TEIRerankerClient(ManagedHTTPPool):
 
         query = pairs[0][0]
         texts = [p[1] for p in pairs]
-        payload = {"query": query, "texts": texts}
+        # Logits are converted locally: TEI applies sigmoid in float32, which
+        # collapses strong matches to 1.0 and makes their order arbitrary.
+        payload = {"query": query, "texts": texts, "raw_scores": True}
         r = await self.post(f"{self._base_url}/rerank", json=payload)
         r.raise_for_status()
         data = r.json()
@@ -104,7 +115,9 @@ class TEIRerankerClient(ManagedHTTPPool):
 
         query = pairs[0][0]
         texts = [p[1] for p in pairs]
-        payload = {"query": query, "texts": texts}
+        # Logits are converted locally: TEI applies sigmoid in float32, which
+        # collapses strong matches to 1.0 and makes their order arbitrary.
+        payload = {"query": query, "texts": texts, "raw_scores": True}
         with httpx.Client(timeout=TEI_TIMEOUT) as client:
             r = client.post(f"{self._base_url}/rerank", json=payload)
             r.raise_for_status()
@@ -123,13 +136,13 @@ class TEIRerankerClient(ManagedHTTPPool):
                 message = "Invalid or duplicate TEI rerank index"
                 raise ValueError(message)
 
-            score = float(item["score"])
+            logit = float(item["score"])
 
-            if not math.isfinite(score):
+            if not math.isfinite(logit):
                 message = "Non-finite TEI rerank score"
                 raise ValueError(message)
 
-            scores[index] = score
+            scores[index] = probability(logit)
 
         if len(scores) != count:
             message = "Incomplete TEI rerank response"

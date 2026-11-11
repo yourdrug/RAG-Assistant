@@ -9,7 +9,12 @@ from langchain_core.documents import Document
 
 from application.search import HybridRetriever
 from domain.rag.evidence.context import content_with_parent_scope
-from domain.rag.ranking import RetrievalDocument, evidence_identity, prioritize_distinct_provisions
+from domain.rag.ranking import (
+    RetrievalDocument,
+    evidence_identity,
+    prioritize_distinct_provisions,
+    prioritize_referenced_acts,
+)
 from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions, capture_stage
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
@@ -84,7 +89,9 @@ async def rerank_documents(
     scored = sorted(zip(docs, scores, strict=True), key=lambda x: x[1], reverse=True)
     retriever = HybridRetriever()
     eligible = retriever.apply_rerank_filters(scored, min_score=min_score, score_gap_ratio=score_gap_ratio)
-    ranked = prioritize_distinct_provisions(eligible)
+    ranked = prioritize_referenced_acts(
+        prioritize_distinct_provisions(eligible), active_evidence_profile.get().named_acts(question), top_n
+    )
 
     if active_evidence.get() is not None:
         capture_exclusions(

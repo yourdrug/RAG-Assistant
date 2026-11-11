@@ -19,30 +19,23 @@ from application.benchmark import (
     BenchmarkQuestionService,
     BenchmarkResultService,
     BenchmarkRunService,
+    BenchmarkSweepLauncher,
     BenchmarkSweepService,
 )
 from application.documents import DocumentQueryService
-from application.jobs.service import JobService
-from application.ports.job_enqueuer import JobEnqueuerPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import StorageConfig
-from domain.benchmark.sweep import BenchmarkSweepStatus
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.constants import (
-    SSE_HEADERS,
-    SSE_MEDIA_TYPE,
-    JobType,
-)
+from presentation.api.constants import SSE_HEADERS, SSE_MEDIA_TYPE
 from presentation.api.dependencies import (
     create_benchmark_history_port,
     create_benchmark_question_service,
     create_benchmark_result_service,
     create_benchmark_run_service,
+    create_benchmark_sweep_launcher,
     create_benchmark_sweep_service,
     create_config_service,
     create_document_query_service,
-    create_job_enqueuer,
-    create_job_service,
     create_storage_config,
 )
 from presentation.api.helpers import (
@@ -258,22 +251,9 @@ async def create_sweep(
     *,
     body: SweepCreateRequest,
     _admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[BenchmarkSweepService, Depends(create_benchmark_sweep_service)],
-    job_service: Annotated[JobService, Depends(create_job_service)],
-    job_enqueuer: Annotated[JobEnqueuerPort, Depends(create_job_enqueuer)],
+    launcher: Annotated[BenchmarkSweepLauncher, Depends(create_benchmark_sweep_launcher)],
 ) -> SweepResponse:
-    sweep = await service.create(sweep_create_to_dto(body))
-
-    job_id = await job_service.create_job(JobType.SWEEP, related_id=sweep.id)
-
-    if sweep.id is None:
-        message = "BenchmarkSweep saved with None id"
-        raise RuntimeError(message)
-
-    await service.attach_job(sweep.id, job_id)
-
-    await job_enqueuer.enqueue_sweep(sweep_id=sweep.id, job_id=job_id)
-
+    sweep, job_id = await launcher.start(sweep_create_to_dto(body))
     return sweep_to_response(sweep, job_id=job_id)
 
 
@@ -285,18 +265,9 @@ async def resume_sweep(
     *,
     sweep_id: int,
     _admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[BenchmarkSweepService, Depends(create_benchmark_sweep_service)],
-    job_service: Annotated[JobService, Depends(create_job_service)],
-    job_enqueuer: Annotated[JobEnqueuerPort, Depends(create_job_enqueuer)],
+    launcher: Annotated[BenchmarkSweepLauncher, Depends(create_benchmark_sweep_launcher)],
 ) -> SweepResponse:
-    sweep = await service.resume(sweep_id)
-    try:
-        job_id = await job_service.create_job(JobType.SWEEP, related_id=sweep_id)
-        await service.attach_job(sweep_id, job_id)
-        await job_enqueuer.enqueue_sweep(sweep_id=sweep_id, job_id=job_id)
-    except Exception:
-        await service.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
-        raise
+    sweep, job_id = await launcher.resume(sweep_id)
     return sweep_to_response(sweep, job_id=job_id)
 
 

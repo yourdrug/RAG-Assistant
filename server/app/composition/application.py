@@ -14,6 +14,7 @@ from application.benchmark import (
     BenchmarkQuestionService,
     BenchmarkResultService,
     BenchmarkRunService,
+    BenchmarkSweepLauncher,
     BenchmarkSweepService,
 )
 from application.chat import ChatLogService, ChatService, ConversationService
@@ -103,6 +104,7 @@ class ApplicationContainer:
     quality_service: QualityService | None = field(default=None)
     benchmark_question_service: BenchmarkQuestionService | None = field(default=None)
     benchmark_sweep_service: BenchmarkSweepService | None = field(default=None)
+    benchmark_sweep_launcher: BenchmarkSweepLauncher | None = field(default=None)
     benchmark_run_service: BenchmarkRunService | None = field(default=None)
     benchmark_export_service: BenchmarkExportService | None = field(default=None)
     benchmark_result_service: BenchmarkResultService | None = field(default=None)
@@ -236,6 +238,9 @@ class ApplicationContainer:
         self.quality_service = QualityService(uow_factory=uow)
         self.benchmark_question_service = BenchmarkQuestionService(uow_factory=uow)
         self.benchmark_sweep_service = BenchmarkSweepService(uow_factory=uow)
+        self.benchmark_sweep_launcher = BenchmarkSweepLauncher(
+            uow, self.benchmark_sweep_service, require(infra.services.job_enqueuer, "job_enqueuer")
+        )
         self.benchmark_run_service = BenchmarkRunService(uow_factory=uow)
         self.benchmark_export_service = BenchmarkExportService(uow, fs)
         self.benchmark_result_service = BenchmarkResultService(uow_factory=uow)

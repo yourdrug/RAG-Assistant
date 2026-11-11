@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 import pytest
 
-from application.benchmark import BenchmarkSweepService
+from application.benchmark import BenchmarkSweepLauncher, BenchmarkSweepService
 from application.benchmark.sweep_jobs import SweepJobService
 from application.ports.rate_limit import RateLimitDecision
 from config import settings
@@ -21,9 +21,8 @@ from domain.shared.exceptions import AppClientError
 from infrastructure.worker import runtime, sweep as worker
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import (
+    create_benchmark_sweep_launcher,
     create_benchmark_sweep_service,
-    create_job_enqueuer,
-    create_job_service,
     create_rate_limiter,
 )
 from presentation.api.exception_handlers import handle_client_exception
@@ -86,8 +85,8 @@ def test_api_preserves_selected_judge_and_requires_admin(
         )
         monkeypatch.setattr(factory._uow.fake_benchmark_sweeps, "requeue", AsyncMock(return_value=True))
 
-    jobs = SimpleNamespace(create_job=AsyncMock(return_value=2))
     queue = SimpleNamespace(enqueue_sweep=AsyncMock())
+    launcher = BenchmarkSweepLauncher(factory, service, queue)
     app = FastAPI()
     app.include_router(router)
     app.add_exception_handler(AppClientError, handle_client_exception)
@@ -96,8 +95,7 @@ def test_api_preserves_selected_judge_and_requires_admin(
     )
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[create_benchmark_sweep_service] = lambda: service
-    app.dependency_overrides[create_job_service] = lambda: jobs
-    app.dependency_overrides[create_job_enqueuer] = lambda: queue
+    app.dependency_overrides[create_benchmark_sweep_launcher] = lambda: launcher
     app.dependency_overrides[create_rate_limiter] = lambda: SimpleNamespace(
         check=AsyncMock(return_value=RateLimitDecision(allowed=True, retry_after_sec=0, limit=10))
     )
@@ -115,11 +113,12 @@ def test_api_preserves_selected_judge_and_requires_admin(
         assert response.status_code == 200, response.text
         assert response.json()["judge_model"] == "chosen/judge"
         assert response.json()["evaluation_mode"] == mode
-        queue.enqueue_sweep.assert_awaited_once_with(sweep_id=1, job_id=2)
-        assert factory._uow.fake_benchmark_sweeps.job_ids[1] == 2
+        queue.enqueue_sweep.assert_awaited_once_with(sweep_id=1, job_id=1)
+        assert factory._uow.fake_benchmark_sweeps.job_ids[1] == 1
+        assert response.json()["job_id"] == 1
     else:
         assert response.status_code == 403
-        jobs.create_job.assert_not_called()
+        assert factory._uow.fake_background_jobs.jobs == {}
         queue.enqueue_sweep.assert_not_called()
 
 

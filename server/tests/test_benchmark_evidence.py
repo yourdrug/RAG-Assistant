@@ -12,8 +12,13 @@ from pydantic import ValidationError
 import pytest
 
 from config import settings
-from domain.benchmark.evaluation import evaluate_evidence, summarize_evidence
-from domain.benchmark.question import BenchmarkQuestion, validate_annotations
+from domain.benchmark.evaluation import evaluate_evidence, evaluate_retrieval, summarize_evidence
+from domain.benchmark.question import (
+    BenchmarkQuestion,
+    answer_annotations,
+    evaluation_annotations,
+    validate_annotations,
+)
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.rag.breadth import Breadth
@@ -340,3 +345,86 @@ def test_judge_client_failure_is_reported_and_missing_context_is_not_scored(
     assert "citation_support_score" not in result["scores"]
     assert result["scores"]["refusal_score"] is None
     assert result["details"]["refusal_score"]["error"] == "client offline"
+
+
+ANSWER_ONLY_ANNOTATIONS = {
+    "required_facts": ["an..15"],
+    "answer_facts": [["не изменился", "нет,"]],
+    "answer_conditions": [["только поле 23"]],
+    "expected_fragments": [{"source": "rules.pdf", "text": "поле 18 an..15"}],
+}
+
+
+def test_answer_only_conclusions_are_validated_like_requirements() -> None:
+    assert validate_annotations(ANSWER_ONLY_ANNOTATIONS) == ANSWER_ONLY_ANNOTATIONS
+
+    with pytest.raises(ValueError, match="answer_facts"):
+        validate_annotations({"answer_facts": [[""]]})
+
+
+def test_answer_only_conclusions_never_block_retrieval_or_context_coverage() -> None:
+    retrieved = [doc("поле 18 an..15, статус М")]
+    hit = evaluate_retrieval({"annotations": ANSWER_ONLY_ANNOTATIONS, "source_hint": None}, retrieved)
+    assert hit["hit_rate"] == 1
+    assert hit["retrieval_fact_coverage"] == 1.0
+
+    metrics, diagnostics = evaluate_evidence(
+        ANSWER_ONLY_ANNOTATIONS, retrieved, retrieved, "поле 18 an..15, статус М", "Формат an..15."
+    )
+    assert metrics["context_fact_coverage"] == 1.0
+    assert metrics["context_condition_coverage"] is None
+    # The answer misses the conclusion and the scope condition.
+    assert metrics["answer_fact_coverage"] == 0.5
+    assert metrics["answer_condition_coverage"] == 0.0
+    assert diagnostics["missing_answer_facts"] == [["не изменился", "нет,"]]
+
+    complete, _ = evaluate_evidence(
+        ANSWER_ONLY_ANNOTATIONS,
+        retrieved,
+        retrieved,
+        "поле 18 an..15",
+        "Нет, не изменился: только поле 23, an..15.",
+    )
+    assert complete["answer_fact_coverage"] == complete["answer_condition_coverage"] == 1.0
+
+
+def test_answer_judges_see_answer_only_conclusions_and_abstentions_clear_them() -> None:
+    merged = answer_annotations(ANSWER_ONLY_ANNOTATIONS)
+    assert merged["required_facts"] == ["an..15", ["не изменился", "нет,"]]
+    assert merged["required_conditions"] == [["только поле 23"]]
+    assert "answer_facts" not in merged
+    abstention = evaluation_annotations({**ANSWER_ONLY_ANNOTATIONS, "answer_type": "not_in_corpus"})
+    assert abstention is not None
+    assert abstention["answer_facts"] == abstention["answer_conditions"] == []
+
+
+GOLD_SOURCE = "Постановление 24 сентября 2024 г. N 11493026(1).docx"
+INDEXED_SOURCE = "/data/Постановление 24 сентября 2024 г. N 11493026.docx"
+
+
+def test_gold_docx_text_matches_markdown_table_chunk_of_the_same_file() -> None:
+    gold = {
+        "source": GOLD_SOURCE,
+        "text": 'позицию\n"23\nУНП грузополучателяan..15\n3:М',
+        "anchor": "УНП грузополучателяan..15",
+    }
+    chunk = doc('| "23 | УНП грузополучателя <br> an..15 | 3:М | <VATRegistrationNumber> |', INDEXED_SOURCE)
+    other_file = doc(chunk["content"], "/data/Постановление от 18.12.2023 N 9753526.docx")
+    question = {"annotations": {"gold_evidence": [gold]}, "source_hint": None}
+
+    assert evaluate_retrieval(question, [chunk])["fragment_recall_at_k"] == 1.0
+    assert evaluate_retrieval(question, [other_file])["fragment_recall_at_k"] == 0.0
+
+
+def test_gold_anchor_locates_a_passage_split_across_chunks() -> None:
+    gold = {
+        "source": GOLD_SOURCE,
+        "text": "в таблице 4.1 - структура и формат сообщения BLRWBL (ЭТТН) позицию\n57\nДополнительный код",
+        "anchor": "в таблице 4.1 - структура и формат сообщения BLRWBL (ЭТТН) позицию",
+    }
+    heading = doc("в таблице 4.1 - структура и формат сообщения BLRWBL (ЭТТН) позицию", INDEXED_SOURCE)
+    row_only = doc("| 57 | Дополнительный код |", INDEXED_SOURCE)
+    question = {"annotations": {"gold_evidence": [gold]}, "source_hint": None}
+
+    assert evaluate_retrieval(question, [row_only, heading])["fragment_mrr"] == 0.5
+    assert evaluate_retrieval(question, [row_only])["hit_rate"] == 0

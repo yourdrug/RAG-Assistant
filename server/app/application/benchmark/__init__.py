@@ -47,6 +47,7 @@ from application.benchmark.services import (
     BenchmarkRunService,
     BenchmarkSweepService,
 )
+from application.benchmark.sweep_launcher import BenchmarkSweepLauncher
 
 
 __all__ = [
@@ -71,6 +72,7 @@ __all__ = [
     "BenchmarkRunnerOptions",
     "BenchmarkRunnerPort",
     "BenchmarkService",
+    "BenchmarkSweepLauncher",
     "BenchmarkSweepService",
     "RegressionCheckOutput",
     "RegressionCheckResult",

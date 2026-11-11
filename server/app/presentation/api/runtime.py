@@ -18,6 +18,7 @@ from application.benchmark import (
     BenchmarkQuestionService,
     BenchmarkResultService,
     BenchmarkRunService,
+    BenchmarkSweepLauncher,
     BenchmarkSweepService,
 )
 from application.budget import BudgetAdminService
@@ -121,6 +122,9 @@ class ApplicationServices(Protocol):
 
     @property
     def benchmark_sweep_service(self) -> BenchmarkSweepService | None: ...
+
+    @property
+    def benchmark_sweep_launcher(self) -> BenchmarkSweepLauncher | None: ...
 
     @property
     def benchmark_run_service(self) -> BenchmarkRunService | None: ...

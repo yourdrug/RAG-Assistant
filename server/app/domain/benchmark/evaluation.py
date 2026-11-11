@@ -7,7 +7,12 @@ from pathlib import PurePosixPath
 import re
 from typing import Any
 
-from domain.benchmark.question import ABSTENTION_TYPES, answer_type, evaluation_annotations
+from domain.benchmark.question import (
+    ABSTENTION_TYPES,
+    answer_requirements,
+    answer_type,
+    evaluation_annotations,
+)
 
 
 def parse_source_hints(source_hint: str | None) -> tuple[str, ...]:
@@ -50,8 +55,23 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.casefold()).strip()
 
 
+def compact_text(text: str) -> str:
+    """Layout-free form: DOCX text glues table cells, chunks keep markdown pipes."""
+    return COMPACT_NOISE_RE.sub("", normalize_text(text))
+
+
+def fragment_text_in(fragment_text: str, text: str) -> bool:
+    return compact_text(fragment_text) in compact_text(text)
+
+
 def source_name(source: str) -> str:
-    return PurePosixPath(source.replace("\\", "/")).name.casefold()
+    """File name without directories and a duplicate-download suffix like "(1)"."""
+    name = PurePosixPath(source.replace("\\", "/")).name.casefold()
+    return DUPLICATE_SUFFIX_RE.sub("", name)
+
+
+COMPACT_NOISE_RE = re.compile(r"[\s|\"«»“”'`*]+")
+DUPLICATE_SUFFIX_RE = re.compile(r"\s*\(\d+\)(?=\.[^.]+$)")
 
 
 def fragment_identity_matches(fragment: dict[str, Any], metadata: dict[str, Any]) -> bool:
@@ -87,7 +107,7 @@ def matches_fragment(fragment: dict[str, Any], document: dict[str, Any]) -> bool
             or normalize_text(fragment["section"]) == normalize_text(metadata.get("section", ""))
         )
         and (not fragment.get("pages") or fragment_pages_match(fragment["pages"], metadata))
-        and normalize_text(fragment["text"]) in normalize_text(document["content"])
+        and fragment_text_in(fragment["text"], document["content"])
     )
 
 
@@ -162,7 +182,7 @@ def evaluate_evidence(
             f
             for f in fragments
             if not any(
-                matches_fragment(option, doc) and normalize_text(option["text"]) in normalize_text(context)
+                matches_fragment(option, doc) and fragment_text_in(option["text"], context)
                 for option in f.get("alternatives", [f])
                 for doc in selected
             )
@@ -171,11 +191,14 @@ def evaluate_evidence(
         diagnostics["missing_context_fragments"] = missing
 
     for kind in ("fact", "condition"):
-        requirements = annotations.get(f"required_{kind}s", [])
+        stage_requirements = {
+            "context": annotations.get(f"required_{kind}s", []),
+            "answer": answer_requirements(annotations, kind),
+        }
 
         for stage, text in (("context", context), ("answer", answer)):
             if text is not None:
-                score, missing = requirement_coverage(requirements, text)
+                score, missing = requirement_coverage(stage_requirements[stage], text)
                 metrics[f"{stage}_{kind}_coverage"] = score
                 diagnostics[f"missing_{stage}_{kind}s"] = missing
 
@@ -341,7 +364,7 @@ def stage_fragment_present(
     alternatives = fragment.get("alternatives", [fragment])
     return any(
         matches_fragment(option, {**document, "content": document.get("scoped_content", document["content"])})
-        and (context is None or normalize_text(option["text"]) in normalize_text(context))
+        and (context is None or fragment_text_in(option["text"], context))
         for option in alternatives
     )
 
@@ -512,7 +535,7 @@ def evaluate_stage_evidence(
     result["answer_requirements"] = {}
 
     for kind in ("fact", "condition"):
-        requirements = (valid_annotations or {}).get(f"required_{kind}s") or []
+        requirements = answer_requirements(valid_annotations or {}, kind)
         coverage, missing = requirement_coverage(requirements, answer)
         result["answer_requirements"][kind] = {
             "method": "lexical",

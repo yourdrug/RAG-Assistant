@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Unpack
 
+from domain.benchmark.question import answer_annotations
 from infrastructure.benchmark.judging.callbacks import SyncMetricOptions
 from infrastructure.benchmark.judging.judge import get_judge_client, judge_with_structured_output
 from infrastructure.benchmark.judging.judge_rubric import CITATION_SUPPORT_CRITERIA
@@ -29,6 +30,7 @@ def judge_evidence(
     if not annotations:
         return result
 
+    annotations = answer_annotations(annotations)
     checks = evidence_checks(annotations, context)
 
     payload = json.dumps(

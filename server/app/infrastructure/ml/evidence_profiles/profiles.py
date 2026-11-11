@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Protocol, override
 
+from domain.rag.act_references import act_focused_queries, extract_act_numbers
 from infrastructure.ml.evidence_profiles.belarus import (
     applicable_context,
     field_evidence,
@@ -40,6 +41,10 @@ class EvidenceProfile(Protocol):
     def reading_reminder(self, question: str) -> str: ...
 
     def search_queries(self, question: str) -> list[str]: ...
+
+    def named_acts(self, question: str) -> tuple[str, ...]: ...
+
+    def act_queries(self, question: str) -> list[str]: ...
 
     def anchors(self, context: str, question: str) -> list[str]: ...
 
@@ -94,6 +99,14 @@ class GenericEvidenceProfile(EvidenceProfile):
     @override
     def search_queries(self, question: str) -> list[str]:
         return [question]
+
+    @override
+    def named_acts(self, question: str) -> tuple[str, ...]:
+        return ()
+
+    @override
+    def act_queries(self, question: str) -> list[str]:
+        return []
 
     @override
     def anchors(self, context: str, question: str) -> list[str]:
@@ -158,6 +171,14 @@ class BelarusEvidenceProfile(GenericEvidenceProfile):
     @override
     def search_queries(self, question: str) -> list[str]:
         return queries.evidence_search_queries(question)
+
+    @override
+    def named_acts(self, question: str) -> tuple[str, ...]:
+        return extract_act_numbers(question)
+
+    @override
+    def act_queries(self, question: str) -> list[str]:
+        return act_focused_queries(question)
 
     @override
     def anchors(self, context: str, question: str) -> list[str]:

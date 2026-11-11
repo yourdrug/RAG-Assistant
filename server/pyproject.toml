@@ -498,6 +498,7 @@ forbidden_modules = [
 # Only these shared ports are part of this feature boundary.
 ignore_imports = [
     "application.benchmark.export_service -> application.ports.file_storage",
+    "application.benchmark.sweep_launcher -> application.ports.job_enqueuer",
 ]
 
 [[tool.importlinter.contracts]]

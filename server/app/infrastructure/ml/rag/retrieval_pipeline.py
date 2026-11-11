@@ -269,7 +269,12 @@ async def retrieve_with_decomposition(
         candidates = await run_retrieval(query, state, ml_clients)
         sub_queries = [query]
 
-    for probe in active_evidence_profile.get().search_queries(query)[1:]:
+    # Comparisons across named acts search each act separately; the shared
+    # access filter applies, and every candidate is reranked on the full query.
+    profile = active_evidence_profile.get()
+    probes = [*profile.search_queries(query)[1:], *profile.act_queries(query)]
+
+    for probe in probes:
         if probe in sub_queries:
             continue
 

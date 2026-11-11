@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         BenchmarkQuestionService,
         BenchmarkResultService,
         BenchmarkRunService,
+        BenchmarkSweepLauncher,
         BenchmarkSweepService,
     )
     from application.chat import ChatLogService, ChatService, ConversationService
@@ -204,6 +205,12 @@ def create_benchmark_question_service(request: Request) -> BenchmarkQuestionServ
 def create_benchmark_sweep_service(request: Request) -> BenchmarkSweepService:
     return get_or_raise(
         create_container(request).application.benchmark_sweep_service, "BenchmarkSweepService"
+    )
+
+
+def create_benchmark_sweep_launcher(request: Request) -> BenchmarkSweepLauncher:
+    return get_or_raise(
+        create_container(request).application.benchmark_sweep_launcher, "BenchmarkSweepLauncher"
     )
 
 

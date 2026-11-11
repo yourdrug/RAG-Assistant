@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from domain.knowledge.chunk import CHUNK_CONTEXT_FIELDS, SENTENCE_UNIT_KIND
 from domain.knowledge.enums import PageContentType
+from domain.rag.act_references import referenced_act
 from domain.shared.hashing import content_hash
 
 
@@ -93,6 +94,63 @@ def rank_provision_continuations[ItemT: RetrievalDocument | tuple[RetrievalDocum
 
 MAX_PROVISION_CHUNKS = 3
 CONTINUATION_SCORE_RATIO = 0.85
+MIN_CHUNKS_PER_REFERENCED_ACT = 2
+
+
+def prioritize_referenced_acts[ItemT: RetrievalDocument | tuple[RetrievalDocument, float]](
+    items: list[ItemT],
+    act_numbers: tuple[str, ...],
+    top_n: int,
+) -> list[ItemT]:
+    """Prefer evidence from acts named in the question within the top_n window.
+
+    Only already eligible (authorized, threshold-passing) items are reordered;
+    nothing is added. Every named act that has eligible evidence keeps up to
+    ``MIN_CHUNKS_PER_REFERENCED_ACT`` items inside the window. Slots come from
+    the weakest items of unnamed acts first, then from named acts holding more
+    than their guaranteed share. Inside the window, named-act items come first
+    and the reranker order is otherwise kept.
+    """
+    if not act_numbers or top_n <= 0:
+        return items
+
+    def act_of(item: ItemT) -> str | None:
+        doc = item[0] if isinstance(item, tuple) else item
+        return referenced_act(doc.metadata, act_numbers)
+
+    acts = [act_of(item) for item in items]
+
+    if not any(acts):
+        return items
+
+    window = list(range(min(top_n, len(items))))
+    outside = list(range(len(window), len(items)))
+
+    for number in act_numbers:
+        missing = MIN_CHUNKS_PER_REFERENCED_ACT - sum(acts[i] == number for i in window)
+        promoted = [i for i in outside if acts[i] == number][: max(0, missing)]
+
+        for index in promoted:
+            replaceable = [i for i in reversed(window) if acts[i] is None] or [
+                i
+                for i in reversed(window)
+                if acts[i] != number
+                and sum(acts[j] == acts[i] for j in window) > MIN_CHUNKS_PER_REFERENCED_ACT
+            ]
+
+            if not replaceable:
+                break
+
+            window.remove(replaceable[0])
+            outside.append(replaceable[0])
+            outside.remove(index)
+            window.append(index)
+
+    window.sort()
+    outside.sort()
+    named = [i for i in window if acts[i] is not None]
+    other = [i for i in window if acts[i] is None]
+    return [items[i] for i in (*named, *other, *outside)]
 
 
 def provision_identity(doc: RetrievalDocument) -> tuple[object, ...] | None:
