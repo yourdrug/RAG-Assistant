@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, Mock
@@ -20,6 +21,7 @@ from application.identity import (
     UserManagementService,
 )
 from domain.identity.api_key import ApiKey
+from domain.identity.ports import TokenClaims
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user import User
 from domain.shared.exceptions import AppClientError, BusinessRuleViolationError, EntityNotFoundError
@@ -42,7 +44,7 @@ def identity() -> SimpleNamespace:
     factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
     hasher = AsyncMock()
     tokens = Mock()
-    tokens.decode_token.return_value = {"sub": "1"}
+    tokens.decode_token.return_value = TokenClaims(user_id=1, role="user", expires_at=datetime.now(UTC))
     provider = Mock()
     provider.MISS = object()
     provider.get_cached = AsyncMock(return_value=provider.MISS)

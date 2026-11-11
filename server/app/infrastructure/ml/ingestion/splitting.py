@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from langchain.schema import Document
 
-from config import settings
+from config import ChunkingSection, process_section
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
 from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.ml.ingestion.page_joining import join_page_word, page_word_evidence
@@ -322,7 +322,9 @@ class Chunker:
         domain_settings: DomainSettingsPort | None = None,
         chunk_settings: ChunkSettingsPort | None = None,
     ) -> None:
-        config = chunk_settings or settings
+        chunking_settings = process_section(ChunkingSection)
+
+        config = chunk_settings or chunking_settings
         self.profile = (
             profile if profile and profile.content_boundaries() and domain_settings is not None else None
         )
@@ -339,9 +341,9 @@ class Chunker:
                 else settings_chunk_size(key, domain_settings)
             )
             default_overlap = (
-                settings.legal_chunk_overlap
+                chunking_settings.legal_chunk_overlap
                 if key == DocDomain.LEGAL.value
-                else settings.decree_chunk_overlap
+                else chunking_settings.decree_chunk_overlap
             )
             self.chunk_overlap = domain_setting(
                 domain_settings, f"{key}_chunk_overlap", key, default_overlap, allow_zero=True
@@ -415,12 +417,14 @@ def settings_chunk_size(
     chunk_settings: ChunkSettingsPort | None = None,
 ) -> int:
     """Use the same configured limit in every parser/splitter entry point."""
-    global_settings = chunk_settings or settings
+    chunking_settings = process_section(ChunkingSection)
+
+    global_settings = chunk_settings or chunking_settings
 
     if domain == DocDomain.LEGAL.value:
         default = global_settings.legal_chunk_size
     elif domain == DocDomain.DECREE.value:
-        default = settings.decree_chunk_size
+        default = chunking_settings.decree_chunk_size
     else:
         return global_settings.chunk_size
 

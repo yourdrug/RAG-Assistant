@@ -8,14 +8,13 @@ import logging
 from pathlib import Path
 import tempfile
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from aiobotocore.session import get_session
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
 from application.ports.file_storage import FileItem
-from config import settings
 from infrastructure.utils.async_tasks import finish_owned_task, run_sync_io
 
 
@@ -24,6 +23,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from application.ports.file_storage import FileStorage
+    from config import ConcurrencySection, StorageSection
     from infrastructure.storage.s3_types import MultipartPart, S3Client
 
 
@@ -33,24 +33,34 @@ S3_MISSING_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
 S3_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 
-def s3_client_kwargs() -> dict[str, Any]:
+class S3ClientKwargs(TypedDict):
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    region_name: str
+    config: BotoConfig
+    endpoint_url: NotRequired[str]
+
+
+def s3_client_kwargs(storage_settings: StorageSection) -> S3ClientKwargs:
     """Snapshot credentials/config for a single backend lifetime."""
-    custom_endpoint = settings.s3_endpoint and not settings.s3_endpoint.startswith("https://s3.amazonaws.com")
-    kwargs: dict[str, Any] = {
-        "aws_access_key_id": settings.s3_access_key,
-        "aws_secret_access_key": settings.s3_secret_key,
-        "region_name": settings.s3_region,
+    custom_endpoint = storage_settings.s3_endpoint and not storage_settings.s3_endpoint.startswith(
+        "https://s3.amazonaws.com"
+    )
+    kwargs: S3ClientKwargs = {
+        "aws_access_key_id": storage_settings.s3_access_key,
+        "aws_secret_access_key": storage_settings.s3_secret_key,
+        "region_name": storage_settings.s3_region,
         "config": BotoConfig(
             connect_timeout=10,
             read_timeout=60,
             retries={"max_attempts": 3, "mode": "standard"},
-            max_pool_connections=settings.s3_max_concurrent,
+            max_pool_connections=storage_settings.s3_max_concurrent,
             s3={"addressing_style": "path"} if custom_endpoint else {},
         ),
     }
 
     if custom_endpoint:
-        kwargs["endpoint_url"] = settings.s3_endpoint
+        kwargs["endpoint_url"] = storage_settings.s3_endpoint
 
     return kwargs
 
@@ -111,12 +121,12 @@ async def create_multipart(client: S3Client, bucket: str, key: str) -> str:
 class S3Storage:
     """One lazy async S3 client, owned by one container and one event loop."""
 
-    def __init__(self) -> None:
-        self.bucket = settings.s3_bucket
-        self._kwargs = s3_client_kwargs()
-        self._extensions = settings.supported_extensions
-        self._limit = asyncio.Semaphore(settings.s3_max_concurrent)
-        self._acquire_timeout = settings.semaphore_acquire_timeout
+    def __init__(self, storage_settings: StorageSection, concurrency_settings: ConcurrencySection) -> None:
+        self.bucket = storage_settings.s3_bucket
+        self._kwargs = s3_client_kwargs(storage_settings)
+        self._extensions = storage_settings.supported_extensions
+        self._limit = asyncio.Semaphore(storage_settings.s3_max_concurrent)
+        self._acquire_timeout = concurrency_settings.semaphore_acquire_timeout
         self._init_lock = asyncio.Lock()
         self._client: S3Client | None = None
         self._context: AbstractAsyncContextManager[S3Client] | None = None
@@ -340,7 +350,10 @@ class S3Storage:
 class LazyStorage:
     """Container-owned backend rotation; in-flight calls retain their backend."""
 
-    def __init__(self) -> None:
+    def __init__(self, storage_settings: StorageSection, concurrency_settings: ConcurrencySection) -> None:
+        # Live sections: each rotated backend snapshots the values current at its creation.
+        self._storage_settings = storage_settings
+        self._concurrency_settings = concurrency_settings
         self._resolved: FileStorage | None = None
         self._retired: list[FileStorage] = []
         self._lock = threading.Lock()
@@ -354,7 +367,7 @@ class LazyStorage:
                 raise RuntimeError(msg)
 
             if self._resolved is None:
-                self._resolved = create_storage()
+                self._resolved = create_storage(self._storage_settings, self._concurrency_settings)
 
             return self._resolved
 
@@ -426,5 +439,5 @@ class LazyStorage:
             raise
 
 
-def create_storage() -> FileStorage:
-    return S3Storage()
+def create_storage(storage_settings: StorageSection, concurrency_settings: ConcurrencySection) -> FileStorage:
+    return S3Storage(storage_settings, concurrency_settings)

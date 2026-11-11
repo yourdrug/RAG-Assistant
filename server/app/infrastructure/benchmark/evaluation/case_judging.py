@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from config import settings
+from config import BenchmarkSection, process_section
 from infrastructure.benchmark.checkpoint import restore_grouped_scores
 from infrastructure.benchmark.judging import context_judge, evidence_judge, grouped_judge, judge
 
@@ -27,7 +27,9 @@ async def judge_generated(
     runtime: BudgetRuntime | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
-    if settings.benchmark_judge_grouped_enabled or (annotations or {}).get("answer_type"):
+    if process_section(BenchmarkSection).benchmark_judge_grouped_enabled or (annotations or {}).get(
+        "answer_type"
+    ):
         question = {**question, "annotations": annotations}
         saved_scores = restore_grouped_scores(stages)
         grouped = await grouped_judge.judge_case_grouped(

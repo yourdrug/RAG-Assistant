@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Unpack
 from sqlalchemy import and_, distinct, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from config import settings
+from config import JobsSection, process_section
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.document import Document, DocumentProcessingUpdate
@@ -407,7 +407,9 @@ class SQLAlchemyDocumentRepository:
 
     async def mark_stuck_processing_failed(self) -> list[int]:
         """Mark documents stuck in PROCESSING for too long as FAILED."""
-        cutoff = datetime.now(tz=UTC) - timedelta(minutes=settings.stuck_job_timeout_minutes)
+        cutoff = datetime.now(tz=UTC) - timedelta(
+            minutes=process_section(JobsSection).stuck_job_timeout_minutes
+        )
         result = await self._db.execute(
             select(DocumentModel)
             .where(

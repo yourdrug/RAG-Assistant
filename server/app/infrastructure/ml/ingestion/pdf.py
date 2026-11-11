@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import fitz
 from langchain.schema import Document
 
-from config import settings
+from config import OCRSection, process_section
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.ocr import ocr_pdf_pages, ocr_vl_pdf_pages
 from infrastructure.ml.ingestion.table_formatting import markdown_cell, render_table
@@ -461,7 +461,7 @@ def _process_page(
         "text_quality": round(_compute_text_quality(page), 3),
     }
 
-    if ocr_enabled and settings.ocr_engine == "paddleocr_vl" and page_needs_vl(page):
+    if ocr_enabled and process_section(OCRSection).ocr_engine == "paddleocr_vl" and page_needs_vl(page):
         return PageResult(ocr_needed=True, meta=page_meta)
 
     table_docs = _extract_page_tables(page, file_path, page_num)
@@ -504,7 +504,7 @@ def _process_ocr_batch(
     file_path: Path,
 ) -> list[Document]:
     """Run OCR on flagged pages and return the resulting Documents."""
-    if settings.ocr_engine == "paddleocr_vl":
+    if process_section(OCRSection).ocr_engine == "paddleocr_vl":
         return ocr_vl_pdf_pages(doc, ocr_pages_needed, str(file_path))
 
     pages: list[Document] = []
@@ -543,6 +543,8 @@ def parse_pdf(file_path: Path) -> list[Document]:
 
 
 def parse_pdf_document(doc: fitz.Document, file_path: Path) -> list[Document]:
+    ocr_settings = process_section(OCRSection)
+
     n_pages = len(doc)
     doc_metadata = _extract_doc_metadata(doc)
 
@@ -564,8 +566,8 @@ def parse_pdf_document(doc: fitz.Document, file_path: Path) -> list[Document]:
             classified,
             boilerplate,
             file_path,
-            ocr_enabled=settings.ocr_enabled,
-            min_chars=settings.ocr_min_chars,
+            ocr_enabled=ocr_settings.ocr_enabled,
+            min_chars=ocr_settings.ocr_min_chars,
         )
         pages.extend(result.ordered_docs or result.table_docs)
 

@@ -33,8 +33,7 @@ def http_probe(monkeypatch: pytest.MonkeyPatch) -> HttpFixture:
     transport = httpx.MockTransport(handler)
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=transport, **kwargs))
     monkeypatch.setattr(
-        probes,
-        "settings",
+        "config.settings",
         SimpleNamespace(
             openrouter_base_url="http://openrouter",
             openrouter_api_key="test-key",

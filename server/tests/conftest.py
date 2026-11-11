@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 # ---------------------------------------------------------------------------
 # Ensure required env vars are set before any module imports Settings().
-# In CI there is no .env file, so Settings() at config.py:258 would fail
+# In CI there is no .env file, so the module-level Settings() in config/__init__.py would fail
 # with 12 missing-field errors.  setdefault keeps local .env values intact.
 # ---------------------------------------------------------------------------
 _TEST_DEFAULTS = {

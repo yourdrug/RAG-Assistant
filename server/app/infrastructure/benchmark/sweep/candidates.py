@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from langchain.schema import Document as LCDocument
 
-from config import settings
+from config import VectorStoreSection, process_section
 from domain.benchmark.evaluation import (
     has_retrieval_labels,
 )
@@ -74,7 +74,7 @@ async def cache_candidates(
         query_vector = await asyncio.to_thread(embeddings.embed_query_sync, qtext)
         points = await asyncio.to_thread(
             client.search,
-            collection_name=settings.collection_name,
+            collection_name=process_section(VectorStoreSection).collection_name,
             query_vector=query_vector,
             limit=max_fetch_k,
             query_filter=access_filter,

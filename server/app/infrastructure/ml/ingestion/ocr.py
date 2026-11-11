@@ -12,7 +12,7 @@ from langchain.schema import Document
 import numpy as np
 from PIL import Image
 
-from config import settings
+from config import OCRSection, process_section
 from infrastructure.ml.ingestion.ocr_vl import recognize_page
 
 
@@ -28,9 +28,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("detailed")
 
-# Recognitions below this confidence are dropped rather than fed into search
-# — low-confidence OCR guesses are noise that actively hurts embeddings/exact
-# match, not signal. Overridable via settings.ocr_min_confidence.
+# Fallback for direct callers; runtime threshold comes from OCRSection.ocr_min_confidence.
 _DEFAULT_OCR_MIN_CONFIDENCE = 0.5
 
 
@@ -46,11 +44,13 @@ def invalidate_paddle_ocr_cache(event: ConfigParameterChanged) -> None:
 @functools.lru_cache(maxsize=1)
 def get_paddle_ocr() -> PaddleOCR:
     # Lazy: PaddleOCR imports heavyweight model backends.
+    ocr_settings = process_section(OCRSection)
+
     backend = importlib.import_module("infrastructure.ml.ingestion.paddle_backend")
     create = cast("Callable[[str], PaddleOCR]", backend.create_paddle_ocr)
 
-    log.info("Loading PaddleOCR (lang=%s) ...", settings.ocr_lang_paddle)
-    return create(settings.ocr_lang_paddle)
+    log.info("Loading PaddleOCR (lang=%s) ...", ocr_settings.ocr_lang_paddle)
+    return create(ocr_settings.ocr_lang_paddle)
 
 
 @functools.lru_cache(maxsize=1)
@@ -124,7 +124,7 @@ def _order_ocr_entries(entries: list[dict[str, Any]], min_confidence: float | No
 def ocr_image_paddle(image: Image.Image) -> str:
     ocr = get_paddle_ocr()
     result = ocr.ocr(np.array(image), cls=True)
-    min_confidence = getattr(settings, "ocr_min_confidence", _DEFAULT_OCR_MIN_CONFIDENCE)
+    min_confidence = process_section(OCRSection).ocr_min_confidence
 
     entries = []
 
@@ -142,9 +142,11 @@ def ocr_image_paddle(image: Image.Image) -> str:
 
 
 def ocr_image_surya(image: Image.Image) -> str:
+    ocr_settings = process_section(OCRSection)
+
     rec_predictor, det_predictor = get_surya_predictors()
-    predictions = rec_predictor([image], [settings.ocr_lang_surya], det_predictor)
-    min_confidence = getattr(settings, "ocr_min_confidence", _DEFAULT_OCR_MIN_CONFIDENCE)
+    predictions = rec_predictor([image], [ocr_settings.ocr_lang_surya], det_predictor)
+    min_confidence = ocr_settings.ocr_min_confidence
 
     entries = []
 
@@ -174,7 +176,9 @@ def ocr_vl_pdf_pages(doc: PDFDocumentHandle, page_nums: list[int], filename: str
 
     for page_num in page_nums:
         page = cast("fitz.Page", doc.load_page(page_num - 1))
-        pix = page.get_pixmap(dpi=settings.ocr_dpi, colorspace=fitz.Colorspace(fitz.CS_RGB), alpha=False)
+        pix = page.get_pixmap(
+            dpi=process_section(OCRSection).ocr_dpi, colorspace=fitz.Colorspace(fitz.CS_RGB), alpha=False
+        )
         image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         result = recognize_page(image)
         results.extend(
@@ -197,7 +201,9 @@ def ocr_vl_pdf_pages(doc: PDFDocumentHandle, page_nums: list[int], filename: str
 
 
 def ocr_pdf_pages(doc: PDFDocumentHandle, page_nums: list[int], filename: str) -> dict[int, str]:
-    if settings.ocr_engine == "paddleocr_vl":
+    ocr_settings = process_section(OCRSection)
+
+    if ocr_settings.ocr_engine == "paddleocr_vl":
         documents = ocr_vl_pdf_pages(doc, page_nums, filename)
         return {
             number: "\n\n".join(d.page_content for d in documents if d.metadata["page"] == number)
@@ -205,7 +211,7 @@ def ocr_pdf_pages(doc: PDFDocumentHandle, page_nums: list[int], filename: str) -
         }
 
     results = {}
-    zoom = settings.ocr_dpi / 72
+    zoom = ocr_settings.ocr_dpi / 72
     mat = fitz.Matrix(zoom, zoom)
 
     for page_num in page_nums:
@@ -215,10 +221,10 @@ def ocr_pdf_pages(doc: PDFDocumentHandle, page_nums: list[int], filename: str) -
 
         text = ""
 
-        if settings.ocr_engine in ("paddleocr", "auto"):
+        if ocr_settings.ocr_engine in ("paddleocr", "auto"):
             text = ocr_image_paddle(img)
 
-        if not text and settings.ocr_engine in ("surya", "auto"):
+        if not text and ocr_settings.ocr_engine in ("surya", "auto"):
             text = ocr_image_surya(img)
 
         results[page_num] = text

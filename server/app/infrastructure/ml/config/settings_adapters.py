@@ -5,17 +5,33 @@ Consolidates all settings adapter classes into a single module.
 
 from __future__ import annotations
 
-from config import get_request_settings, get_setting, settings
+from config import (
+    AppSection,
+    ChatSection,
+    ChunkingSection,
+    HybridSearchSection,
+    LLMSection,
+    MLProviderSection,
+    OCRSection,
+    RagFeaturesSection,
+    RankingSection,
+    RetrievalSection,
+    StorageSection,
+    VectorStoreSection,
+    get_setting,
+    process_section,
+    request_section,
+)
 
 
 class LivePreviewSettings:
     @property
     def preview_max_size_mb(self) -> int:
-        return settings.preview_max_size_mb
+        return process_section(StorageSection).preview_max_size_mb
 
     @property
     def preview_cache_ttl_seconds(self) -> int:
-        return settings.preview_cache_ttl_seconds
+        return process_section(StorageSection).preview_cache_ttl_seconds
 
 
 class LiveRagSettings:
@@ -23,67 +39,67 @@ class LiveRagSettings:
 
     @property
     def retriever_fetch_k(self) -> int:
-        return get_request_settings().retriever_fetch_k
+        return request_section(RetrievalSection).retriever_fetch_k
 
     @property
     def retriever_top_k(self) -> int:
-        return get_request_settings().retriever_top_k
+        return request_section(RetrievalSection).retriever_top_k
 
     @property
     def retriever_fetch_k_broad(self) -> int:
-        return get_request_settings().retriever_fetch_k_broad
+        return request_section(RetrievalSection).retriever_fetch_k_broad
 
     @property
     def retriever_top_k_broad(self) -> int:
-        return get_request_settings().retriever_top_k_broad
+        return request_section(RetrievalSection).retriever_top_k_broad
 
     @property
     def hybrid_enabled(self) -> bool:
-        return get_request_settings().hybrid_enabled
+        return request_section(HybridSearchSection).hybrid_enabled
 
     @property
     def bm25_fetch_k(self) -> int:
-        return get_request_settings().bm25_fetch_k
+        return request_section(HybridSearchSection).bm25_fetch_k
 
     @property
     def rrf_k(self) -> int:
-        return get_request_settings().rrf_k
+        return request_section(HybridSearchSection).rrf_k
 
     @property
     def dense_weight(self) -> float:
-        return get_request_settings().dense_weight
+        return request_section(HybridSearchSection).dense_weight
 
     @property
     def sparse_weight(self) -> float:
-        return get_request_settings().sparse_weight
+        return request_section(HybridSearchSection).sparse_weight
 
     @property
     def rerank_min_score(self) -> float | None:
-        return get_request_settings().rerank_min_score
+        return request_section(RankingSection).rerank_min_score
 
     @property
     def rerank_score_gap_ratio(self) -> float | None:
-        return get_request_settings().rerank_score_gap_ratio
+        return request_section(RankingSection).rerank_score_gap_ratio
 
     @property
     def citation_filter_enabled(self) -> bool:
-        return get_request_settings().citation_filter_enabled
+        return request_section(RankingSection).citation_filter_enabled
 
     @property
     def relevance_gate_enabled(self) -> bool:
-        return get_request_settings().relevance_gate_enabled
+        return request_section(RagFeaturesSection).relevance_gate_enabled
 
     @property
     def condense_enabled(self) -> bool:
-        return get_request_settings().condense_enabled
+        return request_section(RagFeaturesSection).condense_enabled
 
     @property
     def decomposition_enabled(self) -> bool:
-        return get_request_settings().decomposition_enabled
+        return request_section(RagFeaturesSection).decomposition_enabled
 
     @property
     def rolling_summary_enabled(self) -> bool:
-        return get_request_settings().rolling_summary_enabled
+        return request_section(RagFeaturesSection).rolling_summary_enabled
 
     @property
     def cache_enabled(self) -> bool:
@@ -91,31 +107,31 @@ class LiveRagSettings:
 
     @property
     def source_min_score(self) -> float:
-        return get_request_settings().source_min_score
+        return request_section(RankingSection).source_min_score
 
     @property
     def exact_ref_sparse_boost(self) -> float:
-        return get_request_settings().exact_ref_sparse_boost
+        return request_section(RankingSection).exact_ref_sparse_boost
 
     @property
     def llm_num_ctx_narrow(self) -> int:
-        return get_request_settings().llm_num_ctx_narrow
+        return request_section(LLMSection).llm_num_ctx_narrow
 
     @property
     def llm_num_ctx_broad(self) -> int:
-        return get_request_settings().llm_num_ctx_broad
+        return request_section(LLMSection).llm_num_ctx_broad
 
     @property
     def llm_num_predict_narrow(self) -> int:
-        return get_request_settings().llm_num_predict_narrow
+        return request_section(LLMSection).llm_num_predict_narrow
 
     @property
     def llm_num_predict_broad(self) -> int:
-        return get_request_settings().llm_num_predict_broad
+        return request_section(LLMSection).llm_num_predict_broad
 
     @property
     def pii_redaction_enabled(self) -> bool:
-        return get_request_settings().pii_redaction_enabled
+        return request_section(RagFeaturesSection).pii_redaction_enabled
 
 
 class LiveChunkSettings:
@@ -123,19 +139,19 @@ class LiveChunkSettings:
 
     @property
     def chunk_size(self) -> int:
-        return settings.chunk_size
+        return process_section(ChunkingSection).chunk_size
 
     @property
     def chunk_overlap(self) -> int:
-        return settings.chunk_overlap
+        return process_section(ChunkingSection).chunk_overlap
 
     @property
     def legal_chunk_size(self) -> int:
-        return settings.legal_chunk_size
+        return process_section(ChunkingSection).legal_chunk_size
 
     @property
     def legal_chunk_overlap(self) -> int:
-        return settings.legal_chunk_overlap
+        return process_section(ChunkingSection).legal_chunk_overlap
 
 
 class LiveChatSettings:
@@ -143,15 +159,15 @@ class LiveChatSettings:
 
     @property
     def history_window(self) -> int:
-        return settings.history_window
+        return process_section(ChatSection).history_window
 
     @property
     def rolling_summary_enabled(self) -> bool:
-        return settings.rolling_summary_enabled
+        return process_section(RagFeaturesSection).rolling_summary_enabled
 
     @property
     def curator_scope_max_ids(self) -> int:
-        return settings.curator_scope_max_ids
+        return process_section(ChatSection).curator_scope_max_ids
 
 
 class LiveHealthSettings:
@@ -159,19 +175,19 @@ class LiveHealthSettings:
 
     @property
     def version(self) -> str:
-        return settings.version
+        return process_section(AppSection).version
 
     @property
     def uptime_seconds(self) -> float:
-        return settings.uptime_seconds
+        return process_section(AppSection).uptime_seconds
 
     @property
     def llm_provider(self) -> str:
-        return settings.llm_provider
+        return process_section(LLMSection).llm_provider
 
     @property
     def ml_provider(self) -> str:
-        return settings.ml_provider
+        return process_section(MLProviderSection).ml_provider
 
 
 class LiveConfigAdminSettings:
@@ -179,47 +195,47 @@ class LiveConfigAdminSettings:
 
     @property
     def llm_provider(self) -> str:
-        return settings.llm_provider
+        return process_section(LLMSection).llm_provider
 
     @property
     def llm_model(self) -> str:
-        return settings.openrouter_model
+        return process_section(LLMSection).openrouter_model
 
     @property
     def tei_embed_url(self) -> str:
-        return settings.tei_embed_url
+        return process_section(MLProviderSection).tei_embed_url
 
     @property
     def tei_rerank_url(self) -> str:
-        return settings.tei_rerank_url
+        return process_section(MLProviderSection).tei_rerank_url
 
     @property
     def ml_provider(self) -> str:
-        return settings.ml_provider
+        return process_section(MLProviderSection).ml_provider
 
     @property
     def deepinfra_embed_model(self) -> str:
-        return settings.deepinfra_embed_model
+        return process_section(MLProviderSection).deepinfra_embed_model
 
     @property
     def deepinfra_rerank_model(self) -> str:
-        return settings.deepinfra_rerank_model
+        return process_section(MLProviderSection).deepinfra_rerank_model
 
     @property
     def ocr_engine(self) -> str:
-        return settings.ocr_engine
+        return process_section(OCRSection).ocr_engine
 
     @property
     def ocr_enabled(self) -> bool:
-        return settings.ocr_enabled
+        return process_section(OCRSection).ocr_enabled
 
     @property
     def openrouter_model(self) -> str:
-        return settings.openrouter_model
+        return process_section(LLMSection).openrouter_model
 
     @property
     def collection_name(self) -> str:
-        return settings.collection_name
+        return process_section(VectorStoreSection).collection_name
 
 
 class LiveIngestionSettings:
@@ -227,24 +243,24 @@ class LiveIngestionSettings:
 
     @property
     def s3_bucket(self) -> str:
-        return settings.s3_bucket
+        return process_section(StorageSection).s3_bucket
 
     @property
     def embed_dim(self) -> int:
-        return settings.embed_dim
+        return process_section(MLProviderSection).embed_dim
 
     @property
     def collection_name(self) -> str:
-        return settings.collection_name
+        return process_section(VectorStoreSection).collection_name
 
     @property
     def hybrid_enabled(self) -> bool:
-        return settings.hybrid_enabled
+        return process_section(HybridSearchSection).hybrid_enabled
 
     @property
     def tei_embed_url(self) -> str:
-        return settings.tei_embed_url
+        return process_section(MLProviderSection).tei_embed_url
 
     @property
     def qdrant_url(self) -> str:
-        return settings.qdrant_url
+        return process_section(VectorStoreSection).qdrant_url

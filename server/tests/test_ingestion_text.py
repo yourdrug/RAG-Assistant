@@ -283,7 +283,7 @@ class TestSplitDocuments:
 
         long_text = "word " * 200  # ~1000 chars
         docs = [Document(page_content=long_text, metadata={"source": "t.txt"})]
-        with patch("infrastructure.ml.ingestion.splitting.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             mock_settings.chunk_size = 900
             mock_settings.chunk_overlap = 150
             chunks = split_documents(docs)
@@ -303,7 +303,7 @@ class TestSplitDocuments:
         p1 = "A" * 500
         p2 = "B" * 500
         docs = [Document(page_content=f"{p1}\n\n{p2}", metadata={"source": "t.txt"})]
-        with patch("infrastructure.ml.ingestion.splitting.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             mock_settings.chunk_size = 600
             mock_settings.chunk_overlap = 100
             chunks = split_documents(docs)

@@ -24,7 +24,7 @@ from application.rag.dto import (
     TerminalResponse,
 )
 from application.rag.stream_events import SourcesEvent, TextChunk, UsageReport
-from config import get_request_settings
+from config import LLMSection, RetrievalSection, request_section
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.rag.breadth import BREADTH_ALIASES, Breadth
@@ -159,7 +159,7 @@ class RagOperations:
     async def corpus(self) -> AsyncIterator[None]:
         async with AsyncExitStack() as stack:
             stack.enter_context(
-                evidence_profile_scope(EVIDENCE_PROFILES[get_request_settings().evidence_profile])
+                evidence_profile_scope(EVIDENCE_PROFILES[request_section(RetrievalSection).evidence_profile])
             )
             stack.enter_context(query_vector_scope())
 
@@ -208,7 +208,7 @@ class RagOperations:
             build_rag_settings(),
             time.monotonic(),
             req_id,
-            get_request_settings().openrouter_model,
+            request_section(LLMSection).openrouter_model,
             generation_config=generation_identity(),
         )
 

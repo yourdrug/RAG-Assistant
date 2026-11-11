@@ -26,7 +26,7 @@ from arq.connections import RedisSettings
 
 from application.budget import billing_principal
 from application.ports.job_enqueuer import DuplicateJobError
-from config import settings
+from config import RedisSection, process_section
 from domain.knowledge.enums import DocumentVisibility
 
 
@@ -56,7 +56,9 @@ async def get_pool() -> ArqRedis:
     if pool_state.pool is None:
         async with pool_lock:
             if pool_state.pool is None:
-                pool_state.pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+                pool_state.pool = await create_pool(
+                    RedisSettings.from_dsn(process_section(RedisSection).redis_url)
+                )
 
     return pool_state.pool
 

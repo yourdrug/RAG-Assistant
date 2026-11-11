@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from qdrant_client.models import Distance, VectorParams
 
-from config import settings
+from config import VectorStoreSection, process_section
 from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
@@ -50,7 +50,9 @@ def ensure_embedding_identity(client: VectorClient, identity: str | None = None)
 
 def verify_binding(client: VectorClient, snapshot: object, fingerprint: str) -> None:
     corpus = (
-        snapshot.physical_collection if isinstance(snapshot, CorpusSnapshot) else settings.collection_name
+        snapshot.physical_collection
+        if isinstance(snapshot, CorpusSnapshot)
+        else process_section(VectorStoreSection).collection_name
     )
     names = {c.name for c in client.get_collections().collections}
 

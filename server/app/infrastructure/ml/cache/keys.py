@@ -6,7 +6,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from config import get_request_settings
+from config import LLMSection, MLProviderSection, RetrievalSection, request_section
 from domain.rag.breadth import Breadth
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.cache.answers import compute_question_hash, compute_visibility_scope_hash
@@ -69,18 +69,20 @@ class CacheKeyBuilder:
 
 
 def generation_identity() -> tuple[tuple[str, str | float], ...]:
-    model = get_request_settings()
+    llm = request_section(LLMSection)
+    ml = request_section(MLProviderSection)
+    retrieval = request_section(RetrievalSection)
     return (
-        ("llm_provider", model.llm_provider),
-        ("openrouter_model", model.openrouter_model),
-        ("ml_provider", model.ml_provider),
-        ("llm_temperature", model.llm_temperature),
-        ("llm_top_p", model.llm_top_p),
-        ("embedding_revision", model.embedding_revision),
-        ("tei_embed_model", model.tei_embed_model),
-        ("deepinfra_embed_model", model.deepinfra_embed_model),
-        ("deepinfra_rerank_model", model.deepinfra_rerank_model),
-        ("rag_retrieval_score_threshold", model.rag_retrieval_score_threshold),
+        ("llm_provider", llm.llm_provider),
+        ("openrouter_model", llm.openrouter_model),
+        ("ml_provider", ml.ml_provider),
+        ("llm_temperature", llm.llm_temperature),
+        ("llm_top_p", llm.llm_top_p),
+        ("embedding_revision", ml.embedding_revision),
+        ("tei_embed_model", ml.tei_embed_model),
+        ("deepinfra_embed_model", ml.deepinfra_embed_model),
+        ("deepinfra_rerank_model", ml.deepinfra_rerank_model),
+        ("rag_retrieval_score_threshold", retrieval.rag_retrieval_score_threshold),
     )
 
 

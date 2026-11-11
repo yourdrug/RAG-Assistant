@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from config import settings
 from infrastructure.database.database import DatabaseManager
 from infrastructure.events.postgres_listener import PostgresListener
 
@@ -17,7 +18,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 async def test_listener_buffers_resync_notifications_and_reconnects(  # noqa: PLR0915
     pg_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    database = DatabaseManager()
+    database = DatabaseManager(settings)
     database.create_master_connection_engines(pg_engine.url.set(drivername="postgresql+psycopg"), {})
     channel = f"test_listener_{uuid4().hex}"
     received = asyncio.Event()

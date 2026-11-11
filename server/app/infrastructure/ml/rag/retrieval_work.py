@@ -49,6 +49,8 @@ class RetrievalWork:
     use_exact_ref_boost: bool = False
     query_domain: str = ""
     sub_queries: list[str] = field(default_factory=list)
+    # None: unknown; False: every domain-filtered search fell back to the full corpus.
+    domain_search_hit: bool | None = None
     enumerate_cases: bool = False
     candidates: list[Document] = field(default_factory=list)
     docs: list[tuple[Document, float]] = field(default_factory=list)

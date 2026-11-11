@@ -12,7 +12,7 @@ from application.benchmark.execution import (
     validate_questions,
 )
 from application.benchmark.identity import fingerprint
-from config import settings
+from config import BenchmarkSection, process_section
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.evaluation import answer_generators
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
@@ -85,7 +85,9 @@ async def run_benchmark_async(
         questions,
         top_k,
         judge_model,
-        max_concurrent=settings.benchmark_max_concurrent if max_concurrent is None else max_concurrent,
+        max_concurrent=process_section(BenchmarkSection).benchmark_max_concurrent
+        if max_concurrent is None
+        else max_concurrent,
         seed=seed,
         n_runs=n_runs,
         fetch_k=fetch_k,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from config import settings
+from config import JobsSection, process_section
 
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ async def cron_job_cleanup(ctx: dict[str, Any]) -> None:
     """Delete old background job records (runs every hour)."""
     uow_factory = ctx["uow_factory"]
     async with uow_factory.create(master=True) as uow:
-        deleted = await uow.background_jobs.delete_old(days=settings.job_cleanup_days)
+        deleted = await uow.background_jobs.delete_old(days=process_section(JobsSection).job_cleanup_days)
 
         if deleted:
             logger.info("Cron: cleaned up %d old background jobs", deleted)
@@ -28,13 +28,15 @@ async def cron_job_cleanup(ctx: dict[str, Any]) -> None:
 
 async def cron_recover_orphaned_jobs(ctx: dict[str, Any]) -> None:
     """Fail jobs whose heartbeat expired and pending jobs never picked up (every 15 min)."""
+    jobs_settings = process_section(JobsSection)
+
     uow_factory = ctx["uow_factory"]
     async with uow_factory.create(master=True) as uow:
         orphaned_ids = await uow.background_jobs.recover_orphaned(
-            timeout_minutes=settings.stuck_job_timeout_minutes
+            timeout_minutes=jobs_settings.stuck_job_timeout_minutes
         )
         stale_pending = await uow.background_jobs.fail_stale_pending(
-            timeout_minutes=settings.stale_pending_timeout_minutes
+            timeout_minutes=jobs_settings.stale_pending_timeout_minutes
         )
         await uow.benchmark_sweeps.fail_dead_jobs()
 

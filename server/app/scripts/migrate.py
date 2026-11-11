@@ -18,6 +18,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
 
+from config import DatabaseSection, process_section
 from infrastructure.database.database import DatabaseManager
 
 
@@ -28,7 +29,7 @@ ALEMBIC_INI = Path(__file__).resolve().parent.parent.parent / "alembic.ini"
 
 
 def main() -> None:
-    database = DatabaseManager()
+    database = DatabaseManager(process_section(DatabaseSection))
     with database.master_connection(
         connect_args={"connect_timeout": 10, "options": "-c statement_timeout=0"}
     ) as connection:

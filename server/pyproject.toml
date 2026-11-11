@@ -203,11 +203,21 @@ unfixable = [
     "ARG001", # неиспользуемые аргументы (фикстуры)
     "FBT", # boolean-аргументы
     "INP001", # нет __init__.py
+    "TID251", # тесты могут подменять и конструировать полный Settings
 ]
 # FastAPI резолвит типы параметров в рантайме, поэтому импорты нельзя прятать под TYPE_CHECKING
 "app/presentation/**" = ["TC001", "TC002", "TC003"]
-"app/composition/**" = ["TC001", "TC002", "TC003"]
 "__init__.py" = ["F401", "D104"]
+# Полный Settings нужен только сборке, применению динамической конфигурации и снапшотам;
+# остальные модули читают свою секцию через config.request_section/process_section.
+"app/config/**" = ["TID251"]
+"app/composition/**" = ["TC001", "TC002", "TC003", "TID251"]
+"app/main.py" = ["TID251"]
+"app/infrastructure/initialization.py" = ["TID251"]
+"app/infrastructure/config_migration.py" = ["TID251"]
+"app/infrastructure/ml/config/{provider_configuration,client_switch}.py" = ["TID251"]
+"app/infrastructure/ml/clients/client_registry.py" = ["TID251"]
+"app/infrastructure/benchmark/sweep/settings.py" = ["TID251"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Depends/Query/... в дефолтах аргументов не считаются B008.
@@ -244,6 +254,12 @@ suppress-none-returning = false
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"config.settings".msg = "Read only the needed section: config.process_section(XSection)"
+"config.get_request_settings".msg = "Read only the needed section: config.request_section(XSection)"
+"config.request_settings".msg = "Request snapshots are owned by MLClientRegistry"
+"config.Settings".msg = "Depend on a section type (config.XSection) instead of the full Settings"
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false
@@ -350,6 +366,12 @@ forbidden_modules = [
     "httpx", "redis", "qdrant_client",
     "langchain", "langchain_core", "langchain_openai",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Application is independent of configuration"
+type = "forbidden"
+source_modules = ["application"]
+forbidden_modules = ["config"]
 
 [[tool.importlinter.contracts]]
 name = "Domain shared kernel is independent of contexts"

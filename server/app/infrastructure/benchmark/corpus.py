@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from config import settings
+from config import VectorStoreSection, process_section
 from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 
@@ -26,6 +26,8 @@ async def benchmark_corpus(ml_clients: MLClientPort | None) -> AsyncIterator[Cor
 
 
 def corpus_metadata(snapshot: CorpusSnapshot | None) -> dict[str, Any]:
+    vector_store_settings = process_section(VectorStoreSection)
+
     if isinstance(snapshot, CorpusSnapshot):
         return {
             "collection_name": snapshot.physical_collection,
@@ -35,7 +37,10 @@ def corpus_metadata(snapshot: CorpusSnapshot | None) -> dict[str, Any]:
             "corpus_namespace": snapshot.namespace,
         }
 
-    return {"collection_name": settings.collection_name, "qdrant_url": settings.qdrant_url}
+    return {
+        "collection_name": vector_store_settings.collection_name,
+        "qdrant_url": vector_store_settings.qdrant_url,
+    }
 
 
 @asynccontextmanager

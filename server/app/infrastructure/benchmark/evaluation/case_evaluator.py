@@ -8,7 +8,7 @@ import time
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from config import settings
+from config import LLMSection, process_section
 from domain.benchmark.evaluation import evaluate_evidence, evaluate_retrieval, evaluate_stage_evidence
 from domain.benchmark.question import (
     ABSTENTION_TYPES,
@@ -272,7 +272,9 @@ class BenchmarkCaseEvaluator:
         retriever_metrics.setdefault("retrieved_sources", [])
         diagnostics["judge"] = judge_metrics["details"]
         cost = metrics.estimate_cost_usd(
-            settings.openrouter_model, generated.input_tokens or 0, generated.output_tokens or 0
+            process_section(LLMSection).openrouter_model,
+            generated.input_tokens or 0,
+            generated.output_tokens or 0,
         )
         return {
             "id": question.get("id", str(run.idx)),

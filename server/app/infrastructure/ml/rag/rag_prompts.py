@@ -16,7 +16,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from config import get_request_settings
+from config import LLMSection, request_section
 from domain.chat.message import MessageRole
 from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.domain_profile.answer_policy import policy_for
@@ -85,7 +85,7 @@ async def condense_question(
     async def call_model() -> BaseMessage:
         return await asyncio.wait_for(
             chain.ainvoke({"history": history_messages, "question": question}),
-            timeout=get_request_settings().llm_auxiliary_timeout,
+            timeout=request_section(LLMSection).llm_auxiliary_timeout,
         )
 
     async with client_operation(llm):
@@ -161,9 +161,11 @@ async def decompose_question(
         log.warning("decompose_question called without instructor_client, returning original")
         return [question]
 
-    model = get_request_settings().openrouter_model
+    model = request_section(LLMSection).openrouter_model
 
     async def call_model() -> DecompositionCheck:
+        llm_settings = request_section(LLMSection)
+
         return await asyncio.wait_for(
             create_structured_response(
                 instructor_client,
@@ -172,11 +174,11 @@ async def decompose_question(
                     {"role": "system", "content": DECOMPOSE_SYSTEM},
                     {"role": "user", "content": question},
                 ],
-                max_tokens=get_request_settings().llm_num_predict_narrow,
+                max_tokens=llm_settings.llm_num_predict_narrow,
                 response_model=DecompositionCheck,
                 max_retries=2,
             ),
-            timeout=get_request_settings().llm_auxiliary_timeout,
+            timeout=llm_settings.llm_auxiliary_timeout,
         )
 
     async with client_operation(instructor_client):
@@ -222,6 +224,8 @@ async def update_rolling_summary(
     llm: Runnable[Any, BaseMessage], existing_summary: str | None, new_turns: list[dict[str, Any]]
 ) -> str:
     """Produce an updated rolling summary from existing summary + new dialog turns."""
+    llm_settings = request_section(LLMSection)
+
     turns_text = "\n".join(
         f"{'Пользователь' if t['role'] == MessageRole.USER else 'Ассистент'}: {t['content']}"
         for t in new_turns
@@ -229,13 +233,13 @@ async def update_rolling_summary(
     chain = SUMMARY_PROMPT | llm
     summary = existing_summary or ""
     remaining = turns_text
-    input_budget = get_request_settings().llm_num_ctx_narrow - get_request_settings().llm_num_predict_narrow
+    input_budget = llm_settings.llm_num_ctx_narrow - llm_settings.llm_num_predict_narrow
 
     while remaining:
         prompt_text, accepted = summary_part(summary, remaining, input_budget)
         result = await asyncio.wait_for(
             chain.ainvoke({"prompt": prompt_text}),
-            timeout=get_request_settings().llm_auxiliary_timeout,
+            timeout=llm_settings.llm_auxiliary_timeout,
         )
 
         if not isinstance(result.content, str) or not result.content.strip():

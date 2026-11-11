@@ -139,6 +139,12 @@ def test_untrusted_origins_rejected_without_http_request(model: Settings, key: s
         config.validate_change(key, value)
 
 
+def use_factory_settings(monkeypatch: pytest.MonkeyPatch, model: Settings) -> None:
+    """Make ML client factories build from ``model`` instead of the process settings."""
+    monkeypatch.setattr(factories, "ml_client_settings", lambda: model)
+    monkeypatch.setattr(factories, "process_section", lambda _section: model)
+
+
 def wire_http(
     monkeypatch: pytest.MonkeyPatch,
     handler: Callable[[httpx.Request], httpx.Response]
@@ -274,7 +280,7 @@ async def test_switch_keeps_active_request_then_closes_old_pool(
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
-    monkeypatch.setattr(factories, "settings", model)
+    use_factory_settings(monkeypatch, model)
     registry, config = configured_registry(model)
     old = registry.embeddings()
     call = asyncio.create_task(old.embed_query("old call"))
@@ -326,7 +332,7 @@ async def test_failed_preparation_retains_applied_resource(
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
-    monkeypatch.setattr(factories, "settings", model)
+    use_factory_settings(monkeypatch, model)
     registry, config = configured_registry(model)
     old = registry.embeddings()
     try:
@@ -346,7 +352,7 @@ async def test_repeated_pool_changes_close_retired_connections(
     model: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pools = wire_http(monkeypatch, successful_response)
-    monkeypatch.setattr(factories, "settings", model)
+    use_factory_settings(monkeypatch, model)
     registry, config = configured_registry(model)
     registry.embeddings()
     try:
@@ -366,7 +372,7 @@ async def test_failed_reaction_keeps_clients_and_settings(
 ) -> None:
 
     pools = wire_http(monkeypatch, successful_response)
-    monkeypatch.setattr(factories, "settings", model)
+    use_factory_settings(monkeypatch, model)
     registry = MLClientRegistry()
     bus = InProcessEventBus()
     config = SettingsProviderConfiguration(model, bus=bus, ml_clients=registry)
@@ -426,7 +432,7 @@ async def test_unproven_local_tei_weights_cannot_be_switched(
         return response
 
     wire_http(monkeypatch, handler)
-    monkeypatch.setattr(factories, "settings", model)
+    use_factory_settings(monkeypatch, model)
     registry, config = configured_registry(model)
     registry.embeddings()
     try:
@@ -511,7 +517,7 @@ async def test_health_probe_reads_applied_endpoint(model: Settings, monkeypatch:
         return successful_response(request)
 
     wire_http(monkeypatch, handler)
-    monkeypatch.setattr(system_health_probe, "settings", model)
+    monkeypatch.setattr("config.settings", model)
     registry, config = configured_registry(model)
     try:
         await config.apply_async([row("tei_rerank_url", "http://replacement:8080")])
@@ -531,7 +537,7 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(
     model.openrouter_base_url = "https://openrouter.ai/old/v1"
     model.ml_internal_allowed_origins += ["https://openrouter.ai/old/v1", "https://openrouter.ai/new/v1"]
     wire_http(monkeypatch, successful_response)
-    monkeypatch.setattr(factories, "settings", model)
+    use_factory_settings(monkeypatch, model)
     registry, started, finish = llm_family(model, monkeypatch)
     old = registry.llm()
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
@@ -580,7 +586,7 @@ async def test_upload_finishes_all_embedding_batches_on_original_snapshot(
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
-    monkeypatch.setattr(factories, "settings", model)
+    use_factory_settings(monkeypatch, model)
     monkeypatch.setattr(settings, "embed_batch_size", 1)
     monkeypatch.setattr(qdrant_ops, "ensure_embedding_identity", lambda *_args: "tei:BAAI/bge-m3:v1")
     registry, config = configured_registry(model)
@@ -623,7 +629,7 @@ async def test_queued_retrieval_acquires_current_embedding_client_after_admissio
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
-    monkeypatch.setattr(factories, "settings", model)
+    use_factory_settings(monkeypatch, model)
     monkeypatch.setattr(rag_retrieval, "ensure_embedding_identity", lambda *_args: None)
     registry = MLClientRegistry()
     monkeypatch.setattr(registry.corpus_resources, "client", SimpleNamespace(search=lambda **_kwargs: []))
@@ -660,7 +666,7 @@ async def test_auxiliary_call_waiting_for_semaphore_keeps_its_original_client(
             pass
 
     wire_http(monkeypatch, successful_response)
-    monkeypatch.setattr(factories, "settings", model)
+    use_factory_settings(monkeypatch, model)
 
     def create(model: Settings | None = None, *, runtime: object = None) -> SimpleNamespace:
         async def invoke(*args: object, **kwargs: Any) -> AIMessage:

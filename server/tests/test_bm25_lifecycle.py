@@ -75,13 +75,13 @@ async def test_config_rotation_discards_old_backend_snapshot(monkeypatch: pytest
     backends: list[SimpleNamespace] = []
     monkeypatch.setattr(settings, "s3_bucket", "old-bucket")
 
-    def create() -> SimpleNamespace:
+    def create(*_: object) -> SimpleNamespace:
         backend = SimpleNamespace(bucket=settings.s3_bucket, aclose=AsyncMock())
         backends.append(backend)
         return backend
 
     monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", create)
-    storage = LazyStorage()
+    storage = LazyStorage(settings, settings)
 
     async def load() -> BM25Index:
         backend = storage.ensure()

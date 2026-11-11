@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.integration.uow import SessionDatabase
 
 from application.ingestion import DocumentSyncService
+from config import settings
 from domain.identity.roles import UserKind, UserRole
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import ChunkInsert
@@ -102,7 +103,7 @@ async def test_ingestion_session_lock_serializes_without_open_transaction_and_re
 ) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
 
-    database = DatabaseManager()
+    database = DatabaseManager(settings)
     database.create_master_connection_engines(pg_engine.url.set(drivername="postgresql+psycopg"), {})
     factory = UnitOfWorkFactory(database)
     first_locked = asyncio.Event()

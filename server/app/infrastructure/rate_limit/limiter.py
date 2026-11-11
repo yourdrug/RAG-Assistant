@@ -32,7 +32,7 @@ if TYPE_CHECKING:
         RateLimitPolicy,
         RateLimitPolicyName,
     )
-    from config import Settings
+    from config import RateLimitSection
 
 logger = logging.getLogger("default")
 
@@ -161,7 +161,7 @@ class DynamicRateLimiter:
     Redis key names are deployment invariants, only their quotas change.
     """
 
-    def __init__(self, redis: Redis, settings: Settings) -> None:
+    def __init__(self, redis: Redis, settings: RateLimitSection) -> None:
         self._redis = redis
         self._settings = settings
         self._signature: tuple[tuple[RateLimitPolicy, ...], bool] | None = None

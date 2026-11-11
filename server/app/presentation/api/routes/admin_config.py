@@ -24,7 +24,7 @@ from application.ports.rate_limit import RateLimitPolicyName
 from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
 from application.runtime.enums import MLProvider
 from application.runtime.setting_keys import SECRET_SETTING_KEYS
-from config import settings
+from config import CostLimitSection, MLProviderSection, process_section
 from domain.runtime.cost import CostRate
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEYS
@@ -258,17 +258,22 @@ async def active_cost_models(
     _admin: Annotated[CurrentUser, Depends(require_admin)],
     service: Annotated[BudgetAdminService, Depends(create_budget_admin_service)],
 ) -> dict[str, object]:
+    ml_provider_settings = process_section(MLProviderSection)
+
     models = []
 
-    if settings.ml_provider == MLProvider.DEEPINFRA.value:
+    if ml_provider_settings.ml_provider == MLProvider.DEEPINFRA.value:
         models.extend(
             [
                 await service.model_status(MLProvider.DEEPINFRA.value, model)
-                for model in (settings.deepinfra_embed_model, settings.deepinfra_rerank_model)
+                for model in (
+                    ml_provider_settings.deepinfra_embed_model,
+                    ml_provider_settings.deepinfra_rerank_model,
+                )
             ]
         )
 
-    return {"enabled": settings.cost_rate_limit_enabled, "models": models}
+    return {"enabled": process_section(CostLimitSection).cost_rate_limit_enabled, "models": models}
 
 
 @router.get("/admin/cost/pending", response_model=None)

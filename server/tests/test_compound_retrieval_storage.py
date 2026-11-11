@@ -40,7 +40,7 @@ async def test_live_experiment_uses_runtime_sparse_search_without_local_storage(
     path = tmp_path / "snapshot.json"
     path.write_text('{"texts":["existing sparse evidence"],"hashes":["sparse-hash"]}')
     storage = SimpleNamespace(download_to_temp=AsyncMock(return_value=path), aclose=AsyncMock())
-    monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda: storage)
+    monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda *_: storage)
 
     def create_reranker(*, runtime: BudgetRuntime | None = None) -> SimpleNamespace:
         assert runtime is None

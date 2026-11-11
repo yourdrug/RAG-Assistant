@@ -35,10 +35,10 @@ def test_standalone_sync_connection_disposes_engine(monkeypatch: pytest.MonkeyPa
 
     if failure:
         engine.connect.side_effect = ConnectionError
-        with pytest.raises(ConnectionError), DatabaseManager().master_connection():
+        with pytest.raises(ConnectionError), DatabaseManager(settings).master_connection():
             pass
     else:
-        with DatabaseManager().master_connection(connect_args={"connect_timeout": 10}) as connection:
+        with DatabaseManager(settings).master_connection(connect_args={"connect_timeout": 10}) as connection:
             assert connection is engine.connect.return_value.__enter__.return_value
         assert create.call_args.kwargs["connect_args"]["connect_timeout"] == 10
         assert "statement_timeout" in create.call_args.kwargs["connect_args"]["options"]
@@ -61,10 +61,10 @@ async def test_standalone_async_connection_disposes_engine(
     if failure:
         engine.connect.side_effect = ConnectionError
         with pytest.raises(ConnectionError):
-            async with DatabaseManager().async_master_connection():
+            async with DatabaseManager(settings).async_master_connection():
                 pass
     else:
-        async with DatabaseManager().async_master_connection() as connection:
+        async with DatabaseManager(settings).async_master_connection() as connection:
             assert connection is engine.connect.return_value.__aenter__.return_value
 
     assert create.call_args.kwargs["poolclass"] is NullPool
@@ -73,7 +73,7 @@ async def test_standalone_async_connection_disposes_engine(
 
 @pytest.mark.asyncio
 async def test_initialized_manager_reuses_and_retains_dedicated_engines() -> None:
-    database = DatabaseManager()
+    database = DatabaseManager(settings)
     sync_engine = MagicMock()
     async_engine = MagicMock(dispose=AsyncMock())
     database.master_connection_engine = sync_engine
@@ -129,20 +129,20 @@ async def test_ingestion_lock_acquisition_failure_closes_connection() -> None:
 
 @pytest.mark.asyncio
 async def test_disconnect_after_partial_initialization_is_safe() -> None:
-    database = DatabaseManager()
+    database = DatabaseManager(settings)
     database.master_node = DatabaseNode(
-        DatabaseNodeRole.MASTER, DatabaseURL("u", "p", "localhost", "5432", "rag"), 0
+        DatabaseNodeRole.MASTER, DatabaseURL("u", "p", "localhost", "5432", "rag"), 0, settings
     )
     database.slave_nodes = [
         database.master_node,
-        DatabaseNode(DatabaseNodeRole.SLAVE, database.master_node.node_url, 1),
+        DatabaseNode(DatabaseNodeRole.SLAVE, database.master_node.node_url, 1, settings),
     ]
     await database.disconnect()
     await database.disconnect()
 
 
 def test_override_connection_retains_manager_database(monkeypatch: pytest.MonkeyPatch) -> None:
-    database = DatabaseManager()
+    database = DatabaseManager(settings)
     configured = MagicMock(url=DatabaseURL("u", "p", "custom-host", "5433", "custom-db").url)
     database.master_connection_engine = configured
     temporary = MagicMock()

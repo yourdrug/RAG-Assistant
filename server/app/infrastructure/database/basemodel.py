@@ -13,7 +13,7 @@ from sqlalchemy import DateTime, Integer
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from config import settings
+from config import AppSection, process_section
 
 
 class _Base(AsyncAttrs, DeclarativeBase):
@@ -26,7 +26,7 @@ class BaseModel(_Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     creation_date: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(tz=settings.tz),
+        default=lambda: datetime.now(tz=process_section(AppSection).tz),
     )
 
 

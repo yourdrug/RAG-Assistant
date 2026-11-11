@@ -10,7 +10,7 @@ from openai import APIConnectionError, InternalServerError, RateLimitError
 from pydantic import ValidationError
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from config import settings
+from config import BenchmarkSection, LLMSection, process_section
 from infrastructure.benchmark.judging.callbacks import AsyncMetricOptions
 from infrastructure.benchmark.judging.clients import get_judge_client, get_judge_model
 from infrastructure.benchmark.judging.prompts import CORRECTNESS_PROMPT, FAITHFULNESS_PROMPT, RELEVANCY_PROMPT
@@ -38,9 +38,11 @@ def judge_with_structured_output(
     Uses two attempts for transient or validation failures; HTTP 400 is terminal.
     Truncation permits one additional call with a larger output budget and no retries.
     """
+    benchmark_settings = process_section(BenchmarkSection)
+
     with sync_client_operation(client):
-        initial_budget = settings.benchmark_judge_initial_tokens
-        retry_budget = settings.benchmark_judge_retry_tokens
+        initial_budget = benchmark_settings.benchmark_judge_initial_tokens
+        retry_budget = benchmark_settings.benchmark_judge_retry_tokens
 
         for attempt, budget in enumerate((initial_budget, retry_budget)):
             try:
@@ -51,7 +53,7 @@ def judge_with_structured_output(
                         messages=[{"role": "user", "content": prompt}],
                         response_model=JudgeScore,
                         max_tokens=budget,
-                        timeout=settings.llm_auxiliary_timeout,
+                        timeout=process_section(LLMSection).llm_auxiliary_timeout,
                         max_retries=Retrying(
                             retry=retry_if_exception_type(
                                 (
@@ -160,7 +162,7 @@ async def judge_answer_async(
         with sync_client_operation(client):
             return await asyncio.wait_for(
                 asyncio.to_thread(judge_with_structured_output, client, prompt, model),
-                timeout=settings.llm_auxiliary_timeout * 3 + 3,
+                timeout=process_section(LLMSection).llm_auxiliary_timeout * 3 + 3,
             )
 
     scores = dict(options.get("saved_metrics") or {})

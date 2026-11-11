@@ -2,7 +2,7 @@
 
 from urllib.parse import SplitResult, urlsplit
 
-from config import Settings
+from config import EndpointSettings, MLProviderSection
 from domain.shared.exceptions import ValidationError
 
 
@@ -50,7 +50,7 @@ def endpoint_origin(value: str) -> str:
         raise ValidationError(message) from None
 
 
-def validate_endpoints(candidate: Settings) -> None:
+def validate_endpoints(candidate: EndpointSettings) -> None:
     internal = {endpoint_origin(value) for value in candidate.ml_internal_allowed_origins}
 
     for key in ENDPOINT_KEYS:
@@ -68,7 +68,7 @@ def validate_endpoints(candidate: Settings) -> None:
             raise ValidationError(message)
 
 
-def validate_pools(candidate: Settings) -> None:
+def validate_pools(candidate: MLProviderSection) -> None:
     errors = candidate.check_http_pools()
 
     if errors:

@@ -6,7 +6,7 @@ import asyncio
 import re
 from typing import TYPE_CHECKING, Any
 
-from config import get_request_settings
+from config import LLMSection, request_section
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import (
     RelevanceCheck,
@@ -40,6 +40,8 @@ async def check_relevance(
     Allows two Instructor attempts (one format correction), bounded together by
     the auxiliary timeout.
     """
+    llm_settings = request_section(LLMSection)
+
     if not docs:
         return False, "Нет документов для проверки"
 
@@ -49,7 +51,7 @@ async def check_relevance(
     prompt_text = f"Вопрос: {question}\n\nКонтекст из документов:\n{context}"
 
     client = ml_clients.instructor_client
-    model = get_request_settings().openrouter_model
+    model = llm_settings.openrouter_model
 
     async with client_operation(client):
         try:
@@ -61,17 +63,17 @@ async def check_relevance(
                         {"role": "system", "content": RELEVANCE_SYSTEM},
                         {"role": "user", "content": prompt_text},
                     ],
-                    max_tokens=get_request_settings().llm_num_predict_narrow,
+                    max_tokens=llm_settings.llm_num_predict_narrow,
                     response_model=RelevanceCheck,
                     max_retries=2,
                 ),
-                timeout=get_request_settings().llm_auxiliary_timeout,
+                timeout=llm_settings.llm_auxiliary_timeout,
             )
         except TimeoutError as exc:
             message = (
                 f"RAG relevance gate LLM request timed out "
-                f"(provider={get_request_settings().llm_provider}, model={model}, "
-                f"LLM_AUXILIARY_TIMEOUT={get_request_settings().llm_auxiliary_timeout}s)"
+                f"(provider={llm_settings.llm_provider}, model={model}, "
+                f"LLM_AUXILIARY_TIMEOUT={llm_settings.llm_auxiliary_timeout}s)"
             )
             raise TimeoutError(message) from exc
 
@@ -117,6 +119,8 @@ async def assess_sufficiency(
     Allows two Instructor attempts (one format correction), bounded together by
     the auxiliary timeout.
     """
+    llm_settings = request_section(LLMSection)
+
     if not docs:
         return SufficiencyAssessment(
             is_sufficient=False,
@@ -127,7 +131,7 @@ async def assess_sufficiency(
     if llm_client is None:
         llm_client = ml_clients.instructor_client
 
-        model = get_request_settings().openrouter_model
+        model = llm_settings.openrouter_model
 
     if context is None:
         context = format_docs(docs)
@@ -147,11 +151,11 @@ async def assess_sufficiency(
                         {"role": "system", "content": SUFFICIENCY_ASSESSMENT_SYSTEM},
                         {"role": "user", "content": user_msg},
                     ],
-                    max_tokens=get_request_settings().llm_num_predict_narrow,
+                    max_tokens=llm_settings.llm_num_predict_narrow,
                     response_model=SufficiencyAssessment,
                     max_retries=2,
                 ),
-                timeout=get_request_settings().llm_auxiliary_timeout,
+                timeout=llm_settings.llm_auxiliary_timeout,
             )
         except Exception:
             await breaker.report_failure()

@@ -5,9 +5,10 @@ Uses real bcrypt/jwt (deterministic, no external services needed).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import sys
-from typing import Any
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 
@@ -21,8 +22,12 @@ from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 
 
+if TYPE_CHECKING:
+    from domain.identity.ports import TokenClaims
+
+
 _hasher = BCryptPasswordHasher()
-_token_provider = JWTProvider()
+_token_provider = JWTProvider(settings)
 
 
 async def hash_password(password: str) -> str:
@@ -37,7 +42,7 @@ def create_access_token(user_id: int, role: str) -> str:
     return _token_provider.create_token(user_id, role)
 
 
-def decode_access_token(token: str) -> dict[str, Any]:
+def decode_access_token(token: str) -> TokenClaims:
     return _token_provider.decode_token(token)
 
 
@@ -109,9 +114,9 @@ class TestJWT:
             patch.object(settings, "jwt_expire_minutes", 60),
         ):
             token = create_access_token(user_id=42, role="admin")
-            payload = decode_access_token(token)
-            assert payload["sub"] == "42"
-            assert payload["role"] == "admin"
+            claims = decode_access_token(token)
+            assert claims.user_id == 42
+            assert claims.role == "admin"
 
     def test_token_contains_exp(self) -> None:
         with (
@@ -120,8 +125,8 @@ class TestJWT:
             patch.object(settings, "jwt_expire_minutes", 60),
         ):
             token = create_access_token(user_id=1, role="user")
-            payload = decode_access_token(token)
-            assert "exp" in payload
+            claims = decode_access_token(token)
+            assert claims.expires_at > datetime.now(UTC)
 
     def test_decode_with_wrong_secret_raises(self) -> None:
         with (
@@ -161,8 +166,8 @@ class TestJWT:
             patch.object(settings, "jwt_expire_minutes", 60),
         ):
             token = create_access_token(user_id=1, role="superadmin")
-            payload = decode_access_token(token)
-            assert payload["role"] == "superadmin"
+            claims = decode_access_token(token)
+            assert claims.role == "superadmin"
 
     def test_different_users_different_tokens(self) -> None:
         with (
@@ -174,7 +179,7 @@ class TestJWT:
             t2 = create_access_token(user_id=2, role="user")
             p1 = decode_access_token(t1)
             p2 = decode_access_token(t2)
-            assert p1["sub"] != p2["sub"]
+            assert p1.user_id != p2.user_id
 
     def test_expired_token_raises(self) -> None:
         with (
@@ -190,3 +195,32 @@ class TestJWT:
             pytest.raises(_jwt.exceptions.ExpiredSignatureError),
         ):
             decode_access_token(token)
+
+
+def signed(claims: dict[str, object]) -> str:
+    return _jwt.encode(claims, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def valid_claims() -> dict[str, object]:
+    return {"sub": "7", "role": "user", "exp": datetime.now(UTC) + timedelta(minutes=5)}
+
+
+class TestJWTClaimsValidation:
+    def test_complete_claims_are_accepted(self) -> None:
+        claims = decode_access_token(signed(valid_claims()))
+        assert (claims.user_id, claims.role) == (7, "user")
+
+    @pytest.mark.parametrize("missing", ["sub", "role", "exp"])
+    def test_missing_required_claim_is_rejected(self, missing: str) -> None:
+        claims = valid_claims()
+        del claims[missing]
+        with pytest.raises(_jwt.InvalidTokenError):
+            decode_access_token(signed(claims))
+
+    @pytest.mark.parametrize(
+        "override",
+        [{"sub": "abc"}, {"sub": "-1"}, {"sub": ""}, {"role": ""}, {"role": 5}],
+    )
+    def test_malformed_claim_is_rejected(self, override: dict[str, object]) -> None:
+        with pytest.raises(_jwt.InvalidTokenError):
+            decode_access_token(signed(valid_claims() | override))

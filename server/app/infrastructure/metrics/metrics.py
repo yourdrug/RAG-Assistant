@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, cast
 
 from prometheus_client import Counter, Gauge, Histogram
 
-from config import settings
+from config import VectorStoreSection, process_section
 from infrastructure.database.database import database
 from infrastructure.ml.clients import factories
 from infrastructure.ml.rag.prompt_blocks import is_not_found_answer
@@ -347,7 +347,7 @@ async def collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
         else factories.create_qdrant_client()
     )
     # Sync qdrant-client call — must not run on the event loop.
-    info = await asyncio.to_thread(client.get_collection, settings.collection_name)
+    info = await asyncio.to_thread(client.get_collection, process_section(VectorStoreSection).collection_name)
     QDRANT_POINTS.set(info.points_count or 0)
 
 

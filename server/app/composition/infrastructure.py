@@ -159,7 +159,7 @@ class MLContainer:
         budget_runtime: BudgetRuntime | None = None,
     ) -> None:
 
-        self.file_storage = LazyStorage()
+        self.file_storage = LazyStorage(settings, settings)
         resources = CorpusResources(create_qdrant_client)
         self.ml_clients = MLClientRegistry(budget_runtime=budget_runtime, corpus_resources=resources)
         self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)

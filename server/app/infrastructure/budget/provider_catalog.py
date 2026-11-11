@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import httpx
 
-from config import settings
+from config import LLMSection, endpoint_settings, process_section
 from domain.runtime.cost import BudgetError, ModelBillingContract
 from infrastructure.ml.config.endpoint_policy import validate_endpoints
 
@@ -75,16 +75,18 @@ class OpenRouterBillingCatalog:
         return (await self.contract(provider, model)).input_limit
 
     async def openrouter_context(self, provider: str, model: str) -> int:
+        llm_settings = process_section(LLMSection)
+
         if provider != "openrouter" or model == "openrouter/auto" or model.endswith(":online"):
             msg = "Unsupported billing contract"
             raise BudgetError(msg)
 
-        validate_endpoints(settings)
+        validate_endpoints(endpoint_settings())
         async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
             response = await client.get(
-                f"{settings.openrouter_base_url.rstrip('/')}/models",
-                headers={"Authorization": f"Bearer {settings.openrouter_api_key}"}
-                if settings.openrouter_api_key
+                f"{llm_settings.openrouter_base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key}"}
+                if llm_settings.openrouter_api_key
                 else {},
             )
             response.raise_for_status()

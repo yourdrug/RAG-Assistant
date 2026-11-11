@@ -54,7 +54,7 @@ async def s3_storage(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[tuple[S3S
         pytest.fail("S3_SMOKE_ENDPOINT is required")
 
     monkeypatch.setattr(settings, "s3_endpoint", endpoint)
-    storage = S3Storage()
+    storage = S3Storage(settings, settings)
     prefix = f"_test/async-s3/{uuid.uuid4().hex}/"
     keys: list[str] = []
     try:
@@ -119,7 +119,7 @@ async def test_repeated_config_rotations_close_retired_pools(
 ) -> None:
     _, prefix, keys = s3_storage
     before = open_fd_count()
-    storage = LazyStorage()
+    storage = LazyStorage(settings, settings)
     key = prefix + "rotation.txt"
     keys.append(key)
     try:

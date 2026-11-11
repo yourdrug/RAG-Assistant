@@ -44,6 +44,7 @@ from application.jobs.service import JobService
 from application.search import SearchService
 from composition.service_providers import create_ingestion_service, create_rag_service
 from composition.utils import missing_fields, require
+from config import AuthSection, process_section
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
 from infrastructure.auth.jwt_provider import JWTProvider
@@ -172,7 +173,7 @@ class ApplicationContainer:
         self.auth_service = AuthService(
             uow_factory=uow,
             password_hasher=password_hasher,
-            token_provider=JWTProvider(),
+            token_provider=JWTProvider(process_section(AuthSection)),
         )
         self.user_management_service = UserManagementService(uow, password_hasher)
         self.api_key_service = ApiKeyService(uow, api_key_provider)

@@ -7,7 +7,7 @@ import httpx
 import instructor
 from openai import AsyncOpenAI, OpenAI
 
-from config import settings
+from config import BenchmarkSection, LLMSection, process_section
 from infrastructure.benchmark.judging.token_usage import record_judge_usage
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport, PaidSyncTransport
@@ -26,8 +26,10 @@ RETIRED_JUDGE_CLIENTS: set[ManagedSyncInstructor] = set()
 
 def get_judge_model() -> str:
     """Resolve the judge model: explicit setting > fast model for OpenRouter."""
-    if settings.benchmark_judge_model:
-        return settings.benchmark_judge_model
+    benchmark_settings = process_section(BenchmarkSection)
+
+    if benchmark_settings.benchmark_judge_model:
+        return benchmark_settings.benchmark_judge_model
 
     # OpenRouter: use fast/cheap model for judge calls
     return FAST_OPENROUTER_MODEL
@@ -39,7 +41,7 @@ def get_judge_client(model: str, *, runtime: BudgetRuntime | None = None) -> Man
     Thread-safe: first call creates the client, subsequent calls return the cached
     instance.  This avoids creating a new httpx connection pool per benchmark question.
     """
-    snapshot = settings.model_copy()
+    snapshot = process_section(LLMSection).model_copy()
     base_url = snapshot.openrouter_base_url
     key = (runtime, snapshot.llm_provider, base_url, model)
     with _judge_client_lock:
@@ -99,10 +101,12 @@ async def close_judge_clients(*, runtime: BudgetRuntime | None = None) -> None:
 
 
 def create_async_judge_client(*, runtime: BudgetRuntime | None = None) -> AsyncOpenAI:
+    llm_settings = process_section(LLMSection)
+
     return AsyncOpenAI(
-        base_url=settings.openrouter_base_url,
-        api_key=settings.openrouter_api_key,
-        timeout=settings.llm_auxiliary_timeout,
+        base_url=llm_settings.openrouter_base_url,
+        api_key=llm_settings.openrouter_api_key,
+        timeout=llm_settings.llm_auxiliary_timeout,
         max_retries=0,
         http_client=httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime)),
     )

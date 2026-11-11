@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from application.budget import BudgetPolicy, CostBudgetService
 from application.runtime.config import parse_bool
-from config import settings
+from config import CostLimitSection, process_section
 from domain.runtime.cost import BudgetError, CostRate
 from infrastructure.database.database import database
 
@@ -78,11 +78,13 @@ class BudgetRuntime:
         )
 
     async def policy_snapshot(self) -> BudgetPolicy:
+        cost_limit_settings = process_section(CostLimitSection)
+
         if not self.bootstrapped:
             return BudgetPolicy(
-                settings.cost_rate_limit_enabled,
-                str(settings.cost_hourly_limit),
-                str(settings.cost_daily_limit),
+                cost_limit_settings.cost_rate_limit_enabled,
+                str(cost_limit_settings.cost_hourly_limit),
+                str(cost_limit_settings.cost_daily_limit),
             )
 
         if self.session_factory is None:
@@ -100,11 +102,13 @@ class BudgetRuntime:
         return self.decode_policy(rows)
 
     def policy_sync(self) -> BudgetPolicy:
+        cost_limit_settings = process_section(CostLimitSection)
+
         if not self.bootstrapped:
             return BudgetPolicy(
-                settings.cost_rate_limit_enabled,
-                str(settings.cost_hourly_limit),
-                str(settings.cost_daily_limit),
+                cost_limit_settings.cost_rate_limit_enabled,
+                str(cost_limit_settings.cost_hourly_limit),
+                str(cost_limit_settings.cost_daily_limit),
             )
 
         with self.database.master_connection() as connection:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from application.identity.dto import LoginResult, UserDTO
 from domain.shared.exceptions import ValidationError
@@ -11,7 +11,7 @@ from domain.shared.exceptions import ValidationError
 if TYPE_CHECKING:
     from application.identity.dto import LoginCommand
     from application.uow import UnitOfWorkFactory
-    from domain.identity.ports import PasswordHasher, TokenProvider
+    from domain.identity.ports import PasswordHasher, TokenClaims, TokenProvider
 
 # Fixed bcrypt hash used only to equalize login timing for unknown emails.
 # The value is a valid bcrypt hash of an irrelevant string; its purpose is
@@ -73,6 +73,6 @@ class AuthService:
                 is_active=user.is_active,
             )
 
-    def decode_token(self, token: str) -> dict[str, Any]:
-        """Decode a JWT token.  Raises jwt exceptions on failure."""
+    def decode_token(self, token: str) -> TokenClaims:
+        """Verify a JWT token and return its claims.  Raises jwt exceptions on failure."""
         return self._tokens.decode_token(token)

@@ -26,7 +26,7 @@ from qdrant_client.models import (
 )
 
 from application.ports.ml_clients import AsyncSemaphorePort
-from config import settings
+from config import MLProviderSection, process_section
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.shared.hashing import content_hash
 from infrastructure.corpus.snapshot import collection_for
@@ -276,7 +276,7 @@ async def upload_document_batches(
     write_semaphore: AsyncSemaphorePort | None = None,
     should_cancel: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
-    embed_batch = settings.embed_batch_size
+    embed_batch = process_section(MLProviderSection).embed_batch_size
 
     chunks = filter_upload_chunks(chunks)
 
@@ -327,7 +327,9 @@ async def upload_document_batches(
         batch_vectors = await embeddings.embed_documents(batch_texts)
         log.info("  Embedded in %.1fs", time.monotonic() - t_embed)
 
-        validate_embedding_batch(batch_vectors, len(batch_chunks_slice), settings.embed_dim)
+        validate_embedding_batch(
+            batch_vectors, len(batch_chunks_slice), process_section(MLProviderSection).embed_dim
+        )
 
         pending_points.extend(await asyncio.to_thread(build_points, batch_chunks_slice, batch_vectors))
 

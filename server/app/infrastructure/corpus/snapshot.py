@@ -13,7 +13,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any
 
-from config import settings
+from config import VectorStoreSection, process_section
 
 
 if TYPE_CHECKING:
@@ -167,7 +167,7 @@ def collection_for(client: object) -> str:
         return snapshot.physical_collection
 
     # Compatibility for callers supplying a raw Qdrant client.
-    return settings.collection_name
+    return process_section(VectorStoreSection).collection_name
 
 
 def pin_corpus_call[**P, R](function: Callable[P, Awaitable[R]]) -> Callable[P, Coroutine[object, object, R]]:

@@ -15,7 +15,10 @@
 
 - `server/app/main.py` — FastAPI и жизненный цикл; `server/app/presentation/cli/` — CLI.
 - `server/app/{domain,application,infrastructure,presentation,composition}/` — слои; `server/tests/` — тесты.
-- `server/pyproject.toml` и `server/uv.lock` — зависимости; `server/app/config.py` — настройки.
+- `server/pyproject.toml` и `server/uv.lock` — зависимости; `server/app/config/` — настройки
+  (`settings.py` — корневой `Settings`, `sections/` — секции).
+- Вне `config/` и Composition читай только свою секцию: `config.request_section(XSection)` для снапшота
+  запроса, `config.process_section(XSection)` для процессного синглтона. Полный `Settings` запрещён Ruff TID251.
 - `Taskfile.yml` — источник актуальных команд. Основные: `task install`, `task test`, `task lint`, `task fmt`.
 - Целевой тест: `cd server && uv run pytest tests/<file>.py -v`.
 - После изменения `server/pyproject.toml` обновляй lock через `task lock`.

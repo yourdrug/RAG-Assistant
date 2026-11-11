@@ -12,7 +12,7 @@ import socket
 from typing import TYPE_CHECKING, Any
 import uuid
 
-from config import settings
+from config import JobsSection, MLProviderSection, process_section
 from domain.knowledge.chunk import Chunk
 from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.hashing import content_hash
@@ -49,7 +49,7 @@ class OutboxDispatcher:
         self._vector_store = vector_store
         self._cache_invalidator = cache_invalidator
         self._worker_id = f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
-        self._semaphore = asyncio.Semaphore(settings.outbox_max_concurrent)
+        self._semaphore = asyncio.Semaphore(process_section(JobsSection).outbox_max_concurrent)
 
     async def run_once(self, batch_size: int = 20) -> int:
         """Process one batch of outbox entries. Returns the number of processed entries."""
@@ -82,7 +82,7 @@ class OutboxDispatcher:
         try:
             async with self._uow_factory.create(master=True) as uow:
                 result = await uow.vector_outbox.recover_stuck(
-                    stuck_timeout_minutes=settings.stuck_job_timeout_minutes
+                    stuck_timeout_minutes=process_section(JobsSection).stuck_job_timeout_minutes
                 )
 
                 if result:
@@ -262,7 +262,9 @@ class OutboxDispatcher:
 
         # Ensure collection exists (no-op if it does)
         if chunks:
-            await self._vector_store.ensure_collection(settings.embed_dim, reset=False)
+            await self._vector_store.ensure_collection(
+                process_section(MLProviderSection).embed_dim, reset=False
+            )
 
         await self._vector_store.upload_documents(chunks, should_cancel=_doc_cancelled)
         await self.verify_uploaded_chunks(document_id, chunks)

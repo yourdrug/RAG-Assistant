@@ -18,7 +18,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from config import settings
+from config import MLProviderSection, VectorStoreSection, process_section
 from domain.shared.exceptions import ValidationError
 from infrastructure.corpus import snapshot as corpus_snapshot
 from infrastructure.corpus.clients import probe_active_corpus, raw_corpus_client, validate_corpus_endpoint
@@ -70,12 +70,18 @@ class PostgresCorpusControl:
         return await self.repository.chunks()
 
     async def initial_snapshot(self) -> CorpusSnapshot:
-        client = raw_corpus_client(settings.qdrant_url)
+        vector_store_settings = process_section(VectorStoreSection)
+
+        client = raw_corpus_client(vector_store_settings.qdrant_url)
         try:
             aliases = await asyncio.to_thread(client.get_aliases)
             physical = next(
-                (a.collection_name for a in aliases.aliases if a.alias_name == settings.collection_name),
-                settings.collection_name,
+                (
+                    a.collection_name
+                    for a in aliases.aliases
+                    if a.alias_name == vector_store_settings.collection_name
+                ),
+                vector_store_settings.collection_name,
             )
             rows = await self.chunks()
             names = {item.name for item in (await asyncio.to_thread(client.get_collections)).collections}
@@ -84,17 +90,17 @@ class PostgresCorpusControl:
                 verified = await asyncio.to_thread(
                     validate_corpus,
                     client,
-                    settings.qdrant_url,
-                    settings.collection_name,
+                    vector_store_settings.qdrant_url,
+                    vector_store_settings.collection_name,
                     configured_embedding_identity(),
-                    settings.embed_dim,
+                    process_section(MLProviderSection).embed_dim,
                     rows=rows,
                 )
                 return replace(verified, generation=str(uuid4()))
 
             return CorpusSnapshot(
-                settings.qdrant_url,
-                settings.collection_name,
+                vector_store_settings.qdrant_url,
+                vector_store_settings.collection_name,
                 physical,
                 configured_embedding_identity(),
                 str(uuid4()),
@@ -103,6 +109,8 @@ class PostgresCorpusControl:
             await asyncio.to_thread(client.close)
 
     async def start(self, role: str) -> None:
+        vector_store_settings = process_section(VectorStoreSection)
+
         self.role = role
         state = await self.read_state()
 
@@ -117,7 +125,10 @@ class PostgresCorpusControl:
 
         active = CorpusSnapshot(**state["active"])
 
-        if (settings.qdrant_url, settings.collection_name) != (active.endpoint, active.alias):
+        if (
+            vector_store_settings.qdrant_url,
+            vector_store_settings.collection_name,
+        ) != (active.endpoint, active.alias):
             message = "Saved Qdrant settings differ from the durable corpus journal"
             raise ValidationError(message)
 
@@ -140,11 +151,13 @@ class PostgresCorpusControl:
         self.task = asyncio.create_task(self.monitor(), name=f"corpus-control-{role}")
 
     def install(self, client: BoundQdrantClient) -> None:
+        vector_store_settings = process_section(VectorStoreSection)
+
         self.resources.install_corpus(client)
         corpus_snapshot.installed_corpus = client.snapshot
         # This synchronous publication is the sole owner of corpus settings.
-        settings.qdrant_url = client.snapshot.endpoint
-        settings.collection_name = client.snapshot.alias
+        vector_store_settings.qdrant_url = client.snapshot.endpoint
+        vector_store_settings.collection_name = client.snapshot.alias
 
     async def heartbeat(self, prepared: str | None = None, error: str | None = None) -> None:
         return await self.repository.heartbeat(
@@ -158,7 +171,7 @@ class PostgresCorpusControl:
             message = "PostgreSQL corpus changed during preparation"
             raise ValidationError(message)
 
-        validate_corpus_endpoint(candidate.endpoint, settings.qdrant_url)
+        validate_corpus_endpoint(candidate.endpoint, process_section(VectorStoreSection).qdrant_url)
         raw = raw_corpus_client(candidate.endpoint)
         try:
             verified = await asyncio.to_thread(
@@ -167,7 +180,7 @@ class PostgresCorpusControl:
                 candidate.endpoint,
                 candidate.alias,
                 candidate.embedding_identity,
-                settings.embed_dim,
+                process_section(MLProviderSection).embed_dim,
             )
 
             validate_prepared_alias(verified, candidate)
@@ -326,7 +339,7 @@ class PostgresCorpusControl:
         return await self.repository.quiescent(session)
 
     async def switch(self, endpoint: str, collection: str, expected_generation: str) -> dict[str, Any]:
-        validate_corpus_endpoint(endpoint, settings.qdrant_url)
+        validate_corpus_endpoint(endpoint, process_section(VectorStoreSection).qdrant_url)
 
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,255}", collection):
             message = "Invalid Qdrant collection or alias"
@@ -389,7 +402,7 @@ class PostgresCorpusControl:
                 endpoint,
                 collection,
                 configured_embedding_identity(),
-                settings.embed_dim,
+                process_section(MLProviderSection).embed_dim,
                 rows=rows,
             )
             snapshot = replace(snapshot, generation=str(uuid4()))

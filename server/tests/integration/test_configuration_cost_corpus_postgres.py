@@ -132,13 +132,13 @@ async def corpus_pair(  # noqa: PLR0915 - One fixture assembles both corpus part
     async with sessions() as session:
         schema = (await session.execute(text("SELECT current_schema()"))).scalar_one()
     url = configured_engine.url
-    manager = DatabaseManager()
+    manager = DatabaseManager(settings)
     # One ordinary pooled connection must remain available while a session lock is held.
     pooled = create_async_engine(
         url, pool_size=1, max_overflow=0, connect_args={"server_settings": {"search_path": schema}}
     )
     sessions = async_sessionmaker(pooled, expire_on_commit=False)
-    manager.master_node = DatabaseNode(DatabaseNodeRole.MASTER, DatabaseURL("", "", "", "", ""), 0)
+    manager.master_node = DatabaseNode(DatabaseNodeRole.MASTER, DatabaseURL("", "", "", "", ""), 0, settings)
     manager.master_node.async_engine = pooled
     manager.master_node.async_session_factory = sessions
     manager.create_master_connection_engines(

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 import mammoth
 from PIL import Image
 
-from config import settings
+from config import OCRSection, process_section
 from domain.ingestion.preview import DryRunPageResult, PreviewUnitKind
 from domain.ingestion.text_quality import classify_content
 from domain.knowledge.enums import PageContentType
@@ -195,6 +195,8 @@ def classify_preview_section(
 def recognize_preview_images(
     problem_units: list[DryRunPageResult], image_only_blobs: list[bytes]
 ) -> dict[int, str]:
+    ocr_settings = process_section(OCRSection)
+
     ocr_results: dict[int, str] = {}
 
     for u in problem_units:
@@ -205,9 +207,9 @@ def recognize_preview_images(
             try:
                 img = Image.open(io.BytesIO(blob))
 
-                if settings.ocr_engine in ("paddleocr", "auto"):
+                if ocr_settings.ocr_engine in ("paddleocr", "auto"):
                     text = ocr_image_paddle(img)
-                elif settings.ocr_engine == "paddleocr_vl":
+                elif ocr_settings.ocr_engine == "paddleocr_vl":
                     text = "\n\n".join(block.text for block in recognize_page(img).blocks)
                 else:
                     text = ocr_image_surya(img)

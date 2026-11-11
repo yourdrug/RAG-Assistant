@@ -16,7 +16,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from application.runtime.enums import LLMProvider, MLProvider
-from config import settings
+from config import LLMSection, VectorStoreSection, ml_client_settings, process_section
 from domain.rag.breadth import Breadth
 from infrastructure.budget.transport import PaidAsyncTransport, PaidSyncTransport
 from infrastructure.corpus import snapshot as corpus_snapshot
@@ -30,7 +30,7 @@ from infrastructure.ml.config.embedding_identity import configured_embedding_ide
 
 
 if TYPE_CHECKING:
-    from config import Settings
+    from config import MLClientSettings
     from infrastructure.budget.runtime import BudgetRuntime
 
 log = logging.getLogger("default")
@@ -42,9 +42,9 @@ log = logging.getLogger("default")
 
 
 def create_embeddings(
-    model: Settings | None = None, *, runtime: BudgetRuntime | None = None
+    model: MLClientSettings | None = None, *, runtime: BudgetRuntime | None = None
 ) -> DeepInfraEmbeddingsClient | TEIEmbeddingsClient:
-    model = (model or settings).model_copy()
+    model = (model or ml_client_settings()).model_copy()
     pool_limits = httpx.Limits(
         max_connections=model.embedding_http_max_connections,
         max_keepalive_connections=model.embedding_http_max_keepalive_connections,
@@ -76,9 +76,9 @@ def create_embeddings(
 
 
 def create_reranker(
-    model: Settings | None = None, *, runtime: BudgetRuntime | None = None
+    model: MLClientSettings | None = None, *, runtime: BudgetRuntime | None = None
 ) -> DeepInfraRerankerClient | TEIRerankerClient:
-    model = (model or settings).model_copy()
+    model = (model or ml_client_settings()).model_copy()
     pool_limits = httpx.Limits(
         max_connections=model.rerank_http_max_connections,
         max_keepalive_connections=model.rerank_http_max_keepalive_connections,
@@ -115,7 +115,7 @@ class ChatModelRole(StrEnum):
 
 
 class ChatModelOptions(TypedDict, total=False):
-    model: Settings | None
+    model: MLClientSettings | None
     temperature: float | None
     top_p: float | None
     num_ctx: int | None
@@ -126,7 +126,7 @@ class ChatModelOptions(TypedDict, total=False):
 
 
 class BreadthModelOptions(TypedDict, total=False):
-    model: Settings | None
+    model: MLClientSettings | None
     temperature: float | None
     top_p: float | None
     num_ctx_narrow: int | None
@@ -155,7 +155,7 @@ def build_chat_model(
     **options: Unpack[ChatModelOptions],
 ) -> ChatOpenAI:
     """Build a chat client from one settings snapshot and its call role."""
-    model = (options.get("model") or settings).model_copy()
+    model = (options.get("model") or ml_client_settings()).model_copy()
     temperature = options.get("temperature")
     num_predict = options.get("num_predict")
     model_name = options.get("model_name")
@@ -203,13 +203,13 @@ def create_llm(
     top_p: float | None = None,
     num_ctx: int | None = None,
     num_predict: int | None = None,
-    model: Settings | None = None,
+    model: MLClientSettings | None = None,
     *,
     runtime: BudgetRuntime | None = None,
 ) -> ChatOpenAI:
     """Create LLM based on the configured provider."""
     return build_chat_model(
-        (model or settings).llm_provider,
+        (model or ml_client_settings()).llm_provider,
         ChatModelRole.DEFAULT,
         model=model,
         runtime=runtime,
@@ -223,7 +223,7 @@ def create_llm(
 def create_openrouter_llm(
     temperature: float | None = None,
     max_tokens: int | None = None,
-    model: Settings | None = None,
+    model: MLClientSettings | None = None,
     *,
     runtime: BudgetRuntime | None = None,
 ) -> ChatOpenAI:
@@ -250,7 +250,7 @@ def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions])
     num_predict_narrow = options.get("num_predict_narrow")
     is_broad = breadth == Breadth.BROAD
     return build_chat_model(
-        (model or settings).llm_provider,
+        (model or ml_client_settings()).llm_provider,
         ChatModelRole.BROAD if is_broad else ChatModelRole.NARROW,
         model=model,
         runtime=runtime,
@@ -262,11 +262,11 @@ def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions])
 
 
 def create_fast_llm_for_auxiliary(
-    model: Settings | None = None, *, runtime: BudgetRuntime | None = None
+    model: MLClientSettings | None = None, *, runtime: BudgetRuntime | None = None
 ) -> ChatOpenAI:
     """Create the lightweight client for condense, relevance and decomposition."""
     return build_chat_model(
-        (model or settings).llm_provider, ChatModelRole.AUXILIARY, model=model, runtime=runtime
+        (model or ml_client_settings()).llm_provider, ChatModelRole.AUXILIARY, model=model, runtime=runtime
     )
 
 
@@ -276,10 +276,11 @@ def create_fast_llm_for_auxiliary(
 
 
 def create_qdrant_client() -> BoundQdrantClient:
+    vector_store_settings = process_section(VectorStoreSection)
     snapshot = corpus_snapshot.installed_corpus or CorpusSnapshot(
-        settings.qdrant_url,
-        settings.collection_name,
-        settings.collection_name,
+        vector_store_settings.qdrant_url,
+        vector_store_settings.collection_name,
+        vector_store_settings.collection_name,
         configured_embedding_identity(),
     )
     raw = raw_corpus_client(snapshot.endpoint)
@@ -297,14 +298,16 @@ async def fetch_openrouter_models() -> list[dict[str, Any]]:
     Returns list of dicts with keys: id, name, context_length, pricing.
     Filters to chat-capable models only.
     """
-    if not settings.openrouter_api_key:
+    llm_settings = process_section(LLMSection)
+
+    if not llm_settings.openrouter_api_key:
         return []
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(
-                f"{settings.openrouter_base_url}/models",
-                headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+                f"{llm_settings.openrouter_base_url}/models",
+                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key}"},
             )
             r.raise_for_status()
             data = r.json()

@@ -38,7 +38,7 @@ def client_harness(
     context = SimpleNamespace(__aenter__=AsyncMock(return_value=client), __aexit__=AsyncMock())
     session = MagicMock(create_client=MagicMock(return_value=context))
     monkeypatch.setattr("infrastructure.storage.file_storage.get_session", lambda: session)
-    return S3Storage(), client, context, session
+    return S3Storage(settings, settings), client, context, session
 
 
 @pytest.mark.asyncio
@@ -417,8 +417,8 @@ async def test_factory_uses_s3_without_data_dir_even_with_legacy_env(
 ) -> None:
     monkeypatch.setenv("FILE_BACKEND", legacy_backend)
     configured = Settings(_env_file=None, data_dir="/proc/unavailable")
-    monkeypatch.setattr("infrastructure.storage.file_storage.settings", configured)
-    storage = create_storage()
+    monkeypatch.setattr("config.settings", configured)
+    storage = create_storage(configured, configured)
     try:
         assert isinstance(storage, S3Storage)
         assert storage.bucket == configured.s3_bucket

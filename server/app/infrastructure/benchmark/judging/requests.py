@@ -13,7 +13,7 @@ from openai import APIConnectionError, AsyncOpenAI, InternalServerError, RateLim
 from openai.types.chat import ChatCompletion
 from pydantic import ValidationError
 
-from config import settings
+from config import BenchmarkSection, LLMSection, process_section
 from infrastructure.benchmark.judging.judge_diagnostics import (
     JudgeResponseError,
     failure_metadata,
@@ -42,7 +42,9 @@ def judge_limiter() -> asyncio.Semaphore:
     loop = asyncio.get_running_loop()
 
     if loop not in REQUEST_LIMITERS:
-        REQUEST_LIMITERS[loop] = asyncio.Semaphore(settings.benchmark_judge_max_concurrent)
+        REQUEST_LIMITERS[loop] = asyncio.Semaphore(
+            process_section(BenchmarkSection).benchmark_judge_max_concurrent
+        )
 
     return REQUEST_LIMITERS[loop]
 
@@ -166,10 +168,16 @@ async def judge_group(
     saved: dict[str, Any],
     callback: Callable[[dict[str, Any]], Awaitable[None]],
 ) -> None:
+    benchmark_settings = process_section(BenchmarkSection)
+
     pending = [key for key in metrics if saved.get(key, {}).get("score") is None]
 
     for attempt, budget in enumerate(
-        (settings.benchmark_judge_initial_tokens, settings.benchmark_judge_retry_tokens), 1
+        (
+            benchmark_settings.benchmark_judge_initial_tokens,
+            benchmark_settings.benchmark_judge_retry_tokens,
+        ),
+        1,
     ):
         if not pending:
             return
@@ -205,7 +213,7 @@ async def judge_group(
                 [key],
                 saved=saved,
                 callback=callback,
-                budget=settings.benchmark_judge_retry_tokens,
+                budget=benchmark_settings.benchmark_judge_retry_tokens,
                 attempt=3,
             )
 
@@ -275,7 +283,7 @@ async def request_scores(
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=budget,
-            timeout=settings.llm_auxiliary_timeout,
+            timeout=process_section(LLMSection).llm_auxiliary_timeout,
         )
     record_judge_usage(response)
     event.update(response_metadata(response))

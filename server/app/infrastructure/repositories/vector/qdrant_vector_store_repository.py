@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
-from config import settings
+from config import VectorStoreSection, process_section
 from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.corpus.snapshot import pin_corpus_call
 from infrastructure.ml.clients.factories import create_embeddings, create_qdrant_client
@@ -79,7 +79,7 @@ class QdrantVectorStoreRepository:
 
         def delete() -> None:
             client.delete(
-                collection_name=settings.collection_name,
+                collection_name=process_section(VectorStoreSection).collection_name,
                 points_selector=Filter(
                     must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
                 ),
@@ -111,7 +111,7 @@ class QdrantVectorStoreRepository:
                 LCDocument(page_content=payload["page_content"], metadata=payload.get("metadata", {}))
             )
             point = PointStruct(id=point_id, vector=point_vectors(scoped_text, vector), payload=payload)
-            client.upsert(collection_name=settings.collection_name, points=[point])
+            client.upsert(collection_name=process_section(VectorStoreSection).collection_name, points=[point])
 
         await asyncio.to_thread(upsert)
 
@@ -134,7 +134,7 @@ class QdrantVectorStoreRepository:
 
         def scroll() -> dict[str, Any] | None:
             results, _ = client.scroll(
-                collection_name=settings.collection_name,
+                collection_name=process_section(VectorStoreSection).collection_name,
                 scroll_filter=combined_filter,
                 limit=1,
                 with_payload=True,
@@ -155,7 +155,7 @@ class QdrantVectorStoreRepository:
                 return
 
             client.delete(
-                collection_name=settings.collection_name,
+                collection_name=process_section(VectorStoreSection).collection_name,
                 points_selector=ids,
             )
 
@@ -218,7 +218,7 @@ class QdrantVectorStoreRepository:
     def patch_metadata(client: VectorClient, points_filter: Filter, metadata_updates: dict[str, Any]) -> None:
         """Patch only selected metadata keys without reading or replacing vectors."""
         client.set_payload(
-            collection_name=settings.collection_name,
+            collection_name=process_section(VectorStoreSection).collection_name,
             payload=metadata_updates,
             points=points_filter,
             key="metadata",

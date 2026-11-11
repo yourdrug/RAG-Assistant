@@ -18,7 +18,7 @@ import contextlib
 
 from application.benchmark.sweep_jobs import validate_sweep_coverage
 from application.benchmark.sweep_ports import SweepCancelled
-from config import settings
+from config import BenchmarkSection, LLMSection, process_section
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.worker.outcomes import job_error_message
 from infrastructure.worker.runtime import job
@@ -44,7 +44,9 @@ async def run_cancellable_sweep(
     task = asyncio.create_task(
         engine.run_sweep(
             sweep=sweep,
-            judge_model=sweep.judge_model or settings.benchmark_judge_model or settings.openrouter_model,
+            judge_model=sweep.judge_model
+            or process_section(BenchmarkSection).benchmark_judge_model
+            or process_section(LLMSection).openrouter_model,
             progress_callback=progress_callback,
             should_cancel=is_cancelled,
         )

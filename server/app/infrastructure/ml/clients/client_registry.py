@@ -19,7 +19,7 @@ import threading
 from typing import TYPE_CHECKING, Self, cast
 
 from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
-from config import request_settings, settings
+from config import ConcurrencySection, process_section, request_settings, settings
 from domain.shared.exceptions import SemaphoreTimeoutError
 from infrastructure.corpus.resources import CorpusResources
 from infrastructure.ml.clients import factories
@@ -102,6 +102,8 @@ class MLClientRegistry(MLClientPort):
         budget_runtime: BudgetRuntime | None = None,
         corpus_resources: CorpusResources | None = None,
     ) -> None:
+        concurrency_settings = process_section(ConcurrencySection)
+
         self.budget_runtime = budget_runtime
         self.corpus_resources = (
             corpus_resources
@@ -120,25 +122,32 @@ class MLClientRegistry(MLClientPort):
 
         # Eager init semaphores — lightweight objects, no race conditions
         self.generation_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
-            settings.llm_generation_max_concurrent, timeout=settings.semaphore_acquire_timeout
+            concurrency_settings.llm_generation_max_concurrent,
+            timeout=concurrency_settings.semaphore_acquire_timeout,
         )
         self.auxiliary_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
-            settings.llm_auxiliary_max_concurrent, timeout=settings.semaphore_acquire_timeout
+            concurrency_settings.llm_auxiliary_max_concurrent,
+            timeout=concurrency_settings.semaphore_acquire_timeout,
         )
         self.qdrant_search_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
-            settings.qdrant_search_max_concurrent, timeout=settings.semaphore_acquire_timeout
+            concurrency_settings.qdrant_search_max_concurrent,
+            timeout=concurrency_settings.semaphore_acquire_timeout,
         )
         self.reranker_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
-            settings.reranker_max_concurrent, timeout=settings.semaphore_acquire_timeout
+            concurrency_settings.reranker_max_concurrent,
+            timeout=concurrency_settings.semaphore_acquire_timeout,
         )
         self.embedding_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
-            settings.embedding_max_concurrent, timeout=settings.semaphore_acquire_timeout
+            concurrency_settings.embedding_max_concurrent,
+            timeout=concurrency_settings.semaphore_acquire_timeout,
         )
         self.ingestion_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
-            settings.ingestion_max_concurrent, timeout=settings.semaphore_acquire_timeout
+            concurrency_settings.ingestion_max_concurrent,
+            timeout=concurrency_settings.semaphore_acquire_timeout,
         )
         self.qdrant_write_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
-            settings.qdrant_write_max_concurrent, timeout=settings.semaphore_acquire_timeout
+            concurrency_settings.qdrant_write_max_concurrent,
+            timeout=concurrency_settings.semaphore_acquire_timeout,
         )
 
     def request_client(self, name: str) -> object | None:

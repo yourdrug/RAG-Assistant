@@ -20,6 +20,7 @@ import redis.asyncio as aioredis
 
 from application.chunks import ChunkMutationService
 from application.search import HybridRetriever
+from config import settings
 from domain.identity.roles import UserRole
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.document import Document
@@ -68,7 +69,7 @@ async def test_redis_failed_ping_closes_client_and_allows_retry(monkeypatch: pyt
     factory = MagicMock(side_effect=[failed, healthy])
 
     monkeypatch.setattr(aioredis.Redis, "from_url", factory)
-    client = RedisClient()
+    client = RedisClient(settings)
     with pytest.raises(OSError, match="offline"):
         await client.init()
     failed.aclose.assert_awaited_once()

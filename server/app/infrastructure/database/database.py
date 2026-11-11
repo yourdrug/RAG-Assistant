@@ -19,7 +19,7 @@ from logging import (
     Logger,
     getLogger,
 )
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Connection, create_engine
 from sqlalchemy.engine import URL
@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from config import settings
+from config import DatabaseSection, process_section
 from domain.shared.exceptions import DatabaseError
 from infrastructure.database.dataclasses import DatabaseURL
 from infrastructure.database.enums import DatabaseNodeRole
@@ -47,24 +47,26 @@ if TYPE_CHECKING:
 logger: Logger = getLogger("default")
 
 
-def connection_arguments() -> dict[str, Any]:
+def connection_arguments(database_settings: DatabaseSection) -> dict[str, object]:
+
     return {
         "connect_timeout": 5,
         "options": (
             "-c timezone=Europe/Minsk "
-            f"-c statement_timeout={settings.db_statement_timeout_ms} "
-            f"-c idle_in_transaction_session_timeout={settings.db_idle_in_transaction_timeout_ms}"
+            f"-c statement_timeout={database_settings.db_statement_timeout_ms} "
+            f"-c idle_in_transaction_session_timeout={database_settings.db_idle_in_transaction_timeout_ms}"
         ),
     }
 
 
-def configured_database_url() -> DatabaseURL:
+def configured_database_url(database_settings: DatabaseSection) -> DatabaseURL:
+
     return DatabaseURL(
-        settings.db_user,
-        settings.db_password,
-        settings.db_host,
-        settings.db_port,
-        settings.db_name,
+        database_settings.db_user,
+        database_settings.db_password,
+        database_settings.db_host,
+        database_settings.db_port,
+        database_settings.db_name,
     )
 
 
@@ -76,6 +78,7 @@ class DatabaseNode:
         node_role: DatabaseNodeRole,
         node_url: DatabaseURL,
         node_number: int,
+        database_settings: DatabaseSection,
     ) -> None:
         """__init__: Initialize database node.
 
@@ -83,7 +86,9 @@ class DatabaseNode:
             node_role (DatabaseNodeRole): Role of the database node.
             node_url (DatabaseURL): Database URL.
             node_number (int): Number of the database node.
+            database_settings (DatabaseSection): Pool and timeout settings.
         """
+        self.database_settings: DatabaseSection = database_settings
         self.node_role: DatabaseNodeRole = node_role
         self.node_url: DatabaseURL = node_url
         self.node_number: int = node_number
@@ -102,15 +107,17 @@ class DatabaseNode:
         Fifth param allows extra connections beyond pool_size if needed.
         Sixth param sets the timezone for connections.
         """
+        database_settings = self.database_settings
+
         self.async_engine = create_async_engine(
             self.node_url.url,
             echo=False,
             future=True,
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_max_overflow,
+            pool_size=database_settings.db_pool_size,
+            max_overflow=database_settings.db_max_overflow,
             pool_pre_ping=True,
-            pool_recycle=settings.db_pool_recycle_sec,
-            connect_args=connection_arguments(),
+            pool_recycle=database_settings.db_pool_recycle_sec,
+            connect_args=connection_arguments(database_settings),
         )
 
     async def _create_async_session_factory(
@@ -205,8 +212,10 @@ class DatabaseManager:
 
     def __init__(
         self,
+        database_settings: DatabaseSection,
     ) -> None:
         """__init__: Initialize database manager."""
+        self.database_settings: DatabaseSection = database_settings
         self.is_cluster: bool = False
         self.master_node: DatabaseNode | None = None
         self.slave_nodes: list[DatabaseNode] = []
@@ -218,34 +227,38 @@ class DatabaseManager:
         self,
     ) -> None:
         """_setup_cluster_environment: Setup for cluster environment."""
-        master_url: DatabaseURL = configured_database_url()
+        database_settings = self.database_settings
+
+        master_url: DatabaseURL = configured_database_url(self.database_settings)
 
         self.master_node = DatabaseNode(
             node_role=DatabaseNodeRole.MASTER,
             node_url=master_url,
             node_number=0,
+            database_settings=self.database_settings,
         )
 
         for node_number, (host, port) in enumerate(
             zip(
-                settings.db_slave_hosts_list,
-                settings.db_slave_ports_list,
+                database_settings.db_slave_hosts_list,
+                database_settings.db_slave_ports_list,
                 strict=True,
             )
         ):
             if host and port:
                 slave_url: DatabaseURL = DatabaseURL(
-                    settings.db_user,
-                    settings.db_password,
+                    database_settings.db_user,
+                    database_settings.db_password,
                     host,
                     port,
-                    settings.db_name,
+                    database_settings.db_name,
                 )
 
                 slave_node: DatabaseNode = DatabaseNode(
                     node_role=DatabaseNodeRole.SLAVE,
                     node_url=slave_url,
                     node_number=node_number + 1,
+                    database_settings=self.database_settings,
                 )
 
                 self.slave_nodes.append(slave_node)
@@ -257,12 +270,13 @@ class DatabaseManager:
         self,
     ) -> None:
         """_setup_single_node_environment: Setup for single node environment."""
-        master_url: DatabaseURL = configured_database_url()
+        master_url: DatabaseURL = configured_database_url(self.database_settings)
 
         self.master_node = DatabaseNode(
             node_role=DatabaseNodeRole.MASTER,
             node_url=master_url,
             node_number=0,
+            database_settings=self.database_settings,
         )
 
         self.slave_nodes.append(self.master_node)
@@ -271,7 +285,9 @@ class DatabaseManager:
         self,
     ) -> None:
         """_detect_environment: Detect if we're in a cluster environment or single node."""
-        self.is_cluster = bool(settings.db_slave_hosts and settings.db_slave_ports)
+        database_settings = self.database_settings
+
+        self.is_cluster = bool(database_settings.db_slave_hosts and database_settings.db_slave_ports)
 
         if self.is_cluster:
             self._setup_cluster_environment()
@@ -307,7 +323,9 @@ class DatabaseManager:
             )
 
         if self.master_node is not None and self.master_node.async_engine is not None:
-            self.create_master_connection_engines(self.master_node.async_engine.url, connection_arguments())
+            self.create_master_connection_engines(
+                self.master_node.async_engine.url, connection_arguments(self.database_settings)
+            )
 
         slaves_to_connect: list[DatabaseNode] = [
             slave for slave in self.slave_nodes if slave != self.master_node
@@ -357,7 +375,7 @@ class DatabaseManager:
                 self.master_node.get_number(),
             )
 
-    def create_master_connection_engines(self, url: URL, connect_args: dict[str, Any]) -> None:
+    def create_master_connection_engines(self, url: URL, connect_args: dict[str, object]) -> None:
         """Dedicated nonpooled engines for session locks, independent of ordinary sessions."""
         self.master_connection_engine = create_engine(
             url,
@@ -385,10 +403,10 @@ class DatabaseManager:
 
             return self.master_node.node_url.url
 
-        return configured_database_url().url
+        return configured_database_url(self.database_settings).url
 
     @contextmanager
-    def master_connection(self, *, connect_args: dict[str, Any] | None = None) -> Iterator[Connection]:
+    def master_connection(self, *, connect_args: dict[str, object] | None = None) -> Iterator[Connection]:
         """Use the dedicated engine, or a scoped engine for standalone tools."""
         engine = self.master_connection_engine
         owned = engine is None or connect_args is not None
@@ -398,7 +416,7 @@ class DatabaseManager:
                 self.master_url,
                 poolclass=NullPool,
                 isolation_level="AUTOCOMMIT",
-                connect_args=connection_arguments() | (connect_args or {}),
+                connect_args=connection_arguments(self.database_settings) | (connect_args or {}),
             )
 
         if engine is None:
@@ -414,7 +432,7 @@ class DatabaseManager:
 
     @asynccontextmanager
     async def async_master_connection(
-        self, *, connect_args: dict[str, Any] | None = None
+        self, *, connect_args: dict[str, object] | None = None
     ) -> AsyncIterator[AsyncConnection]:
         """Use the dedicated engine, or a scoped engine before application startup."""
         engine = self.async_master_connection_engine
@@ -425,7 +443,7 @@ class DatabaseManager:
                 self.master_url,
                 poolclass=NullPool,
                 isolation_level="AUTOCOMMIT",
-                connect_args=connection_arguments() | (connect_args or {}),
+                connect_args=connection_arguments(self.database_settings) | (connect_args or {}),
             )
 
         if engine is None:
@@ -481,4 +499,5 @@ class DatabaseManager:
         return self.get_write_session() if master else self.get_read_session()
 
 
-database: DatabaseManager = DatabaseManager()
+# Process-wide singleton: the section is the live settings object, so hot-reload still applies.
+database: DatabaseManager = DatabaseManager(process_section(DatabaseSection))

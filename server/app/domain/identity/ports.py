@@ -6,12 +6,28 @@ the domain layer depends only on this protocol.
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
+
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TokenClaims:
+    """Verified claims of an access token."""
+
+    user_id: int
+    role: str
+    expires_at: datetime
 
 
 class TokenProvider(Protocol):
     def create_token(self, user_id: int, role: str) -> str: ...
-    def decode_token(self, token: str) -> dict[str, Any]: ...
+    def decode_token(self, token: str) -> TokenClaims:
+        """Verify a token and return its claims; raise on any invalid or incomplete token."""
+        ...
 
 
 class PasswordHasher(Protocol):

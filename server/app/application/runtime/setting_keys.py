@@ -1,4 +1,9 @@
-"""Ownership of secret, static, metadata and dynamic setting keys."""
+"""Ownership of secret, static, metadata and dynamic setting keys.
+
+Secret/static/metadata sets mirror the ``Secret``/``Static``/``Metadata`` markers on
+settings section fields (``config.ownership``); Application cannot import ``config``,
+so ``tests/test_configuration_sources.py`` enforces that both stay identical.
+"""
 
 from __future__ import annotations
 

@@ -17,7 +17,7 @@ from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from application.search import HybridRetriever
-from config import get_request_settings
+from config import RetrievalSection, VectorStoreSection, request_section
 from domain.shared.hashing import content_hash
 from infrastructure.corpus.snapshot import pin_corpus_call
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
@@ -86,6 +86,8 @@ async def resolve_hashes_batch(
     Wrapped with ``qdrant_search_semaphore`` to cap concurrent Qdrant requests
     and prevent thundering herd during decomposition retries.
     """
+    vector_store_settings = request_section(VectorStoreSection)
+
     if not hashes:
         return {}
 
@@ -111,11 +113,11 @@ async def resolve_hashes_batch(
     async with ml_clients.qdrant_search_semaphore:
         results = await asyncio.to_thread(
             client.scroll,
-            collection_name=get_request_settings().collection_name,
+            collection_name=vector_store_settings.collection_name,
             scroll_filter=scroll_filter,
             limit=len(hashes),
             with_payload=True,
-            timeout=get_request_settings().qdrant_timeout,
+            timeout=vector_store_settings.qdrant_timeout,
         )
 
     points = results[0]
@@ -146,6 +148,8 @@ async def qdrant_dense_search(
 
     Wrapped with ``qdrant_search_semaphore`` to cap concurrent Qdrant requests.
     """
+    vector_store_settings = request_section(VectorStoreSection)
+
     if access_filter is None:
         message = "qdrant_dense_search() requires access_filter for ACL enforcement."
         raise RuntimeError(message)
@@ -161,19 +165,19 @@ async def qdrant_dense_search(
     raw_threshold: object = (
         score_threshold
         if score_threshold is not None
-        else get_request_settings().rag_retrieval_score_threshold
+        else request_section(RetrievalSection).rag_retrieval_score_threshold
     )
     threshold = raw_threshold if isinstance(raw_threshold, (int, float)) else 0.0
 
     async with ml_clients.qdrant_search_semaphore:
         results = await asyncio.to_thread(
             client.search,
-            collection_name=get_request_settings().collection_name,
+            collection_name=vector_store_settings.collection_name,
             query_vector=query_vector,
             limit=k,
             query_filter=access_filter,
             score_threshold=threshold if threshold > 0 else None,
-            timeout=get_request_settings().qdrant_timeout,
+            timeout=vector_store_settings.qdrant_timeout,
         )
 
     docs = []
@@ -193,6 +197,8 @@ def search_sparse_points(
     client: QdrantClient, query: str, k: int, access_filter: Filter | None
 ) -> list[ScoredPoint]:
     """Return sparse hits with payload; apply the complete ACL/temporal scope before top-k."""
+    vector_store_settings = request_section(VectorStoreSection)
+
     if access_filter is None:
         message = "Sparse search requires an ACL filter"
         raise RuntimeError(message)
@@ -203,12 +209,12 @@ def search_sparse_points(
         return []
 
     return client.search(
-        collection_name=get_request_settings().collection_name,
+        collection_name=vector_store_settings.collection_name,
         query_vector=vector,
         query_filter=access_filter,
         limit=k,
         with_payload=True,
-        timeout=get_request_settings().qdrant_timeout,
+        timeout=vector_store_settings.qdrant_timeout,
     )
 
 

@@ -304,7 +304,7 @@ class TestParsePdf:
             tmp_path / "test.pdf",
             [["Hello world", "This is a test document with enough text to pass the minimum threshold."]],
         )
-        with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             mock_settings.ocr_enabled = False
             mock_settings.ocr_min_chars = 50
             result = parse_pdf(pdf_path)
@@ -321,7 +321,7 @@ class TestParsePdf:
                 ["Page two content with enough text to be detected."],
             ],
         )
-        with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             mock_settings.ocr_enabled = False
             mock_settings.ocr_min_chars = 50
             result = parse_pdf(pdf_path)
@@ -334,7 +334,7 @@ class TestParsePdf:
     def test_metadata_has_source(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(tmp_path / "meta.pdf", [["Some text content here for testing."]])
-        with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             mock_settings.ocr_enabled = False
             mock_settings.ocr_min_chars = 10
             result = parse_pdf(pdf_path)
@@ -345,7 +345,7 @@ class TestParsePdf:
     def test_metadata_has_text_quality(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(tmp_path / "tq.pdf", [["Text content for quality check."]])
-        with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             mock_settings.ocr_enabled = False
             mock_settings.ocr_min_chars = 10
             result = parse_pdf(pdf_path)
@@ -355,7 +355,7 @@ class TestParsePdf:
     def test_metadata_has_image_info(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(tmp_path / "img.pdf", [["Image info test."]])
-        with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             mock_settings.ocr_enabled = False
             mock_settings.ocr_min_chars = 10
             result = parse_pdf(pdf_path)
@@ -366,7 +366,7 @@ class TestParsePdf:
     def test_pdf_title_in_metadata(self, tmp_path: Path) -> None:
 
         pdf_path = _create_pdf(tmp_path / "titled.pdf", [["Title test."]], title="My Document")
-        with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             mock_settings.ocr_enabled = False
             mock_settings.ocr_min_chars = 10
             result = parse_pdf(pdf_path)
@@ -382,7 +382,7 @@ class TestParsePdf:
         doc.save(str(tmp_path / "empty.pdf"))
         doc.close()
 
-        with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             mock_settings.ocr_enabled = False
             mock_settings.ocr_min_chars = 50
             result = parse_pdf(tmp_path / "empty.pdf")

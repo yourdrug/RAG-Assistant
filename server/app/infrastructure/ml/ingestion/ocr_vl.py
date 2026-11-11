@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
-from config import settings
+from config import OCRSection, process_section
 from domain.shared.exceptions import AppServerError
 
 
@@ -38,12 +38,14 @@ class OCRPage(BaseModel):
 
 def recognize_page(image: Image.Image) -> OCRPage:
     """Send only rendered pixels to the deployment's local service."""
+    ocr_settings = process_section(OCRSection)
+
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     try:
-        with httpx.Client(timeout=settings.ocr_vl_timeout, trust_env=False) as client:
+        with httpx.Client(timeout=ocr_settings.ocr_vl_timeout, trust_env=False) as client:
             response = client.post(
-                f"{settings.ocr_vl_url.rstrip('/')}/recognize",
+                f"{ocr_settings.ocr_vl_url.rstrip('/')}/recognize",
                 content=buffer.getvalue(),
                 headers={"Content-Type": "image/png"},
             )

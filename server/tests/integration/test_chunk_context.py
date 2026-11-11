@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from config import settings
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.chunk import ChunkInsert
@@ -40,7 +41,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 async def test_document_index_lock_serializes_factories_and_releases_after_error(
     pg_engine: AsyncEngine,
 ) -> None:
-    database = DatabaseManager()
+    database = DatabaseManager(settings)
     database.async_master_connection_engine = create_async_engine(
         pg_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
     )

@@ -18,7 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from application.health.ports import HealthCheckResult
 from application.runtime.enums import HealthStatus
-from config import settings
+from config import LLMSection, MLProviderSection, VectorStoreSection, process_section
 from infrastructure.database.database import database
 from infrastructure.redis.redis_client import redis_client
 
@@ -45,6 +45,8 @@ class SystemHealthProbe:
         self.http = HttpProbe()
 
     async def check_tei(self) -> dict[str, HealthCheckResult]:
+        ml_provider_settings = process_section(MLProviderSection)
+
         async def probe(url: str) -> HealthCheckResult:
             try:
                 response, latency_ms = await self.http.get(f"{url.rstrip('/')}/health")
@@ -57,22 +59,27 @@ class SystemHealthProbe:
                 logger.warning("TEI health probe failed (%s)", type(exc).__name__)
                 return HealthCheckResult(status=f"error: {exc}")
 
-        embed, rerank = await asyncio.gather(probe(settings.tei_embed_url), probe(settings.tei_rerank_url))
+        embed, rerank = await asyncio.gather(
+            probe(ml_provider_settings.tei_embed_url),
+            probe(ml_provider_settings.tei_rerank_url),
+        )
         return {"tei_embed": embed, "tei_rerank": rerank}
 
     async def check_openrouter(self) -> HealthCheckResult:
+        llm_settings = process_section(LLMSection)
+
         try:
             response, latency_ms = await self.http.get(
-                f"{settings.openrouter_base_url}/models",
+                f"{llm_settings.openrouter_base_url}/models",
                 request_timeout=5,
-                headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key}"},
             )
 
             if response.status_code < HTTPStatus.BAD_REQUEST:
                 return HealthCheckResult(
                     status=HealthStatus.OK.value,
                     latency_ms=latency_ms,
-                    models=[settings.openrouter_model],
+                    models=[llm_settings.openrouter_model],
                 )
 
             logger.warning("OpenRouter health probe returned HTTP %s", response.status_code)
@@ -92,8 +99,14 @@ class SystemHealthProbe:
             return HealthCheckResult(status=f"error: {e}")
 
     def check_qdrant_sync(self) -> None:
+        vector_store_settings = process_section(VectorStoreSection)
+
         with closing(
-            QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=3)
+            QdrantClient(
+                url=vector_store_settings.qdrant_url,
+                api_key=vector_store_settings.qdrant_api_key,
+                timeout=3,
+            )
         ) as client:
             client.get_collections()
 
@@ -138,8 +151,14 @@ class QdrantInfo:
 
     @staticmethod
     def fetch_collections() -> list[dict[str, Any]]:
+        vector_store_settings = process_section(VectorStoreSection)
+
         with closing(
-            QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=5)
+            QdrantClient(
+                url=vector_store_settings.qdrant_url,
+                api_key=vector_store_settings.qdrant_api_key,
+                timeout=5,
+            )
         ) as client:
             return QdrantInfo.read_collections(client)
 

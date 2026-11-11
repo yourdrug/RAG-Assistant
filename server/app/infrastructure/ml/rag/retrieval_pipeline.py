@@ -81,10 +81,14 @@ async def run_retrieval(
         record_origins(candidates, "search", query_for_search)
 
         if candidates:
-            return candidates
+            break
 
-        if access_filter is not state.retrieval_filter:
+        if access_filter is not retrieval_filter:
             log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
+
+    if len(filters) > 1:
+        domain_hit = bool(candidates) and access_filter is not retrieval_filter
+        state.domain_search_hit = bool(state.domain_search_hit) or domain_hit
 
     return candidates
 
@@ -329,8 +333,13 @@ async def rerank_and_enrich(
 
     docs = retained_temporal_candidates(docs)
 
-    if policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus:
-        docs = await apply_legal_rerank_fallback(
+    # Skip when every search already ran on the full corpus: the fallback would repeat it.
+    if (
+        not docs
+        and state.domain_search_hit is not False
+        and policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus
+    ):
+        fallback_docs = await apply_legal_rerank_fallback(
             query,
             cast("Filter | None", state.retrieval_filter),
             state.rag,
@@ -343,6 +352,7 @@ async def rerank_and_enrich(
             document_access=document_access,
             user=state.ctx.to_user_context(),
         )
+        docs = retained_temporal_candidates(fallback_docs)
 
     # The reranker already applies min_score/score_gap_ratio. Keep its eligible
     # tail for context packing instead of discarding evidence at narrow top_k.
@@ -412,6 +422,7 @@ class RetrievalPipeline:
 
     async def run(self, query: str, state: RetrievalWork) -> RetrievalWork:
         begin_attempt(state.question, query)
+        state.domain_search_hit = None
         candidates, sub_queries = await retrieve_with_decomposition(query, state, self.ml_clients)
         state.sub_queries = list(dict.fromkeys([*state.sub_queries, *sub_queries]))
 

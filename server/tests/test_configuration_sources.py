@@ -11,6 +11,7 @@ from application.runtime.enums import LLMProvider
 import application.runtime.setting_keys
 from application.runtime.setting_keys import SECRET_SETTING_KEYS as SENSITIVE_KEYS
 from config import Settings, settings
+from config.ownership import SettingOwnership, field_ownership, keys_owned_by
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
@@ -29,6 +30,19 @@ def test_every_setting_has_exactly_one_owner() -> None:
     )
     assert set().union(*groups) == set(Settings.model_fields)
     assert sum(map(len, groups)) == len(Settings.model_fields)
+
+
+def test_ownership_markers_match_setting_key_registry() -> None:
+    # Section field markers are the source of truth; Application mirrors them without importing config.
+    keys = application.runtime.setting_keys
+    assert keys_owned_by(Settings, SettingOwnership.SECRET) == keys.SECRET_SETTING_KEYS
+    assert keys_owned_by(Settings, SettingOwnership.STATIC) == keys.STATIC_SETTING_KEYS
+    assert keys_owned_by(Settings, SettingOwnership.METADATA) == keys.METADATA_SETTING_KEYS
+
+
+def test_unmarked_settings_are_exactly_the_dynamic_ones() -> None:
+    unmarked = {name for name in Settings.model_fields if field_ownership(Settings, name) is None}
+    assert unmarked == application.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
 
 
 def test_only_database_owned_settings_are_seeded() -> None:

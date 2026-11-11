@@ -12,7 +12,7 @@ from application.ports.rate_limit import RateLimitPolicy, RateLimitPolicyName, R
 
 
 if TYPE_CHECKING:
-    from config import Settings
+    from config import RateLimitSection
 
 
 _MINUTE_MS = 60_000
@@ -20,7 +20,7 @@ _HOUR_MS = 60 * _MINUTE_MS
 _DAY_MS = 24 * _HOUR_MS
 
 
-def build_policies(settings: Settings) -> dict[RateLimitPolicyName, RateLimitPolicy]:
+def build_policies(settings: RateLimitSection) -> dict[RateLimitPolicyName, RateLimitPolicy]:
     """Map settings to the full policy catalog."""
     catalog = (
         (RateLimitPolicyName.LOGIN, ((settings.rate_limit_login_per_minute, _MINUTE_MS),), 60),

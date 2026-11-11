@@ -24,7 +24,14 @@ from application.ports.cache_invalidator import CacheInvalidatorPort
 from application.ports.idempotency_store import IdempotencyStorePort
 from application.ports.job_enqueuer import JobEnqueuerPort
 from application.ports.route_configs import BenchmarkConfig, CacheConfig, StorageConfig, UploadConfig
-from config import settings
+from config import (
+    LLMSection,
+    RagFeaturesSection,
+    RedisSection,
+    RetrievalSection,
+    StorageSection,
+    process_section,
+)
 from domain.ingestion.ports import DomainSettingsPort
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from presentation.api.runtime import ApiContainer
@@ -329,26 +336,26 @@ def create_log_buffer(request: Request) -> LogBufferPort:
 
 def create_upload_config(_request: Request) -> UploadConfig:
 
-    return UploadConfig(max_upload_size_mb=settings.max_upload_size_mb)
+    return UploadConfig(max_upload_size_mb=process_section(StorageSection).max_upload_size_mb)
 
 
 def create_benchmark_config(_request: Request) -> BenchmarkConfig:
 
     return BenchmarkConfig(
-        data_dir=settings.data_dir,
-        retriever_top_k=settings.retriever_top_k,
-        llm_model=settings.openrouter_model,
+        data_dir=process_section(StorageSection).data_dir,
+        retriever_top_k=process_section(RetrievalSection).retriever_top_k,
+        llm_model=process_section(LLMSection).openrouter_model,
     )
 
 
 def create_cache_config(_request: Request) -> CacheConfig:
 
-    return CacheConfig(cache_enabled=settings.cache_enabled)
+    return CacheConfig(cache_enabled=process_section(RagFeaturesSection).cache_enabled)
 
 
 def create_storage_config(_request: Request) -> StorageConfig:
 
-    return StorageConfig(redis_url=settings.redis_url)
+    return StorageConfig(redis_url=process_section(RedisSection).redis_url)
 
 
 def create_document_deletion_jobs(request: Request) -> DocumentDeletionJobs:

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from alembic import context
 
+from config import DatabaseSection, process_section
 from infrastructure.database.basemodel import _Base as Base
 from infrastructure.database.database import DatabaseManager
 
@@ -41,7 +42,7 @@ def init_alembic_config() -> None:
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = DatabaseManager().master_url
+    url = DatabaseManager(process_section(DatabaseSection)).master_url
 
     context.configure(
         url=url,
@@ -64,7 +65,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Run transactional migrations on a manager-owned connection."""
-    database = DatabaseManager()
+    database = DatabaseManager(process_section(DatabaseSection))
     async with database.async_master_connection(
         connect_args={"options": "-c statement_timeout=0"}
     ) as connection:

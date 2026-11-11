@@ -16,7 +16,6 @@ from application.runtime.config import ConfigParameter
 from config import Settings
 from domain.shared.exceptions import ValidationError
 from infrastructure.events.in_process_event_bus import InProcessEventBus
-from infrastructure.ml.config import settings_adapters
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.ml.config.settings_adapters import LivePreviewSettings
 from presentation.api.helpers import read_upload_with_limit
@@ -28,7 +27,7 @@ type PreviewConfiguration = tuple[Settings, SettingsProviderConfiguration, LiveP
 @pytest.fixture
 def preview_configuration(monkeypatch: pytest.MonkeyPatch) -> PreviewConfiguration:
     model = Settings(preview_max_size_mb=2, preview_cache_ttl_seconds=100)
-    monkeypatch.setattr(settings_adapters, "settings", model)
+    monkeypatch.setattr("config.settings", model)
     configuration = SettingsProviderConfiguration(model, bus=InProcessEventBus())
     return model, configuration, LivePreviewSettings()
 

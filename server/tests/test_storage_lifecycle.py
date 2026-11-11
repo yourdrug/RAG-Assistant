@@ -56,8 +56,8 @@ async def test_rotation_retains_active_backend_and_closes_all(monkeypatch: pytes
     )
     second.bucket = "new-bucket"
     backends = iter([first, second])
-    monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda: next(backends))
-    storage = LazyStorage()
+    monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda *_: next(backends))
+    storage = LazyStorage(settings, settings)
     pending = asyncio.create_task(storage.download_to_temp("a.txt"))
     await asyncio.wait_for(body.started.wait(), 5)
     storage.invalidate()
@@ -90,8 +90,8 @@ async def test_close_error_does_not_skip_other_backends(monkeypatch: pytest.Monk
     backends = [AsyncMock(), AsyncMock()]
     backends[0].aclose.side_effect = OSError("close failure")
     choices = iter(backends)
-    monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda: next(choices))
-    storage = LazyStorage()
+    monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda *_: next(choices))
+    storage = LazyStorage(settings, settings)
     await storage.upload_file("first", b"x")
     storage.invalidate()
     await storage.upload_file("second", b"x")
@@ -104,11 +104,11 @@ async def test_close_error_does_not_skip_other_backends(monkeypatch: pytest.Monk
 
 @pytest.mark.asyncio
 async def test_unused_lazy_storage_close_does_not_create_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    def forbidden() -> Never:
+    def forbidden(*_: object) -> Never:
         pytest.fail("shutdown created a backend")
 
     monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", forbidden)
-    await LazyStorage().aclose()
+    await LazyStorage(settings, settings).aclose()
 
 
 @pytest.mark.asyncio

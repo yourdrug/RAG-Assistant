@@ -17,7 +17,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
-from config import get_request_settings
+from config import VectorStoreSection, request_section
 from domain.identity.roles import UserRole
 from domain.shared.hashing import content_hash
 from infrastructure.corpus.snapshot import active_corpus
@@ -107,11 +107,13 @@ def compute_question_hash(question_text: str, context: dict[str, Any] | None = N
 
 def cache_key(question_hash: str, visibility_scope_hash: str) -> str:
     """Build Redis key for cache entry."""
+    vector_store_settings = request_section(VectorStoreSection)
+
     pinned = active_corpus.get()
     namespace = (
         pinned[1].snapshot.namespace
         if pinned is not None
-        else content_hash(f"{get_request_settings().qdrant_url}:{get_request_settings().collection_name}")
+        else content_hash(f"{vector_store_settings.qdrant_url}:{vector_store_settings.collection_name}")
     )
     return f"{CACHE_PREFIX}{namespace}:{question_hash}:{visibility_scope_hash}"
 

@@ -1,0 +1,896 @@
+{
+  "admin_email": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "admin_password": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "allowed_origins": {
+    "annotation": "<class 'str'>",
+    "default": null,
+    "metadata": "[]",
+    "required": true
+  },
+  "benchmark_judge_grouped_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "benchmark_judge_initial_tokens": {
+    "annotation": "<class 'int'>",
+    "default": "2048",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "benchmark_judge_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "3",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "benchmark_judge_model": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "benchmark_judge_retry_tokens": {
+    "annotation": "<class 'int'>",
+    "default": "8192",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "benchmark_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "10",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "bm25_fetch_k": {
+    "annotation": "<class 'int'>",
+    "default": "25",
+    "metadata": "[]",
+    "required": false
+  },
+  "cache_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "chunk_overlap": {
+    "annotation": "<class 'int'>",
+    "default": "200",
+    "metadata": "[]",
+    "required": false
+  },
+  "chunk_size": {
+    "annotation": "<class 'int'>",
+    "default": "550",
+    "metadata": "[]",
+    "required": false
+  },
+  "citation_filter_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "collection_name": {
+    "annotation": "<class 'str'>",
+    "default": "'company_docs'",
+    "metadata": "[]",
+    "required": false
+  },
+  "condense_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "False",
+    "metadata": "[]",
+    "required": false
+  },
+  "cost_daily_limit": {
+    "annotation": "<class 'float'>",
+    "default": "5.0",
+    "metadata": "[Gt(gt=0), _PydanticGeneralMetadata(allow_inf_nan=False)]",
+    "required": false
+  },
+  "cost_hourly_limit": {
+    "annotation": "<class 'float'>",
+    "default": "1.0",
+    "metadata": "[Gt(gt=0), _PydanticGeneralMetadata(allow_inf_nan=False)]",
+    "required": false
+  },
+  "cost_rate_limit_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "False",
+    "metadata": "[]",
+    "required": false
+  },
+  "curator_scope_max_ids": {
+    "annotation": "<class 'int'>",
+    "default": "1000",
+    "metadata": "[]",
+    "required": false
+  },
+  "data_dir": {
+    "annotation": "<class 'str'>",
+    "default": "'/code/project/data'",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_host": {
+    "annotation": "<class 'str'>",
+    "default": null,
+    "metadata": "[]",
+    "required": true
+  },
+  "db_idle_in_transaction_timeout_ms": {
+    "annotation": "<class 'int'>",
+    "default": "120000",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_max_overflow": {
+    "annotation": "<class 'int'>",
+    "default": "20",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_name": {
+    "annotation": "<class 'str'>",
+    "default": null,
+    "metadata": "[]",
+    "required": true
+  },
+  "db_password": {
+    "annotation": "<class 'str'>",
+    "default": null,
+    "metadata": "[]",
+    "required": true
+  },
+  "db_pool_recycle_sec": {
+    "annotation": "<class 'int'>",
+    "default": "1800",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_pool_size": {
+    "annotation": "<class 'int'>",
+    "default": "40",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_port": {
+    "annotation": "<class 'str'>",
+    "default": null,
+    "metadata": "[]",
+    "required": true
+  },
+  "db_slave_hosts": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_slave_ports": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_statement_timeout_ms": {
+    "annotation": "<class 'int'>",
+    "default": "600000",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_user": {
+    "annotation": "<class 'str'>",
+    "default": null,
+    "metadata": "[]",
+    "required": true
+  },
+  "decomposition_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "False",
+    "metadata": "[]",
+    "required": false
+  },
+  "decree_chunk_overlap": {
+    "annotation": "<class 'int'>",
+    "default": "200",
+    "metadata": "[]",
+    "required": false
+  },
+  "decree_chunk_size": {
+    "annotation": "<class 'int'>",
+    "default": "1200",
+    "metadata": "[]",
+    "required": false
+  },
+  "deepinfra_api_key": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "deepinfra_base_url": {
+    "annotation": "<class 'str'>",
+    "default": "'https://api.deepinfra.com/v1'",
+    "metadata": "[]",
+    "required": false
+  },
+  "deepinfra_embed_model": {
+    "annotation": "<class 'str'>",
+    "default": "'BAAI/bge-m3'",
+    "metadata": "[]",
+    "required": false
+  },
+  "deepinfra_rerank_model": {
+    "annotation": "<class 'str'>",
+    "default": "'Qwen/Qwen3-Reranker-0.6B'",
+    "metadata": "[]",
+    "required": false
+  },
+  "dense_weight": {
+    "annotation": "<class 'float'>",
+    "default": "1.5",
+    "metadata": "[]",
+    "required": false
+  },
+  "embed_batch_size": {
+    "annotation": "<class 'int'>",
+    "default": "32",
+    "metadata": "[]",
+    "required": false
+  },
+  "embed_dim": {
+    "annotation": "<class 'int'>",
+    "default": "1024",
+    "metadata": "[]",
+    "required": false
+  },
+  "embedding_http_max_connections": {
+    "annotation": "<class 'int'>",
+    "default": "40",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "embedding_http_max_keepalive_connections": {
+    "annotation": "<class 'int'>",
+    "default": "20",
+    "metadata": "[Ge(ge=0)]",
+    "required": false
+  },
+  "embedding_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "16",
+    "metadata": "[]",
+    "required": false
+  },
+  "embedding_revision": {
+    "annotation": "<class 'str'>",
+    "default": "'v1'",
+    "metadata": "[]",
+    "required": false
+  },
+  "evidence_profile": {
+    "annotation": "typing.Literal['generic', 'belarus']",
+    "default": "'belarus'",
+    "metadata": "[]",
+    "required": false
+  },
+  "exact_ref_sparse_boost": {
+    "annotation": "<class 'float'>",
+    "default": "2.5",
+    "metadata": "[]",
+    "required": false
+  },
+  "forwarded_allow_ips": {
+    "annotation": "<class 'str'>",
+    "default": "'127.0.0.1'",
+    "metadata": "[]",
+    "required": false
+  },
+  "history_window": {
+    "annotation": "<class 'int'>",
+    "default": "8",
+    "metadata": "[]",
+    "required": false
+  },
+  "hybrid_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "ingestion_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "8",
+    "metadata": "[]",
+    "required": false
+  },
+  "job_cleanup_days": {
+    "annotation": "<class 'int'>",
+    "default": "30",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "jwt_algorithm": {
+    "annotation": "<class 'str'>",
+    "default": "'HS256'",
+    "metadata": "[]",
+    "required": false
+  },
+  "jwt_expire_minutes": {
+    "annotation": "<class 'int'>",
+    "default": "1440",
+    "metadata": "[]",
+    "required": false
+  },
+  "jwt_secret_key": {
+    "annotation": "<class 'str'>",
+    "default": null,
+    "metadata": "[]",
+    "required": true
+  },
+  "legal_chunk_overlap": {
+    "annotation": "<class 'int'>",
+    "default": "250",
+    "metadata": "[]",
+    "required": false
+  },
+  "legal_chunk_size": {
+    "annotation": "<class 'int'>",
+    "default": "1000",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_auxiliary_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "4",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_auxiliary_timeout": {
+    "annotation": "<class 'int'>",
+    "default": "30",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_breaker_fail_max": {
+    "annotation": "<class 'int'>",
+    "default": "5",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_breaker_timeout_duration": {
+    "annotation": "<class 'int'>",
+    "default": "300",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_generation_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "12",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "16",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_num_ctx_broad": {
+    "annotation": "<class 'int'>",
+    "default": "16384",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_num_ctx_narrow": {
+    "annotation": "<class 'int'>",
+    "default": "8192",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_num_predict_broad": {
+    "annotation": "<class 'int'>",
+    "default": "2048",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_num_predict_narrow": {
+    "annotation": "<class 'int'>",
+    "default": "400",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_provider": {
+    "annotation": "typing.Literal['openrouter']",
+    "default": "'openrouter'",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_request_timeout": {
+    "annotation": "<class 'int'>",
+    "default": "120",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_temperature": {
+    "annotation": "<class 'float'>",
+    "default": "0.1",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_top_p": {
+    "annotation": "<class 'float'>",
+    "default": "0.9",
+    "metadata": "[]",
+    "required": false
+  },
+  "max_upload_size_mb": {
+    "annotation": "<class 'int'>",
+    "default": "50",
+    "metadata": "[Ge(ge=1), Le(le=63)]",
+    "required": false
+  },
+  "ml_internal_allowed_origins": {
+    "annotation": "list[str]",
+    "default": "['http://tei-embed:8080', 'http://tei-rerank:8080', 'http://qdrant:6333', 'http://localhost:6333']",
+    "metadata": "[]",
+    "required": false
+  },
+  "ml_provider": {
+    "annotation": "typing.Literal['tei', 'deepinfra']",
+    "default": "'deepinfra'",
+    "metadata": "[]",
+    "required": false
+  },
+  "ocr_dpi": {
+    "annotation": "<class 'int'>",
+    "default": "300",
+    "metadata": "[]",
+    "required": false
+  },
+  "ocr_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "ocr_engine": {
+    "annotation": "<class 'str'>",
+    "default": "'paddleocr'",
+    "metadata": "[]",
+    "required": false
+  },
+  "ocr_lang_paddle": {
+    "annotation": "<class 'str'>",
+    "default": "'ru'",
+    "metadata": "[]",
+    "required": false
+  },
+  "ocr_lang_surya": {
+    "annotation": "list[str]",
+    "default": "['ru', 'en']",
+    "metadata": "[]",
+    "required": false
+  },
+  "ocr_min_chars": {
+    "annotation": "<class 'int'>",
+    "default": "40",
+    "metadata": "[]",
+    "required": false
+  },
+  "ocr_min_confidence": {
+    "annotation": "<class 'float'>",
+    "default": "0.5",
+    "metadata": "[Ge(ge=0), Le(le=1)]",
+    "required": false
+  },
+  "ocr_vl_timeout": {
+    "annotation": "<class 'float'>",
+    "default": "180",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "ocr_vl_url": {
+    "annotation": "<class 'str'>",
+    "default": "'http://ocr-vl:8080'",
+    "metadata": "[]",
+    "required": false
+  },
+  "openrouter_api_key": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "openrouter_base_url": {
+    "annotation": "<class 'str'>",
+    "default": "'https://openrouter.ai/api/v1'",
+    "metadata": "[]",
+    "required": false
+  },
+  "openrouter_model": {
+    "annotation": "<class 'str'>",
+    "default": "'qwen/qwen-2.5-7b-instruct'",
+    "metadata": "[]",
+    "required": false
+  },
+  "outbox_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "5",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "pii_redaction_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "preview_cache_ttl_seconds": {
+    "annotation": "<class 'int'>",
+    "default": "1800",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "preview_max_size_mb": {
+    "annotation": "<class 'int'>",
+    "default": "50",
+    "metadata": "[Ge(ge=1), Le(le=63)]",
+    "required": false
+  },
+  "qdrant_api_key": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "qdrant_search_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "16",
+    "metadata": "[]",
+    "required": false
+  },
+  "qdrant_timeout": {
+    "annotation": "<class 'int'>",
+    "default": "10",
+    "metadata": "[]",
+    "required": false
+  },
+  "qdrant_url": {
+    "annotation": "<class 'str'>",
+    "default": "'http://qdrant:6333'",
+    "metadata": "[]",
+    "required": false
+  },
+  "qdrant_write_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "8",
+    "metadata": "[]",
+    "required": false
+  },
+  "rag_retrieval_score_threshold": {
+    "annotation": "<class 'float'>",
+    "default": "0.0",
+    "metadata": "[]",
+    "required": false
+  },
+  "rate_limit_benchmark_per_hour": {
+    "annotation": "<class 'int'>",
+    "default": "60",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "rate_limit_chat_per_day": {
+    "annotation": "<class 'int'>",
+    "default": "100",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "rate_limit_chat_per_minute": {
+    "annotation": "<class 'int'>",
+    "default": "10",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "rate_limit_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "rate_limit_fail_open": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "rate_limit_login_per_minute": {
+    "annotation": "<class 'int'>",
+    "default": "5",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "rate_limit_max_buckets": {
+    "annotation": "<class 'int'>",
+    "default": "10000",
+    "metadata": "[]",
+    "required": false
+  },
+  "rate_limit_redis_prefix": {
+    "annotation": "<class 'str'>",
+    "default": "'rag:ratelimit:v1:'",
+    "metadata": "[]",
+    "required": false
+  },
+  "rate_limit_search_per_minute": {
+    "annotation": "<class 'int'>",
+    "default": "60",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "rate_limit_upload_per_hour": {
+    "annotation": "<class 'int'>",
+    "default": "20",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "rate_limit_write_per_minute": {
+    "annotation": "<class 'int'>",
+    "default": "60",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "redis_db": {
+    "annotation": "<class 'int'>",
+    "default": "0",
+    "metadata": "[]",
+    "required": false
+  },
+  "redis_host": {
+    "annotation": "<class 'str'>",
+    "default": "'redis'",
+    "metadata": "[]",
+    "required": false
+  },
+  "redis_max_connections": {
+    "annotation": "<class 'int'>",
+    "default": "50",
+    "metadata": "[]",
+    "required": false
+  },
+  "redis_password": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "redis_port": {
+    "annotation": "<class 'int'>",
+    "default": "6379",
+    "metadata": "[]",
+    "required": false
+  },
+  "redis_socket_timeout": {
+    "annotation": "<class 'int'>",
+    "default": "10",
+    "metadata": "[]",
+    "required": false
+  },
+  "redis_user": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "relevance_gate_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "rerank_http_max_connections": {
+    "annotation": "<class 'int'>",
+    "default": "20",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "rerank_http_max_keepalive_connections": {
+    "annotation": "<class 'int'>",
+    "default": "10",
+    "metadata": "[Ge(ge=0)]",
+    "required": false
+  },
+  "rerank_min_score": {
+    "annotation": "float | None",
+    "default": "0.15",
+    "metadata": "[]",
+    "required": false
+  },
+  "rerank_score_gap_ratio": {
+    "annotation": "float | None",
+    "default": "0.1",
+    "metadata": "[]",
+    "required": false
+  },
+  "reranker_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "8",
+    "metadata": "[]",
+    "required": false
+  },
+  "retriever_fetch_k": {
+    "annotation": "<class 'int'>",
+    "default": "15",
+    "metadata": "[]",
+    "required": false
+  },
+  "retriever_fetch_k_broad": {
+    "annotation": "<class 'int'>",
+    "default": "40",
+    "metadata": "[]",
+    "required": false
+  },
+  "retriever_top_k": {
+    "annotation": "<class 'int'>",
+    "default": "4",
+    "metadata": "[]",
+    "required": false
+  },
+  "retriever_top_k_broad": {
+    "annotation": "<class 'int'>",
+    "default": "10",
+    "metadata": "[]",
+    "required": false
+  },
+  "rolling_summary_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
+  "rrf_k": {
+    "annotation": "<class 'int'>",
+    "default": "30",
+    "metadata": "[]",
+    "required": false
+  },
+  "s3_access_key": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "s3_bucket": {
+    "annotation": "<class 'str'>",
+    "default": "'rag-documents'",
+    "metadata": "[]",
+    "required": false
+  },
+  "s3_endpoint": {
+    "annotation": "<class 'str'>",
+    "default": "'http://minio:9000'",
+    "metadata": "[]",
+    "required": false
+  },
+  "s3_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "10",
+    "metadata": "[Ge(ge=1)]",
+    "required": false
+  },
+  "s3_region": {
+    "annotation": "<class 'str'>",
+    "default": "'us-east-1'",
+    "metadata": "[]",
+    "required": false
+  },
+  "s3_secret_key": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "semaphore_acquire_timeout": {
+    "annotation": "<class 'int'>",
+    "default": "30",
+    "metadata": "[]",
+    "required": false
+  },
+  "service_start_datetime": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "source_min_score": {
+    "annotation": "<class 'float'>",
+    "default": "0.3",
+    "metadata": "[]",
+    "required": false
+  },
+  "sparse_weight": {
+    "annotation": "<class 'float'>",
+    "default": "0.5",
+    "metadata": "[]",
+    "required": false
+  },
+  "stage": {
+    "annotation": "<enum 'AppStage'>",
+    "default": "<AppStage.DEVELOPMENT: 'development'>",
+    "metadata": "[]",
+    "required": false
+  },
+  "stale_pending_timeout_minutes": {
+    "annotation": "<class 'int'>",
+    "default": "30",
+    "metadata": "[]",
+    "required": false
+  },
+  "stuck_job_timeout_minutes": {
+    "annotation": "<class 'int'>",
+    "default": "30",
+    "metadata": "[]",
+    "required": false
+  },
+  "supported_extensions": {
+    "annotation": "tuple[str, ...]",
+    "default": "('.pdf', '.docx', '.rtf', '.md', '.txt')",
+    "metadata": "[]",
+    "required": false
+  },
+  "tei_embed_model": {
+    "annotation": "<class 'str'>",
+    "default": "'BAAI/bge-m3'",
+    "metadata": "[]",
+    "required": false
+  },
+  "tei_embed_url": {
+    "annotation": "<class 'str'>",
+    "default": "'http://tei-embed:8080'",
+    "metadata": "[]",
+    "required": false
+  },
+  "tei_rerank_url": {
+    "annotation": "<class 'str'>",
+    "default": "'http://tei-rerank:8080'",
+    "metadata": "[]",
+    "required": false
+  },
+  "timezone": {
+    "annotation": "<class 'str'>",
+    "default": "'UTC'",
+    "metadata": "[]",
+    "required": false
+  },
+  "uploads_prefix": {
+    "annotation": "<class 'str'>",
+    "default": "'uploads/'",
+    "metadata": "[]",
+    "required": false
+  },
+  "version": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "worker_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "4",
+    "metadata": "[]",
+    "required": false
+  }
+}

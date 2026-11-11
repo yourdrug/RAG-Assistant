@@ -14,7 +14,7 @@ import httpx
 import instructor
 from openai import AsyncOpenAI, OpenAI
 
-from config import settings
+from config import LLMSection, process_section
 from infrastructure.budget.transport import PaidAsyncTransport, PaidSyncTransport
 from infrastructure.ml.usage_capture import record_model_response
 
@@ -85,11 +85,13 @@ def create_llm_instructor_client(
     Returns (client, model_name). If *model* is given it is used as-is;
     otherwise the default model for the current provider is selected.
     """
+    llm_settings = process_section(LLMSection)
+
     client = create_instructor_client(
         runtime=runtime,
-        base_url=settings.openrouter_base_url,
-        api_key=settings.openrouter_api_key,
+        base_url=llm_settings.openrouter_base_url,
+        api_key=llm_settings.openrouter_api_key,
     )
-    resolved_model = model or settings.openrouter_model
+    resolved_model = model or llm_settings.openrouter_model
 
     return client, resolved_model

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from config import settings
+from config import OCRSection, process_section
 from domain.ingestion.preview import DryRunPageResult, PreviewUnitKind
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.pdf import parse_pdf
@@ -29,7 +29,9 @@ class PdfPreviewStrategy:
         return extension == ".pdf"
 
     def analyze(self, path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
-        if settings.ocr_enabled and settings.ocr_engine == "paddleocr_vl":
+        ocr_settings = process_section(OCRSection)
+
+        if ocr_settings.ocr_enabled and ocr_settings.ocr_engine == "paddleocr_vl":
             return self.analyze_vl(path)
 
         page_results, types_count, total_chars = self._svc.analyze_text_layer(path)

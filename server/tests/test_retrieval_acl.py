@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from langchain.schema import Document
 import pytest
 
 from domain.identity.roles import UserKind, UserRole
@@ -324,6 +325,7 @@ async def test_retrieval_domain_fallback_only_on_empty_legal_search(
 
     assert candidates == ([hit] if first_hit or expected_calls == 2 else [])
     assert search.await_count == expected_calls
+    assert work.domain_search_hit is ({"general": None}.get(domain, first_hit))
 
     for call in search.await_args_list:
         assert call.args[:2] == ("query", 10)
@@ -340,3 +342,80 @@ async def test_retrieval_domain_fallback_only_on_empty_legal_search(
 
     if expected_calls == 2:
         assert search.await_args_list[1].args[2] is af
+
+
+def _fallback_work(af: object, **overrides: object) -> RetrievalWork:
+    ctx = RagContext(
+        user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, user_role=UserRole.USER, group_ids=(1, 2)),
+    )
+    work = RetrievalWork(
+        rag=MagicMock(),
+        breadth=Breadth.NARROW,
+        query_domain="legal",
+        rerank_top_n=5,
+        retrieval_filter=af,
+        ctx=ctx,
+        visibility_conditions=get_visibility_conditions(UserKind.INTERNAL, [1, 2], for_list=False),
+        t_pipeline_start=0,
+        question="query",
+        access_filter=af,
+        user=ctx.to_user_context(),
+    )
+
+    for key, value in overrides.items():
+        setattr(work, key, value)
+
+    return work
+
+
+async def _rerank_with_fallback(
+    work: RetrievalWork, fallback_docs: list[tuple[Document, float]]
+) -> tuple[list[tuple[Document, float]], AsyncMock]:
+    with (
+        patch(
+            "infrastructure.ml.rag.retrieval_pipeline.rerank_documents",
+            AsyncMock(side_effect=[[], fallback_docs]),
+        ),
+        patch(
+            "infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search",
+            AsyncMock(return_value=[MagicMock()]),
+        ) as search,
+        patch(
+            "infrastructure.ml.rag.retrieval_pipeline.enrich_with_neighbors",
+            AsyncMock(side_effect=lambda docs, **_kwargs: docs),
+        ),
+        patch(
+            "infrastructure.ml.rag.retrieval_pipeline.prepare_generation_budget",
+            return_value=(MagicMock(), [], 4096, 400, 1000),
+        ),
+    ):
+        docs, _, _ = await rerank_and_enrich("query", [], work, _make_ml_clients(), None)
+
+    return docs, search
+
+
+@pytest.mark.asyncio
+async def test_legal_rerank_fallback_resolves_temporal_conflicts() -> None:
+    old = Document(
+        page_content="old", metadata={"act_id": 1, "act_version_id": 1, "effective_from": "2020-01-01"}
+    )
+    new = Document(
+        page_content="new", metadata={"act_id": 1, "act_version_id": 2, "effective_from": "2024-01-01"}
+    )
+    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+
+    docs, search = await _rerank_with_fallback(_fallback_work(af), [(old, 0.9), (new, 0.8)])
+
+    search.assert_awaited_once()
+    assert [doc.metadata["act_version_id"] for doc, _ in docs] == [2]
+
+
+@pytest.mark.asyncio
+async def test_legal_rerank_fallback_skipped_when_retrieval_already_used_full_corpus() -> None:
+    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    work = _fallback_work(af, domain_search_hit=False)
+
+    docs, search = await _rerank_with_fallback(work, [(Document(page_content="x"), 0.9)])
+
+    search.assert_not_awaited()
+    assert docs == []

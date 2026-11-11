@@ -149,7 +149,7 @@ class TestJudgeAnswerAsync:
         with (
             patch("infrastructure.benchmark.judging.judge.get_judge_model", return_value="test-model"),
             patch("infrastructure.benchmark.judging.judge.get_judge_client", return_value=client),
-            patch("infrastructure.benchmark.judging.judge.settings") as mock_settings,
+            patch("config.settings") as mock_settings,
         ):
             mock_settings.llm_provider = SimpleNamespace(value="openrouter")
             mock_settings.llm_auxiliary_timeout = 30.0
@@ -174,7 +174,7 @@ class TestJudgeAnswerAsync:
         with (
             patch("infrastructure.benchmark.judging.judge.get_judge_model", return_value="m"),
             patch("infrastructure.benchmark.judging.judge.get_judge_client", return_value=client),
-            patch("infrastructure.benchmark.judging.judge.settings") as mock_settings,
+            patch("config.settings") as mock_settings,
         ):
             mock_settings.llm_provider = SimpleNamespace(value="openrouter")
             mock_settings.llm_auxiliary_timeout = 30.0
@@ -195,7 +195,7 @@ class TestJudgeAnswerAsync:
         with (
             patch("infrastructure.benchmark.judging.judge.get_judge_model", return_value="m"),
             patch("infrastructure.benchmark.judging.judge.get_judge_client", return_value=client),
-            patch("infrastructure.benchmark.judging.judge.settings") as mock_settings,
+            patch("config.settings") as mock_settings,
         ):
             mock_settings.llm_provider = SimpleNamespace(value="openrouter")
             mock_settings.llm_auxiliary_timeout = 30.0

@@ -27,7 +27,7 @@ import logging
 
 import redis.asyncio as aioredis
 
-from config import settings
+from config import RedisSection, process_section
 
 
 logger = logging.getLogger("default")
@@ -36,7 +36,8 @@ logger = logging.getLogger("default")
 class RedisClient:
     """Async Redis client with init/close lifecycle."""
 
-    def __init__(self) -> None:
+    def __init__(self, redis_settings: RedisSection) -> None:
+        self._settings = redis_settings
         self._redis: aioredis.Redis | None = None
 
     @property
@@ -50,15 +51,17 @@ class RedisClient:
 
     async def init(self) -> None:
         """Create and verify the Redis connection."""
+        redis_settings = self._settings
+
         if self._redis is not None:
             return
 
         client = aioredis.Redis.from_url(
-            settings.redis_url,
+            redis_settings.redis_url,
             decode_responses=True,
             socket_connect_timeout=3,
-            socket_timeout=settings.redis_socket_timeout,
-            max_connections=settings.redis_max_connections,
+            socket_timeout=redis_settings.redis_socket_timeout,
+            max_connections=redis_settings.redis_max_connections,
             health_check_interval=30,
         )
         try:
@@ -67,7 +70,11 @@ class RedisClient:
             await client.aclose()
             raise
         self._redis = client
-        logger.info("RedisClient: connection established to %s:%s", settings.redis_host, settings.redis_port)
+        logger.info(
+            "RedisClient: connection established to %s:%s",
+            redis_settings.redis_host,
+            redis_settings.redis_port,
+        )
 
     async def aclose(self) -> None:
         """Close the Redis connection."""
@@ -77,4 +84,5 @@ class RedisClient:
             logger.info("RedisClient: connection closed")
 
 
-redis_client = RedisClient()
+# Process-wide singleton: the section is the live settings object, so hot-reload still applies.
+redis_client = RedisClient(process_section(RedisSection))

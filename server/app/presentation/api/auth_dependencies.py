@@ -34,7 +34,7 @@ auth_key_header = APIKeyHeader(
 
 async def authenticate_via_jwt(token: str, auth_service: AuthService) -> CurrentUser:
     try:
-        payload = auth_service.decode_token(token)
+        claims = auth_service.decode_token(token)
     except _jwt.ExpiredSignatureError:
         message = "Token expired"
         raise AuthenticationError(message) from None
@@ -42,7 +42,7 @@ async def authenticate_via_jwt(token: str, auth_service: AuthService) -> Current
         message = "Invalid or expired token"
         raise AuthenticationError(message) from None
 
-    user = await auth_service.get_user_by_id(int(payload["sub"]))
+    user = await auth_service.get_user_by_id(claims.user_id)
 
     if user is None or not user.is_active:
         message = "User not found or deactivated"
