@@ -11,7 +11,7 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from config import VectorStoreSection, process_section
 from domain.rag.evidence.context import content_with_parent_scope
-from infrastructure.corpus.snapshot import pin_corpus_call
+from infrastructure.corpus.snapshot import collection_for, pin_corpus_call
 from infrastructure.ml.clients.factories import create_embeddings, create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 from infrastructure.repositories.vector.qdrant_ops import ensure_collection, upload_to_qdrant
@@ -78,12 +78,25 @@ class QdrantVectorStoreRepository:
         client = self.get_qdrant_client()
 
         def delete() -> None:
-            client.delete(
-                collection_name=process_section(VectorStoreSection).collection_name,
-                points_selector=Filter(
-                    must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
-                ),
+            document_filter = Filter(
+                must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
             )
+            client.delete(
+                collection_name=collection_for(client),
+                points_selector=document_filter,
+                wait=True,
+            )
+            remaining, _ = client.scroll(
+                collection_name=collection_for(client),
+                scroll_filter=document_filter,
+                limit=1,
+                with_payload=False,
+                with_vectors=False,
+            )
+
+            if remaining:
+                message = f"Qdrant still contains points for deleted document_id={document_id}"
+                raise RuntimeError(message)
 
         await asyncio.to_thread(delete)
         log.info("Qdrant: deleted points for document_id=%d", document_id)

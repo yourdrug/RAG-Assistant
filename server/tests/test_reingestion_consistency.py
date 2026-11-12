@@ -15,7 +15,7 @@ from application.ingestion import IngestionScope, SingleFileIngestionWorkflow
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.enums import DocDomain, DocumentVisibility
-from domain.knowledge.index_sync import OutboxOperation, OutboxStatus
+from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from domain.shared.hashing import content_hash
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
@@ -38,6 +38,74 @@ async def index(factory: FakeUnitOfWorkFactory, text: str) -> None:
         group_id=None,
         doc_domain=DocDomain.GENERAL.value,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_upload", [False, True])
+async def test_document_delete_waits_for_inflight_upload_before_completing(cancel_upload: bool) -> None:  # noqa: PLR0915 - Complete worker cancellation/deletion race.
+    factory = FakeUnitOfWorkFactory()
+    await index(factory, "old text")
+    upload_started, release_upload, deletion_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    points = {}
+
+    async def upload(chunks: list[Chunk], **kwargs: Any) -> None:
+        upload_started.set()
+        await release_upload.wait()
+        points.update({chunk.metadata["chunk_id"]: chunk.content for chunk in chunks})
+
+    async def delete_ids(ids: list[int]) -> None:
+        for chunk_id in ids:
+            points.pop(chunk_id, None)
+
+    async def delete_document(document_id: int) -> None:
+        points.clear()
+
+    vector = SimpleNamespace(
+        ensure_collection=AsyncMock(),
+        upload_documents=upload,
+        delete_by_ids=delete_ids,
+        delete_by_document_id=delete_document,
+        update_filename_by_document_id=AsyncMock(),
+    )
+    # Independent workers share the per-document lock, as separate processes do in PostgreSQL.
+    deletion = None
+    uploading = asyncio.create_task(
+        OutboxDispatcher(factory, vector)._apply_one(
+            next(iter(factory._uow.fake_vector_outbox._entries.values()))
+        )
+    )
+    try:
+        await asyncio.wait_for(upload_started.wait(), 5)
+
+        if cancel_upload:
+            uploading.cancel()
+            await asyncio.sleep(0)
+
+        entry = await factory._uow.vector_outbox.enqueue(
+            VectorOutboxEntry(
+                operation=OutboxOperation.DELETE_BY_DOCUMENT,
+                aggregate_id=1,
+                payload={"document_id": 1},
+            )
+        )
+
+        async def dispatch_delete() -> None:
+            deletion_started.set()
+            await OutboxDispatcher(factory, vector)._apply_one(entry)
+
+        deletion = asyncio.create_task(dispatch_delete())
+        await asyncio.wait_for(deletion_started.wait(), 5)
+        assert entry.status != OutboxStatus.DONE
+    finally:
+        factory._uow.fake_chunks._chunks.clear()
+        release_upload.set()
+        await asyncio.wait_for(
+            asyncio.gather(uploading, *([deletion] if deletion is not None else []), return_exceptions=True),
+            5,
+        )
+
+    assert (entry.status, points) == (OutboxStatus.DONE, {})
+    assert uploading.cancelled() is cancel_upload
 
 
 @pytest.mark.asyncio

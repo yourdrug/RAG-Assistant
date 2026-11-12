@@ -17,11 +17,13 @@ from tenacity import wait_none
 from config import settings
 from domain.identity.roles import UserKind
 from domain.knowledge.access_control import get_visibility_conditions
+from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from infrastructure.bm25.stemmer import stem_token
 from infrastructure.bm25.tokenizer import tokenize, tokenize_raw
 from infrastructure.ml.rag import rag_retrieval
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
+from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from infrastructure.repositories.vector.qdrant_vector_store_repository import QdrantVectorStoreRepository
 from infrastructure.repositories.vector.sparse_vectors import (
     SPARSE_VECTOR_NAME,
@@ -29,6 +31,7 @@ from infrastructure.repositories.vector.sparse_vectors import (
     point_vectors,
     sparse_query,
 )
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -138,6 +141,41 @@ def test_delete_preserves_same_text_in_other_document_and_retry_is_safe(sparse_c
     dense = sparse_client.search(settings.collection_name, [1.0, 0.0])
     assert [hit.id for hit in sparse] == [2]
     assert [hit.id for hit in dense] == [2]
+
+
+@pytest.mark.asyncio
+async def test_outbox_delete_retries_if_qdrant_leaves_points_and_clears_both_indexes(
+    sparse_client: QdrantClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sparse_client.upsert(settings.collection_name, [point(1, 10), point(2, 20)])
+    factory = FakeUnitOfWorkFactory()
+    repository = QdrantVectorStoreRepository(SimpleNamespace(qdrant_client=lambda: sparse_client))
+    invalidator = SimpleNamespace(invalidate_by_document_ids=AsyncMock())
+    dispatcher = OutboxDispatcher(factory, repository, invalidator)
+    entry = await factory._uow.vector_outbox.enqueue(
+        VectorOutboxEntry(
+            operation=OutboxOperation.DELETE_BY_DOCUMENT,
+            aggregate_id=10,
+            payload={"document_id": 10},
+        )
+    )
+    # A successful response alone must not complete durable deletion.
+    with monkeypatch.context() as patch:
+        delete = MagicMock(return_value=models.UpdateResult(status=models.UpdateStatus.COMPLETED))
+        patch.setattr(sparse_client, "delete", delete)
+        await dispatcher._apply_one(entry)
+        assert entry.status == OutboxStatus.FAILED
+        delete.assert_called_once()
+        assert delete.call_args.kwargs["wait"] is True
+        invalidator.invalidate_by_document_ids.assert_not_awaited()
+
+    for _ in range(2):
+        await dispatcher._apply_one(entry)
+        assert OutboxStatus(entry.status) == OutboxStatus.DONE
+        assert [
+            hit.id for hit in sparse_client.search(settings.collection_name, sparse_query("маркировка"))
+        ] == [2]
+        assert [hit.id for hit in sparse_client.search(settings.collection_name, [1.0, 0.0])] == [2]
 
 
 def test_edit_replaces_sparse_terms_without_rebuilding(sparse_client: QdrantClient) -> None:
@@ -270,6 +308,7 @@ async def test_hybrid_limits_and_errors(monkeypatch: pytest.MonkeyPatch) -> None
 @pytest.mark.parametrize(
     "method,args,client_method",
     [
+        ("delete_by_document_id", (10,), "delete"),
         ("delete_by_ids", ([1],), "delete"),
         ("set_document_id_by_source", ("old.pdf", 10), "set_payload"),
         ("update_filename_by_document_id", (10, "new.pdf"), "set_payload"),
@@ -285,6 +324,7 @@ async def test_payload_mutation_retry_stays_in_one_corpus_snapshot(
     attempts: list[tuple[str, ...]] = []
     active: list[str] = []
     client = MagicMock()
+    client.scroll.return_value = ([], None)
 
     def mutate(**kwargs: object) -> None:
         attempts.append(tuple(active))

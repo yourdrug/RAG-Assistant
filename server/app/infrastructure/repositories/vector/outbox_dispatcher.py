@@ -16,6 +16,7 @@ from config import JobsSection, MLProviderSection, process_section
 from domain.knowledge.chunk import Chunk
 from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.hashing import content_hash
+from infrastructure.utils.async_tasks import finish_owned_task
 
 
 if TYPE_CHECKING:
@@ -34,8 +35,8 @@ _MAX_BACKOFF_SEC = 900  # 15 minutes
 class OutboxDispatcher:
     """Applies pending outbox entries to Qdrant.
 
-    Upserts serialize per document across processes and read committed SQL
-    content. Retries converge to current text even when edits overlap uploads.
+    Upserts and document deletes serialize per document across processes.
+    Upserts read committed SQL content and retries converge to current text.
     Deletes are idempotent for missing points.
     """
 
@@ -152,7 +153,11 @@ class OutboxDispatcher:
         if operation == OutboxOperation.UPSERT_CHUNKS:
             await self.apply_upsert(entry.payload, document_id=entry.aggregate_id)
         elif operation == OutboxOperation.DELETE_BY_DOCUMENT:
-            await self._vector_store.delete_by_document_id(entry.payload["document_id"])
+            # A delete must finish after any in-flight upload and its cleanup.
+            # Otherwise the upload can restore points after this entry is DONE.
+            document_id = entry.payload["document_id"]
+            async with self._uow_factory.document_index_lock(document_id):
+                await self._vector_store.delete_by_document_id(document_id)
         elif operation == OutboxOperation.RENAME_DOCUMENT:
             await self.refresh_document_filename(entry.aggregate_id)
         elif operation == OutboxOperation.DELETE_CHUNKS:
@@ -229,7 +234,16 @@ class OutboxDispatcher:
 
     async def apply_upsert(self, payload: dict[str, Any], document_id: int = 0) -> None:
         async with self._uow_factory.document_index_lock(document_id):
-            await self.apply_current_upsert(payload, document_id)
+            # Cancelling an await cannot stop a Qdrant write already running in
+            # a thread. Keep the document lock until upload and cleanup finish.
+            upload = asyncio.create_task(self.apply_current_upsert(payload, document_id))
+            try:
+                await asyncio.shield(upload)
+            except asyncio.CancelledError as exc:
+                try:
+                    await finish_owned_task(upload)
+                finally:
+                    raise exc
 
     async def apply_current_upsert(self, payload: dict[str, Any], document_id: int) -> None:
         chunk_ids = [p["chunk_id"] for p in payload["points"]]

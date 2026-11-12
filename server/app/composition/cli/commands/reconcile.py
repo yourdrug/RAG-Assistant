@@ -13,13 +13,15 @@ import logging
 import sys
 from typing import Annotated
 
-from qdrant_client.models import FieldCondition, Filter, MatchValue
 from sqlalchemy import text
 import typer
 
-from config import settings
+from composition.cli.commands.ingest import run_with_infrastructure
+from composition.infrastructure import InfrastructureContainer
+from domain.knowledge.enums import DocumentStatus
+from infrastructure.corpus.snapshot import collection_for
 from infrastructure.database.database import database
-from infrastructure.ml.clients.factories import create_qdrant_client
+from infrastructure.repositories.vector.client_types import VectorClient
 
 
 logger = logging.getLogger("cli")
@@ -27,15 +29,14 @@ logger = logging.getLogger("cli")
 reconcile_app = typer.Typer(help="Reconcile Qdrant/Postgres document state")
 
 
-def get_all_qdrant_doc_ids() -> set[int]:
+def get_all_qdrant_doc_ids(client: VectorClient) -> set[int]:
     """Scroll through Qdrant collection and extract unique document_ids."""
-    client = create_qdrant_client()
     doc_ids: set[int] = set()
     offset = None
 
     while True:
         points, offset = client.scroll(
-            collection_name=settings.collection_name,
+            collection_name=collection_for(client),
             offset=offset,
             limit=1000,
             with_payload=["metadata.document_id"],
@@ -54,35 +55,24 @@ def get_all_qdrant_doc_ids() -> set[int]:
     return doc_ids
 
 
-async def get_all_postgres_doc_ids() -> set[int]:
-    """Query Postgres for all document IDs with status != 'failed'."""
-    await database.connect()
+async def get_all_postgres_doc_ids() -> tuple[set[int], set[int]]:
+    """Read authoritative IDs and documents expected in Qdrant from the primary."""
+    session = database.get_write_session()
     try:
-        session = database.get_read_session()
-        try:
-            result = await session.execute(text("SELECT id FROM documents WHERE status != 'failed'"))
-            return {row[0] for row in result.fetchall()}
-        finally:
-            await session.close()
+        result = await session.execute(text("SELECT id, status FROM documents"))
+        rows = result.fetchall()
+        return {row[0] for row in rows}, {row[0] for row in rows if row[1] != DocumentStatus.FAILED.value}
     finally:
-        await database.disconnect()
+        await session.close()
 
 
-def delete_orphans_from_qdrant(doc_ids: set[int]) -> int:
+async def delete_orphans_from_qdrant(infra: InfrastructureContainer, doc_ids: set[int]) -> int:
     """Delete all Qdrant points whose document_id is in the given set."""
-    client = create_qdrant_client()
-    total_deleted = 0
-
     for doc_id in doc_ids:
-        client.delete(
-            collection_name=settings.collection_name,
-            points_selector=Filter(
-                must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=doc_id))]
-            ),
-        )
-        total_deleted += 1
+        async with infra.db.uow.document_index_lock(doc_id):
+            await infra.ml.vector_index_writer.delete_by_document_id(doc_id)
 
-    return total_deleted
+    return len(doc_ids)
 
 
 @reconcile_app.command("run")
@@ -93,16 +83,27 @@ def reconcile_run(
     ] = False,
 ) -> None:
     """Find and optionally clean up Qdrant/Postgres drift."""
-    logger.info("Scanning Qdrant collection '%s' ...", settings.collection_name)
-    qdrant_ids = get_all_qdrant_doc_ids()
+
+    async def run_action(infra: InfrastructureContainer) -> int:
+        # Scan and deletion must use the same bootstrapped physical generation.
+        async with infra.ml.clients.corpus_operation():
+            return await run_reconciliation(infra, delete=delete)
+
+    sys.exit(asyncio.run(run_with_infrastructure(run_action)))
+
+
+async def run_reconciliation(infra: InfrastructureContainer, *, delete: bool) -> int:
+    client = infra.ml.clients.qdrant_client()
+    logger.info("Scanning Qdrant collection '%s' ...", collection_for(client))
+    qdrant_ids = await asyncio.to_thread(get_all_qdrant_doc_ids, client)
     logger.info("Qdrant: %d unique document_ids", len(qdrant_ids))
 
     logger.info("Scanning Postgres documents ...")
-    postgres_ids = asyncio.run(get_all_postgres_doc_ids())
-    logger.info("Postgres: %d active document_ids", len(postgres_ids))
+    postgres_ids, expected_ids = await get_all_postgres_doc_ids()
+    logger.info("Postgres: %d document_ids (%d expected in Qdrant)", len(postgres_ids), len(expected_ids))
 
     orphans_in_qdrant = qdrant_ids - postgres_ids
-    missing_in_qdrant = postgres_ids - qdrant_ids
+    missing_in_qdrant = expected_ids - qdrant_ids
 
     if orphans_in_qdrant:
         logger.warning(
@@ -124,13 +125,13 @@ def reconcile_run(
 
     if orphans_in_qdrant and delete:
         logger.info("Deleting %d orphaned Qdrant document groups ...", len(orphans_in_qdrant))
-        deleted = delete_orphans_from_qdrant(orphans_in_qdrant)
+        deleted = await delete_orphans_from_qdrant(infra, orphans_in_qdrant)
         logger.info("Deleted orphaned points for %d documents.", deleted)
     elif orphans_in_qdrant:
         logger.info("Dry-run: pass --delete to remove orphaned points.")
 
     if not orphans_in_qdrant and not missing_in_qdrant:
         logger.info("Reconciliation: OK — Qdrant and Postgres are in sync.")
-        sys.exit(0)
-    else:
-        sys.exit(1)
+        return 0
+
+    return 1

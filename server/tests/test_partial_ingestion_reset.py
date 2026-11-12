@@ -21,7 +21,7 @@ from application.ports.file_storage import FileItem
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import Chunk
 from domain.knowledge.document import Document
-from domain.knowledge.enums import DocumentVisibility, SourceType
+from domain.knowledge.enums import DocDomain, DocumentVisibility, SourceType
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from tests.fakes import FakeUnitOfWorkFactory
@@ -373,6 +373,23 @@ async def test_ingestion_source_path_can_be_read_by_storage(ingestion: SimpleNam
         path = await ingestion.storage.download_to_temp(document.source_path)
         assert path.read_text() == ingestion.files[document.ingestion_key]
         path.unlink()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["batch", "single"])
+async def test_ingestion_persists_detected_domain_and_updates_it_on_reindex(
+    ingestion: SimpleNamespace, mode: str
+) -> None:
+    for domain in (DocDomain.LEGAL.value, DocDomain.GENERAL.value):
+        if mode == "batch":
+            await ingestion.service.run_full(domain=domain, reset=True)
+        else:
+            for key in ingestion.files:
+                await ingestion.service.run_single(key, domain=domain, force=True)
+
+        uow = ingestion.factory._uow
+        assert {doc.doc_domain for doc in uow.documents._documents.values()} == {domain}
+        assert {chunk["doc_domain"] for chunk in uow.chunks._chunks} == {domain}
 
 
 def configure_upload_race(
