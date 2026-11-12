@@ -44,10 +44,11 @@ def test_structured_domain_uses_content_splitter() -> None:
     chunks = split_documents(docs, domain="decree", profile=profile, settings=FakeSettings())
     kinds = [c.metadata.get("unit_kind") for c in chunks]
     assert "point" in kinds
-    assert "preamble" in kinds
+    # The introduction now packs with its first sibling points.
+    assert any("ПОСТАНОВЛЯЮ:" in c.page_content for c in chunks)
     # Boundary value captured into metadata
     numbered = [c for c in chunks if c.metadata.get("unit_kind") == "point"]
-    assert any(c.metadata.get("point_number") == "1" for c in numbered)
+    assert any("1" in c.metadata.get("point_numbers", []) for c in numbered)
     # Structural units are whole — never cut at an arbitrary char position
     assert any("Контроль возложить" in c.page_content for c in chunks)
 

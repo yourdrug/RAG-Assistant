@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import groupby
 import logging
 import re
 from typing import TYPE_CHECKING
@@ -10,13 +11,14 @@ from langchain.schema import Document
 
 from config import ChunkingSection, process_section
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
+from domain.ingestion.unit_packing import pack_units
 from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.ml.ingestion.page_joining import join_page_word, page_word_evidence
 from infrastructure.ml.ingestion.structural_metadata import unit_metadata
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
 from infrastructure.ml.ingestion.text_chunks import (
+    context_prefix,
     document_slice,
-    locate_span,
     pack_step_documents,
     text_document_chunks,
 )
@@ -26,8 +28,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from application.chunks import ChunkSettingsPort
+    from domain.ingestion.content_splitter import SplitUnit
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.unit_packing import PackedUnit
     from domain.rag.ranking import RetrievalDocument
 
 log = logging.getLogger("detailed")
@@ -264,9 +268,9 @@ def split_documents(
 
     Structured domains (profile with non-empty content_boundaries) are split
     content-based: recursively by the domain's structural boundary hierarchy
-    (see split_by_content). max_unit_chars from domain settings is only a
-    safety-net that triggers descent to a finer level — it never defines where
-    a boundary is.
+    (see split_by_content). The body budget and max_unit_chars from domain
+    settings trigger descent to a finer level; structural markers define
+    the boundaries.
 
     Unstructured domains pack complete instruction steps, then use paragraph/
     sentence splitting for oversized blocks. Table row batches retain their
@@ -385,30 +389,61 @@ class Chunker:
 
             self.max_unit_chars = int(self.domain_settings.get("max_unit_chars", domain_key=self.profile.key))
 
+        levels = self.profile.content_boundaries()
         units = split_by_content(
             doc.page_content,
-            self.profile.content_boundaries(),
+            levels,
             self.max_unit_chars,
             min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS,
+            unit_budget=lambda unit: self.structured_body_budget(unit, doc),
         )
-        cursor = 0
+        packed: list[PackedUnit] = []
+
+        for _, siblings in groupby(units, key=lambda unit: unit.parents):
+            group = list(siblings)
+            # A long condition only reduces its own parent group's body budget.
+            budget = min(self.structured_body_budget(unit, doc) for unit in group)
+            packed.extend(
+                pack_units(
+                    group,
+                    budget,
+                    len,
+                    rank={level.name: index for index, level in enumerate(levels)},
+                    min_size=MIN_STRUCTURAL_CHUNK_CHARS,
+                    source=doc.page_content,
+                    scope_boundaries=frozenset(level.name for level in levels if level.packing_barrier),
+                )
+            )
+
         result: list[Document] = []
 
-        for unit in units:
-            unit_doc = document_slice(doc, unit.content, cursor)
+        for unit in packed:
+            unit_doc = document_slice(doc, unit.content, unit.start)
             spans = unit_doc.metadata.get("_page_spans")
             unit_doc.metadata.update(unit_metadata(unit, self.profile, doc.metadata))
 
+            unit_doc.metadata.update(
+                point_numbers=list(unit.point_numbers), boundary_values=list(unit.boundary_values)
+            )
+
             if "_page_spans" in doc.metadata:
                 unit_doc.metadata["_page_spans"] = spans
-                located = locate_span(doc.page_content, unit.content, cursor)
-
-                if located is not None:
-                    cursor = located[1]
 
             result.extend(text_document_chunks(unit_doc, self.chunk_size, self.chunk_overlap, self.patterns))
 
         return result
+
+    def structured_body_budget(self, unit: SplitUnit, doc: Document) -> int:
+        """Reserve context for this unit rather than unrelated document scopes."""
+        if self.profile is None:
+            message = "Structured splitting requires a profile"
+            raise RuntimeError(message)
+
+        metadata = unit_metadata(unit, self.profile, doc.metadata)
+        # A fitting atom already contains its own heading. Only ancestors and
+        # the breadcrumb consume extra space before deciding to descend.
+        reserve = len(context_prefix(metadata, self.chunk_size))
+        return max(1, self.chunk_size - reserve)
 
 
 def settings_chunk_size(

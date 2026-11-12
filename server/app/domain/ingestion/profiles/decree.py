@@ -14,6 +14,13 @@ from domain.ingestion.profiles.base import (
     SettingsBackedProfile,
     extract_effective_date_generic,
 )
+from domain.ingestion.profiles.patterns import (
+    DELIMITED_SUBPOINT_NUM_RE,
+    PARAGRAPH_RE,
+    POINT_RE,
+    SENTENCE_RE,
+    SUBPOINT_LETTER_RE,
+)
 from domain.ingestion.profiles.types import (
     BoundaryLevel,
     ConfigDefault,
@@ -35,14 +42,6 @@ _DECREE_DATE_RE = re.compile(
     r"((?:\d{1,2}\s+[а-яё]+\s+\d{4}\s*г?\.?|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2}))",
     re.IGNORECASE,
 )
-_POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)
-_SUBPOINT_RE = re.compile(r"^\s*([а-я])\)\s+", re.MULTILINE)
-_SUBPOINT_NUM_RE = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)*)\.\s+", re.MULTILINE)
-
-# Sentence boundary — matches ". " / "! " / "? " (all periods, including abbreviations).
-# Abbreviation filtering is handled in content_splitter._merge_small_units() instead
-# of via regex lookbehind, because Python re doesn't support variable-length lookbehind.
-_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 _EFFECTIVE_PATTERNS = [
     (
@@ -107,7 +106,7 @@ class DecreeDomainProfile(SettingsBackedProfile):
         min_points = int(self.get_setting("fingerprint_min_points"))
         has_title = bool(_DECREE_TITLE_RE.search(text))
         has_postanovlyayu = bool(_POSTANOVLYAYU_RE.search(text))
-        enough_points = len(_POINT_RE.findall(text)) >= min_points
+        enough_points = len(POINT_RE.findall(text)) >= min_points
         return has_title and has_postanovlyayu and enough_points
 
     def classify_score(self, text: str) -> float:
@@ -119,15 +118,16 @@ class DecreeDomainProfile(SettingsBackedProfile):
         if _POSTANOVLYAYU_RE.search(text):
             score += 2.0
 
-        score += 0.3 * len(_POINT_RE.findall(text))
+        score += 0.3 * len(POINT_RE.findall(text))
         return score
 
     def content_boundaries(self) -> list[BoundaryLevel]:
         return [
-            BoundaryLevel("point", _POINT_RE),
-            BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
-            BoundaryLevel("subpoint", _SUBPOINT_RE),
-            BoundaryLevel("sentence", _SENTENCE_RE),
+            BoundaryLevel("point", POINT_RE),
+            BoundaryLevel("subpoint_num", DELIMITED_SUBPOINT_NUM_RE, always_split=True),
+            BoundaryLevel("subpoint", SUBPOINT_LETTER_RE),
+            BoundaryLevel("paragraph", PARAGRAPH_RE),
+            BoundaryLevel("sentence", SENTENCE_RE),
         ]
 
     def extract_references(self, text: str) -> list[ReferenceMatch]:
@@ -139,7 +139,7 @@ class DecreeDomainProfile(SettingsBackedProfile):
         if m := _DECREE_DATE_RE.search(text):
             refs.append(ReferenceMatch("decree_date", m.group(1)))
 
-        refs += [ReferenceMatch("point", m) for m in _POINT_RE.findall(text)]
+        refs += [ReferenceMatch("point", m) for m in POINT_RE.findall(text)]
         return refs
 
     def extract_effective_date(self, text: str) -> EffectiveDateCandidate | None:

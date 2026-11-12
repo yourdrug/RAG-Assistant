@@ -38,11 +38,16 @@ class BoundaryLevel:
     (structural boundaries like numeric subpoints).  When False (default)
     the level is only used as a safety-net when the parent unit exceeds
     ``max_unit_chars``.
+
+    ``packing_barrier`` keeps whole units of this level in separate chunks.
+    ``order_by_position`` lets adjacent enclosing levels follow source order.
     """
 
     name: str  # "chapter" | "article" | "point" | "subpoint" | "sentence"
     pattern: re.Pattern[str]
     always_split: bool = False
+    packing_barrier: bool = False
+    order_by_position: bool = False
 
 
 @dataclass(frozen=True)

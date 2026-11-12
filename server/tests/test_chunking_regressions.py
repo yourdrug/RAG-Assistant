@@ -106,11 +106,13 @@ def test_subpoints_keep_parent_condition_and_distinct_numbers(
     text = condition + "\n21.1. Срок подачи — пять дней.\n21.2. Подавать через личный кабинет."
     chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], DocDomain.DECREE.value)
     subpoints = [c for c in chunks if c.metadata.get("unit_kind") == "subpoint_num"]
-    assert [c.metadata["subpoint_num_number"] for c in subpoints] == ["21.1", "21.2"]
+    # Fitting siblings now share a body, preserving both identities in metadata.
+    assert len(subpoints) == 1
+    assert subpoints[0].metadata["boundary_values"] == ["21.1", "21.2"]
     assert all(condition in c.page_content for c in subpoints)
     assert all(c.metadata["point_number"] == "21" for c in subpoints)
-    assert "21.2." not in subpoints[0].page_content
-    assert "21.1." not in subpoints[1].page_content
+    assert "21.1." in subpoints[0].page_content
+    assert "21.2." in subpoints[0].page_content
 
 
 def test_overflow_keeps_article_marker_and_bounded_final_context(
@@ -298,7 +300,8 @@ def test_batch_loader_uses_each_source_domain_before_splitting(
         docs, source_domains={"plain.txt": DocDomain.GENERAL.value, "law.txt": DocDomain.DECREE.value}
     )
     legal = [c for c in chunks if c.metadata["source"] == "law.txt"]
-    assert len(legal) == 2
+    assert len(legal) == 1
+    assert legal[0].metadata["point_numbers"] == ["1", "2"]
     assert all(c.metadata["unit_kind"] == "point" for c in legal)
     assert all(c.metadata["doc_domain"] == DocDomain.DECREE.value for c in legal)
 

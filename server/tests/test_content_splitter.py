@@ -13,6 +13,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.ingestion.content_splitter import SplitUnit, split_by_content
+from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.types import BoundaryLevel
 
 
@@ -20,6 +21,14 @@ _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)
 _SUBPOINT_RE = re.compile(r"^\s*([а-я])\)\s+", re.MULTILINE)
 _SUBPOINT_NUM_RE = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)*)\.\s+", re.MULTILINE)
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+@pytest.mark.parametrize("line", ["12.03.2020 вступает в силу.", "2.5 тонн продукции."])
+def test_decree_dates_and_decimals_are_not_numeric_subpoints(line: str) -> None:
+    text = "1. Порядок исполнения:\n" + line + "\n1.1. Настоящий подпункт."
+    units = split_by_content(text, DecreeDomainProfile().content_boundaries(), 5000)
+    assert [unit.boundary_value for unit in units if unit.unit_kind == "subpoint_num"] == ["1.1"]
+    assert any(line in unit.content for unit in units)
 
 
 class TestSplitByContent:

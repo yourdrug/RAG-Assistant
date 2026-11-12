@@ -1,7 +1,7 @@
 """Content-based text splitting — recursive descent by structural boundaries.
 
 Replaces RecursiveCharacterTextSplitter for structured domains.
-Text is cut at semantic boundaries. max_unit_chars decides when to descend
+Text is cut at semantic boundaries. The body budget and max_unit_chars decide when to descend
 to a finer level; it never cuts through a structural unit at an arbitrary character.
 """
 
@@ -15,11 +15,16 @@ from domain.knowledge.chunk import SENTENCE_UNIT_KIND
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from domain.ingestion.profiles.types import BoundaryLevel
 
 
 MIN_STRUCTURAL_CHUNK_CHARS = 100
 TINY_FRAGMENT_MAX_CHARS = 20
+HEADING_INTRO_MAX_CHARS = 200
+HEADING_INTRO_MAX_LINES = 2
+ENCLOSING_LEVEL_COUNT = 2
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,8 @@ class SplitUnit:
     unit_kind: str
     boundary_value: str | None = None  # value captured by boundary regex (article number, point number, ...)
     parents: tuple[BoundaryContext, ...] = ()
+    start: int = 0
+    end: int = 0
 
 
 def split_by_content(
@@ -48,6 +55,8 @@ def split_by_content(
     levels: list[BoundaryLevel],
     max_unit_chars: int,
     min_chunk_chars: int = 0,
+    *,
+    unit_budget: Callable[[SplitUnit], int] | None = None,
 ) -> list[SplitUnit]:
     """Split text by structural boundary hierarchy.
 
@@ -55,70 +64,86 @@ def split_by_content(
     exceeds max_unit_chars, the next finer level is tried on that unit's text.
     The finest level (typically sentence) is the terminal fallback.
 
+    unit_budget can lower the descent threshold for each unit using its complete
+    parent context. It uses character counts, as does max_unit_chars.
+
     Levels with ``always_split=True`` are applied unconditionally regardless
     of unit size (structural boundaries like numeric subpoints).
 
-    min_chunk_chars: when > 0, units smaller than this are merged with their
-    neighbor (same unit_kind, also small) to avoid tiny fragments like "(в ред.".
-    Default is 0 (disabled) — enable explicitly in domain splitting paths.
+    min_chunk_chars: when > 0, attach orphaned numeric markers to the next
+    sibling. Other small bodies are left intact for the sibling packer.
     """
-    if not levels:
-        return [SplitUnit(None, text.strip(), "raw")] if text.strip() else []
-
-    result = _recursive_split(text, levels, max_unit_chars)
+    result = recursive_split(text, levels, max_unit_chars, unit_budget=unit_budget)
 
     if min_chunk_chars > 0:
-        result = _merge_small_units(result, min_chunk_chars)
+        result = [
+            replace(unit, content=text[unit.start : unit.end])
+            for unit in _merge_small_units(result, min_chunk_chars)
+        ]
 
     return result
 
 
-def _recursive_split(text: str, levels: list[BoundaryLevel], max_unit_chars: int) -> list[SplitUnit]:
+def recursive_split(
+    text: str,
+    levels: list[BoundaryLevel],
+    max_unit_chars: int,
+    offset: int = 0,
+    *,
+    parents: tuple[BoundaryContext, ...] = (),
+    unit_budget: Callable[[SplitUnit], int] | None = None,
+) -> list[SplitUnit]:
     """Recursively descend through boundary levels.
 
     Levels with ``always_split=True`` are applied unconditionally.
-    Other levels are only applied when the unit exceeds ``max_unit_chars``.
+    Other levels are applied when the unit exceeds its budget or ``max_unit_chars``.
     """
     if not levels:
-        return [SplitUnit(None, text.strip(), "raw")] if text.strip() else []
+        return (
+            [
+                SplitUnit(
+                    None,
+                    text.strip(),
+                    "raw",
+                    parents=parents,
+                    start=offset + len(text) - len(text.lstrip()),
+                    end=offset + len(text.rstrip()),
+                )
+            ]
+            if text.strip()
+            else []
+        )
+
+    levels = order_enclosing_levels(text, levels)
 
     level, *rest = levels
-    raw_units = _split_at_boundary(text, level)
+    raw_units = [
+        replace(unit, start=unit.start + offset, end=unit.end + offset, parents=parents)
+        for unit in split_at_boundary(text, level)
+    ]
 
     result: list[SplitUnit] = []
 
     for unit in raw_units:
-        should_descend = False
+        budget = min(max_unit_chars, unit_budget(unit)) if unit_budget else max_unit_chars
 
-        if rest:
-            if len(unit.content) > max_unit_chars or (
-                rest[0].always_split and rest[0].pattern.search(unit.content)
-            ):
-                should_descend = True
-            elif not level.pattern.search(unit.content) and any(
-                child_level.name != SENTENCE_UNIT_KIND and child_level.pattern.search(unit.content)
-                for child_level in rest
-            ):
-                # Documents may start at article/point level without enclosing
-                # chapters. An absent coarser level must not hide that structure.
-                should_descend = True
-
-        if should_descend:
-            children = _recursive_split(unit.content, rest, max_unit_chars)
+        if rest and needs_finer_boundary(unit, level, rest, budget):
+            child_parents = parents
 
             if unit.heading and level.name != SENTENCE_UNIT_KIND:
-                # Keep the condition before the first finer structural boundary.
-                # For sentence descent, only the heading line is context; the
-                # complete body stays in the children and is never duplicated.
-                starts = [
-                    match.start()
-                    for child_level in rest
-                    if child_level.name != SENTENCE_UNIT_KIND
-                    if (match := child_level.pattern.search(unit.content)) is not None
-                ]
-                intro = unit.content[: min(starts)].strip() if starts else unit.content.split("\n", 1)[0]
-                parent = BoundaryContext(unit.heading, unit.unit_kind, unit.boundary_value, intro)
-                children = [replace(child, parents=(parent, *child.parents)) for child in children]
+                child_parents = (*parents, unit_parent_context(unit, rest))
+
+            children = recursive_split(
+                unit.content, rest, max_unit_chars, unit.start, parents=child_parents, unit_budget=unit_budget
+            )
+
+            if (
+                children
+                and children[0].unit_kind == "preamble"
+                and unit.heading
+                and heading_only_intro(children[0].content, level)
+            ):
+                children = children[1:]
 
             result.extend(children)
         else:
@@ -127,27 +152,31 @@ def _recursive_split(text: str, levels: list[BoundaryLevel], max_unit_chars: int
     return result
 
 
-def _merge_small_units(units: list[SplitUnit], min_chars: int) -> list[SplitUnit]:
-    """Merge tiny orphaned fragments with their neighbor to avoid standalone chunks.
+def needs_finer_boundary(
+    unit: SplitUnit, level: BoundaryLevel, rest: list[BoundaryLevel], budget: int
+) -> bool:
+    """Respect the body budget and mandatory or otherwise hidden structure."""
+    return (
+        len(unit.content) > budget
+        or any(child.always_split and child.pattern.search(unit.content) for child in rest)
+        or (
+            not level.pattern.search(unit.content)
+            and any(child.name != SENTENCE_UNIT_KIND and child.pattern.search(unit.content) for child in rest)
+        )
+    )
 
-    Three-tier merge logic:
-    1. Very tiny units (< 20 chars) that are bare numbers/fragments — absorb into
-       the NEXT content-bearing unit (not previous, since previous may be large).
-       Catches bare point numbers "2.", "4." that have no real content.
-    2. Very tiny units (< 20 chars) — absorb into previous unit (any kind).
-       Catches tiny fragments like "(в ред." split off mid-sentence.
-    3. Small units (< min_chars) — merge only with same unit_kind, both small.
-       Catches sentence fragments split off at abbreviation periods.
-    """
+
+def _merge_small_units(units: list[SplitUnit], min_chars: int) -> list[SplitUnit]:
+    """Attach bare number fragments to the next sibling; packing handles small bodies."""
     if not units or min_chars <= 0:
         return units
 
-    bare_number_re = re.compile(r"^\s*\d+\.\s*$")
+    bare_number_re = re.compile(r"^\s*\d+(?:\.\d+)*\.\s*$")
 
     # Pass 1: identify bare number fragments (like "2.", "4.")
     is_bare_number = [bool(bare_number_re.match(u.content)) for u in units]
 
-    # Pass 2: merge — first handle bare numbers (into next), then tiny fragments (into prev)
+    # Attach bare numeric markers to their following body.
     merged: list[SplitUnit] = []
     i = 0
 
@@ -156,7 +185,7 @@ def _merge_small_units(units: list[SplitUnit], min_chars: int) -> list[SplitUnit
 
         # Tier 1: bare number fragment — absorb into NEXT unit
         if (
-            (is_bare_number[i] or (i == 0 and len(unit.content) < TINY_FRAGMENT_MAX_CHARS))
+            is_bare_number[i]
             and i + 1 < len(units)
             and unit.parents == units[i + 1].parents
             and unit.boundary_value == units[i + 1].boundary_value
@@ -170,44 +199,38 @@ def _merge_small_units(units: list[SplitUnit], min_chars: int) -> list[SplitUnit
                     unit_kind=next_unit.unit_kind,
                     boundary_value=next_unit.boundary_value,
                     parents=next_unit.parents,
+                    start=unit.start,
+                    end=next_unit.end,
                 )
             )
             i += 2  # skip both
             continue
 
-        # Tier 2: tiny fragment (< 20 chars) — absorb into previous
-        same_boundary = bool(
-            merged and merged[-1].parents == unit.parents and merged[-1].boundary_value == unit.boundary_value
-        )
-
-        if (same_boundary and len(unit.content) < TINY_FRAGMENT_MAX_CHARS and unit.heading is None) or (
-            same_boundary
-            and len(unit.content) < min_chars
-            and merged[-1].unit_kind == unit.unit_kind
-            and len(merged[-1].content) < min_chars * 2
-        ):
-            prev = merged[-1]
-            merged[-1] = SplitUnit(
-                heading=prev.heading,
-                content=prev.content + "\n" + unit.content,
-                unit_kind=prev.unit_kind,
-                boundary_value=prev.boundary_value,
-                parents=prev.parents,
-            )
-        else:
-            merged.append(unit)
+        merged.append(unit)
 
         i += 1
 
     return merged
 
 
-def _split_at_boundary(text: str, level: BoundaryLevel) -> list[SplitUnit]:
+def split_at_boundary(text: str, level: BoundaryLevel) -> list[SplitUnit]:
     """Split text at all occurrences of a boundary level's regex pattern."""
     matches = list(level.pattern.finditer(text))
 
     if not matches:
-        return [SplitUnit(None, text.strip(), level.name)] if text.strip() else []
+        return (
+            [
+                SplitUnit(
+                    None,
+                    text.strip(),
+                    level.name,
+                    start=len(text) - len(text.lstrip()),
+                    end=len(text.rstrip()),
+                )
+            ]
+            if text.strip()
+            else []
+        )
 
     units: list[SplitUnit] = []
 
@@ -216,7 +239,15 @@ def _split_at_boundary(text: str, level: BoundaryLevel) -> list[SplitUnit]:
         lead = text[: matches[0].start()].strip()
 
         if lead:
-            units.append(SplitUnit(None, lead, "preamble"))
+            units.append(
+                SplitUnit(
+                    None,
+                    lead,
+                    "preamble",
+                    start=len(text[: matches[0].start()]) - len(text[: matches[0].start()].lstrip()),
+                    end=len(text[: matches[0].start()].rstrip()),
+                )
+            )
 
     for i, m in enumerate(matches):
         start = m.start()
@@ -225,7 +256,61 @@ def _split_at_boundary(text: str, level: BoundaryLevel) -> list[SplitUnit]:
 
         if chunk_text:
             boundary_value = m.group(1) if m.groups() else None
-            heading = f"{level.name} {boundary_value}" if boundary_value else level.name
-            units.append(SplitUnit(heading, chunk_text, level.name, boundary_value))
+            heading = f"{level.name} {boundary_value}" if boundary_value else None
+            units.append(
+                SplitUnit(
+                    heading,
+                    chunk_text,
+                    level.name,
+                    boundary_value,
+                    start=start + len(text[start:end]) - len(text[start:end].lstrip()),
+                    end=start + len(text[start:end].rstrip()),
+                )
+            )
 
     return units
+
+
+def heading_only_intro(text: str, level: BoundaryLevel) -> bool:
+    """Recognize short heading blocks and dependent list lead-ins, never prose sentences."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    if len(text) > HEADING_INTRO_MAX_CHARS or not lines:
+        return False
+
+    if len(lines) == 1 and text.endswith(":"):
+        return True
+
+    return (
+        len(lines) <= HEADING_INTRO_MAX_LINES
+        and not text.endswith((".", "!", "?", ";"))
+        and level.packing_barrier
+        and bool(level.pattern.match(lines[0]))
+    )
+
+
+def order_enclosing_levels(text: str, levels: list[BoundaryLevel]) -> list[BoundaryLevel]:
+    """Order profile-designated enclosing levels by their first occurrence."""
+    if len(levels) >= ENCLOSING_LEVEL_COUNT and all(level.order_by_position for level in levels[:2]):
+        first, second = (level.pattern.search(text) for level in levels[:2])
+
+        if second is not None and (first is None or second.start() < first.start()):
+            levels = [levels[1], levels[0], *levels[2:]]
+
+    return levels
+
+
+def unit_parent_context(unit: SplitUnit, rest: list[BoundaryLevel]) -> BoundaryContext:
+    """Retain the enclosing heading and condition before descending to children."""
+    # Keep the condition before the first finer structural boundary.
+    # For sentence descent, only the heading line is context; the
+    # complete body stays in the children and is never duplicated.
+    starts = [
+        match.start()
+        for child_level in rest
+        if child_level.name != SENTENCE_UNIT_KIND
+        if (match := child_level.pattern.search(unit.content)) is not None
+    ]
+    intro = unit.content[: min(starts)].strip() if starts else unit.content.split("\n", 1)[0]
+
+    return BoundaryContext(unit.heading or "", unit.unit_kind, unit.boundary_value, intro)

@@ -205,12 +205,6 @@ def test_3_every_chunk_fits_the_budget(case_id: str, split_results: dict[str, Sp
     assert not oversized, f"limit {result.max_chars}, got {oversized}"
 
 
-HEADING_ONLY_XFAILS = {
-    "law.docx-legal": "plan 1.3 (preamble units: chapter/article headings)",
-    "law.txt-legal": "plan 1.3 (preamble units: chapter/article headings)",
-    "decree.docx-decree": "plan 1.3 (point lead-in repeated in subpoint prefixes)",
-    "contract.docx-legal": "plan 1.2/5.3 (clause lead-in without its subclauses)",
-}
 MAX_LEAD_IN_CHARS = 100
 
 
@@ -230,7 +224,7 @@ def is_heading_only(text: str, other_prefixes: str) -> bool:
     return bare_marker or lone_lead_in
 
 
-@pytest.mark.parametrize("case_id", case("no heading-only chunks", HEADING_ONLY_XFAILS))
+@pytest.mark.parametrize("case_id", case("no heading-only chunks"))
 def test_4_no_chunk_is_only_a_heading_or_prefix(case_id: str, split_results: dict[str, SplitResult]) -> None:
     chunks = split_results[case_id].chunks
     offenders = [

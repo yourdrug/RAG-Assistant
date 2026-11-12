@@ -173,7 +173,7 @@ def test_oversized_parent_is_never_truncated_or_allowed_to_exceed_budget(
     child = next(
         c
         for c in splitter.split([RawDocument(text, {"source": "rules.txt"})], DocDomain.DECREE.value)
-        if c.metadata.get("subpoint_num_number") == "21.2"
+        if "21.2" in c.metadata.get("boundary_values", [])
     )
     context, selected = format_docs_with_selection(
         [Document(page_content=item.page_content, metadata=item.metadata) for item in [child]],

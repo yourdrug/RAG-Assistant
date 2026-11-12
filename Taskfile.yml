@@ -275,6 +275,14 @@ tasks:
     cmds:
       - python3 scripts/benchmark/validate_v2.py {{.CLI_ARGS}}
 
+  chunking:report:
+    desc: "Офлайн-замер нарезки без LLM (размеры, достижимость, BM25-recall); -- --dense добавляет bge-m3 через DeepInfra"
+    dir: server
+    env:
+      PYTHONPATH: app
+    cmds:
+      - 'uv run --with tokenizers==0.22.2 python ../scripts/benchmark/chunking_report.py {{.CLI_ARGS}}'
+
   script:
     desc: "Запустить Python-утилиту из scripts/: task script SCRIPT=benchmark/compare_frozen_generation.py -- --help"
     dir: server

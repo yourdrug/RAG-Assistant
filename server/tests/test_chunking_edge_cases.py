@@ -172,8 +172,12 @@ def test_long_parent_exception_survives_in_every_subpoint(
         )
     )
     chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], DocDomain.DECREE.value)
-    children = [c for c in chunks if c.metadata.get("subpoint_num_number")]
-    assert len(children) == 8
+    children = [c for c in chunks if c.metadata.get("unit_kind") == "subpoint_num"]
+    # Adjacent subpoints pack together while retaining every number and the full parent.
+    assert 1 <= len(children) < 8
+    assert {value for c in children for value in c.metadata["boundary_values"]} == {
+        f"21.{i}" for i in range(1, 9)
+    }
     assert all(normalize(intro) in normalize(c.page_content) for c in children)
     assert all(c.metadata["parent_units"][0]["content"] == intro for c in children)
     assert all(len(c.page_content) <= 1200 for c in children)
@@ -187,7 +191,7 @@ def test_parent_larger_than_chunk_is_complete_in_prompt_and_sanitized(
     intro = "21. " + "Полные условия предоставления услуги. " * 40 + exception
     text = intro + "\n21.1. Требуется заявление.\n21.2. Требуется паспорт."
     chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], DocDomain.DECREE.value)
-    child = next(c for c in chunks if c.metadata.get("subpoint_num_number") == "21.2")
+    child = next(c for c in chunks if "21.2" in c.metadata.get("boundary_values", []))
     assert len(child.page_content) <= 1200
     assert child.metadata["parent_units"][0]["content"] == intro
     prompt = format_docs(

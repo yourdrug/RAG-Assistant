@@ -47,6 +47,8 @@ CHUNK_CONTEXT_FIELDS = frozenset(
         "section_number",
         "clause_number",
         "point_number",
+        "point_numbers",
+        "boundary_values",
         "subpoint_number",
         "subpoint_num_number",
         "step_number",

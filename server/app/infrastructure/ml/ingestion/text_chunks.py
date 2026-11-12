@@ -128,7 +128,9 @@ def shorten_context(text: str, limit: int = MAX_CONTEXT_CHARS) -> str:
     return text[: max(0, limit - 1)].rstrip() + "…"
 
 
-def context_prefix(metadata: dict[str, Any], chunk_size: int, *, include_unit: bool = False) -> str:
+def context_prefix(
+    metadata: dict[str, Any], chunk_size: int, *, include_unit: bool = False, body: str = ""
+) -> str:
     """Repeat complete parent conditions when they fit, never partial clauses.
 
     Full parents remain in metadata even when they cannot fit alongside a
@@ -157,7 +159,11 @@ def context_prefix(metadata: dict[str, Any], chunk_size: int, *, include_unit: b
         heading_budget = min(budget - used, remaining)
         heading = metadata["unit_heading_text"]
 
-        if heading_budget > MIN_BODY_BUDGET and heading not in "\n".join(parts):
+        if (
+            heading_budget > MIN_BODY_BUDGET
+            and heading not in "\n".join(parts)
+            and not " ".join(body.split()).startswith(" ".join(heading.split()))
+        ):
             parts.append(shorten_context(heading, heading_budget - 1))
 
     return "\n".join(parts) + "\n" if parts else ""
@@ -347,22 +353,35 @@ def text_document_chunks(
     }
     prefix = context_prefix(context_metadata, chunk_size)
 
-    if len(doc.page_content) > chunk_size - len(prefix):
+    include_unit = len(doc.page_content) > chunk_size - len(prefix)
+
+    if include_unit:
         prefix = context_prefix(context_metadata, chunk_size, include_unit=True)
 
     body_budget = chunk_size - len(prefix)
     overlap = min(chunk_overlap, body_budget - 1)
-    bodies = split_overflow(doc.page_content, body_budget, overlap, patterns)
+    # Separator lines ("-----") carry nothing searchable and must not become chunks.
+    bodies = [
+        body
+        for body in split_overflow(doc.page_content, body_budget, overlap, patterns)
+        if any(char.isalnum() for char in body)
+    ]
     # A heading already repeated in the prefix needs no standalone chunk.
     heading = doc.metadata.get("unit_heading_text") or doc.metadata.get("heading")
 
     if heading and heading in prefix and len(bodies) > 1:
         bodies = [body for body in bodies if body.strip() != heading]
 
-    chunks = [
-        Document(page_content=prefix + body, metadata={**doc.metadata, "context_prefix": prefix})
-        for body in bodies
-    ]
+    chunks = []
+
+    for body in bodies:
+        body_prefix = context_prefix(context_metadata, chunk_size, include_unit=include_unit, body=body)
+        chunks.append(
+            Document(
+                page_content=body_prefix + body, metadata={**doc.metadata, "context_prefix": body_prefix}
+            )
+        )
+
     assign_chunk_pages(chunks, doc, bodies, overlap)
     return chunks
 

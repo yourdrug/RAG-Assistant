@@ -14,6 +14,13 @@ from domain.ingestion.profiles.base import (
     SettingsBackedProfile,
     extract_effective_date_generic,
 )
+from domain.ingestion.profiles.patterns import (
+    PARAGRAPH_RE,
+    POINT_RE,
+    SENTENCE_RE,
+    SUBPOINT_LETTER_RE,
+    SUBPOINT_NUM_RE,
+)
 from domain.ingestion.profiles.types import (
     BoundaryLevel,
     ConfigDefault,
@@ -28,11 +35,10 @@ if TYPE_CHECKING:
     )
 
 
-_CHAPTER_RE = re.compile(r"^\s*Глава\s+(\d+[\.\d]*)", re.MULTILINE)
-_SECTION_RE = re.compile(r"^\s*Раздел\s+(\d+[\.\d]*)", re.MULTILINE)
-_ARTICLE_RE = re.compile(r"^\s*Статья\s+(\d+[\.\d]*)", re.MULTILINE)
-_CLAUSE_RE = re.compile(r"^\s*(\d+\.\d+[\.\d]*)\s+", re.MULTILINE)
-_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+# Official texts often set headings in capitals ("ГЛАВА 3"), so headings ignore case.
+_CHAPTER_RE = re.compile(r"^\s*Глава\s+(\d+[\.\d]*)", re.MULTILINE | re.IGNORECASE)
+_SECTION_RE = re.compile(r"^\s*Раздел\s+(\d+[\.\d]*)", re.MULTILINE | re.IGNORECASE)
+_ARTICLE_RE = re.compile(r"^\s*Статья\s+(\d+[\.\d]*)", re.MULTILINE | re.IGNORECASE)
 
 _ARTICLE_REF_RE = re.compile(r"ст(?:ать[июяе]|\.)\s*(\d+[\.\d]*)", re.IGNORECASE)
 _CHAPTER_REF_RE = re.compile(r"глав(?:[ауы]|ой)\s*(\d+[\.\d]*)", re.IGNORECASE)
@@ -141,11 +147,16 @@ class LegalDomainProfile(SettingsBackedProfile):
 
     def content_boundaries(self) -> list[BoundaryLevel]:
         return [
-            BoundaryLevel("chapter", _CHAPTER_RE),
-            BoundaryLevel("section", _SECTION_RE),
-            BoundaryLevel("article", _ARTICLE_RE),
-            BoundaryLevel("clause", _CLAUSE_RE),
-            BoundaryLevel("sentence", _SENTENCE_RE),
+            BoundaryLevel("chapter", _CHAPTER_RE, packing_barrier=True, order_by_position=True),
+            BoundaryLevel(
+                "section", _SECTION_RE, always_split=True, packing_barrier=True, order_by_position=True
+            ),
+            BoundaryLevel("article", _ARTICLE_RE, always_split=True, packing_barrier=True),
+            BoundaryLevel("point", POINT_RE),
+            BoundaryLevel("subpoint_num", SUBPOINT_NUM_RE),
+            BoundaryLevel("subpoint", SUBPOINT_LETTER_RE),
+            BoundaryLevel("paragraph", PARAGRAPH_RE),
+            BoundaryLevel("sentence", SENTENCE_RE),
         ]
 
     def extract_references(self, text: str) -> list[ReferenceMatch]:
