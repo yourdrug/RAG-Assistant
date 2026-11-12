@@ -26,7 +26,7 @@ from infrastructure.health import system_health_probe
 from infrastructure.initialization import build_defaults, load_config_from_db
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.client_registry import MLClientRegistry
-from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration, validate_chunking
 from infrastructure.ml.rag import rag_retrieval
 from infrastructure.ml.rag.rag_prompts import condense_question
 from infrastructure.repositories.vector import qdrant_ops
@@ -101,6 +101,23 @@ def test_factories_use_independent_effective_pool_limits(
     assert captured[0].max_connections == connections
     assert captured[0].max_keepalive_connections == keepalive
     asyncio.run(adapter.close())
+
+
+def test_domain_chunk_overlap_without_size_is_checked_against_section_size(model: Settings) -> None:
+    with pytest.raises(ValidationError, match="legal_chunk_overlap"):
+        validate_chunking(model, {("legal_chunk_overlap", "legal"): str(model.legal_chunk_size)})
+
+
+def test_domain_chunk_overlap_below_section_size_is_accepted(model: Settings) -> None:
+    validate_chunking(model, {("legal_chunk_overlap", "legal"): str(model.legal_chunk_size - 1)})
+
+
+def test_domain_chunk_size_below_domain_overlap_is_rejected(model: Settings) -> None:
+    with pytest.raises(ValidationError, match="decree_chunk_overlap"):
+        validate_chunking(
+            model,
+            {("decree_chunk_size", "decree"): "300", ("decree_chunk_overlap", "decree"): "300"},
+        )
 
 
 @pytest.mark.parametrize(
@@ -791,3 +808,61 @@ def start_upload(old: TEIEmbeddingsClient) -> tuple[asyncio.Task[None], list[Poi
         )
     )
     return upload, persisted
+
+
+def chunk_row(key: str, value: int, domain_key: str | None = None) -> ConfigParameter:
+    return ConfigParameter(key, str(value), ConfigValueType.INT, "ingestion", domain_key=domain_key)
+
+
+def test_global_chunk_overlap_must_stay_below_size(model: Settings) -> None:
+    config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
+
+    with pytest.raises(ValidationError, match="CHUNK_OVERLAP must be less than CHUNK_SIZE"):
+        config.apply([chunk_row("chunk_size", 150)])  # default overlap is 200
+    assert model.chunk_size != 150
+
+    config.apply([chunk_row("chunk_size", 400), chunk_row("chunk_overlap", 100)])
+    assert (model.chunk_size, model.chunk_overlap) == (400, 100)
+
+
+def int_row(key: str, value: int, category: str) -> ConfigParameter:
+    return ConfigParameter(key, str(value), ConfigValueType.INT, category)
+
+
+def test_snapshot_rejects_top_k_above_fetch_k(model: Settings) -> None:
+    config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
+
+    with pytest.raises(ValidationError, match="retriever_top_k must not exceed retriever_fetch_k"):
+        config.apply([int_row("retriever_top_k", 50, "rag"), int_row("retriever_fetch_k", 1, "rag")])
+    assert (model.retriever_top_k, model.retriever_fetch_k) != (50, 1)
+
+    config.apply([int_row("retriever_top_k", 10, "rag"), int_row("retriever_fetch_k", 30, "rag")])
+    assert (model.retriever_top_k, model.retriever_fetch_k) == (10, 30)
+
+
+def test_snapshot_rejects_num_predict_not_below_num_ctx(model: Settings) -> None:
+    config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
+
+    with pytest.raises(ValidationError, match="llm_num_predict_broad must be less than llm_num_ctx_broad"):
+        config.apply(
+            [int_row("llm_num_ctx_broad", 2048, "llm"), int_row("llm_num_predict_broad", 2048, "llm")]
+        )
+    assert model.llm_num_ctx_broad != 2048
+
+    config.apply([int_row("llm_num_ctx_broad", 2048, "llm"), int_row("llm_num_predict_broad", 1024, "llm")])
+    assert (model.llm_num_ctx_broad, model.llm_num_predict_broad) == (2048, 1024)
+
+
+def test_domain_chunk_overlap_must_stay_below_size(model: Settings) -> None:
+    domain_settings = DomainSettingsAdapter()
+    domain_settings.replace_snapshot(
+        {("legal_chunk_size", "legal"): "500", ("legal_chunk_overlap", "legal"): "50"}
+    )
+    config = SettingsProviderConfiguration(model, domain_settings, bus=InProcessEventBus())
+
+    with pytest.raises(ValidationError, match="legal_chunk_overlap must be less than legal_chunk_size"):
+        config.apply([chunk_row("legal_chunk_overlap", 500, "legal")])
+    assert domain_settings.get("legal_chunk_overlap", "legal") == "50"
+
+    config.apply([chunk_row("legal_chunk_overlap", 120, "legal")])
+    assert domain_settings.get("legal_chunk_overlap", "legal") == "120"

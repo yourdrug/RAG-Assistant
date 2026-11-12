@@ -6,8 +6,8 @@
     "required": false
   },
   "admin_password": {
-    "annotation": "<class 'str'>",
-    "default": "''",
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
     "metadata": "[]",
     "required": false
   },
@@ -26,13 +26,13 @@
   "benchmark_judge_initial_tokens": {
     "annotation": "<class 'int'>",
     "default": "2048",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "benchmark_judge_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "3",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "benchmark_judge_model": {
@@ -44,13 +44,13 @@
   "benchmark_judge_retry_tokens": {
     "annotation": "<class 'int'>",
     "default": "8192",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "benchmark_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "10",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "bm25_fetch_k": {
@@ -116,7 +116,7 @@
   "curator_scope_max_ids": {
     "annotation": "<class 'int'>",
     "default": "1000",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "data_dir": {
@@ -134,13 +134,13 @@
   "db_idle_in_transaction_timeout_ms": {
     "annotation": "<class 'int'>",
     "default": "120000",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "db_max_overflow": {
     "annotation": "<class 'int'>",
     "default": "20",
-    "metadata": "[]",
+    "metadata": "[Ge(ge=0)]",
     "required": false
   },
   "db_name": {
@@ -150,7 +150,7 @@
     "required": true
   },
   "db_password": {
-    "annotation": "<class 'str'>",
+    "annotation": "<class 'pydantic.types.SecretStr'>",
     "default": null,
     "metadata": "[]",
     "required": true
@@ -158,13 +158,13 @@
   "db_pool_recycle_sec": {
     "annotation": "<class 'int'>",
     "default": "1800",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "db_pool_size": {
     "annotation": "<class 'int'>",
     "default": "40",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "db_port": {
@@ -188,7 +188,7 @@
   "db_statement_timeout_ms": {
     "annotation": "<class 'int'>",
     "default": "600000",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "db_user": {
@@ -216,8 +216,8 @@
     "required": false
   },
   "deepinfra_api_key": {
-    "annotation": "<class 'str'>",
-    "default": "''",
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
     "metadata": "[]",
     "required": false
   },
@@ -254,7 +254,7 @@
   "embed_dim": {
     "annotation": "<class 'int'>",
     "default": "1024",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "embedding_http_max_connections": {
@@ -272,7 +272,7 @@
   "embedding_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "16",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "embedding_revision": {
@@ -314,17 +314,17 @@
   "ingestion_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "8",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "job_cleanup_days": {
     "annotation": "<class 'int'>",
     "default": "30",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "jwt_algorithm": {
-    "annotation": "<class 'str'>",
+    "annotation": "typing.Literal['HS256', 'HS384', 'HS512']",
     "default": "'HS256'",
     "metadata": "[]",
     "required": false
@@ -332,11 +332,11 @@
   "jwt_expire_minutes": {
     "annotation": "<class 'int'>",
     "default": "1440",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "jwt_secret_key": {
-    "annotation": "<class 'str'>",
+    "annotation": "<class 'pydantic.types.SecretStr'>",
     "default": null,
     "metadata": "[]",
     "required": true
@@ -356,37 +356,37 @@
   "llm_auxiliary_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "4",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "llm_auxiliary_timeout": {
     "annotation": "<class 'int'>",
     "default": "30",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "llm_breaker_fail_max": {
     "annotation": "<class 'int'>",
     "default": "5",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "llm_breaker_timeout_duration": {
     "annotation": "<class 'int'>",
     "default": "300",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "llm_generation_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "12",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "llm_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "16",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "llm_num_ctx_broad": {
@@ -422,7 +422,7 @@
   "llm_request_timeout": {
     "annotation": "<class 'int'>",
     "default": "120",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "llm_temperature": {
@@ -510,8 +510,8 @@
     "required": false
   },
   "openrouter_api_key": {
-    "annotation": "<class 'str'>",
-    "default": "''",
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
     "metadata": "[]",
     "required": false
   },
@@ -530,7 +530,7 @@
   "outbox_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "5",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "pii_redaction_enabled": {
@@ -542,7 +542,7 @@
   "preview_cache_ttl_seconds": {
     "annotation": "<class 'int'>",
     "default": "1800",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "preview_max_size_mb": {
@@ -552,21 +552,21 @@
     "required": false
   },
   "qdrant_api_key": {
-    "annotation": "<class 'str'>",
-    "default": "''",
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
     "metadata": "[]",
     "required": false
   },
   "qdrant_search_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "16",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "qdrant_timeout": {
     "annotation": "<class 'int'>",
     "default": "10",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "qdrant_url": {
@@ -578,31 +578,31 @@
   "qdrant_write_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "8",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "rag_retrieval_score_threshold": {
     "annotation": "<class 'float'>",
     "default": "0.0",
-    "metadata": "[]",
+    "metadata": "[Ge(ge=0), Le(le=1)]",
     "required": false
   },
   "rate_limit_benchmark_per_hour": {
     "annotation": "<class 'int'>",
     "default": "60",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "rate_limit_chat_per_day": {
     "annotation": "<class 'int'>",
     "default": "100",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "rate_limit_chat_per_minute": {
     "annotation": "<class 'int'>",
     "default": "10",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "rate_limit_enabled": {
@@ -620,13 +620,13 @@
   "rate_limit_login_per_minute": {
     "annotation": "<class 'int'>",
     "default": "5",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "rate_limit_max_buckets": {
     "annotation": "<class 'int'>",
     "default": "10000",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "rate_limit_redis_prefix": {
@@ -638,25 +638,25 @@
   "rate_limit_search_per_minute": {
     "annotation": "<class 'int'>",
     "default": "60",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "rate_limit_upload_per_hour": {
     "annotation": "<class 'int'>",
     "default": "20",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "rate_limit_write_per_minute": {
     "annotation": "<class 'int'>",
     "default": "60",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "redis_db": {
     "annotation": "<class 'int'>",
     "default": "0",
-    "metadata": "[]",
+    "metadata": "[Ge(ge=0)]",
     "required": false
   },
   "redis_host": {
@@ -668,25 +668,25 @@
   "redis_max_connections": {
     "annotation": "<class 'int'>",
     "default": "50",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "redis_password": {
-    "annotation": "<class 'str'>",
-    "default": "''",
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
     "metadata": "[]",
     "required": false
   },
   "redis_port": {
     "annotation": "<class 'int'>",
     "default": "6379",
-    "metadata": "[]",
+    "metadata": "[Ge(ge=1), Le(le=65535)]",
     "required": false
   },
   "redis_socket_timeout": {
     "annotation": "<class 'int'>",
     "default": "10",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "redis_user": {
@@ -728,7 +728,7 @@
   "reranker_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "8",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "retriever_fetch_k": {
@@ -768,8 +768,8 @@
     "required": false
   },
   "s3_access_key": {
-    "annotation": "<class 'str'>",
-    "default": "''",
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
     "metadata": "[]",
     "required": false
   },
@@ -788,7 +788,7 @@
   "s3_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "10",
-    "metadata": "[Ge(ge=1)]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "s3_region": {
@@ -798,15 +798,15 @@
     "required": false
   },
   "s3_secret_key": {
-    "annotation": "<class 'str'>",
-    "default": "''",
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
     "metadata": "[]",
     "required": false
   },
   "semaphore_acquire_timeout": {
     "annotation": "<class 'int'>",
     "default": "30",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "service_start_datetime": {
@@ -890,7 +890,7 @@
   "worker_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "4",
-    "metadata": "[]",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   }
 }

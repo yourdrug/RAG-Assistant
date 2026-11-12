@@ -40,7 +40,7 @@ class JWTProvider:
         }
         return jwt.encode(
             payload,
-            auth_settings.jwt_secret_key,
+            auth_settings.jwt_secret_key.get_secret_value(),
             algorithm=auth_settings.jwt_algorithm,
         )
 
@@ -49,7 +49,7 @@ class JWTProvider:
 
         payload: object = jwt.decode(
             token,
-            auth_settings.jwt_secret_key,
+            auth_settings.jwt_secret_key.get_secret_value(),
             algorithms=[auth_settings.jwt_algorithm],
             options={"require": list(REQUIRED_CLAIMS)},
         )
@@ -78,8 +78,10 @@ def parse_claims(payload: object) -> TokenClaims:
         message = "Token expiry must be a numeric timestamp"
         raise jwt.InvalidTokenError(message)
 
-    return TokenClaims(
-        user_id=int(subject),
-        role=role,
-        expires_at=datetime.fromtimestamp(expires, UTC),
-    )
+    try:
+        expires_at = datetime.fromtimestamp(expires, UTC)
+    except (OverflowError, OSError, ValueError) as exc:
+        message = "Token expiry is out of range"
+        raise jwt.InvalidTokenError(message) from exc
+
+    return TokenClaims(user_id=int(subject), role=role, expires_at=expires_at)

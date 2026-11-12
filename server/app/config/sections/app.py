@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from application.runtime.enums import AppStage
 from config.ownership import Metadata, Static
@@ -19,6 +19,18 @@ class AppSection(BaseModel):
     version: Metadata[str] = ""
     service_start_datetime: Metadata[str] = ""
     stage: Static[AppStage] = AppStage.DEVELOPMENT
+
+    @field_validator("timezone")
+    @classmethod
+    def check_timezone(cls, value: str) -> str:
+        # Fail at startup, not on the first ``tz`` access at runtime.
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            message = f"Unknown TIMEZONE {value!r}"
+            raise ValueError(message) from exc
+
+        return value
 
     @property
     def tz(self) -> ZoneInfo:

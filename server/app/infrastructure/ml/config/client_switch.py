@@ -151,7 +151,7 @@ def prepare_llm_clients(registry: MLClientRegistry, candidate: Settings, prepare
         prepared["cached_instructor"] = ManagedInstructor(
             create_async_instructor_client(
                 candidate.openrouter_base_url,
-                candidate.openrouter_api_key,
+                candidate.openrouter_api_key.get_secret_value(),
                 runtime=registry.budget_runtime,
             )
         )
@@ -173,7 +173,7 @@ async def probe_llm_endpoint(
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         response = await client.get(
             f"{candidate.openrouter_base_url.rstrip('/')}/models",
-            headers={"Authorization": f"Bearer {candidate.openrouter_api_key}"},
+            headers={"Authorization": f"Bearer {candidate.openrouter_api_key.get_secret_value()}"},
         )
         response.raise_for_status()
 

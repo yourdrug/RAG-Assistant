@@ -291,7 +291,7 @@ class MLClientRegistry(MLClientPort):
                     instructor = create_async_instructor_client(
                         runtime=self.budget_runtime,
                         base_url=model.openrouter_base_url,
-                        api_key=model.openrouter_api_key,
+                        api_key=model.openrouter_api_key.get_secret_value(),
                     )
 
                     self.cached_instructor = ManagedInstructor(instructor)

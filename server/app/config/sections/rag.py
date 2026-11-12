@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config.ownership import Static
 
@@ -15,7 +15,19 @@ class RetrievalSection(BaseModel):
     retriever_top_k: int = 4
     retriever_fetch_k_broad: int = 40
     retriever_top_k_broad: int = 10
-    rag_retrieval_score_threshold: Static[float] = 0.0  # minimum cosine similarity for dense search results
+    # Minimum cosine similarity for dense search results.
+    rag_retrieval_score_threshold: Static[float] = Field(default=0.0, ge=0, le=1)
+
+    def check_retrieval(self) -> list[str]:
+        # Reranking keeps top_k of fetch_k candidates; top_k > fetch_k silently truncates.
+        return [
+            f"{top} must not exceed {fetch} ({getattr(self, top)} > {getattr(self, fetch)})"
+            for top, fetch in (
+                ("retriever_top_k", "retriever_fetch_k"),
+                ("retriever_top_k_broad", "retriever_fetch_k_broad"),
+            )
+            if getattr(self, top) > getattr(self, fetch)
+        ]
 
 
 class RankingSection(BaseModel):

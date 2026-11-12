@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
 
 from config import settings
 from domain.rag.breadth import Breadth
@@ -27,7 +26,7 @@ async def replay(snapshot: dict) -> dict:
         model=runtime["model"],
         temperature=runtime["temperature"],
         max_tokens=runtime["max_tokens"],
-        api_key=SecretStr(settings.openrouter_api_key),
+        api_key=settings.openrouter_api_key,
         base_url=settings.openrouter_base_url,
         timeout=120,
         max_retries=1,

@@ -26,7 +26,7 @@ def raw_corpus_client(endpoint: str) -> QdrantClient:
 
     return QdrantClient(
         url=endpoint,
-        api_key=vector_store_settings.qdrant_api_key,
+        api_key=vector_store_settings.qdrant_api_key.get_secret_value(),
         timeout=vector_store_settings.qdrant_timeout,
         follow_redirects=False,
     )

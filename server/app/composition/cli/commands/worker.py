@@ -8,7 +8,6 @@ import logging
 import sys
 from typing import Any
 
-from arq.connections import RedisSettings
 from arq.cron import cron
 from arq.worker import Function, Worker, func as arq_func
 
@@ -27,7 +26,7 @@ from infrastructure.worker.cron import (
 )
 from infrastructure.worker.document_deletion import delete_document
 from infrastructure.worker.document_dispatch import cron_dispatch_documents
-from infrastructure.worker.queue import QUEUE_NAME, close_arq_pool
+from infrastructure.worker.queue import QUEUE_NAME, arq_redis_settings, close_arq_pool
 from infrastructure.worker.sweep import run_sweep_task as run_sweep
 from infrastructure.worker.tasks import (
     process_document,
@@ -59,7 +58,7 @@ def worker(
     Использует Redis как брокер.
     """
     try:
-        redis_settings = RedisSettings.from_dsn(settings.redis_url)
+        redis_settings = arq_redis_settings(settings.redis_url)
 
         functions: Sequence[Function] = [
             arq_func(delete_document, timeout=_PROCESS_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),

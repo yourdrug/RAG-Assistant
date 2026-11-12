@@ -9,7 +9,8 @@ outside composition/configuration should depend on the section they need:
   reading ``settings`` directly.
 
 Both return the same live object narrowed to the section type, so hot-reload and
-request snapshots behave exactly as before.
+request snapshots behave exactly as before. The narrowing is static; at runtime
+they only reject a class that is not a section.
 
 Runtime helpers live in this module on purpose: they resolve ``settings`` from the
 package namespace at call time, so ``patch("config.settings")`` keeps working.
@@ -18,7 +19,9 @@ package namespace at call time, so ``patch("config.settings")`` keeps working.
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Literal, overload
+from typing import Literal, cast, overload
+
+from pydantic import BaseModel, ValidationError
 
 from config.sections import (
     ALL_SECTIONS,
@@ -44,15 +47,14 @@ from config.sections import (
     StorageSection,
     VectorStoreSection,
 )
-from config.settings import Settings, read_version
+from config.settings import ConfigurationError, Settings, format_errors, read_version
 from config.views import EmbeddingIdentitySettings, EndpointSettings, MLClientSettings
 
 
-if TYPE_CHECKING:
-    from pydantic import BaseModel
+SECTION_TYPES: frozenset[type[BaseModel]] = frozenset(ALL_SECTIONS)
 
 
-_settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
+settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
 
 request_settings: ContextVar[Settings | None] = ContextVar("request_settings", default=None)
 
@@ -71,7 +73,7 @@ def get_setting(key: str) -> object:
     Used by benchmark/sweep code paths that need isolated config without
     mutating the process-wide ``settings`` object.
     """
-    overrides = _settings_overrides.get()
+    overrides = settings_overrides.get()
 
     if overrides is not None and key in overrides:
         return overrides[key]
@@ -86,188 +88,35 @@ def get_request_settings() -> Settings:
     return snapshot if snapshot is not None else settings
 
 
-@overload
-def request_section(_section: type[AppSection]) -> AppSection: ...
+def checked_section(section: type[object]) -> None:
+    """Reject a class that is not one of the ``Settings`` sections.
 
-
-@overload
-def request_section(_section: type[DatabaseSection]) -> DatabaseSection: ...
-
-
-@overload
-def request_section(_section: type[VectorStoreSection]) -> VectorStoreSection: ...
-
-
-@overload
-def request_section(_section: type[LLMSection]) -> LLMSection: ...
-
-
-@overload
-def request_section(_section: type[MLProviderSection]) -> MLProviderSection: ...
-
-
-@overload
-def request_section(_section: type[ConcurrencySection]) -> ConcurrencySection: ...
-
-
-@overload
-def request_section(_section: type[OCRSection]) -> OCRSection: ...
-
-
-@overload
-def request_section(_section: type[RetrievalSection]) -> RetrievalSection: ...
-
-
-@overload
-def request_section(_section: type[RankingSection]) -> RankingSection: ...
-
-
-@overload
-def request_section(_section: type[HybridSearchSection]) -> HybridSearchSection: ...
-
-
-@overload
-def request_section(_section: type[RagFeaturesSection]) -> RagFeaturesSection: ...
-
-
-@overload
-def request_section(_section: type[ChunkingSection]) -> ChunkingSection: ...
-
-
-@overload
-def request_section(_section: type[ChatSection]) -> ChatSection: ...
-
-
-@overload
-def request_section(_section: type[RedisSection]) -> RedisSection: ...
-
-
-@overload
-def request_section(_section: type[JobsSection]) -> JobsSection: ...
-
-
-@overload
-def request_section(_section: type[StorageSection]) -> StorageSection: ...
-
-
-@overload
-def request_section(_section: type[HttpSection]) -> HttpSection: ...
-
-
-@overload
-def request_section(_section: type[AuthSection]) -> AuthSection: ...
-
-
-@overload
-def request_section(_section: type[RateLimitSection]) -> RateLimitSection: ...
-
-
-@overload
-def request_section(_section: type[CostLimitSection]) -> CostLimitSection: ...
-
-
-@overload
-def request_section(_section: type[BenchmarkSection]) -> BenchmarkSection: ...
-
-
-def request_section(_section: type[BaseModel]) -> BaseModel:
-    """Request-generation settings narrowed to one section; the argument only selects the type.
-
-    ``Settings`` inherits every section, so each overload is satisfied without a cast.
+    The check is on the argument, not on the returned object: tests substitute
+    ``config.settings`` with mocks, and the object is ``Settings`` by construction.
     """
-    return get_request_settings()
+    if section not in SECTION_TYPES:
+        message = f"{section.__name__} is not a Settings section"
+        raise TypeError(message)
 
 
-@overload
-def process_section(_section: type[AppSection]) -> AppSection: ...
+def request_section[SectionT: BaseModel](section: type[SectionT]) -> SectionT:
+    """Request-generation settings narrowed to one section.
 
-
-@overload
-def process_section(_section: type[DatabaseSection]) -> DatabaseSection: ...
-
-
-@overload
-def process_section(_section: type[VectorStoreSection]) -> VectorStoreSection: ...
-
-
-@overload
-def process_section(_section: type[LLMSection]) -> LLMSection: ...
-
-
-@overload
-def process_section(_section: type[MLProviderSection]) -> MLProviderSection: ...
-
-
-@overload
-def process_section(_section: type[ConcurrencySection]) -> ConcurrencySection: ...
-
-
-@overload
-def process_section(_section: type[OCRSection]) -> OCRSection: ...
-
-
-@overload
-def process_section(_section: type[RetrievalSection]) -> RetrievalSection: ...
-
-
-@overload
-def process_section(_section: type[RankingSection]) -> RankingSection: ...
-
-
-@overload
-def process_section(_section: type[HybridSearchSection]) -> HybridSearchSection: ...
-
-
-@overload
-def process_section(_section: type[RagFeaturesSection]) -> RagFeaturesSection: ...
-
-
-@overload
-def process_section(_section: type[ChunkingSection]) -> ChunkingSection: ...
-
-
-@overload
-def process_section(_section: type[ChatSection]) -> ChatSection: ...
-
-
-@overload
-def process_section(_section: type[RedisSection]) -> RedisSection: ...
-
-
-@overload
-def process_section(_section: type[JobsSection]) -> JobsSection: ...
-
-
-@overload
-def process_section(_section: type[StorageSection]) -> StorageSection: ...
-
-
-@overload
-def process_section(_section: type[HttpSection]) -> HttpSection: ...
-
-
-@overload
-def process_section(_section: type[AuthSection]) -> AuthSection: ...
-
-
-@overload
-def process_section(_section: type[RateLimitSection]) -> RateLimitSection: ...
-
-
-@overload
-def process_section(_section: type[CostLimitSection]) -> CostLimitSection: ...
-
-
-@overload
-def process_section(_section: type[BenchmarkSection]) -> BenchmarkSection: ...
-
-
-def process_section(_section: type[BaseModel]) -> BaseModel:
-    """Process-wide settings narrowed to one section; the argument only selects the type.
-
-    ``Settings`` inherits every section, so each overload is satisfied without a cast.
+    Static narrowing only: at runtime this is the full ``Settings`` snapshot (which
+    keeps hot reload working), not an isolated section object. ``Settings`` inherits
+    every section in ``ALL_SECTIONS``, which makes the cast sound.
     """
-    return settings
+    checked_section(section)
+    return cast("SectionT", get_request_settings())
+
+
+def process_section[SectionT: BaseModel](section: type[SectionT]) -> SectionT:
+    """Process-wide settings narrowed to one section.
+
+    Static narrowing only: at runtime this is the full ``Settings`` singleton.
+    """
+    checked_section(section)
+    return cast("SectionT", settings)
 
 
 def ml_client_settings() -> MLClientSettings:
@@ -280,7 +129,23 @@ def endpoint_settings() -> EndpointSettings:
     return settings
 
 
-settings = Settings()
+def load_settings() -> Settings:
+    """Build the process settings; every invalid-config failure surfaces as ``ConfigurationError``.
+
+    Field errors are re-raised without their pydantic cause: it carries ``input_value``,
+    which may be a credential.
+    """
+    try:
+        return Settings()
+    except ValidationError as exc:
+        problems = [
+            f"{'.'.join(str(part) for part in error['loc']).upper() or 'SETTINGS'}: {error['msg']}"
+            for error in exc.errors(include_url=False, include_input=False)
+        ]
+        raise ConfigurationError(format_errors(problems)) from None
+
+
+settings = load_settings()
 
 __all__ = [
     "ALL_SECTIONS",
@@ -290,6 +155,7 @@ __all__ = [
     "ChatSection",
     "ChunkingSection",
     "ConcurrencySection",
+    "ConfigurationError",
     "CostLimitSection",
     "DatabaseSection",
     "EmbeddingIdentitySettings",
@@ -309,14 +175,15 @@ __all__ = [
     "Settings",
     "StorageSection",
     "VectorStoreSection",
-    "_settings_overrides",
     "endpoint_settings",
     "get_request_settings",
     "get_setting",
+    "load_settings",
     "ml_client_settings",
     "process_section",
     "read_version",
     "request_section",
     "request_settings",
     "settings",
+    "settings_overrides",
 ]

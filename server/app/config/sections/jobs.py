@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, PositiveInt
 
 from config.ownership import Static
 
 
 class JobsSection(BaseModel):
-    worker_max_concurrent: Static[int] = 4
-    outbox_max_concurrent: Static[int] = Field(default=5, ge=1)
-    job_cleanup_days: int = Field(default=30, ge=1)
+    worker_max_concurrent: Static[PositiveInt] = 4
+    outbox_max_concurrent: Static[PositiveInt] = 5
+    job_cleanup_days: PositiveInt = 30
     stuck_job_timeout_minutes: int = 30
     stale_pending_timeout_minutes: int = 30

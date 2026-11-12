@@ -80,15 +80,21 @@ async def run_retrieval(
 
         record_origins(candidates, "search", query_for_search)
 
+        if access_filter is retrieval_filter:
+            state.full_corpus_searches.add(
+                (
+                    query_for_search,
+                    state.fetch_k,
+                    state.effective_dense_weight,
+                    state.effective_sparse_weight,
+                )
+            )
+
         if candidates:
             break
 
         if access_filter is not retrieval_filter:
             log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
-
-    if len(filters) > 1:
-        domain_hit = bool(candidates) and access_filter is not retrieval_filter
-        state.domain_search_hit = bool(state.domain_search_hit) or domain_hit
 
     return candidates
 
@@ -333,10 +339,18 @@ async def rerank_and_enrich(
 
     docs = retained_temporal_candidates(docs)
 
-    # Skip when every search already ran on the full corpus: the fallback would repeat it.
+    # Skip only when this exact full-corpus search already ran (same text, filter and
+    # parameters); decomposed sub-queries do not cover the original question.
+    fallback_search = (
+        query,
+        state.rag.retriever.fetch_k,
+        state.rag.hybrid_search.dense_weight,
+        state.rag.hybrid_search.sparse_weight,
+    )
+
     if (
         not docs
-        and state.domain_search_hit is not False
+        and fallback_search not in state.full_corpus_searches
         and policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus
     ):
         fallback_docs = await apply_legal_rerank_fallback(
@@ -422,7 +436,7 @@ class RetrievalPipeline:
 
     async def run(self, query: str, state: RetrievalWork) -> RetrievalWork:
         begin_attempt(state.question, query)
-        state.domain_search_hit = None
+        state.full_corpus_searches.clear()
         candidates, sub_queries = await retrieve_with_decomposition(query, state, self.ml_clients)
         state.sub_queries = list(dict.fromkeys([*state.sub_queries, *sub_queries]))
 

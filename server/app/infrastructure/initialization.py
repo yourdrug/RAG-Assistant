@@ -62,11 +62,11 @@ def build_defaults() -> list[ConfigParameter]:
 
 
 async def bootstrap_admin(uow_factory: UnitOfWorkFactory) -> None:
-    if not settings.admin_email or not settings.admin_password:
+    if not settings.admin_email or not settings.admin_password.get_secret_value():
         logger.warning("ADMIN_EMAIL/ADMIN_PASSWORD are not set; default admin is not created")
         return
 
-    hashed = await BCryptPasswordHasher().hash(settings.admin_password)
+    hashed = await BCryptPasswordHasher().hash(settings.admin_password.get_secret_value())
     async with uow_factory.create(master=True) as uow:
         await uow.users.ensure_admin(
             email=settings.admin_email,

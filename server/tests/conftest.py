@@ -41,7 +41,7 @@ _TEST_DEFAULTS = {
     "LLM_PROVIDER": "openrouter",
     "OPENROUTER_MODEL": "qwen/qwen-2.5-7b-instruct",
     "OPENROUTER_API_KEY": "test-openrouter-key",
-    "JWT_SECRET_KEY": "test-secret-key",
+    "JWT_SECRET_KEY": "test-secret-key-for-unit-tests-only-0000",
     "DATA_DIR": str(Path(gettempdir()) / "rag_test"),
     "REDIS_PASSWORD": "test-redis-password",
     "S3_ACCESS_KEY": "test-access-key",

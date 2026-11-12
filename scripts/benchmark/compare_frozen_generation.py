@@ -196,7 +196,7 @@ async def run_comparison(snapshot, out: Path, *, provider=None, concurrency=2): 
 
     if concurrency < 1:
         raise ValueError("Concurrency must be positive")
-    if not settings.openrouter_api_key:
+    if not settings.openrouter_api_key.get_secret_value():
         raise ValueError("OpenRouter credentials are not configured")
     results = initial_results(snapshot, read_json(out) if out.exists() else None)
     completed = {(row["id"], row["requested_model"], row["repeat"]) for row in results["results"]}
@@ -206,7 +206,7 @@ async def run_comparison(snapshot, out: Path, *, provider=None, concurrency=2): 
     results["provider_constraint"] = provider
     base_url = settings.openrouter_base_url.rstrip("/")
     limiter = asyncio.Semaphore(concurrency)
-    headers = {"Authorization": "Bearer " + settings.openrouter_api_key}
+    headers = {"Authorization": "Bearer " + settings.openrouter_api_key.get_secret_value()}
     async with httpx.AsyncClient(headers=headers, timeout=180) as client:
         if jobs:
             results["catalog"] = await preflight(client, base_url, snapshot, provider)

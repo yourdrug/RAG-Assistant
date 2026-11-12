@@ -14,3 +14,16 @@ class ChunkingSection(BaseModel):
     legal_chunk_overlap: int = int(PROFILE_CONFIG_DEFAULTS[("legal_chunk_overlap", "legal")].value)
     decree_chunk_size: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_size", "decree")].value)
     decree_chunk_overlap: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_overlap", "decree")].value)
+
+    def check_chunking(self) -> list[str]:
+        # Each bound is checked per field; the splitter also needs overlap < size.
+        pairs = (
+            ("chunk_overlap", "chunk_size"),
+            ("legal_chunk_overlap", "legal_chunk_size"),
+            ("decree_chunk_overlap", "decree_chunk_size"),
+        )
+        return [
+            f"{overlap.upper()} must be less than {size.upper()}"
+            for overlap, size in pairs
+            if getattr(self, overlap) >= getattr(self, size)
+        ]

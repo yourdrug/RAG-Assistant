@@ -108,10 +108,10 @@ async def run(snapshot, output):
     )
     if result["input_sha256"] != fingerprint:
         raise ValueError("Resume input mismatch")
-    if not settings.openrouter_api_key:
+    if not settings.openrouter_api_key.get_secret_value():
         raise ValueError("OpenRouter is not configured")
     async with httpx.AsyncClient(
-        headers={"Authorization": "Bearer " + settings.openrouter_api_key}, timeout=180
+        headers={"Authorization": "Bearer " + settings.openrouter_api_key.get_secret_value()}, timeout=180
     ) as client:
         for case in snapshot["cases"]:
             if not case["context"]:

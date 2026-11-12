@@ -172,7 +172,7 @@ async def run(snapshot: dict[str, Any], output: Path, cohort: str) -> None:
     limiter = asyncio.Semaphore(6)
     save(output, result)
     async with httpx.AsyncClient(
-        headers={"Authorization": "Bearer " + settings.openrouter_api_key}, timeout=180
+        headers={"Authorization": "Bearer " + settings.openrouter_api_key.get_secret_value()}, timeout=180
     ) as client:
 
         async def evaluate(

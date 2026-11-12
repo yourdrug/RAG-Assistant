@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import SecretStr
 import pytest
 
 
@@ -45,7 +46,7 @@ def test_invented_quote_or_source_is_rejected(experiment: ModuleType) -> None:
 async def test_resume_reuses_extraction_after_generation_failure(
     experiment: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(experiment.settings, "openrouter_api_key", "fixture")
+    monkeypatch.setattr(experiment.settings, "openrouter_api_key", SecretStr("fixture"))
     snapshot = {
         "model": "fixture-model",
         "seeds": [4101],

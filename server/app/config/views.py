@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Protocol, Self
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from pydantic import SecretStr
+
 
 class EndpointSettings(Protocol):
     """Deployment endpoints checked by ``endpoint_policy.validate_endpoints``."""
@@ -68,7 +70,7 @@ class MLClientSettings(EmbeddingIdentitySettings, Protocol):
     def llm_num_predict_broad(self) -> int: ...
 
     @property
-    def openrouter_api_key(self) -> str: ...
+    def openrouter_api_key(self) -> SecretStr: ...
 
     @property
     def openrouter_base_url(self) -> str: ...
@@ -77,7 +79,7 @@ class MLClientSettings(EmbeddingIdentitySettings, Protocol):
     def openrouter_model(self) -> str: ...
 
     @property
-    def deepinfra_api_key(self) -> str: ...
+    def deepinfra_api_key(self) -> SecretStr: ...
 
     @property
     def deepinfra_base_url(self) -> str: ...

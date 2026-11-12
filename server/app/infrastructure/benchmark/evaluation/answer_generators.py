@@ -7,7 +7,7 @@ from datetime import date
 import time
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from config import _settings_overrides
+from config import settings_overrides
 from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.benchmark.evaluation.case_metrics import (
     compute_retriever_metrics_from_sources,
@@ -56,7 +56,7 @@ class RagBenchmarkGenerator:
 
     async def generate(self, question: dict[str, Any], ctx: RagContext) -> BenchmarkAnswer:
         overrides = {
-            **(_settings_overrides.get() or {}),
+            **(settings_overrides.get() or {}),
             "cache_enabled": False,
             "retriever_top_k": self._top_k,
         }
@@ -79,7 +79,7 @@ class RagBenchmarkGenerator:
             },
         )
         evidence_token = active_evidence.set(evidence)
-        token = _settings_overrides.set(overrides)
+        token = settings_overrides.set(overrides)
         records = active_llm_usage.get()
 
         if records is None:
@@ -101,7 +101,7 @@ class RagBenchmarkGenerator:
             raise
         finally:
             active_llm_usage.reset(usage_token)
-            _settings_overrides.reset(token)
+            settings_overrides.reset(token)
             active_evidence.reset(evidence_token)
         context = "\n\n---\n\n".join(s.get("content", "") for s in result.sources if s.get("content"))
 

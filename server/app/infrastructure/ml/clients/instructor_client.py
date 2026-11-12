@@ -90,7 +90,7 @@ def create_llm_instructor_client(
     client = create_instructor_client(
         runtime=runtime,
         base_url=llm_settings.openrouter_base_url,
-        api_key=llm_settings.openrouter_api_key,
+        api_key=llm_settings.openrouter_api_key.get_secret_value(),
     )
     resolved_model = model or llm_settings.openrouter_model
 

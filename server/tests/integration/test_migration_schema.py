@@ -10,6 +10,7 @@ import uuid
 
 from alembic import command
 from alembic.config import Config
+from pydantic import SecretStr
 import pytest
 from sqlalchemy import MetaData, Table, create_engine, func, inspect, select, text
 from sqlalchemy.engine import Connection, make_url
@@ -146,7 +147,7 @@ def test_standalone_migration_uses_manager_with_special_password(
 ) -> None:
     url = migration_connection.engine.url
     monkeypatch.setattr(settings, "db_user", url.username)
-    monkeypatch.setattr(settings, "db_password", "p@ss:/?#%")
+    monkeypatch.setattr(settings, "db_password", SecretStr("p@ss:/?#%"))
     monkeypatch.setattr(settings, "db_host", url.host or url.query.get("host", "localhost"))
     monkeypatch.setattr(settings, "db_port", str(url.port or url.query.get("port", 5432)))
     monkeypatch.setattr(settings, "db_name", url.database)

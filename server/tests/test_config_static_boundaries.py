@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
+from pydantic import SecretStr
 import pytest
 
 from application.admin import ConfigService
@@ -39,7 +40,8 @@ def test_legacy_storage_row_does_not_change_deployment_settings(key: str) -> Non
     configuration = SettingsProviderConfiguration(model, bus=bus)
     row = ConfigParameter(key, "****", ConfigValueType.STR, "legacy")
     configuration.apply([row])
-    assert getattr(model, key) == "deployment-value"
+    value = getattr(model, key)
+    assert (value.get_secret_value() if isinstance(value, SecretStr) else value) == "deployment-value"
     bus.publish_strict.assert_not_called()
 
 

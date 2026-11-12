@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, NonNegativeInt, PositiveInt, SecretStr
 
 from application.runtime.enums import MLProvider
 from config.ownership import Secret, Static
@@ -16,18 +16,18 @@ class MLProviderSection(BaseModel):
     tei_embed_model: Static[str] = "BAAI/bge-m3"
     embedding_revision: Static[str] = "v1"
     tei_rerank_url: str = "http://tei-rerank:8080"
-    deepinfra_api_key: Secret[str] = ""
+    deepinfra_api_key: Secret = SecretStr("")
     deepinfra_base_url: str = "https://api.deepinfra.com/v1"
     deepinfra_embed_model: str = "BAAI/bge-m3"
     deepinfra_rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
     embed_batch_size: int = 32
-    embed_dim: Static[int] = 1024
+    embed_dim: Static[PositiveInt] = 1024
 
     # ── HTTP pools ──────────────────────────────────────────────────────────
-    embedding_http_max_connections: int = Field(default=40, gt=0)
-    embedding_http_max_keepalive_connections: int = Field(default=20, ge=0)
-    rerank_http_max_connections: int = Field(default=20, gt=0)
-    rerank_http_max_keepalive_connections: int = Field(default=10, ge=0)
+    embedding_http_max_connections: PositiveInt = 40
+    embedding_http_max_keepalive_connections: NonNegativeInt = 20
+    rerank_http_max_connections: PositiveInt = 20
+    rerank_http_max_keepalive_connections: NonNegativeInt = 10
     # Deployment controls the trust boundary; database writers cannot expand it.
     ml_internal_allowed_origins: Static[list[str]] = [
         "http://tei-embed:8080",
@@ -61,7 +61,7 @@ class MLProviderSection(BaseModel):
             if missing:
                 return [f"{', '.join(missing)} required when ML_PROVIDER=tei"]
         elif self.ml_provider == MLProvider.DEEPINFRA.value:
-            if not self.deepinfra_api_key:
+            if not self.deepinfra_api_key.get_secret_value():
                 return ["DEEPINFRA_API_KEY required when ML_PROVIDER=deepinfra"]
 
         return []

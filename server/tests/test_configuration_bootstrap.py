@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI, HTTPException, Response
 import httpx
+from pydantic import SecretStr
 import pytest
 
 from application.admin import ConfigService
@@ -93,7 +94,7 @@ def test_production_provider_validation_uses_deployment_provider(
     model = configuration.settings
     model.tei_embed_url = model.tei_rerank_url = ""
     model.ml_provider = "deepinfra"
-    model.deepinfra_api_key = "private-test-key"
+    model.deepinfra_api_key = SecretStr("private-test-key")
     configuration.apply([row("ml_provider", "tei")])
     assert model.ml_provider == "deepinfra"
     assert configuration.status().ready
@@ -111,7 +112,7 @@ def test_production_provider_validation_uses_deployment_provider(
 def test_bad_snapshot_keeps_entire_previous_state_and_safe_error(
     configuration: SettingsProviderConfiguration, rows: list[ConfigParameter]
 ) -> None:
-    configuration.settings.deepinfra_api_key = ""
+    configuration.settings.deepinfra_api_key = SecretStr("")
     configuration.apply([row("openrouter_model", "previous-model")])
     previous_version = configuration.status().applied_version
     with pytest.raises(ValidationError):
@@ -187,7 +188,7 @@ async def test_restart_and_lost_notify_load_latest_writer_snapshot(
 def test_provider_change_rejected_before_commit_without_required_key(
     configuration: SettingsProviderConfiguration,
 ) -> None:
-    configuration.settings.openrouter_api_key = ""
+    configuration.settings.openrouter_api_key = SecretStr("")
     with pytest.raises(ValidationError):
         configuration.validate_change("llm_provider", LLMProvider.OPENROUTER.value)
 
@@ -200,7 +201,7 @@ async def test_service_validates_provider_before_any_database_write(
     factory = FakeUnitOfWorkFactory()
     saved = row("llm_provider", LLMProvider.OPENROUTER.value)
     await factory._uow.fake_config_parameters.save(saved)
-    configuration.settings.openrouter_api_key = ""
+    configuration.settings.openrouter_api_key = SecretStr("")
     service = ConfigService(factory, configuration.bus, configuration)
     with pytest.raises(ValidationError):
         await service.update_parameter("llm_provider", LLMProvider.OPENROUTER.value)
@@ -321,7 +322,7 @@ def test_deepinfra_production_can_construct_before_db_load_and_without_tei_urls(
         stage=AppStage.PROD,
         ml_provider="deepinfra",
         allowed_origins="https://app.example.test",
-        deepinfra_api_key="private-test-key",
+        deepinfra_api_key=SecretStr("private-test-key"),
         tei_embed_url="",
         tei_rerank_url="",
     )

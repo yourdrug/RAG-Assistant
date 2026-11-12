@@ -60,7 +60,7 @@ async def resolve_costs(records: list[dict[str, Any]]) -> None:
         return
 
     async with httpx.AsyncClient(
-        timeout=30, headers={"Authorization": "Bearer " + settings.openrouter_api_key}
+        timeout=30, headers={"Authorization": "Bearer " + settings.openrouter_api_key.get_secret_value()}
     ) as client:
         for record in pending:
             try:

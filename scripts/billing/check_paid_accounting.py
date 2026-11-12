@@ -136,13 +136,13 @@ def create_dispatch_clients(
     args: argparse.Namespace, runtime: BudgetRuntime
 ) -> tuple[Any, Any, Any, Any, Any, Any]:
     embedding = DeepInfraEmbeddingsClient(
-        settings.deepinfra_api_key,
+        settings.deepinfra_api_key.get_secret_value(),
         settings.deepinfra_base_url.rstrip("/") + "/openai",
         args.embedding_model,
         runtime=runtime,
     )
     reranker = DeepInfraRerankerClient(
-        settings.deepinfra_api_key,
+        settings.deepinfra_api_key.get_secret_value(),
         settings.deepinfra_base_url,
         args.reranker_model,
         runtime=runtime,
@@ -157,10 +157,10 @@ def create_dispatch_clients(
         )
     )
     structured = create_async_instructor_client(
-        settings.openrouter_base_url, settings.openrouter_api_key, runtime=runtime
+        settings.openrouter_base_url, settings.openrouter_api_key.get_secret_value(), runtime=runtime
     )
     sync_structured = create_instructor_client(
-        settings.openrouter_base_url, settings.openrouter_api_key, runtime=runtime
+        settings.openrouter_base_url, settings.openrouter_api_key.get_secret_value(), runtime=runtime
     )
     grouped = create_async_judge_client(runtime=runtime)
     return embedding, reranker, llm, structured, sync_structured, grouped

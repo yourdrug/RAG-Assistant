@@ -11,7 +11,7 @@ import pytest
 
 from application.benchmark.sweep_ports import SweepCancelled
 from composition.service_providers import build_sweep_engine
-from config import _settings_overrides, get_setting, settings
+from config import get_setting, settings, settings_overrides
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
@@ -75,11 +75,11 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(
             sources=[{"source": "report.pdf", "max_score": 0.9, "content": "context"}],
         )
 
-    previous = _settings_overrides.get()
+    previous = settings_overrides.get()
     results = await run_benchmark_async(
         questions, 4, "judge", n_runs=2, rag_service=SimpleNamespace(invoke=invoke)
     )
-    assert _settings_overrides.get() == previous
+    assert settings_overrides.get() == previous
     assert [r["run"] for r in results] == [1, 2]
     assert [r["id"] for r in results] == ["first", "first"]
     assert results[0]["retriever_metrics"]["hit_rate"] == 1
@@ -95,11 +95,11 @@ async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(
     benchmark_io: tuple[list[dict[str, Any]], AsyncMock],
 ) -> None:
     questions, _ = benchmark_io
-    previous = _settings_overrides.get()
+    previous = settings_overrides.get()
     rag = SimpleNamespace(invoke=AsyncMock(side_effect=RuntimeError("pipeline failed")))
     with pytest.raises(RuntimeError, match="pipeline failed"):
         await run_benchmark_async(questions, 4, "judge", rag_service=rag)
-    assert _settings_overrides.get() == previous
+    assert settings_overrides.get() == previous
 
 
 @pytest.fixture
@@ -140,7 +140,7 @@ async def test_sweep_cancels_before_scoring(grid_engine: Any, monkeypatch: pytes
 async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(
     grid_engine: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token = _settings_overrides.set({"cache_enabled": True, "retriever_top_k": 99})
+    token = settings_overrides.set({"cache_enabled": True, "retriever_top_k": 99})
     monkeypatch.setattr(
         grid_engine, "run_full_benchmark", AsyncMock(side_effect=RuntimeError("judge failed"))
     )
@@ -148,9 +148,9 @@ async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(
         sweep = BenchmarkSweep(search_space={"top_k": {"values": [2]}}, top_n_llm=1)
         with pytest.raises(RuntimeError, match="judge failed"):
             await grid_engine.run_sweep(sweep, judge_model="judge")
-        assert _settings_overrides.get() == {"cache_enabled": True, "retriever_top_k": 99}
+        assert settings_overrides.get() == {"cache_enabled": True, "retriever_top_k": 99}
     finally:
-        _settings_overrides.reset(token)
+        settings_overrides.reset(token)
 
 
 @pytest.mark.asyncio

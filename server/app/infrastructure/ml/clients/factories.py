@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 import httpx
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
 
 from application.runtime.enums import LLMProvider, MLProvider
 from config import LLMSection, VectorStoreSection, ml_client_settings, process_section
@@ -30,6 +29,8 @@ from infrastructure.ml.config.embedding_identity import configured_embedding_ide
 
 
 if TYPE_CHECKING:
+    from pydantic import SecretStr
+
     from config import MLClientSettings
     from infrastructure.budget.runtime import BudgetRuntime
 
@@ -53,7 +54,7 @@ def create_embeddings(
     if model.ml_provider == MLProvider.DEEPINFRA.value:
         log.info("Creating DeepInfra embeddings client (model=%s) ...", model.deepinfra_embed_model)
         client = DeepInfraEmbeddingsClient(
-            api_key=model.deepinfra_api_key,
+            api_key=model.deepinfra_api_key.get_secret_value(),
             base_url=f"{model.deepinfra_base_url}/openai",
             model=model.deepinfra_embed_model,
             pool_limits=pool_limits,
@@ -87,7 +88,7 @@ def create_reranker(
     if model.ml_provider == MLProvider.DEEPINFRA.value:
         log.info("Creating DeepInfra reranker client (model=%s) ...", model.deepinfra_rerank_model)
         return DeepInfraRerankerClient(
-            api_key=model.deepinfra_api_key,
+            api_key=model.deepinfra_api_key.get_secret_value(),
             base_url=model.deepinfra_base_url,
             model=model.deepinfra_rerank_model,
             pool_limits=pool_limits,
@@ -178,7 +179,7 @@ def build_chat_model(
     default_name = FAST_OPENROUTER_MODEL if role == ChatModelRole.AUXILIARY else model.openrouter_model
     parameters: OpenAIParameters = {
         "model_name": model_name if model_name is not None else default_name,
-        "openai_api_key": SecretStr(model.openrouter_api_key) if model.openrouter_api_key else None,
+        "openai_api_key": model.openrouter_api_key if model.openrouter_api_key.get_secret_value() else None,
         "openai_api_base": model.openrouter_base_url,
         "temperature": temperature if temperature is not None else role_temperature,
         "max_tokens": num_predict if num_predict is not None else output_limits[role],
@@ -300,14 +301,14 @@ async def fetch_openrouter_models() -> list[dict[str, Any]]:
     """
     llm_settings = process_section(LLMSection)
 
-    if not llm_settings.openrouter_api_key:
+    if not llm_settings.openrouter_api_key.get_secret_value():
         return []
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(
                 f"{llm_settings.openrouter_base_url}/models",
-                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key}"},
+                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key.get_secret_value()}"},
             )
             r.raise_for_status()
             data = r.json()

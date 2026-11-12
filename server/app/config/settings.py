@@ -9,14 +9,16 @@ database at bootstrap. Target ownership is declared in application.runtime.setti
 from __future__ import annotations
 
 from pathlib import Path
-import sys
 from typing import TYPE_CHECKING
 
+from dotenv import dotenv_values
 from pydantic import model_validator
-from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
+from pydantic_settings import BaseSettings, DotEnvSettingsSource, EnvSettingsSource, SettingsConfigDict
 
 from application.runtime.dynamic_params import DYNAMIC_PARAMS
 from application.runtime.enums import AppStage
+from application.runtime.errors import ConfigurationError
+from config.ownership import SettingOwnership, keys_owned_by
 from config.sections import (
     AppSection,
     AuthSection,
@@ -46,6 +48,41 @@ if TYPE_CHECKING:
     from pydantic_settings import PydanticBaseSettingsSource
 
 SERVER_DIR = Path(__file__).resolve().parent.parent.parent
+SECRETS_FILE_NAME = ".env.secrets"
+
+
+def format_errors(errors: list[str]) -> str:
+    return "Configuration errors:\n" + "\n".join(f"  - {error}" for error in errors)
+
+
+def misplaced_secrets(source: DotEnvSettingsSource, secret_keys: frozenset[str]) -> list[str]:
+    """Secret keys found in a dotenv file other than ``.env.secrets`` (names only, never values)."""
+    env_files = source.env_file
+
+    if env_files is None:
+        paths: list[Path] = []
+    elif isinstance(env_files, (str, Path)):
+        paths = [Path(env_files)]
+    else:
+        paths = [Path(item) for item in env_files]
+
+    errors: list[str] = []
+
+    for path in paths:
+        resolved = path.expanduser()
+
+        if resolved.name == SECRETS_FILE_NAME or not resolved.is_file():
+            continue
+
+        values = dotenv_values(resolved, encoding=source.env_file_encoding)
+        errors.extend(
+            f"{key.upper()} is a secret: set it in {SECRETS_FILE_NAME} or the process environment, "
+            f"not in {resolved.name}"
+            for key in sorted(values)
+            if key.lower() in secret_keys
+        )
+
+    return errors
 
 
 def read_version() -> str:
@@ -66,7 +103,7 @@ class EnvSettingsBase(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(
             str(SERVER_DIR / ".env"),
-            str(SERVER_DIR / ".env.secrets"),
+            str(SERVER_DIR / SECRETS_FILE_NAME),
         ),
         extra="ignore",
     )
@@ -116,14 +153,25 @@ class Settings(
                 key: value for key, value in source.env_vars.items() if key.lower() not in dynamic_keys
             }
 
+        if isinstance(dotenv_settings, DotEnvSettingsSource):
+            errors = misplaced_secrets(dotenv_settings, keys_owned_by(cls, SettingOwnership.SECRET))
+
+            if errors:
+                raise ConfigurationError(format_errors(errors))
+
         return init_settings, env_settings, dotenv_settings, file_secret_settings
 
     @model_validator(mode="after")
     def post_init(self) -> Settings:
-        pool_errors = self.check_http_pools()
+        structure_errors = [
+            *self.check_http_pools(),
+            *self.check_database(),
+            *self.check_retrieval(),
+            *self.check_generation_budget(),
+        ]
 
-        if pool_errors:
-            raise ValueError("; ".join(pool_errors))
+        if structure_errors:
+            raise ConfigurationError(format_errors(structure_errors))
 
         if not self.version:
             self.version = read_version()
@@ -133,9 +181,7 @@ class Settings(
         security_errors = self.check_security()
 
         if security_errors:
-            msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in security_errors)
-            sys.stderr.write(msg + "\n")
-            sys.exit(1)
+            raise ConfigurationError(format_errors(security_errors))
 
         return self
 
@@ -144,10 +190,10 @@ class Settings(
         # each section checks its own secrets, the origin rule spans App and Http.
         errors = [*self.check_auth_security(), *self.check_redis_security(), *self.check_storage_security()]
 
-        if self.stage == AppStage.PROD and self.allowed_origins.strip() == "*":
+        if self.stage == AppStage.PROD and "*" in self.allowed_origins_list:
             errors.append("ALLOWED_ORIGINS must not be '*' in production — list explicit origins")
 
         return errors
 
 
-__all__ = ["Settings", "read_version"]
+__all__ = ["ConfigurationError", "Settings", "format_errors", "read_version"]

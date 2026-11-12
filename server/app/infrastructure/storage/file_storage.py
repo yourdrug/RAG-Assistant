@@ -47,8 +47,8 @@ def s3_client_kwargs(storage_settings: StorageSection) -> S3ClientKwargs:
         "https://s3.amazonaws.com"
     )
     kwargs: S3ClientKwargs = {
-        "aws_access_key_id": storage_settings.s3_access_key,
-        "aws_secret_access_key": storage_settings.s3_secret_key,
+        "aws_access_key_id": storage_settings.s3_access_key.get_secret_value(),
+        "aws_secret_access_key": storage_settings.s3_secret_key.get_secret_value(),
         "region_name": storage_settings.s3_region,
         "config": BotoConfig(
             connect_timeout=10,

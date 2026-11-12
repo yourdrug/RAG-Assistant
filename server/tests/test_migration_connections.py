@@ -6,6 +6,7 @@ import runpy
 from unittest.mock import AsyncMock, MagicMock
 
 from alembic import context
+from pydantic import SecretStr
 import pytest
 
 from config import settings
@@ -26,9 +27,11 @@ def migration_context(monkeypatch: pytest.MonkeyPatch, *, offline: bool) -> Magi
 
 def test_offline_migrations_preserve_password_characters(monkeypatch: pytest.MonkeyPatch) -> None:
     config = migration_context(monkeypatch, offline=True)
-    monkeypatch.setattr(settings, "db_password", "p@ss:/?#%")
+    monkeypatch.setattr(settings, "db_password", SecretStr("p@ss:/?#%"))
     runpy.run_path(str(ENV_PATH))
-    assert config.configure_context.call_args.kwargs["url"].password == settings.db_password
+    assert (
+        config.configure_context.call_args.kwargs["url"].password == settings.db_password.get_secret_value()
+    )
     config.set_section_option.assert_not_called()
 
 

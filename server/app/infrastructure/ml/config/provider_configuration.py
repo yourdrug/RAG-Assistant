@@ -314,7 +314,11 @@ class SettingsProviderConfiguration:
                 )
 
         self.validate_corpus_settings(updates)
-        self.validate_provider(self.settings.model_copy(update=updates))
+        candidate = self.settings.model_copy(update=updates)
+        current_domain = self.domain_settings.snapshot() if self.domain_settings is not None else {}
+        validate_chunking(candidate, {**current_domain, **domain_updates})
+        validate_retrieval_budgets(candidate)
+        self.validate_provider(candidate)
         return updates, domain_updates, events
 
     def validate_corpus_settings(self, updates: dict[str, Any]) -> None:
@@ -463,6 +467,36 @@ class SettingsProviderConfiguration:
         )
 
 
+def validate_retrieval_budgets(candidate: Settings) -> None:
+    """Reject snapshots with top_k > fetch_k or num_predict >= num_ctx (per breadth)."""
+    errors = [*candidate.check_retrieval(), *candidate.check_generation_budget()]
+
+    if errors:
+        raise ValidationError("; ".join(errors))
+
+
+def validate_chunking(candidate: Settings, domain_values: dict[tuple[str, str], str]) -> None:
+    """Reject snapshots where overlap >= size: the splitter would fail on every document.
+
+    A domain value that is absent falls back to the global section field, as the splitter does.
+    """
+    errors = candidate.check_chunking()
+    domains = {
+        domain for key, domain in domain_values if key in (f"{domain}_chunk_size", f"{domain}_chunk_overlap")
+    }
+
+    for domain in sorted(domains):
+        size_key, overlap_key = f"{domain}_chunk_size", f"{domain}_chunk_overlap"
+        size = domain_values.get((size_key, domain), getattr(candidate, size_key, None))
+        overlap = domain_values.get((overlap_key, domain), getattr(candidate, overlap_key, None))
+
+        if size is not None and overlap is not None and int(overlap) >= int(size):
+            errors.append(f"{overlap_key} must be less than {size_key} for domain '{domain}'")
+
+    if errors:
+        raise ValidationError("; ".join(errors))
+
+
 def validate_provider_credentials(candidate: Settings) -> None:
     for key in ("cost_hourly_limit", "cost_daily_limit"):
         if usd_units(str(getattr(candidate, key))) <= 0:
@@ -471,7 +505,7 @@ def validate_provider_credentials(candidate: Settings) -> None:
 
     errors = candidate.check_ml_provider()
 
-    if not candidate.openrouter_api_key:
+    if not candidate.openrouter_api_key.get_secret_value():
         errors.append("OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter")
 
     if candidate.llm_provider not in {provider.value for provider in LLMProvider}:

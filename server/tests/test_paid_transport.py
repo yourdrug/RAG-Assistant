@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 from instructor.core.exceptions import InstructorRetryException
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 import pytest
 
 from application.budget import BudgetPolicy, CostBudgetService, billing_principal
@@ -226,7 +226,7 @@ async def test_deepinfra_configuration_probe_has_billing_scope(
     model = settings.model_copy(
         update={
             "ml_provider": "deepinfra",
-            "deepinfra_api_key": "test",
+            "deepinfra_api_key": SecretStr("test"),
             "embed_dim": 2,
             "deepinfra_embed_model": "BAAI/bge-m3",
             "deepinfra_rerank_model": "Qwen/Qwen3-Reranker-4B",
@@ -807,7 +807,7 @@ async def test_managed_llm_uses_one_physical_reservation(
             runtime=runtime.backend,
             max_tokens=10,
             model=settings.model_copy(
-                update={"openrouter_model": "m", "openrouter_api_key": "test"},
+                update={"openrouter_model": "m", "openrouter_api_key": SecretStr("test")},
             ),
         )
     )
@@ -854,7 +854,7 @@ async def test_both_judge_factories_use_physical_accounting(
     runtime.backend.catalog = OpenRouterBillingCatalog()
     monkeypatch.setattr(runtime.backend.catalog, "openrouter_context", AsyncMock(return_value=100))
     monkeypatch.setattr(settings, "llm_provider", LLMProvider.OPENROUTER)
-    monkeypatch.setattr(settings, "openrouter_api_key", "test")
+    monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("test"))
     monkeypatch.setattr(settings, "benchmark_judge_initial_tokens", 10)
     content = (
         '{"relevancy":{"score":8,"reason":"grounded"}}' if grouped else '{"score":8,"reason":"grounded"}'

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
+from pydantic import SecretStr
 import pytest
 
 from config import settings
@@ -83,7 +84,7 @@ async def test_failed_request_resumes_without_repeating_successes(
     comparison: ModuleType, snapshot: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
-    monkeypatch.setattr(settings, "openrouter_api_key", "fixture-key")
+    monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("fixture-key"))
     requests = []
     fail_first = True
 

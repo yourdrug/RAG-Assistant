@@ -14,7 +14,7 @@ import pytest
 from application.act_versioning import ActVersioningService
 from application.benchmark.sweep_ports import SweepCancelled
 from composition.service_providers import build_sweep_engine
-from config import _settings_overrides, get_setting
+from config import get_setting, settings_overrides
 from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep
 from domain.identity.roles import UserKind
 from domain.identity.user_context import UserContext
@@ -141,7 +141,7 @@ async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch: pytest
 async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellation() -> None:
 
     inherited: dict[str, object] = {"retriever_fetch_k": 23, "dense_weight": 0.75, "cache_enabled": True}
-    token = _settings_overrides.set(inherited)
+    token = settings_overrides.set(inherited)
 
     async def invoke(**kwargs: Any) -> None:
         assert get_setting("retriever_fetch_k") == 23
@@ -155,9 +155,9 @@ async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellati
             await generator.generate(
                 {"question": "q"}, RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL))
             )
-        assert _settings_overrides.get() == inherited
+        assert settings_overrides.get() == inherited
     finally:
-        _settings_overrides.reset(token)
+        settings_overrides.reset(token)
 
 
 @pytest.mark.asyncio

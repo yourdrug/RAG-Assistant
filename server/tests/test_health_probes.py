@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import httpx
+from pydantic import SecretStr
 import pytest
 
 from application.health.ports import HealthCheckResult
@@ -36,7 +37,7 @@ def http_probe(monkeypatch: pytest.MonkeyPatch) -> HttpFixture:
         "config.settings",
         SimpleNamespace(
             openrouter_base_url="http://openrouter",
-            openrouter_api_key="test-key",
+            openrouter_api_key=SecretStr("test-key"),
             openrouter_model="test-model",
             tei_embed_url="http://embed/",
             tei_rerank_url="http://rerank/",

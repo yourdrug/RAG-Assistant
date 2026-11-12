@@ -15,10 +15,11 @@ H-7/H-8 hardening:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import logging
 from typing import TYPE_CHECKING, Any, Unpack, cast
+from urllib.parse import unquote
 from uuid import uuid4
 
 from arq import create_pool
@@ -51,13 +52,23 @@ pool_state = PoolState()
 pool_lock = asyncio.Lock()
 
 
+def arq_redis_settings(dsn: str) -> RedisSettings:
+    """Build arq settings from a DSN, decoding percent-encoded credentials like redis-py does."""
+    parsed = RedisSettings.from_dsn(dsn)
+    return replace(
+        parsed,
+        username=unquote(parsed.username) if parsed.username else parsed.username,
+        password=unquote(parsed.password) if parsed.password else parsed.password,
+    )
+
+
 async def get_pool() -> ArqRedis:
     """Lazily create and reuse one arq pool per process."""
     if pool_state.pool is None:
         async with pool_lock:
             if pool_state.pool is None:
                 pool_state.pool = await create_pool(
-                    RedisSettings.from_dsn(process_section(RedisSection).redis_url)
+                    arq_redis_settings(process_section(RedisSection).redis_url)
                 )
 
     return pool_state.pool

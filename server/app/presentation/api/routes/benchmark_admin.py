@@ -7,10 +7,9 @@ import json
 import logging
 from typing import Annotated, Any
 
-from arq import create_pool
-from arq.connections import RedisSettings
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+import redis.asyncio as aioredis
 
 from application.admin import ConfigService
 from application.benchmark import (
@@ -318,8 +317,8 @@ async def sweep_progress_stream(
 
     async def event_generator() -> AsyncIterator[str]:
         try:
-            redis_settings = RedisSettings.from_dsn(storage_cfg.redis_url)
-            pool = await create_pool(redis_settings)
+            # redis-py decodes percent-encoded DSN credentials itself, like the sweep publisher.
+            pool = aioredis.Redis.from_url(storage_cfg.redis_url, socket_connect_timeout=3)
             try:
                 pubsub = pool.pubsub()
                 await pubsub.subscribe(f"sweep:{sweep_id}")
@@ -346,7 +345,7 @@ async def sweep_progress_stream(
                             break
             finally:
                 await pubsub.unsubscribe(f"sweep:{sweep_id}")
-                await pool.close()
+                await pool.aclose()
         except Exception as e:
             logger.warning("SSE stream error for sweep %d: %s", sweep_id, e, exc_info=True)
             yield f"data: {json.dumps({'error': 'SSE stream error'})}\n\n"

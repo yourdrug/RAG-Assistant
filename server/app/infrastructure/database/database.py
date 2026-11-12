@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from config import DatabaseSection, process_section
+from config import AppSection, DatabaseSection, process_section
 from domain.shared.exceptions import DatabaseError
 from infrastructure.database.dataclasses import DatabaseURL
 from infrastructure.database.enums import DatabaseNodeRole
@@ -52,7 +52,8 @@ def connection_arguments(database_settings: DatabaseSection) -> dict[str, object
     return {
         "connect_timeout": 5,
         "options": (
-            "-c timezone=Europe/Minsk "
+            # Session time zone follows TIMEZONE, like ORM timestamps (``basemodel``).
+            f"-c timezone={process_section(AppSection).timezone} "
             f"-c statement_timeout={database_settings.db_statement_timeout_ms} "
             f"-c idle_in_transaction_session_timeout={database_settings.db_idle_in_transaction_timeout_ms}"
         ),
@@ -63,7 +64,7 @@ def configured_database_url(database_settings: DatabaseSection) -> DatabaseURL:
 
     return DatabaseURL(
         database_settings.db_user,
-        database_settings.db_password,
+        database_settings.db_password.get_secret_value(),
         database_settings.db_host,
         database_settings.db_port,
         database_settings.db_name,
@@ -248,7 +249,7 @@ class DatabaseManager:
             if host and port:
                 slave_url: DatabaseURL = DatabaseURL(
                     database_settings.db_user,
-                    database_settings.db_password,
+                    database_settings.db_password.get_secret_value(),
                     host,
                     port,
                     database_settings.db_name,

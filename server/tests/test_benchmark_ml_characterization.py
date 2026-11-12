@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from openai import OpenAI
+from pydantic import SecretStr
 import pytest
 
 from application.runtime.enums import LLMProvider
@@ -141,12 +142,12 @@ def test_judge_constructor_cannot_mix_old_origin_with_new_provider_credentials(
     class UpdatingLock:
         def __enter__(self) -> None:
             monkeypatch.setattr(settings, "llm_provider", LLMProvider.OPENROUTER.value)
-            monkeypatch.setattr(settings, "openrouter_api_key", "private-test-credential")
+            monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("private-test-credential"))
 
         def __exit__(self, *args: object) -> None:
             pass
 
-    monkeypatch.setattr(settings, "openrouter_api_key", "old-test-credential")
+    monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("old-test-credential"))
     monkeypatch.setattr(settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
     monkeypatch.setattr(judge_clients, "_judge_client_lock", UpdatingLock())
     client = judge_clients.get_judge_client("test-model")

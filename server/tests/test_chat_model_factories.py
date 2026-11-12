@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import httpx
+from pydantic import SecretStr
 import pytest
 
 from application.runtime.enums import LLMProvider
@@ -32,7 +33,7 @@ def model_settings() -> Settings:
     return settings.model_copy(
         update={
             "openrouter_model": "remote",
-            "openrouter_api_key": "test",
+            "openrouter_api_key": SecretStr("test"),
             "llm_temperature": 0.3,
             "llm_top_p": 0.8,
             "llm_num_predict_narrow": 111,

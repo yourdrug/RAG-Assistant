@@ -85,8 +85,8 @@ class OpenRouterBillingCatalog:
         async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
             response = await client.get(
                 f"{llm_settings.openrouter_base_url.rstrip('/')}/models",
-                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key}"}
-                if llm_settings.openrouter_api_key
+                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key.get_secret_value()}"}
+                if llm_settings.openrouter_api_key.get_secret_value()
                 else {},
             )
             response.raise_for_status()

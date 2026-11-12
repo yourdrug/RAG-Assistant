@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import HTTPException, UploadFile
+from pydantic import SecretStr
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -99,7 +100,7 @@ async def test_cleanup_preserves_active_and_recent_jobs() -> None:
 
 
 def test_effective_values_distinguish_saved_applied_and_secret_presence() -> None:
-    model = Settings(max_upload_size_mb=50, jwt_secret_key="do-not-expose-this-secret")  # noqa: S106 - Synthetic credentials for this test.
+    model = Settings(max_upload_size_mb=50, jwt_secret_key=SecretStr("do-not-expose-this-secret-0123456789"))
     adapter = SettingsProviderConfiguration(model, bus=InProcessEventBus())
     rows = [ConfigParameter("max_upload_size_mb", "60", "int", "ingestion")]
     entries = {row.key: row for row in adapter.effective_parameters(rows)}

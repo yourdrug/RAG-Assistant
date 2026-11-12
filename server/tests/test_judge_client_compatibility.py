@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import instructor
 from openai import OpenAI
+from pydantic import SecretStr
 import pytest
 
 from application.runtime.enums import LLMProvider
@@ -54,7 +55,7 @@ def test_judge_client_provider_compatibility(
 
     monkeypatch.setattr(settings, "llm_provider", provider)
     monkeypatch.setattr(settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
-    monkeypatch.setattr(settings, "openrouter_api_key", "test-key")
+    monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("test-key"))
     monkeypatch.setattr(judge_clients, "_judge_client_cache", {})
     runtime = BudgetRuntime()
     records: list[dict[str, Any]] = []

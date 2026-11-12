@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
-from config import _settings_overrides, get_setting, settings
+from config import get_setting, settings, settings_overrides
 from infrastructure.benchmark.checkpoint import fingerprint
 
 
@@ -37,14 +37,14 @@ class LiveSweepSettings:
             "rerank_score_gap_ratio": "rerank_score_gap_ratio",
         }
         overrides = {
-            **(_settings_overrides.get() or {}),
+            **(settings_overrides.get() or {}),
             **{mapping[key]: value for key, value in config.items() if key in mapping},
         }
-        token = _settings_overrides.set(overrides)
+        token = settings_overrides.set(overrides)
         try:
             yield
         finally:
-            _settings_overrides.reset(token)
+            settings_overrides.reset(token)
 
 
 def settings_snapshot() -> dict[str, Any]:

@@ -4,6 +4,7 @@ import asyncio
 from importlib import import_module
 from unittest.mock import AsyncMock, MagicMock
 
+from pydantic import SecretStr
 import pytest
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool
@@ -28,7 +29,7 @@ def test_database_url_round_trip(password: str) -> None:
 
 @pytest.mark.parametrize("failure", [False, True])
 def test_standalone_sync_connection_disposes_engine(monkeypatch: pytest.MonkeyPatch, failure: bool) -> None:
-    monkeypatch.setattr(settings, "db_password", "p@ss:/?#%")
+    monkeypatch.setattr(settings, "db_password", SecretStr("p@ss:/?#%"))
     engine = MagicMock()
     create = MagicMock(return_value=engine)
     monkeypatch.setattr(import_module("infrastructure.database.database"), "create_engine", create)
@@ -43,7 +44,7 @@ def test_standalone_sync_connection_disposes_engine(monkeypatch: pytest.MonkeyPa
         assert create.call_args.kwargs["connect_args"]["connect_timeout"] == 10
         assert "statement_timeout" in create.call_args.kwargs["connect_args"]["options"]
 
-    assert create.call_args.args[0].password == settings.db_password
+    assert create.call_args.args[0].password == settings.db_password.get_secret_value()
     assert create.call_args.kwargs["poolclass"] is NullPool
     assert create.call_args.kwargs["isolation_level"] == "AUTOCOMMIT"
     engine.dispose.assert_called_once_with()

@@ -2,9 +2,15 @@
 
 Every non-dynamic field of a section is annotated with exactly one marker:
 
-* ``Secret[T]`` — credentials, only from ``.env.secrets``; masked everywhere;
+* ``Secret`` — credentials, typed ``SecretStr``; read only from the process
+  environment or ``.env.secrets`` (``Settings`` rejects them in ``.env``);
 * ``Static[T]`` — deployment configuration, only from env/``.env``; never hot-reloaded;
 * ``Metadata[T]`` — process metadata computed at startup.
+
+``Secret`` fixes the type: ``repr()``, ``str()`` and ``model_dump()`` show a mask, and
+only an explicit ``.get_secret_value()`` returns the credential. ``model_dump(mode="json")``
+is masked too; never pass ``get_secret_value()`` results to logs. ``Static`` and
+``Metadata`` are metadata only.
 
 Unmarked fields are owned by ``application.runtime.dynamic_params.DYNAMIC_PARAMS``.
 ``application.runtime.setting_keys`` mirrors these markers (Application must not import
@@ -15,6 +21,8 @@ from __future__ import annotations
 
 from enum import StrEnum, auto
 from typing import TYPE_CHECKING, Annotated, TypeVar
+
+from pydantic import SecretStr
 
 
 if TYPE_CHECKING:
@@ -29,7 +37,8 @@ class SettingOwnership(StrEnum):
 
 T = TypeVar("T")
 
-Secret = Annotated[T, SettingOwnership.SECRET]
+# Not generic: a credential is always ``SecretStr``, never a plain ``str``.
+Secret = Annotated[SecretStr, SettingOwnership.SECRET]
 Static = Annotated[T, SettingOwnership.STATIC]
 Metadata = Annotated[T, SettingOwnership.METADATA]
 

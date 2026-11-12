@@ -11,6 +11,8 @@ import sys
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from pydantic import SecretStr
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -109,7 +111,7 @@ class TestPasswordHashing:
 class TestJWT:
     def test_create_and_decode_token(self) -> None:
         with (
-            patch.object(settings, "jwt_secret_key", "test-secret-key-for-testing"),
+            patch.object(settings, "jwt_secret_key", SecretStr("test-secret-key-for-testing")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             patch.object(settings, "jwt_expire_minutes", 60),
         ):
@@ -120,7 +122,7 @@ class TestJWT:
 
     def test_token_contains_exp(self) -> None:
         with (
-            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_secret_key", SecretStr("test-secret")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             patch.object(settings, "jwt_expire_minutes", 60),
         ):
@@ -130,14 +132,14 @@ class TestJWT:
 
     def test_decode_with_wrong_secret_raises(self) -> None:
         with (
-            patch.object(settings, "jwt_secret_key", "correct-secret"),
+            patch.object(settings, "jwt_secret_key", SecretStr("correct-secret")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             patch.object(settings, "jwt_expire_minutes", 60),
         ):
             token = create_access_token(user_id=1, role="user")
 
         with (
-            patch.object(settings, "jwt_secret_key", "different-secret"),
+            patch.object(settings, "jwt_secret_key", SecretStr("different-secret")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             pytest.raises(_jwt.exceptions.InvalidSignatureError),
         ):
@@ -145,7 +147,7 @@ class TestJWT:
 
     def test_decode_garbage_token_raises(self) -> None:
         with (
-            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_secret_key", SecretStr("test-secret")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             pytest.raises((_jwt.exceptions.DecodeError, _jwt.exceptions.InvalidTokenError)),
         ):
@@ -153,7 +155,7 @@ class TestJWT:
 
     def test_decode_empty_string_raises(self) -> None:
         with (
-            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_secret_key", SecretStr("test-secret")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             pytest.raises((_jwt.exceptions.DecodeError, _jwt.exceptions.InvalidTokenError)),
         ):
@@ -161,7 +163,7 @@ class TestJWT:
 
     def test_token_with_different_role(self) -> None:
         with (
-            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_secret_key", SecretStr("test-secret")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             patch.object(settings, "jwt_expire_minutes", 60),
         ):
@@ -171,7 +173,7 @@ class TestJWT:
 
     def test_different_users_different_tokens(self) -> None:
         with (
-            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_secret_key", SecretStr("test-secret")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             patch.object(settings, "jwt_expire_minutes", 60),
         ):
@@ -183,14 +185,14 @@ class TestJWT:
 
     def test_expired_token_raises(self) -> None:
         with (
-            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_secret_key", SecretStr("test-secret")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             patch.object(settings, "jwt_expire_minutes", -1),
         ):
             token = create_access_token(user_id=1, role="user")
 
         with (
-            patch.object(settings, "jwt_secret_key", "test-secret"),
+            patch.object(settings, "jwt_secret_key", SecretStr("test-secret")),
             patch.object(settings, "jwt_algorithm", "HS256"),
             pytest.raises(_jwt.exceptions.ExpiredSignatureError),
         ):
@@ -198,7 +200,7 @@ class TestJWT:
 
 
 def signed(claims: dict[str, object]) -> str:
-    return _jwt.encode(claims, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return _jwt.encode(claims, settings.jwt_secret_key.get_secret_value(), algorithm=settings.jwt_algorithm)
 
 
 def valid_claims() -> dict[str, object]:
@@ -224,3 +226,9 @@ class TestJWTClaimsValidation:
     def test_malformed_claim_is_rejected(self, override: dict[str, object]) -> None:
         with pytest.raises(_jwt.InvalidTokenError):
             decode_access_token(signed(valid_claims() | override))
+
+    @pytest.mark.parametrize("exp", [253402300800, 10**20])
+    def test_out_of_range_expiry_is_rejected(self, exp: int) -> None:
+        """A validly signed token whose exp overflows datetime must yield 401, not 500."""
+        with pytest.raises(_jwt.InvalidTokenError, match="out of range"):
+            decode_access_token(signed(valid_claims() | {"exp": exp}))

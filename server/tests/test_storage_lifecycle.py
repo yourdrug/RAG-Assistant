@@ -6,6 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING, Never
 from unittest.mock import AsyncMock, MagicMock
 
+from pydantic import SecretStr
 import pytest
 
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
@@ -30,8 +31,8 @@ def backend_with_credentials(
     monkeypatch: pytest.MonkeyPatch, endpoint: str, access_key: str, secret_key: str
 ) -> tuple[S3Storage, MagicMock, SimpleNamespace, MagicMock]:
     monkeypatch.setattr(settings, "s3_endpoint", endpoint)
-    monkeypatch.setattr(settings, "s3_access_key", access_key)
-    monkeypatch.setattr(settings, "s3_secret_key", secret_key)
+    monkeypatch.setattr(settings, "s3_access_key", SecretStr(access_key))
+    monkeypatch.setattr(settings, "s3_secret_key", SecretStr(secret_key))
     return client_harness(monkeypatch)
 
 

@@ -325,7 +325,8 @@ async def test_retrieval_domain_fallback_only_on_empty_legal_search(
 
     assert candidates == ([hit] if first_hit or expected_calls == 2 else [])
     assert search.await_count == expected_calls
-    assert work.domain_search_hit is ({"general": None}.get(domain, first_hit))
+    full_search = ("query", 10, 0.7, 0.3)
+    assert work.full_corpus_searches == ({full_search} if domain == "general" or not first_hit else set())
 
     for call in search.await_args_list:
         assert call.args[:2] == ("query", 10)
@@ -410,12 +411,70 @@ async def test_legal_rerank_fallback_resolves_temporal_conflicts() -> None:
     assert [doc.metadata["act_version_id"] for doc, _ in docs] == [2]
 
 
+def _fallback_rag() -> MagicMock:
+    rag = MagicMock()
+    rag.retriever.fetch_k = 10
+    rag.hybrid_search.dense_weight = 0.7
+    rag.hybrid_search.sparse_weight = 0.3
+    return rag
+
+
 @pytest.mark.asyncio
-async def test_legal_rerank_fallback_skipped_when_retrieval_already_used_full_corpus() -> None:
+async def test_legal_rerank_fallback_skipped_when_same_full_corpus_search_already_ran() -> None:
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
-    work = _fallback_work(af, domain_search_hit=False)
+    work = _fallback_work(af, rag=_fallback_rag(), full_corpus_searches={("query", 10, 0.7, 0.3)})
 
     docs, search = await _rerank_with_fallback(work, [(Document(page_content="x"), 0.9)])
 
     search.assert_not_awaited()
     assert docs == []
+
+
+@pytest.mark.asyncio
+async def test_legal_rerank_fallback_runs_when_full_corpus_search_used_other_params() -> None:
+    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    work = _fallback_work(af, rag=_fallback_rag(), full_corpus_searches={("query", 40, 0.7, 0.3)})
+    found = Document(page_content="x")
+
+    docs, search = await _rerank_with_fallback(work, [(found, 0.9)])
+
+    search.assert_awaited_once()
+    assert [doc for doc, _ in docs] == [found]
+
+
+@pytest.mark.asyncio
+async def test_legal_rerank_fallback_searches_full_question_after_decomposition() -> None:
+    """Sub-queries fell back to the full corpus, but the original question never ran there."""
+    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    rag = _fallback_rag()
+    rag.features.decomposition_enabled = True
+    work = _fallback_work(af, rag=rag, fetch_k=10, effective_dense_weight=0.7, effective_sparse_weight=0.3)
+    sub_hit = Document(page_content="sub", metadata={"chunk_id": "s"})
+    found = Document(page_content="answer", metadata={"chunk_id": "a"})
+
+    async def search(
+        query: str, _fetch_k: int, access_filter: object, *_args: object, **_kwargs: object
+    ) -> list[Document]:
+        return [sub_hit] if access_filter is af else []
+
+    with (
+        patch(
+            "infrastructure.ml.rag.retrieval_pipeline.decompose_question",
+            AsyncMock(return_value=["part one", "part two"]),
+        ),
+        patch("infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search", AsyncMock(side_effect=search)),
+    ):
+        _, sub_queries = await retrieve_with_decomposition("query", work, _make_ml_clients())
+
+    assert sub_queries[:2] == ["part one", "part two"]
+    assert ("query", 10, 0.7, 0.3) not in work.full_corpus_searches
+    assert ("part one", 10, 0.7, 0.3) in work.full_corpus_searches
+
+    docs, fallback_search = await _rerank_with_fallback(work, [(found, 0.9)])
+
+    fallback_search.assert_awaited_once()
+    fallback_call = fallback_search.await_args
+    assert fallback_call is not None
+    assert fallback_call.args[0] == "query"
+    assert fallback_call.args[2] is af
+    assert [doc for doc, _ in docs] == [found]

@@ -72,7 +72,7 @@ class SystemHealthProbe:
             response, latency_ms = await self.http.get(
                 f"{llm_settings.openrouter_base_url}/models",
                 request_timeout=5,
-                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key}"},
+                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key.get_secret_value()}"},
             )
 
             if response.status_code < HTTPStatus.BAD_REQUEST:
@@ -104,7 +104,7 @@ class SystemHealthProbe:
         with closing(
             QdrantClient(
                 url=vector_store_settings.qdrant_url,
-                api_key=vector_store_settings.qdrant_api_key,
+                api_key=vector_store_settings.qdrant_api_key.get_secret_value(),
                 timeout=3,
             )
         ) as client:
@@ -156,7 +156,7 @@ class QdrantInfo:
         with closing(
             QdrantClient(
                 url=vector_store_settings.qdrant_url,
-                api_key=vector_store_settings.qdrant_api_key,
+                api_key=vector_store_settings.qdrant_api_key.get_secret_value(),
                 timeout=5,
             )
         ) as client:

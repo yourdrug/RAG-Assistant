@@ -64,7 +64,7 @@ def get_judge_client(model: str, *, runtime: BudgetRuntime | None = None) -> Man
         # Both modes avoid requiring tool calling from the chosen model.
         raw = OpenAI(
             base_url=base_url,
-            api_key=snapshot.openrouter_api_key,
+            api_key=snapshot.openrouter_api_key.get_secret_value(),
             timeout=snapshot.llm_auxiliary_timeout,
             max_retries=0,
             http_client=httpx.Client(follow_redirects=False, transport=PaidSyncTransport(runtime=runtime)),
@@ -105,7 +105,7 @@ def create_async_judge_client(*, runtime: BudgetRuntime | None = None) -> AsyncO
 
     return AsyncOpenAI(
         base_url=llm_settings.openrouter_base_url,
-        api_key=llm_settings.openrouter_api_key,
+        api_key=llm_settings.openrouter_api_key.get_secret_value(),
         timeout=llm_settings.llm_auxiliary_timeout,
         max_retries=0,
         http_client=httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime)),
