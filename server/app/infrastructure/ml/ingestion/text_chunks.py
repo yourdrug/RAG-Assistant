@@ -128,45 +128,67 @@ def shorten_context(text: str, limit: int = MAX_CONTEXT_CHARS) -> str:
     return text[: max(0, limit - 1)].rstrip() + "…"
 
 
+def parent_introduction(metadata: dict[str, Any], body: str) -> str:
+    """Only the nearest parent's substantive introduction accompanies the path."""
+    parents = metadata.get("parent_units") or []
+
+    if not parents:
+        return ""
+
+    parent = parents[-1]
+    content: str = parent.get("content", "").strip()
+    heading = " ".join(parent.get("heading", "").split())
+    normalized = " ".join(content.split())
+
+    if not normalized or normalized == heading or normalized in " ".join(body.split()):
+        return ""
+
+    # Enclosing headings can occupy two source lines; strip them as a block.
+    lines = content.splitlines()
+
+    for count in range(1, min(len(lines), 2) + 1):
+        if " ".join(" ".join(lines[:count]).split()) == heading:
+            return "\n".join(lines[count:]).strip()
+
+    return content
+
+
 def context_prefix(
     metadata: dict[str, Any], chunk_size: int, *, include_unit: bool = False, body: str = ""
 ) -> str:
-    """Repeat complete parent conditions when they fit, never partial clauses.
+    """Bound title and path, giving the nearest parent priority over distant ones."""
+    remaining = chunk_size - min(MIN_STRUCTURAL_CHUNK_CHARS, chunk_size // 2)
+    intro = parent_introduction(metadata, body)
 
-    Full parents remain in metadata even when they cannot fit alongside a
-    useful body. Prompt formatting supplies that complete scope in that case.
-    """
-    budget = min(MAX_CONTEXT_CHARS, chunk_size // 3)
-    parts = []
-    section = metadata.get("section")
+    # Conditions are atomic: the complete version also remains in parent_units.
+    if len(intro) + 2 > remaining:
+        intro = ""
 
-    if section and budget > len("[Раздел: ]\n"):
-        label_budget = min(budget, 120)
-        parts.append(f"[Раздел: {shorten_breadcrumb(section, label_budget - len('[Раздел: ]'))}]")
+    remaining -= len(intro) + (2 if intro else 0)
+    full_title = " ".join((metadata.get("doc_title") or "").split())
+    title = shorten_context(full_title, 80)
+    normalized_body = " ".join(body.split())
 
-    body_reserve = min(MIN_STRUCTURAL_CHUNK_CHARS, chunk_size // 2)
-    remaining = chunk_size - body_reserve - sum(len(part) + 1 for part in parts)
+    if title and (normalized_body.startswith(full_title) or len(title) + 2 > remaining):
+        title = ""
 
-    for parent in reversed(metadata.get("parent_units", [])):
-        content = parent.get("content", "").strip()
+    remaining -= len(title) + (1 if title else 0)
+    headings = (metadata.get("section") or "").split(" > ")
+    heading = metadata.get("unit_heading_text") or ""
 
-        if content and len(content) + 1 <= remaining:
-            parts.append(content)
-            remaining -= len(content) + 1
+    if include_unit and heading and heading not in headings:
+        headings.append(heading)
 
-    if include_unit and metadata.get("unit_heading_text"):
-        used = sum(len(part) + 1 for part in parts)
-        heading_budget = min(budget - used, remaining)
-        heading = metadata["unit_heading_text"]
+    headings = [part for part in headings if part and part not in (title, full_title)]
 
-        if (
-            heading_budget > MIN_BODY_BUDGET
-            and heading not in "\n".join(parts)
-            and not " ".join(body.split()).startswith(" ".join(heading.split()))
-        ):
-            parts.append(shorten_context(heading, heading_budget - 1))
+    # A heading that starts the actual body needs no second copy in the prefix.
+    while headings and normalized_body.startswith(" ".join(headings[-1].split())):
+        headings.pop()
 
-    return "\n".join(parts) + "\n" if parts else ""
+    path_budget = min(120, chunk_size // 3, remaining - 2)
+    path = shorten_breadcrumb(" > ".join(headings), path_budget) if headings and path_budget > 0 else ""
+    parts = [part for part in (title, path, intro) if part]
+    return "\n".join(parts) + "\n\n" if parts else ""
 
 
 def step_documents(doc: Document) -> list[Document]:
@@ -342,15 +364,7 @@ def text_document_chunks(
         message = "chunk_size must be positive and 0 <= chunk_overlap < chunk_size"
         raise ValueError(message)
 
-    normalized_body = " ".join(doc.page_content.split())
-    context_metadata = {
-        **doc.metadata,
-        "parent_units": [
-            parent
-            for parent in doc.metadata.get("parent_units", [])
-            if " ".join(parent.get("content", "").split()) not in normalized_body
-        ],
-    }
+    context_metadata = doc.metadata
     prefix = context_prefix(context_metadata, chunk_size)
 
     include_unit = len(doc.page_content) > chunk_size - len(prefix)
@@ -378,12 +392,10 @@ def text_document_chunks(
         body_prefix = context_prefix(context_metadata, chunk_size, include_unit=include_unit, body=body)
         chunks.append(
             Document(
-                page_content=body_prefix + body, metadata={**doc.metadata, "context_prefix": body_prefix}
+                page_content=body_prefix + body,
+                metadata={**doc.metadata, "context_prefix": body_prefix, "body_text": body},
             )
         )
 
     assign_chunk_pages(chunks, doc, bodies, overlap)
     return chunks
-
-
-MIN_BODY_BUDGET = 10

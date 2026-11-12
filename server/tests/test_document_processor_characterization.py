@@ -770,7 +770,8 @@ async def test_section_prefix_added_to_chunks(tmp_path: Path) -> None:
     await run(h, doc)
 
     points = upsert_points(h.uow)
-    assert points[0]["page_content"] == "[Раздел: Глава 1]\nТекст раздела"
+    assert points[0]["page_content"] == "Глава 1\n\nТекст раздела"
+    assert points[0]["metadata"]["body_text"] == "Текст раздела"
     # _attach_metadata_to_docs runs before split -> source lands on every chunk
     assert points[0]["metadata"]["source"] == "report.pdf"
     assert points[0]["metadata"]["doc_date"] == "2026-01-15"

@@ -41,6 +41,9 @@ class GeneralDomainProfile:
     def content_boundaries(self) -> list[BoundaryLevel]:
         return []
 
+    def unit_label(self, _kind: str, _value: str) -> str:
+        return ""
+
     def extract_references(self, _text: str) -> list[ReferenceMatch]:
         return []
 

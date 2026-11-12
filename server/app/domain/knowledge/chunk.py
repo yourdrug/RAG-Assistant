@@ -42,6 +42,7 @@ CHUNK_CONTEXT_FIELDS = frozenset(
         "unit_heading_text",
         "parent_units",
         "context_prefix",
+        "body_text",
         "article_number",
         "chapter_number",
         "section_number",

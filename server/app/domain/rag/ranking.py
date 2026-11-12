@@ -163,6 +163,8 @@ def provision_identity(doc: RetrievalDocument) -> tuple[object, ...] | None:
 
     parts = section.replace(" \u203a ", " > ").split(" > ")
 
+    # Legacy chunks included the fallback level in their section path.
+    # Keep recognizing them until their documents have been fully reindexed.
     if parts[-1] == SENTENCE_UNIT_KIND:
         parts = parts[:-1]
 

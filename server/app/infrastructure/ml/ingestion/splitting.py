@@ -396,6 +396,7 @@ class Chunker:
             self.max_unit_chars,
             min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS,
             unit_budget=lambda unit: self.structured_body_budget(unit, doc),
+            unit_label=self.profile.unit_label,
         )
         packed: list[PackedUnit] = []
 

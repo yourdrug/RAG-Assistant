@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 
 from composition.container import Container
-from config import _settings_overrides, settings
+from config import settings_overrides, settings
 from domain.identity.roles import UserKind, UserRole
 from domain.rag.context import RagContext
 from infrastructure.ml.evidence_profiles.belarus.focus import EVIDENCE_POLICY_VERSION
@@ -180,7 +180,7 @@ async def generate_cases(
             records = []
             usage_token = active_llm_usage.set(records)
             started = time.monotonic()
-            overrides = _settings_overrides.set({"sparse_weight": 0.5})
+            overrides = settings_overrides.set({"sparse_weight": 0.5})
             try:
                 answer = await generator.generate(case, ctx)
             except Exception as exc:
@@ -197,7 +197,7 @@ async def generate_cases(
                 save_report(args.out, report)
                 raise
             finally:
-                _settings_overrides.reset(overrides)
+                settings_overrides.reset(overrides)
                 active_llm_usage.reset(usage_token)
             await resolve_costs(answer.llm_usage or [])
             report["generated"][key] = asdict(answer)

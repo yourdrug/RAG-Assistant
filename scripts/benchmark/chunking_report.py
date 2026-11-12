@@ -11,7 +11,7 @@ Splits the benchmark corpus with the current code, then measures:
 No generation and no judge: this is the cheap per-change check of the chunking
 plan. The full online benchmark is run only at the end of a phase.
 
-Index text equals production (``content_with_parent_scope``); fragments are
+Dense text includes parent scope; BM25 indexes source bodies without the context prefix. Fragments are
 matched against the chunk as ``matches_fragment`` does online. Reranking, ACL
 and temporal filters are not reproduced, so absolute numbers are a proxy;
 compare runs of this script with each other, not with the online table.
@@ -157,6 +157,7 @@ def split_corpus(corpus: Path) -> list[dict[str, Any]]:
                     {
                         "content": chunk.page_content,
                         "prefix": chunk.metadata.get("context_prefix") or "",
+                        "body_text": chunk.metadata.get("body_text", chunk.page_content),
                         "index_text": content_with_parent_scope(
                             Document(page_content=chunk.page_content, metadata=chunk.metadata)
                         ),
@@ -285,7 +286,15 @@ def retrieval_metrics(
 
 
 def bm25_rankings(questions: list[dict[str, Any]], chunks: list[dict[str, Any]]) -> dict[str, list[int]]:
-    index = BM25Index([chunk["index_text"] for chunk in chunks])
+    index = BM25Index.from_documents(
+        [
+            Document(
+                page_content=chunk["content"],
+                metadata={"body_text": chunk["body_text"], "context_prefix": chunk["prefix"]},
+            )
+            for chunk in chunks
+        ]
+    )
     return {q["case_id"]: [i for i, _score in index.search(q["question"], k=SEARCH_DEPTH)] for q in questions}
 
 

@@ -133,7 +133,7 @@ def test_short_articles_inside_one_chapter_still_remain_separate() -> None:
     units = split_by_content(text, LegalDomainProfile().content_boundaries(), 1000)
     groups = pack_units(units, 1000, len, source=text, rank=RANK, scope_boundaries=frozenset({"article"}))
     assert len(groups) == 2
-    assert [group.boundary_value for group in groups] == ["1.", "2."]
+    assert [group.boundary_value for group in groups] == ["1", "2"]
 
 
 def test_legal_article_produces_two_or_three_chunks_instead_of_sentence_fragments() -> None:
@@ -205,7 +205,7 @@ def test_long_intro_in_another_article_does_not_reduce_packing_budget() -> None:
     preceding += "\n1. " + "Самостоятельное правило. " * 45 + "\n"
     alone = legal_chunks(article)
     combined = [
-        chunk for chunk in legal_chunks(preceding + article) if chunk.metadata.get("article_number") == "2."
+        chunk for chunk in legal_chunks(preceding + article) if chunk.metadata.get("article_number") == "2"
     ]
     assert [chunk.page_content for chunk in combined] == [chunk.page_content for chunk in alone]
     assert len(alone) == 2
@@ -227,12 +227,12 @@ def test_article_below_max_unit_chars_splits_at_complete_points() -> None:
     assert all(sum(point.strip() in chunk.page_content for chunk in chunks) == 1 for point in points)
 
 
-def test_article_fitting_chunk_size_still_reserves_space_for_context() -> None:
+def test_compact_context_allows_fitting_article_points_to_pack() -> None:
     points = [f"{number}. " + "а" * 103 + "." for number in range(1, 10)]
     text = "Статья 3. Порядок\n" + "\n".join(points)
     assert 980 < len(text) < 1000
     chunks = legal_chunks(text)
-    assert len(chunks) == 2
+    assert len(chunks) == 1
     assert all(len(chunk.page_content) <= 1000 for chunk in chunks)
     assert [number for chunk in chunks for number in chunk.metadata["point_numbers"]] == [
         str(number) for number in range(1, 10)

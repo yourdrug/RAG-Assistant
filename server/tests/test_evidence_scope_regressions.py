@@ -85,7 +85,7 @@ def test_equal_filenames_in_different_paths_are_different_sources() -> None:
 
 
 @pytest.mark.asyncio
-async def test_embedding_sparse_and_reranker_share_complete_parent_conditions() -> None:
+async def test_dense_and_reranker_keep_parent_conditions_while_sparse_indexes_body() -> None:
     condition = ("Only for dangerous goods transportation. " + "A complete prerequisite. " * 60).strip()
     doc = Document(
         page_content="Submit the application.",
@@ -97,7 +97,7 @@ async def test_embedding_sparse_and_reranker_share_complete_parent_conditions() 
     assert doc.metadata["content_hash"] == content_hash(original)
     point = build_points([doc], [[1.0, 0.0]])[0]
     assert isinstance(point.vector, dict)
-    assert point.vector[SPARSE_VECTOR_NAME] == encode_sparse(scoped)
+    assert point.vector[SPARSE_VECTOR_NAME] == encode_sparse(original)
     assert point.payload is not None
     assert point.payload["page_content"] == original
     assert condition in reranker_text(doc)

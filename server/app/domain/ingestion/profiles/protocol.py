@@ -65,6 +65,10 @@ class DocumentProfile(Protocol):
         """Extract structural references for chunk metadata and citation verification."""
         ...
 
+    def unit_label(self, kind: str, value: str) -> str:
+        """Human-readable structural marker; empty for unlabelled levels."""
+        ...
+
     def extract_effective_date(self, text: str) -> EffectiveDateCandidate | None:
         """Extract effective date with context-bound confidence scoring."""
         ...

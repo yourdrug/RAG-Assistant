@@ -20,6 +20,7 @@ from domain.ingestion.profiles.patterns import (
     SENTENCE_RE,
     SUBPOINT_LETTER_RE,
     SUBPOINT_NUM_RE,
+    regulatory_unit_label,
 )
 from domain.ingestion.profiles.types import (
     BoundaryLevel,
@@ -36,9 +37,9 @@ if TYPE_CHECKING:
 
 
 # Official texts often set headings in capitals ("ГЛАВА 3"), so headings ignore case.
-_CHAPTER_RE = re.compile(r"^\s*Глава\s+(\d+[\.\d]*)", re.MULTILINE | re.IGNORECASE)
-_SECTION_RE = re.compile(r"^\s*Раздел\s+(\d+[\.\d]*)", re.MULTILINE | re.IGNORECASE)
-_ARTICLE_RE = re.compile(r"^\s*Статья\s+(\d+[\.\d]*)", re.MULTILINE | re.IGNORECASE)
+_CHAPTER_RE = re.compile(r"^\s*Глава\s+(\d+(?:\.\d+)*)", re.MULTILINE | re.IGNORECASE)
+_SECTION_RE = re.compile(r"^\s*Раздел\s+(\d+(?:\.\d+)*)", re.MULTILINE | re.IGNORECASE)
+_ARTICLE_RE = re.compile(r"^\s*Статья\s+(\d+(?:\.\d+)*)", re.MULTILINE | re.IGNORECASE)
 
 _ARTICLE_REF_RE = re.compile(r"ст(?:ать[июяе]|\.)\s*(\d+[\.\d]*)", re.IGNORECASE)
 _CHAPTER_REF_RE = re.compile(r"глав(?:[ауы]|ой)\s*(\d+[\.\d]*)", re.IGNORECASE)
@@ -158,6 +159,9 @@ class LegalDomainProfile(SettingsBackedProfile):
             BoundaryLevel("paragraph", PARAGRAPH_RE),
             BoundaryLevel("sentence", SENTENCE_RE),
         ]
+
+    def unit_label(self, kind: str, value: str) -> str:
+        return regulatory_unit_label(kind, value)
 
     def extract_references(self, text: str) -> list[ReferenceMatch]:
         refs = [ReferenceMatch("article", m.group(1)) for m in _ARTICLE_REF_RE.finditer(text)]

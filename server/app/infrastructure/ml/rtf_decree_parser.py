@@ -54,7 +54,11 @@ def parse_decree_rtf(
         # still apply: the coarsest level finds no matches and hands the text
         # to the next level, down to sentence if needed.
         return split_by_content(
-            raw, profile.content_boundaries(), max_chars, min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS
+            raw,
+            profile.content_boundaries(),
+            max_chars,
+            min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS,
+            unit_label=profile.unit_label,
         ), doc_metadata
 
     preamble = raw[: split_match.start()].strip()
@@ -67,7 +71,11 @@ def parse_decree_rtf(
 
     units.extend(
         split_by_content(
-            body, profile.content_boundaries(), max_chars, min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS
+            body,
+            profile.content_boundaries(),
+            max_chars,
+            min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS,
+            unit_label=profile.unit_label,
         )
     )
     return units, doc_metadata

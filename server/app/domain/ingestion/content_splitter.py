@@ -57,6 +57,7 @@ def split_by_content(
     min_chunk_chars: int = 0,
     *,
     unit_budget: Callable[[SplitUnit], int] | None = None,
+    unit_label: Callable[[str, str], str] | None = None,
 ) -> list[SplitUnit]:
     """Split text by structural boundary hierarchy.
 
@@ -73,7 +74,7 @@ def split_by_content(
     min_chunk_chars: when > 0, attach orphaned numeric markers to the next
     sibling. Other small bodies are left intact for the sibling packer.
     """
-    result = recursive_split(text, levels, max_unit_chars, unit_budget=unit_budget)
+    result = recursive_split(text, levels, max_unit_chars, unit_budget=unit_budget, unit_label=unit_label)
 
     if min_chunk_chars > 0:
         result = [
@@ -92,6 +93,7 @@ def recursive_split(
     *,
     parents: tuple[BoundaryContext, ...] = (),
     unit_budget: Callable[[SplitUnit], int] | None = None,
+    unit_label: Callable[[str, str], str] | None = None,
 ) -> list[SplitUnit]:
     """Recursively descend through boundary levels.
 
@@ -119,7 +121,7 @@ def recursive_split(
     level, *rest = levels
     raw_units = [
         replace(unit, start=unit.start + offset, end=unit.end + offset, parents=parents)
-        for unit in split_at_boundary(text, level)
+        for unit in split_at_boundary(text, level, unit_label=unit_label, following_levels=rest)
     ]
 
     result: list[SplitUnit] = []
@@ -134,14 +136,27 @@ def recursive_split(
                 child_parents = (*parents, unit_parent_context(unit, rest))
 
             children = recursive_split(
-                unit.content, rest, max_unit_chars, unit.start, parents=child_parents, unit_budget=unit_budget
+                unit.content,
+                rest,
+                max_unit_chars,
+                unit.start,
+                parents=child_parents,
+                unit_budget=unit_budget,
+                unit_label=unit_label,
             )
 
             if (
                 children
-                and children[0].unit_kind == "preamble"
                 and unit.heading
-                and heading_only_intro(children[0].content, level)
+                and (
+                    (children[0].unit_kind == "preamble" and heading_only_intro(children[0].content, level))
+                    or (
+                        children[0].unit_kind in ("preamble", SENTENCE_UNIT_KIND)
+                        and level.packing_barrier
+                        and level.pattern.match(children[0].content)
+                        and " ".join(unit.heading.split()).startswith(" ".join(children[0].content.split()))
+                    )
+                )
             ):
                 children = children[1:]
 
@@ -213,7 +228,13 @@ def _merge_small_units(units: list[SplitUnit], min_chars: int) -> list[SplitUnit
     return merged
 
 
-def split_at_boundary(text: str, level: BoundaryLevel) -> list[SplitUnit]:
+def split_at_boundary(
+    text: str,
+    level: BoundaryLevel,
+    *,
+    unit_label: Callable[[str, str], str] | None = None,
+    following_levels: list[BoundaryLevel] | None = None,
+) -> list[SplitUnit]:
     """Split text at all occurrences of a boundary level's regex pattern."""
     matches = list(level.pattern.finditer(text))
 
@@ -256,7 +277,7 @@ def split_at_boundary(text: str, level: BoundaryLevel) -> list[SplitUnit]:
 
         if chunk_text:
             boundary_value = m.group(1) if m.groups() else None
-            heading = f"{level.name} {boundary_value}" if boundary_value else None
+            heading = boundary_heading(chunk_text, level, boundary_value, unit_label, following_levels or [])
             units.append(
                 SplitUnit(
                     heading,
@@ -269,6 +290,46 @@ def split_at_boundary(text: str, level: BoundaryLevel) -> list[SplitUnit]:
             )
 
     return units
+
+
+def boundary_heading(
+    text: str,
+    level: BoundaryLevel,
+    value: str | None,
+    unit_label: Callable[[str, str], str] | None,
+    following_levels: list[BoundaryLevel],
+) -> str | None:
+    """Keep actual enclosing titles and short labels for numbered prose units."""
+    if not value or level.name == SENTENCE_UNIT_KIND:
+        return None
+
+    if level.packing_barrier:
+        lines = text.splitlines()
+        heading = lines[0].strip()
+        marker = level.pattern.match(heading)
+
+        # A chapter title is often printed on the line after its number.
+        if marker and not heading[marker.end() :].strip(" .") and len(lines) > 1:
+            title = lines[1].strip()
+
+            if (
+                title
+                and len(title) <= HEADING_INTRO_MAX_CHARS
+                and not title.endswith((".", ":", ";"))
+                and not any(child.pattern.match(title) for child in following_levels)
+            ):
+                heading += " " + title
+
+        heading = " ".join(heading.split())
+
+        # Body text on the marker line is not a title; keep only the short label.
+        if len(heading) > HEADING_INTRO_MAX_CHARS:
+            label = unit_label(level.name, value) if unit_label else ""
+            return label or (" ".join(marker.group(0).split()) if marker else value)
+
+        return heading
+
+    return (unit_label(level.name, value) if unit_label else value) or None
 
 
 def heading_only_intro(text: str, level: BoundaryLevel) -> bool:

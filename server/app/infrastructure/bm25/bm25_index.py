@@ -13,11 +13,15 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from domain.knowledge.access_control import OwnerMatch
 from domain.shared.hashing import content_hash
+from infrastructure.bm25.document_text import bm25_document_text
 from infrastructure.bm25.tokenizer import tokenize
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from domain.knowledge.access_control import VisibilityCondition
+    from domain.rag.ranking import RetrievalDocument
 
 
 log = logging.getLogger("default")
@@ -68,6 +72,17 @@ class BM25Index:
         self.doc_group_id: list[int | None] = doc_group_id or [None] * len(texts)
         self.last_survival_ratio: float | None = None
         self.build()
+
+    @classmethod
+    def from_documents(cls, documents: Sequence[RetrievalDocument]) -> BM25Index:
+        """Tokenize bodies, retaining full-content hashes and per-document ACL."""
+        return cls(
+            texts=[bm25_document_text(doc) for doc in documents],
+            hashes=[content_hash(doc.page_content) for doc in documents],
+            doc_visibility=[doc.metadata.get("visibility") for doc in documents],
+            doc_owner_id=[doc.metadata.get("owner_id") for doc in documents],
+            doc_group_id=[doc.metadata.get("group_id") for doc in documents],
+        )
 
     def build(self) -> None:
         self.doc_freq.clear()

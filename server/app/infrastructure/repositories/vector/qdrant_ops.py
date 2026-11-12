@@ -29,6 +29,7 @@ from application.ports.ml_clients import AsyncSemaphorePort
 from config import MLProviderSection, process_section
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.shared.hashing import content_hash
+from infrastructure.bm25.document_text import bm25_document_text
 from infrastructure.corpus.snapshot import collection_for
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.factories import create_qdrant_client
@@ -211,7 +212,7 @@ def build_points(chunks: list[Document], vectors: list[list[float]]) -> list[Poi
     return [
         PointStruct(
             id=doc.metadata["chunk_id"],
-            vector=point_vectors(content_with_parent_scope(doc), vector),
+            vector=point_vectors(bm25_document_text(doc), vector),
             payload={"page_content": doc.page_content, "metadata": doc.metadata},
         )
         for doc, vector in zip(chunks, vectors, strict=True)
@@ -248,7 +249,7 @@ def filter_upload_chunks(chunks: list[Document]) -> list[Document]:
 
 
 def prepare_upload_texts(chunks: list[Document]) -> list[str]:
-    # Body hashes remain stable for persistence; all search models see full scope.
+    # Identity is always the full persisted content; dense embeddings keep full scope.
     for doc in chunks:
         doc.metadata["content_hash"] = content_hash(doc.page_content)
 

@@ -20,6 +20,7 @@ from domain.ingestion.profiles.patterns import (
     POINT_RE,
     SENTENCE_RE,
     SUBPOINT_LETTER_RE,
+    regulatory_unit_label,
 )
 from domain.ingestion.profiles.types import (
     BoundaryLevel,
@@ -129,6 +130,9 @@ class DecreeDomainProfile(SettingsBackedProfile):
             BoundaryLevel("paragraph", PARAGRAPH_RE),
             BoundaryLevel("sentence", SENTENCE_RE),
         ]
+
+    def unit_label(self, kind: str, value: str) -> str:
+        return regulatory_unit_label(kind, value)
 
     def extract_references(self, text: str) -> list[ReferenceMatch]:
         refs = []

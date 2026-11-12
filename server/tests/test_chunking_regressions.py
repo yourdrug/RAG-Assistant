@@ -125,7 +125,7 @@ def test_overflow_keeps_article_marker_and_bounded_final_context(
     assert len(chunks) > 1
     assert all(len(c.page_content) <= 1200 for c in chunks)
     assert any("Статья 15." in c.page_content for c in chunks)
-    assert all(c.metadata.get("article_number") == "15." for c in chunks)
+    assert all(c.metadata.get("article_number") == "15" for c in chunks)
     assert not any(c.page_content.strip() in ("15", "15.") for c in chunks)
 
 
@@ -323,8 +323,8 @@ def test_chapterless_article_keeps_identity_on_overflow_chunks(
     assert len(text) < 1500
     chunks = splitter.split([RawDocument(text, {"source": "law.txt"})], DocDomain.LEGAL.value)
     assert len(chunks) > 1
-    assert all(c.metadata["article_number"] == "15." for c in chunks)
-    assert all("article 15." in c.metadata["section"] for c in chunks)
+    assert all(c.metadata["article_number"] == "15" for c in chunks)
+    assert all("Статья 15. Порядок подачи" in c.metadata["section"] for c in chunks)
 
 
 def test_docx_generic_footnote_part_is_parsed(tmp_path: Path) -> None:
@@ -380,6 +380,7 @@ async def test_api_content_processor_and_cli_construct_identical_final_chunks(
         IngestionDocumentParser(parser).parse(path, meta), SplitContext()
     )
     assert [c.page_content for c in api_chunks] == [c.page_content for c in cli_chunks]
-    assert all(c.page_content.count("[Раздел:") == 1 for c in api_chunks)
+    assert all("[Раздел:" not in c.page_content for c in api_chunks)
+    assert all(c.page_content == c.metadata["context_prefix"] + c.metadata["body_text"] for c in api_chunks)
     assert all(len(c.page_content) <= 550 for c in api_chunks)
     assert all(c.metadata["char_count"] == len(c.page_content) for c in api_chunks)

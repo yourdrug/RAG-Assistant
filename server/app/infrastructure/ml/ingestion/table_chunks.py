@@ -69,6 +69,13 @@ def table_document_chunks(doc: Document, chunk_size: int, max_rows: int) -> list
     header = "\n".join(lines[:header_size])
     metadata = {**doc.metadata, "table_header": header}
     prefix = context_prefix(metadata, chunk_size)
+    # An optional document title must not split rows that fit with their table scope.
+    longest_row = max((len(line) for line in lines[header_size:] if line.strip()), default=0)
+
+    if len(prefix) + len(header) + 1 + longest_row > chunk_size:
+        prefix = context_prefix({**metadata, "doc_title": ""}, chunk_size)
+
+    metadata["context_prefix"] = prefix
     row_budget = chunk_size - len(prefix) - len(header) - 1
 
     if row_budget <= 0:
@@ -93,6 +100,7 @@ def _pack_rows(
                     page_content=content,
                     metadata={
                         **metadata,
+                        "body_text": content.removeprefix(prefix),
                         "table_row_start": low,
                         "table_row_end": high,
                     },
@@ -113,6 +121,7 @@ def _pack_rows(
                     page_content=prefix + header + "\n" + part,
                     metadata={
                         **metadata,
+                        "body_text": header + "\n" + part,
                         "table_row_start": number,
                         "table_row_end": number,
                         "table_row_key": cells[0] if cells else "",

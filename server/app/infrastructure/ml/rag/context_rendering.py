@@ -198,9 +198,14 @@ def removed_unit_heading(doc: Document) -> str:
     if not heading or not prefix:
         return ""
 
-    last_line = prefix.rstrip("\n").rsplit("\n", 1)[-1]
+    # Current prefixes put the label inside a path; legacy prefixes used a line.
+    # A section label is already restored by build_header.
+    if heading in (doc.metadata.get("section") or ""):
+        return ""
 
-    if last_line == heading or (last_line.endswith("…") and heading.startswith(last_line[:-1])):
-        return last_line
+    for line in prefix.splitlines():
+        for label in line.split(" > "):
+            if label == heading or (label.endswith("…") and heading.startswith(label[:-1])):
+                return label
 
     return ""

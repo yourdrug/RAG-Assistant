@@ -7,7 +7,6 @@ from domain.ingestion.content_splitter import SplitUnit
 from domain.ingestion.profiles.protocol import DocumentProfile
 from domain.ingestion.profiles.types import refs_to_metadata
 from domain.knowledge.chunk import SENTENCE_UNIT_KIND
-from infrastructure.ml.ingestion.text_chunks import shorten_context
 
 
 def unit_metadata(unit: SplitUnit, profile: DocumentProfile, metadata: dict[str, Any]) -> dict[str, Any]:
@@ -39,11 +38,11 @@ def populate_unit_headings(unit: SplitUnit, metadata: dict[str, Any], meta: dict
         if parent.boundary_value:
             meta[f"{parent.unit_kind}_number"] = parent.boundary_value
 
-    if unit.heading and unit.heading not in headings:
+    if unit.unit_kind != SENTENCE_UNIT_KIND and unit.heading and unit.heading not in headings:
         headings.append(unit.heading)
 
     if unit.heading and unit.unit_kind != SENTENCE_UNIT_KIND:
-        meta["unit_heading_text"] = shorten_context(unit.content.split("\n", 1)[0].strip())
+        meta["unit_heading_text"] = unit.heading
 
     if headings:
         meta["section"] = " > ".join(headings)

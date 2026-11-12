@@ -90,11 +90,11 @@ class TestSplitByContent:
         assert result[0].boundary_value == "10"
         assert result[1].boundary_value == "20"
 
-    def test_heading_includes_level_name(self) -> None:
+    def test_heading_uses_profile_label(self) -> None:
         text = "5. Fifth point."
         levels = [BoundaryLevel("point", _POINT_RE)]
-        result = split_by_content(text, levels, 1000)
-        assert result[0].heading == "point 5"
+        result = split_by_content(text, levels, 1000, unit_label=DecreeDomainProfile().unit_label)
+        assert result[0].heading == "п. 5"
 
     def test_multi_level_hierarchy(self) -> None:
         text = (

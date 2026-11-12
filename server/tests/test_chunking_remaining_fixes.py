@@ -106,7 +106,9 @@ def test_multiline_docx_cells_remain_one_logical_row(
     chunks = splitter.split(parser.parse(path))
     assert len(chunks) == 1
     assert chunks[0].metadata["table_row_start"] == chunks[0].metadata["table_row_end"] == 1
-    lines = chunks[0].page_content.splitlines()
+    # The document title prefix is context; the table body holds the rows.
+    assert chunks[0].page_content == chunks[0].metadata["context_prefix"] + chunks[0].metadata["body_text"]
+    lines = chunks[0].metadata["body_text"].splitlines()
     assert len(lines) == 3
     assert "Service" in lines[0]
     assert "category" in lines[0]

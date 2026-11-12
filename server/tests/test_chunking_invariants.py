@@ -212,7 +212,7 @@ def is_heading_only(text: str, other_prefixes: str) -> bool:
     """Empty, repeated as another chunk's context, a bare marker, or a lone lead-in."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
-    if not lines or compact(text) in other_prefixes:
+    if not lines or (compact(text) in other_prefixes and not text.endswith(SENTENCE_END)):
         return True
 
     bare_marker = (
@@ -271,16 +271,7 @@ def test_6_acl_metadata_reaches_every_chunk(case_id: str, split_results: dict[st
         assert {key: chunk.metadata.get(key) for key in ACL_METADATA} == ACL_METADATA
 
 
-SECTION_LEVEL_XFAILS = {
-    "law.docx-legal": "plan 2.1 (internal level names in section)",
-    "law.txt-legal": "plan 2.1 (internal level names in section)",
-    "decree.docx-decree": "plan 2.1 (internal level names in section)",
-    "contract.docx-legal": "plan 2.1 (internal level names in section)",
-    "pdf_hard_wraps.pdf-decree": "plan 2.1 (internal level names in section)",
-}
-
-
-@pytest.mark.parametrize("case_id", case("section is human readable", SECTION_LEVEL_XFAILS))
+@pytest.mark.parametrize("case_id", case("section is human readable"))
 def test_7_section_has_no_internal_level_names(case_id: str, split_results: dict[str, SplitResult]) -> None:
     sections = {c.metadata.get("section") or "" for c in split_results[case_id].chunks}
     leaked = sorted(s for s in sections if INTERNAL_LEVEL_RE.search(s))

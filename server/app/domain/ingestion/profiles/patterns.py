@@ -9,6 +9,21 @@ DELIMITED_SUBPOINT_NUM_RE = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)*)\.\s+", re.MULT
 SUBPOINT_LETTER_RE = re.compile(r"^\s*([а-яё])\)\s+", re.MULTILINE)
 PARAGRAPH_RE = re.compile(r"\n\s*\n")
 
+
+def regulatory_unit_label(kind: str, value: str) -> str:
+    """Shared Russian labels for legislation and decrees."""
+    labels = {
+        "chapter": "Глава",
+        "section": "Раздел",
+        "article": "Статья",
+        "point": "п.",
+        "subpoint_num": "пп.",
+        "subpoint": "подп.",
+    }
+    label = labels.get(kind)
+    return f"{label} {value}{')' if kind == 'subpoint' else ''}" if label else ""
+
+
 # Periods of abbreviations common in legal texts never end a sentence: "в ред. Закона",
 # "ст. 5", "т.е.". Single letters cover initials and "п.", "ч.", "г.". Python lookbehind
 # is fixed-width, so each abbreviation gets its own negative lookbehind.
