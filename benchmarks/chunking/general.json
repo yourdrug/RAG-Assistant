@@ -1,0 +1,912 @@
+[
+  {
+    "question": "Что позволяет делать документ свободной формы BLRDOC в EDI-Flow?",
+    "expected_answer": "Обмениваться вложениями (файлами) с контрагентами.",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+          "text": "Новый документ позволяет обмениваться вложениями (файлами) с вашими контрагентами."
+        }
+      ],
+      "required_facts": [
+        [
+          "вложениями",
+          "файлами"
+        ]
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-001",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Как тарифицируются документы свободной формы и входит ли их отправка в базовый тариф?",
+    "expected_answer": "Тарифицируются как юридически значимые документы; отправка в базовые тарифы не включена, получение входящих безлимитное.",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "alternatives": [
+            {
+              "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+              "text": "Документы свободной формы тарифицируются как юридически значимые документы. В базовые тарифы не включена отправка документов свободной формы, получение входящих документов свободной формы безлимитное."
+            },
+            {
+              "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+              "text": "Документы свободной формы тарифицируются как юридически значимые документы."
+            }
+          ]
+        }
+      ],
+      "required_facts": [
+        "юридически значимые",
+        "не включена",
+        "безлимитное"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-002",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Каким ролям доступно создание, удаление и редактирование документа свободной формы?",
+    "expected_answer": "Ролям «Расширенный администратор СХ» и «Пользователь СХ».",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+          "text": "Создание, удаление, редактирование документа доступно для ролей «Расширенный администратор СХ», «Пользователь СХ»."
+        }
+      ],
+      "required_facts": [
+        "Расширенный администратор СХ",
+        "Пользователь СХ"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-003",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Нужно ли устанавливать партнёрскую связь для обмена документами свободной формы, если контрагент тоже работает в EDI-Flow?",
+    "expected_answer": "Нет, если провайдер контрагента — УП «ИВЦ Минфина» (EDI-Flow), обмен идёт без установления партнёрской связи.",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "alternatives": [
+            {
+              "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+              "text": "Если провайдером вашего контрагента является УП «ИВЦ Минфина» (система EDI-Flow), то обмен электронными документами осуществляется без установления партнёрской связи."
+            },
+            {
+              "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+              "text": "обмен электронными документами осуществляется без установления партнёрской связи"
+            }
+          ]
+        }
+      ],
+      "required_facts": [
+        "без установления партнёрской связи"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-004",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Как создать документ свободной формы?",
+    "expected_answer": "Перейти в раздел «Документы свободной формы», на вкладке «Исходящие» нажать «Добавить», заполнить обязательные поля и сохранить.",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+          "text": "Для создания документа свободной формы перейдите на вкладку «Исходящие» и нажмите на кнопку «Добавить»."
+        }
+      ],
+      "required_facts": [
+        "Исходящие",
+        "Добавить"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-005",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Кто определяет маршрут документа свободной формы и какие варианты подписания возможны?",
+    "expected_answer": "Маршрут определяет отправитель; документ могут подписывать обе стороны, только получатель или только отправитель.",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "alternatives": [
+            {
+              "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+              "text": "Документы свободной формы можно подписывать с двух стороны, только получателем или только отправителем. Отправитель документа определяет маршрут документа."
+            },
+            {
+              "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+              "text": "Отправитель документа определяет маршрут документа."
+            }
+          ]
+        }
+      ],
+      "required_facts": [
+        "отправитель",
+        [
+          "двух стороны",
+          "обе стороны"
+        ],
+        "только получателем"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-006",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Что делать, если нужного типа документа нет в списке «Наименование типа документа»?",
+    "expected_answer": "Выбрать значение «Другой» и внести свой тип в поле «Значение типа документа».",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+          "text": "Если подходящего документа в списке нет, выберите значение «Другой» и внесите свой тип документа в поле «Значение типа документа»"
+        }
+      ],
+      "required_facts": [
+        "Другой",
+        "Значение типа документа"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-007",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какой максимальный размер файла можно загрузить в документ свободной формы?",
+    "expected_answer": "Не более 10 MB, формат любой.",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+          "text": "Доступна загрузка файла не более 10 MB любого формата."
+        }
+      ],
+      "required_facts": [
+        "10 MB"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-008",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Что должен сделать отправитель, если получатель отказался подписывать документ свободной формы?",
+    "expected_answer": "Никаких дополнительных действий от отправителя не требуется.",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+          "text": "При отказе от подписания получателем документа никаких дополнительных действий от отправителя не требуется."
+        }
+      ],
+      "required_facts": [
+        "никаких дополнительных действий"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-009",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Как отменить документ свободной формы, который уже подписан обеими сторонами?",
+    "expected_answer": "Через аннулирование: новый документ свободной формы со своим вложением на замену старого, подписываемый обеими сторонами; после подписания оригинал получает статус «Аннулирован».",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "alternatives": [
+            {
+              "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+              "text": "В случае, если документ уже подписан обеими сторонами, но требуется его отмена, доступно Аннулирование документа."
+            },
+            {
+              "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+              "text": "доступно Аннулирование документа"
+            }
+          ]
+        }
+      ],
+      "required_facts": [
+        "Аннулирование",
+        "Аннулирован"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-010",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Кто может создать аннулирование документа свободной формы?",
+    "expected_answer": "Как получатель, так и отправитель оригинального документа.",
+    "source_hint": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+          "text": "Аннулирование может создать как получатель, так и отправитель оригинального документа."
+        }
+      ],
+      "required_facts": [
+        "получатель",
+        "отправитель"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция_по_документу_свободной_формы EDI-FLOW.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-011",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Как в разделе «Входящие» отличить накладную, ожидающую подписания?",
+    "expected_answer": "Она выделена жирным шрифтом.",
+    "source_hint": "Инструкция по принятию ЭТН и ЭТТН.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция по принятию ЭТН и ЭТТН.docx",
+          "text": "Накладная, ожидающая подписания, выделена жирным шрифтом."
+        }
+      ],
+      "required_facts": [
+        "жирным шрифтом"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция по принятию ЭТН и ЭТТН.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-012",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какую кнопку нажать после проверки данных входящей накладной?",
+    "expected_answer": "«Подтвердить получение».",
+    "source_hint": "Инструкция по принятию ЭТН и ЭТТН.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция по принятию ЭТН и ЭТТН.docx",
+          "text": "Проверьте данные. Нажмите кнопку «Подтвердить получение»."
+        }
+      ],
+      "required_facts": [
+        "Подтвердить получение"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция по принятию ЭТН и ЭТТН.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-013",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "В каком поле при приёме ЭТН указывается ответственное лицо?",
+    "expected_answer": "В поле «Товар принял».",
+    "source_hint": "Инструкция по принятию ЭТН и ЭТТН.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция по принятию ЭТН и ЭТТН.docx",
+          "text": "В поле «Товар принял» укажите ответственное лицо."
+        }
+      ],
+      "required_facts": [
+        "Товар принял"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция по принятию ЭТН и ЭТТН.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-014",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Каков последний шаг при приёме ЭТН/ЭТТН?",
+    "expected_answer": "Нажать «Подписать с ЭЦП», затем «Отправить».",
+    "source_hint": "Инструкция по принятию ЭТН и ЭТТН.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Инструкция по принятию ЭТН и ЭТТН.docx",
+          "text": "Нажмите «Подписать с ЭЦП», затем — «Отправить»."
+        }
+      ],
+      "required_facts": [
+        "Подписать с ЭЦП",
+        "Отправить"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Инструкция по принятию ЭТН и ЭТТН.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-015",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Где создаётся запрос на роуминг?",
+    "expected_answer": "В разделе «Партнерские связи» на вкладке «Запросы на роуминг» кнопкой «Создать».",
+    "source_hint": "Настройка партнерской связи (роуминга).docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "alternatives": [
+            {
+              "source": "Настройка партнерской связи (роуминга).docx",
+              "text": "перейдите в раздел «Партнерские связи», затем откройте вкладку «Запросы на роуминг» и нажмите кнопку «Создать»."
+            },
+            {
+              "source": "Настройка партнерской связи (роуминга).docx",
+              "text": "откройте вкладку «Запросы на роуминг»"
+            }
+          ]
+        }
+      ],
+      "required_facts": [
+        "Запросы на роуминг",
+        "Создать"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Настройка партнерской связи (роуминга).docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-016",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какие сведения о контрагенте нужно указать в запросе на роуминг?",
+    "expected_answer": "УНП, GLN и EDI-провайдера контрагента.",
+    "source_hint": "Настройка партнерской связи (роуминга).docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Настройка партнерской связи (роуминга).docx",
+          "text": "в подразделе «Информация о контрагенте» — УНП, GLN и EDI-провайдера вашего контрагента."
+        }
+      ],
+      "required_facts": [
+        "УНП",
+        "GLN",
+        "EDI-провайдера"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Настройка партнерской связи (роуминга).docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-017",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Почему кнопка «Отправить» в запросе на роуминг неактивна?",
+    "expected_answer": "Она становится активной только после успешного сохранения запроса.",
+    "source_hint": "Настройка партнерской связи (роуминга).docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Настройка партнерской связи (роуминга).docx",
+          "text": "кнопка «Отправить» становится активной после успешного сохранения запроса на роуминг"
+        }
+      ],
+      "required_facts": [
+        "после успешного сохранения"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Настройка партнерской связи (роуминга).docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-018",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Что означает долгий статус «Отправлен» у партнёрской связи?",
+    "expected_answer": "Сетевую ошибку; запрос нужно переотправить.",
+    "source_hint": "Настройка партнерской связи (роуминга).docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Настройка партнерской связи (роуминга).docx",
+          "text": "«Отправлен» (долго) — сетевая ошибка, переотправьте."
+        }
+      ],
+      "required_facts": [
+        "сетевая ошибка",
+        "переотправьте"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Настройка партнерской связи (роуминга).docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-019",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Что нужно сделать с накладной перед созданием акта приёмки?",
+    "expected_answer": "Полностью завершить ход документа: подтвердить получение, создать ответный документ, подписать и отправить его.",
+    "source_hint": "Создание АКТА ПРИЕМКИ.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "alternatives": [
+            {
+              "source": "Создание АКТА ПРИЕМКИ.docx",
+              "text": "Для создания Акта приёмки необходимо сначала полностью завершить ход документа по накладной со своей стороны"
+            },
+            {
+              "source": "Создание АКТА ПРИЕМКИ.docx",
+              "text": "необходимо сначала полностью завершить ход документа по накладной"
+            }
+          ]
+        }
+      ],
+      "required_facts": [
+        "Подтвердить получение",
+        "Создать ответный документ"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Создание АКТА ПРИЕМКИ.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-020",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "В каком статусе должна быть накладная, чтобы можно было создать акт приёмки?",
+    "expected_answer": "«Ответ получен EDI-провайдером грузоотправителя».",
+    "source_hint": "Создание АКТА ПРИЕМКИ.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Создание АКТА ПРИЕМКИ.docx",
+          "text": "Накладная будет в статусе «Ответ получен EDI-провайдером грузоотправителя»"
+        }
+      ],
+      "required_facts": [
+        "Ответ получен EDI-провайдером грузоотправителя"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Создание АКТА ПРИЕМКИ.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-021",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какие количества указываются в карточке товара акта приёмки?",
+    "expected_answer": "Сколько фактически поставлено, сколько принято и сколько не принято (при наличии).",
+    "source_hint": "Создание АКТА ПРИЕМКИ.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "alternatives": [
+            {
+              "source": "Создание АКТА ПРИЕМКИ.docx",
+              "text": "- сколько фактически поставлено\n- сколько принято\n- сколько непринято (при наличии)"
+            },
+            {
+              "source": "Создание АКТА ПРИЕМКИ.docx",
+              "text": "сколько фактически поставлено"
+            }
+          ]
+        }
+      ],
+      "required_facts": [
+        "фактически поставлено",
+        "сколько принято",
+        "непринято"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Создание АКТА ПРИЕМКИ.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-022",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какой конечный статус у акта приёмки и что для этого нужно сделать?",
+    "expected_answer": "«Подписан обеими сторонами» — после приёма грузоотправителем нужно подписать их ответный документ кнопкой «Принять с ЭЦП».",
+    "source_hint": "Создание АКТА ПРИЕМКИ.docx",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "alternatives": [
+            {
+              "source": "Создание АКТА ПРИЕМКИ.docx",
+              "text": "После этого Акт приёмки перейдёт в конечный статус – «Подписан обеими сторонами»."
+            },
+            {
+              "source": "Создание АКТА ПРИЕМКИ.docx",
+              "text": "Акт приёмки перейдёт в конечный статус"
+            }
+          ]
+        }
+      ],
+      "required_facts": [
+        "Принять с ЭЦП",
+        "Подписан обеими сторонами"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Создание АКТА ПРИЕМКИ.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-023",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Как начать создание электронной накладной ЭТН или ЭТТН?",
+    "expected_answer": "В разделе «Электронные накладные» на вкладке «Исходящие» нажать «Добавить документ» и выбрать тип ЭТН или ЭТТН.",
+    "source_hint": "Создание_электронной_накладной_ЭТН_ЭТТН.pdf",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "alternatives": [
+            {
+              "source": "Создание_электронной_накладной_ЭТН_ЭТТН.pdf",
+              "text": "Перейдите в раздел «Электронные накладные», откройте вкладку «Исходящие» и нажмите\nкнопку «Добавить документ».",
+              "pages": [
+                1
+              ]
+            },
+            {
+              "source": "Создание_электронной_накладной_ЭТН_ЭТТН.pdf",
+              "text": "Перейдите в раздел «Электронные накладные»",
+              "pages": [
+                1
+              ]
+            }
+          ]
+        }
+      ],
+      "required_facts": [
+        "Добавить документ",
+        [
+          "ЭТН или ЭТТН",
+          "ЭТН, ЭТТН"
+        ]
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Создание_электронной_накладной_ЭТН_ЭТТН.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-024",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Что должен сделать грузоотправитель после того, как грузополучатель отправил ответный документ по накладной?",
+    "expected_answer": "Открыть накладную и нажать «Подтвердить получение»; документ перейдёт в статус «Подписан обеими сторонами».",
+    "source_hint": "Создание_электронной_накладной_ЭТН_ЭТТН.pdf",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "Создание_электронной_накладной_ЭТН_ЭТТН.pdf",
+          "text": "Нажать кнопку «Подтвердить получение».",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "required_facts": [
+        "Подтвердить получение",
+        "Подписан обеими сторонами"
+      ],
+      "expected_refusal": false,
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "source_files": [
+        "Создание_электронной_накладной_ЭТН_ЭТТН.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "general"
+    ],
+    "dataset": "chunking-general",
+    "is_active": true,
+    "case_id": "chunk-gen-025",
+    "variant_of": null,
+    "question_style": "natural"
+  }
+]
