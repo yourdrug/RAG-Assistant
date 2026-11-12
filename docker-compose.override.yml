@@ -22,6 +22,9 @@ services:
       context: .
       dockerfile: Dockerfile
       target: ${STAGE}-${BUILD_TARGET}
+      # Bridge-network builds cannot resolve PyPI behind the host VPN DNS; a failed
+      # uv sync used to leave an empty venv (no alembic for the migrate service).
+      network: host
     volumes:
       - type: bind
         source: server/app

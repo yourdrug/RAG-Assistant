@@ -9,6 +9,8 @@ dotenv: [ "server/.env", "server/.env.secrets", "client/.env" ]
 
 env:
   VERSION: "{{.VERSION}}"
+  # Bake rejects build.network=host (docker-compose.override.yml) without --allow=network.host.
+  COMPOSE_BAKE: "false"
 
 tasks:
 

@@ -87,8 +87,9 @@ COPY server/pyproject.toml server/uv.lock ./
 
 # Install dependencies — uv resolves torch from pytorch-cpu index via [tool.uv.sources]
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
-    set -e &&                                                                        \
-    uv sync --frozen --no-dev --extra cpu &&                                        \
+    set -e;                                                                         \
+    # ";" keeps a failed sync fatal: the "|| true" cleanup below would mask it
+    uv sync --frozen --no-dev --extra cpu;                                          \
     # Remove __pycache__ directories (saves ~50-100MB)
     find /code/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null       \
         || true &&                                                                  \
@@ -141,8 +142,9 @@ COPY server/pyproject.toml server/uv.lock ./
 
 # Re-sync to add dev dependencies (testing, linting, etc.)
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
-    set -e &&                                                                        \
-    uv sync --frozen --extra cpu &&                                                 \
+    set -e;                                                                         \
+    # ";" keeps a failed sync fatal: the "|| true" cleanup below would mask it
+    uv sync --frozen --extra cpu;                                                   \
     # Clean up __pycache__ and .pyc files
     find /code/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null      \
         || true &&                                                                  \
