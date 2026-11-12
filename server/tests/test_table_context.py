@@ -14,6 +14,7 @@ from domain.identity.user_context import UserContext
 from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS, ChunkRecord, extract_chunk_context
 from domain.knowledge.enums import PageContentType
 from domain.rag.evidence.table_context import requests_table_overview
+from infrastructure.ml.ingestion.sections import MAX_TABLE_INTRODUCTION_CHARS, Section, table_context_sections
 from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser
 from infrastructure.ml.rag.prompt_budget import estimate_text_tokens
@@ -204,3 +205,20 @@ def test_field_can_be_selected_by_name_without_number() -> None:
     assert "an..19" in focused.page_content
     assert "only after approval" in focused.page_content
     assert focused.metadata["table_row_start"] == focused.metadata["table_row_end"] == 2
+
+
+def test_table_introduction_is_the_caption_and_lead_in_not_the_whole_chapter() -> None:
+    """A heading-less DOCX chapter before a table must not become every row batch's scope."""
+    chapter = "\n".join(f"{number}. Пункт главы с самостоятельным содержанием." for number in range(1, 400))
+    lead_in = "Структура сообщения приведена в таблице 4.7:"
+    caption = "Таблица 4.7 - структура и формат сообщения"
+    sections = [
+        Section(None, f"{chapter}\n{lead_in}\n{caption}"),
+        Section(None, "| Реквизит | Формат |\n|---|---|\n| Номер | string |", PageContentType.TABLE),
+    ]
+
+    scope = table_context_sections(sections)[1].metadata["parent_units"][0]["content"]
+
+    assert scope.endswith(f"{lead_in}\n{caption}")
+    assert not any(line.startswith("1. ") for line in scope.splitlines())
+    assert len(scope) <= MAX_TABLE_INTRODUCTION_CHARS
