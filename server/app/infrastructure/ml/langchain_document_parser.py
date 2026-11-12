@@ -23,7 +23,7 @@ from infrastructure.ml.ingestion.splitting import split_documents
 
 
 if TYPE_CHECKING:
-    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.ports import DomainSettingsPort, TokenCounter
     from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from infrastructure.ml.ingestion.sections import Section
@@ -304,9 +304,11 @@ class LangchainDocumentSplitter:
         self,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsPort | None = None,
+        token_counter: TokenCounter | None = None,
     ) -> None:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
+        self.token_counter = token_counter
 
     def split(
         self,
@@ -334,6 +336,7 @@ class LangchainDocumentSplitter:
             split_documents(
                 docs,
                 domain=domain,
+                token_counter=self.token_counter,
                 profile=profile,
                 settings=domain_settings if domain_settings is not None else self._domain_settings,
             )

@@ -476,22 +476,27 @@ def validate_retrieval_budgets(candidate: Settings) -> None:
 
 
 def validate_chunking(candidate: Settings, domain_values: dict[tuple[str, str], str]) -> None:
-    """Reject snapshots where overlap >= size: the splitter would fail on every document.
-
-    A domain value that is absent falls back to the global section field, as the splitter does.
-    """
+    """Reject token targets above the hard limit, including scoped overrides."""
     errors = candidate.check_chunking()
     domains = {
-        domain for key, domain in domain_values if key in (f"{domain}_chunk_size", f"{domain}_chunk_overlap")
+        domain
+        for key, domain in domain_values
+        if key in (f"{domain}_chunk_target_tokens", f"{domain}_chunk_max_tokens")
     }
 
     for domain in sorted(domains):
-        size_key, overlap_key = f"{domain}_chunk_size", f"{domain}_chunk_overlap"
-        size = domain_values.get((size_key, domain), getattr(candidate, size_key, None))
-        overlap = domain_values.get((overlap_key, domain), getattr(candidate, overlap_key, None))
+        target_key, max_key = f"{domain}_chunk_target_tokens", f"{domain}_chunk_max_tokens"
+        target = int(
+            domain_values.get(
+                (target_key, domain), getattr(candidate, target_key, candidate.chunk_target_tokens)
+            )
+        )
+        maximum = int(
+            domain_values.get((max_key, domain), getattr(candidate, max_key, candidate.chunk_max_tokens))
+        )
 
-        if size is not None and overlap is not None and int(overlap) >= int(size):
-            errors.append(f"{overlap_key} must be less than {size_key} for domain '{domain}'")
+        if target <= 0 or target > maximum:
+            errors.append(f"{target_key} must be positive and <= {max_key} for domain '{domain}'")
 
     if errors:
         raise ValidationError("; ".join(errors))

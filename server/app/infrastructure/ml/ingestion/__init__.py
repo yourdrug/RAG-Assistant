@@ -24,7 +24,6 @@ from infrastructure.ml.ingestion.pdf import (
 )
 from infrastructure.ml.ingestion.rtf import parse_rtf
 from infrastructure.ml.ingestion.splitting import (
-    LEGAL_SEPARATORS,
     TABLE_BATCH_ROWS,
     extract_article_number,
     merge_pdf_pages,
@@ -35,7 +34,6 @@ from infrastructure.ml.ingestion.utils import clean_pdf_text
 
 
 __all__ = [
-    "LEGAL_SEPARATORS",
     "TABLE_BATCH_ROWS",
     # Utils
     "clean_pdf_text",

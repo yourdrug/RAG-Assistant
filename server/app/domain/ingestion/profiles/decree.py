@@ -67,23 +67,11 @@ class DecreeDomainProfile(SettingsBackedProfile):
     key = "decree"
     display_name = "Указы и постановления"
     is_versioned = True
-    chunk_size = 1200
-    chunk_overlap = 200
 
     def config_defaults(self) -> list[ConfigDefault]:
         return [
-            ConfigDefault(f"{self.key}_chunk_size", str(self.chunk_size), "int", "Chunk size", 100, 10000),
-            ConfigDefault(
-                f"{self.key}_chunk_overlap", str(self.chunk_overlap), "int", "Chunk overlap", 0, 5000
-            ),
-            ConfigDefault(
-                "max_unit_chars",
-                "1200",
-                "int",
-                "Safety-net: above this size, split to finer boundary level",
-                200,
-                8000,
-            ),
+            ConfigDefault(f"{self.key}_chunk_target_tokens", "400", "int", "Target chunk tokens", 50, 8192),
+            ConfigDefault(f"{self.key}_chunk_max_tokens", "800", "int", "Maximum chunk tokens", 50, 8192),
             ConfigDefault(
                 "fingerprint_min_points",
                 "1",

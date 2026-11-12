@@ -26,6 +26,7 @@ from infrastructure.ml.ingestion.pdf import parse_pdf, pymupdf_table_to_markdown
 from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, format_docs, format_docs_with_selection
+from infrastructure.ml.tokenization import build_token_counter
 from presentation.api.routes.chat import chat_stream
 from presentation.api.schemas import ChatRequest, CurrentUser
 from tests.rag_stage_fixtures import build_context as step_build_context, stage_fixture
@@ -142,7 +143,7 @@ def test_each_instruction_step_retains_the_complete_intro(
     text = intro + "\n1. Send application\n" + "Fill in all required fields. " * 11
     text += "\n2. Pay fee\n" + "Pay the fee using a bank transfer. " * 9
     chunks = splitter.split([RawDocument(text, {"source": "guide.txt"})])
-    steps = [c for c in chunks if c.metadata.get("step_number")]
+    steps = [c for c in chunks if c.metadata.get("step_number") or c.metadata.get("step_numbers")]
     assert steps
     assert all(
         condition
@@ -150,7 +151,8 @@ def test_each_instruction_step_retains_the_complete_intro(
         for c in steps
     )
     assert all(c.metadata["parent_units"][-1]["content"] == intro.strip() for c in steps)
-    assert all(len(c.page_content) <= 550 for c in chunks)
+    counter = build_token_counter("data/tei_cache/bge-m3/tokenizer.json")
+    assert all(counter.count(c.page_content) <= 512 for c in chunks)
 
 
 def test_packed_steps_keep_intro_even_when_it_is_in_a_separate_chunk(

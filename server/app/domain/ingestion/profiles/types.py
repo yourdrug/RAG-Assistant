@@ -37,7 +37,7 @@ class BoundaryLevel:
     When ``always_split`` is True the level is applied unconditionally
     (structural boundaries like numeric subpoints).  When False (default)
     the level is only used as a safety-net when the parent unit exceeds
-    ``max_unit_chars``.
+    its measured body budget.
 
     ``packing_barrier`` keeps whole units of this level in separate chunks.
     ``order_by_position`` lets adjacent enclosing levels follow source order.

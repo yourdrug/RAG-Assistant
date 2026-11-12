@@ -145,14 +145,6 @@ class LiveChunkSettings:
     def chunk_overlap(self) -> int:
         return process_section(ChunkingSection).chunk_overlap
 
-    @property
-    def legal_chunk_size(self) -> int:
-        return process_section(ChunkingSection).legal_chunk_size
-
-    @property
-    def legal_chunk_overlap(self) -> int:
-        return process_section(ChunkingSection).legal_chunk_overlap
-
 
 class LiveChatSettings:
     """Each property read returns the current value from the global settings singleton."""

@@ -15,9 +15,3 @@ class ChunkSettingsPort(Protocol):
 
     @property
     def chunk_overlap(self) -> int: ...
-
-    @property
-    def legal_chunk_size(self) -> int: ...
-
-    @property
-    def legal_chunk_overlap(self) -> int: ...

@@ -23,7 +23,11 @@ if TYPE_CHECKING:
 
 class FakeSettings:
     def get(self, key: str, domain_key: str = "") -> str:
-        defaults = {"max_unit_chars": "800", "fingerprint_min_points": "1"}
+        defaults = {
+            "decree_chunk_max_tokens": "800",
+            "decree_chunk_target_tokens": "400",
+            "fingerprint_min_points": "1",
+        }
         return defaults.get(key, "0") if domain_key in {"", "decree"} else "0"
 
 

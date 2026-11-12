@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import fitz
@@ -42,8 +43,17 @@ def pipeline() -> tuple[LangchainDocumentParser, LangchainDocumentSplitter]:
         for default in profile.config_defaults():
             values[default.key, profile.key] = default.value
 
+        limit = "1000" if profile.key == "legal" else "1200"
+        values[f"{profile.key}_chunk_max_tokens", profile.key] = limit
+        values[f"{profile.key}_chunk_target_tokens", profile.key] = limit
+
+    values["general_chunk_max_tokens", "general"] = "550"
+    values["general_chunk_target_tokens", "general"] = "550"
     settings.replace_snapshot(values)
-    return LangchainDocumentParser(registry, settings), LangchainDocumentSplitter(registry, settings)
+    # Preserve the character-sized examples while production token budgets are tested separately.
+    return LangchainDocumentParser(registry, settings), LangchainDocumentSplitter(
+        registry, settings, token_counter=SimpleNamespace(count=len)
+    )
 
 
 def normalize(text: str) -> str:
@@ -52,7 +62,7 @@ def normalize(text: str) -> str:
 
 @pytest.mark.parametrize("profile_type", [LegalDomainProfile, DecreeDomainProfile])
 @pytest.mark.parametrize("overlap", [0, 200])
-def test_structured_splitter_respects_configured_overlap(
+def test_structured_splitter_disables_legacy_overlap(
     profile_type: type[LegalDomainProfile | DecreeDomainProfile], overlap: int
 ) -> None:
     settings = DomainSettingsAdapter()
@@ -71,10 +81,7 @@ def test_structured_splitter_respects_configured_overlap(
     body_words = re.findall(r"word\d+", " ".join(chunk.page_content for chunk in chunks))
     assert set(body_words) == set(words)
 
-    if overlap == 0:
-        assert body_words == words
-    else:
-        assert len(body_words) > len(words)
+    assert body_words == words
 
 
 def make_pdf(path: Path, texts: list[str]) -> None:

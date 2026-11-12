@@ -84,11 +84,11 @@ class TestSplitByContent:
         assert "subpoint" in kinds or len(result) >= 2
 
     def test_boundary_value_captured(self) -> None:
-        text = "10. Tenth point.\n20. Twentieth point."
+        text = "10. Tenth point.\n11. Eleventh point."
         levels = [BoundaryLevel("point", _POINT_RE)]
         result = split_by_content(text, levels, 1000)
         assert result[0].boundary_value == "10"
-        assert result[1].boundary_value == "20"
+        assert result[1].boundary_value == "11"
 
     def test_heading_uses_profile_label(self) -> None:
         text = "5. Fifth point."

@@ -71,6 +71,15 @@ RUN                                                                             
 SHELL ["/bin/bash", "-c"]
 
 # -----------------------------------------------------------------------------------
+# Tokenizer is fetched and verified at build time, never at application startup.
+FROM builder-base AS embedding-tokenizer
+RUN mkdir -p /tokenizers && \
+    curl --fail --location --retry 3 \
+      https://huggingface.co/BAAI/bge-m3/resolve/5617a9f61b028005a4858fdac845db406aefb181/tokenizer.json \
+      -o /tokenizers/bge-m3.json && \
+    echo "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08  /tokenizers/bge-m3.json" | sha256sum --check
+
+# -----------------------------------------------------------------------------------
 # CPU: uv-base stage installs uv, creates venv and installs CPU dependencies
 # This stage uses the CPU-only PyTorch (~300MB instead of ~2.5GB with CUDA)
 FROM builder-base AS uv-base-cpu
@@ -165,6 +174,8 @@ COPY server/entrypoint.sh ./
 COPY VERSION ./
 
 # Copy application source code
+COPY --from=embedding-tokenizer /tokenizers /code/tokenizers
+ENV EMBED_TOKENIZER_PATH=/code/tokenizers/bge-m3.json
 COPY server/app ./app
 
 # Entrypoint sets up env vars and exec's the CMD
@@ -220,6 +231,8 @@ COPY server/entrypoint.sh ./
 COPY VERSION ./
 
 # Copy application source code
+COPY --from=embedding-tokenizer /tokenizers /code/tokenizers
+ENV EMBED_TOKENIZER_PATH=/code/tokenizers/bge-m3.json
 COPY server/app ./app
 
 # Entrypoint sets up env vars and exec's the CMD
@@ -292,6 +305,8 @@ COPY --chown=1001:1001 server/alembic.ini ./
 COPY --chown=1001:1001 server/entrypoint.sh ./
 COPY --chown=1001:1001 VERSION ./
 RUN if [ -n "$SOURCE_VERSION" ]; then printf '%s\n' "$SOURCE_VERSION" > VERSION; fi
+COPY --from=embedding-tokenizer /tokenizers /code/tokenizers
+ENV EMBED_TOKENIZER_PATH=/code/tokenizers/bge-m3.json
 COPY --chown=1001:1001 server/app ./app
 
 # Switch to non-root user
@@ -368,6 +383,8 @@ COPY --chown=1001:1001 server/alembic.ini ./
 COPY --chown=1001:1001 server/entrypoint.sh ./
 COPY --chown=1001:1001 VERSION ./
 RUN if [ -n "$SOURCE_VERSION" ]; then printf '%s\n' "$SOURCE_VERSION" > VERSION; fi
+COPY --from=embedding-tokenizer /tokenizers /code/tokenizers
+ENV EMBED_TOKENIZER_PATH=/code/tokenizers/bge-m3.json
 COPY --chown=1001:1001 server/app ./app
 
 # Switch to non-root user

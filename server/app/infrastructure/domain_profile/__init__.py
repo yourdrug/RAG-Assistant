@@ -32,7 +32,7 @@ def register_all_profiles(registry: DomainProfileRegistry, settings: DomainSetti
     for cls in SETTINGS_PROFILE_TYPES:
         profile = cls(settings=settings)
         try:
-            profile.get_setting("max_unit_chars")
+            profile.get_setting(f"{profile.key}_chunk_max_tokens")
         except (KeyError, RuntimeError):
             log.warning(
                 "DomainSettingsPort validation failed for %s -- config parameters may not be seeded yet",

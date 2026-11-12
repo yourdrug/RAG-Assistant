@@ -65,6 +65,7 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "tei_embed_model",
         "embedding_revision",
         "embed_dim",
+        "embed_tokenizer_path",
         "curator_scope_max_ids",
         "redis_host",
         "redis_port",

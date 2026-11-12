@@ -170,6 +170,9 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     ),
     DynamicParam("retriever_top_k_broad", int, DynamicParamCategory.RAG, "Retriever top-k (broad)", 1, 50),
     DynamicParam("history_window", int, DynamicParamCategory.RAG, "Chat history window", 0, 50),
+    DynamicParam("chunk_target_tokens", int, DynamicParamCategory.RAG, "Target chunk tokens", 50, 8192),
+    DynamicParam("chunk_max_tokens", int, DynamicParamCategory.RAG, "Maximum chunk tokens", 50, 8192),
+    DynamicParam("chunk_overlap_tokens", int, DynamicParamCategory.RAG, "Sentence overlap tokens", 0, 1000),
     DynamicParam("chunk_size", int, DynamicParamCategory.RAG, "Document chunk size (chars)", 100, 5000),
     DynamicParam("chunk_overlap", int, DynamicParamCategory.RAG, "Chunk overlap (chars)", 0, 1000),
     DynamicParam("source_min_score", float, DynamicParamCategory.RAG, "Min source relevance score", 0.0, 1.0),
@@ -330,7 +333,7 @@ DYNAMIC_PARAMS.extend(
         domain_key=domain,
     )
     for (key, domain), default in PROFILE_CONFIG_DEFAULTS.items()
-    if key in (f"{domain}_chunk_size", f"{domain}_chunk_overlap")
+    if key in (f"{domain}_chunk_target_tokens", f"{domain}_chunk_max_tokens")
 )
 
 DYNAMIC_FIELDS_MAP: dict[str, tuple[str, type]] = {

@@ -2469,6 +2469,7 @@ dependencies = [
     { name = "starlette" },
     { name = "striprtf" },
     { name = "tenacity" },
+    { name = "tokenizers" },
     { name = "typer" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -2545,6 +2546,7 @@ requires-dist = [
     { name = "striprtf", specifier = "==0.0.26" },
     { name = "surya-ocr", marker = "extra == 'surya'", specifier = "==0.9.0" },
     { name = "tenacity", specifier = ">=9.0.0" },
+    { name = "tokenizers", specifier = "==0.22.2" },
     { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "rag-api", extra = "cpu" } },
     { name = "torch", marker = "extra == 'gpu'", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cu126", conflict = { package = "rag-api", extra = "gpu" } },
     { name = "typer", specifier = ">=0.12.0" },

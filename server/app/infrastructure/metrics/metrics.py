@@ -16,6 +16,11 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from config import VectorStoreSection, process_section
 from infrastructure.database.database import database
+from infrastructure.metrics.ingestion import (
+    BOUNDARY_CANDIDATES_REJECTED_TOTAL,  # noqa: F401
+    BOUNDARY_NUMBER_GAPS_TOTAL,  # noqa: F401
+    CHUNK_FALLBACK_SPLIT_TOTAL,  # noqa: F401
+)
 from infrastructure.ml.clients import factories
 from infrastructure.ml.rag.prompt_blocks import is_not_found_answer
 from infrastructure.ml.usage_capture import extract_usage_from_langchain  # noqa: F401

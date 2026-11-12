@@ -103,20 +103,22 @@ def test_factories_use_independent_effective_pool_limits(
     asyncio.run(adapter.close())
 
 
-def test_domain_chunk_overlap_without_size_is_checked_against_section_size(model: Settings) -> None:
-    with pytest.raises(ValidationError, match="legal_chunk_overlap"):
-        validate_chunking(model, {("legal_chunk_overlap", "legal"): str(model.legal_chunk_size)})
+def test_domain_token_target_without_max_uses_section_limit(model: Settings) -> None:
+    with pytest.raises(ValidationError, match="legal_chunk_target_tokens"):
+        validate_chunking(
+            model, {("legal_chunk_target_tokens", "legal"): str(model.legal_chunk_max_tokens + 1)}
+        )
 
 
-def test_domain_chunk_overlap_below_section_size_is_accepted(model: Settings) -> None:
-    validate_chunking(model, {("legal_chunk_overlap", "legal"): str(model.legal_chunk_size - 1)})
+def test_domain_token_target_below_section_max_is_accepted(model: Settings) -> None:
+    validate_chunking(model, {("legal_chunk_target_tokens", "legal"): str(model.legal_chunk_max_tokens - 1)})
 
 
-def test_domain_chunk_size_below_domain_overlap_is_rejected(model: Settings) -> None:
-    with pytest.raises(ValidationError, match="decree_chunk_overlap"):
+def test_domain_token_max_below_domain_target_is_rejected(model: Settings) -> None:
+    with pytest.raises(ValidationError, match="decree_chunk_target_tokens"):
         validate_chunking(
             model,
-            {("decree_chunk_size", "decree"): "300", ("decree_chunk_overlap", "decree"): "300"},
+            {("decree_chunk_max_tokens", "decree"): "300", ("decree_chunk_target_tokens", "decree"): "301"},
         )
 
 
@@ -853,16 +855,18 @@ def test_snapshot_rejects_num_predict_not_below_num_ctx(model: Settings) -> None
     assert (model.llm_num_ctx_broad, model.llm_num_predict_broad) == (2048, 1024)
 
 
-def test_domain_chunk_overlap_must_stay_below_size(model: Settings) -> None:
+def test_domain_token_target_must_stay_within_max(model: Settings) -> None:
     domain_settings = DomainSettingsAdapter()
     domain_settings.replace_snapshot(
-        {("legal_chunk_size", "legal"): "500", ("legal_chunk_overlap", "legal"): "50"}
+        {("legal_chunk_max_tokens", "legal"): "500", ("legal_chunk_target_tokens", "legal"): "50"}
     )
     config = SettingsProviderConfiguration(model, domain_settings, bus=InProcessEventBus())
 
-    with pytest.raises(ValidationError, match="legal_chunk_overlap must be less than legal_chunk_size"):
-        config.apply([chunk_row("legal_chunk_overlap", 500, "legal")])
-    assert domain_settings.get("legal_chunk_overlap", "legal") == "50"
+    with pytest.raises(
+        ValidationError, match="legal_chunk_target_tokens must be positive and <= legal_chunk_max_tokens"
+    ):
+        config.apply([chunk_row("legal_chunk_target_tokens", 501, "legal")])
+    assert domain_settings.get("legal_chunk_target_tokens", "legal") == "50"
 
-    config.apply([chunk_row("legal_chunk_overlap", 120, "legal")])
-    assert domain_settings.get("legal_chunk_overlap", "legal") == "120"
+    config.apply([chunk_row("legal_chunk_target_tokens", 120, "legal")])
+    assert domain_settings.get("legal_chunk_target_tokens", "legal") == "120"

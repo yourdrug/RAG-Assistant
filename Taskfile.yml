@@ -281,7 +281,7 @@ tasks:
     env:
       PYTHONPATH: app
     cmds:
-      - 'uv run --with tokenizers==0.22.2 python ../scripts/benchmark/chunking_report.py {{.CLI_ARGS}}'
+      - 'uv run python ../scripts/benchmark/chunking_report.py {{.CLI_ARGS}}'
 
   script:
     desc: "Запустить Python-утилиту из scripts/: task script SCRIPT=benchmark/compare_frozen_generation.py -- --help"

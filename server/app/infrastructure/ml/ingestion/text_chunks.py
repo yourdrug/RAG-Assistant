@@ -4,18 +4,23 @@ from __future__ import annotations
 
 import itertools
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, TINY_FRAGMENT_MAX_CHARS
+from domain.ingestion.profiles.patterns import SENTENCE_RE
 from domain.shared.breadcrumb import shorten_breadcrumb
+from infrastructure.ml.tokenization import CHARS_PER_TOKEN
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 MAX_CONTEXT_CHARS = 300
 STEP_HEADING_RE = re.compile(r"^[ \t]*(?:Шаг\s+)?(\d+)[.)][ \t]+([^\n]+)", re.MULTILINE)
-TEXT_SEPARATORS = ["\n\n", "\n", r"(?<=[.!?])\s+(?=[A-ZА-ЯЁ])", r"\s+", ""]
 
 
 def split_at_boundaries(text: str, patterns: list[re.Pattern[str]]) -> list[str]:
@@ -24,34 +29,41 @@ def split_at_boundaries(text: str, patterns: list[re.Pattern[str]]) -> list[str]
     return [text[start:end] for start, end in itertools.pairwise(offsets) if text[start:end].strip()]
 
 
-def overlap_tail(text: str, size: int) -> str:
-    """Keep complete trailing words, rather than a suffix starting mid-word."""
-    if size <= 0:
-        return ""
-
-    start = max(0, len(text) - size)
-
-    if start and not text[start - 1].isspace():
-        match = re.search(r"\s+", text[start:])
-
-        if match is None:
-            return ""
-
-        start += match.end()
-
-    return text[start:]
+def sentence_fragments(text: str) -> list[str]:
+    """Keep exact source spans and the legal abbreviation dictionary."""
+    offsets = [0, *(match.end() for match in SENTENCE_RE.finditer(text)), len(text)]
+    return [text[start:end] for start, end in itertools.pairwise(offsets) if text[start:end].strip()]
 
 
-def merge_fragments(fragments: list[str], chunk_size: int, chunk_overlap: int) -> list[str]:
-    """Pack contiguous fragments without altering source wording or whitespace."""
+def overlap_tail(text: str, size: int, measure: Callable[[str], int] = len) -> str:
+    """Return complete trailing sentences whose total size fits the overlap."""
+    tail = ""
+
+    for fragment in reversed(sentence_fragments(text)):
+        candidate = fragment + tail
+
+        if measure(candidate) > size:
+            break
+
+        tail = candidate
+
+    return tail if size > 0 else ""
+
+
+def merge_fragments(
+    fragments: list[str], chunk_size: int, chunk_overlap: int, measure: Callable[[str], int] = len
+) -> list[str]:
+    """Pack exact contiguous fragments, overlapping only complete sentences."""
     merged: list[str] = []
     current = ""
 
     for fragment in fragments:
-        # Keep fragments shorter than the overlap attached to the following body.
-        if current and len(current) + len(fragment) > chunk_size and len(current) > chunk_overlap:
+        if current and measure(current + fragment) > chunk_size:
             merged.append(current.strip())
-            current = overlap_tail(current, chunk_overlap)
+            current = overlap_tail(current, chunk_overlap, measure)
+
+            if measure(current + fragment) > chunk_size:
+                current = ""
 
         current += fragment
 
@@ -61,33 +73,66 @@ def merge_fragments(fragments: list[str], chunk_size: int, chunk_overlap: int) -
     return merged
 
 
-def fallback_split(chunks: list[str], chunk_size: int, chunk_overlap: int) -> list[str]:
-    """Enforce the body budget, preferring paragraph and sentence boundaries."""
+def fallback_split(
+    chunks: list[str],
+    chunk_size: int,
+    chunk_overlap: int,
+    measure: Callable[[str], int] = len,
+    *,
+    on_fallback: Callable[[], None] | None = None,
+) -> list[str]:
+    """Split whole sentences first; only oversized sentences reach word/character splitting."""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=len,
-        separators=TEXT_SEPARATORS,
+        chunk_overlap=0,
+        length_function=measure,
+        separators=[r"\s+", ""],
         is_separator_regex=True,
         keep_separator="end",
     )
-    return [part for chunk in chunks for part in splitter.split_text(chunk)]
+    result = []
+
+    for chunk in chunks:
+        pending: list[str] = []
+
+        for sentence in sentence_fragments(chunk):
+            if measure(sentence) <= chunk_size:
+                pending.append(sentence)
+                continue
+
+            result.extend(merge_fragments(pending, chunk_size, chunk_overlap, measure))
+            pending = []
+
+            if on_fallback:
+                on_fallback()
+
+            result.extend(splitter.split_text(sentence))
+
+        result.extend(merge_fragments(pending, chunk_size, chunk_overlap, measure))
+
+    return result
 
 
 def split_overflow(
-    text: str, chunk_size: int, chunk_overlap: int, boundary_patterns: list[re.Pattern[str]] | None = None
+    text: str,
+    chunk_size: int,
+    chunk_overlap: int,
+    boundary_patterns: list[re.Pattern[str]] | None = None,
+    measure: Callable[[str], int] = len,
+    *,
+    on_fallback: Callable[[], None] | None = None,
 ) -> list[str]:
     """Retain structural markers while enforcing a strict character budget."""
-    if len(text) <= chunk_size:
+    if measure(text) <= chunk_size:
         return [text.strip()] if text.strip() else []
 
     if boundary_patterns:
         fragments = split_at_boundaries(text, boundary_patterns)
-        chunks = merge_fragments(fragments, chunk_size, chunk_overlap)
+        chunks = merge_fragments(fragments, chunk_size, chunk_overlap, measure)
     else:
         chunks = [text]
 
-    parts = fallback_split(chunks, chunk_size, chunk_overlap)
+    parts = fallback_split(chunks, chunk_size, chunk_overlap, measure, on_fallback=on_fallback)
     result = []
     index = 0
 
@@ -105,10 +150,16 @@ def split_overflow(
                 continue
 
             prefix = part + "\n"
-            budget = chunk_size - len(prefix)
+            budget = chunk_size - measure(prefix)
 
             if budget > 0:
-                following = fallback_split([parts[index + 1]], budget, min(chunk_overlap, budget - 1))
+                following = fallback_split(
+                    [parts[index + 1]],
+                    budget,
+                    min(chunk_overlap, budget - 1),
+                    measure,
+                    on_fallback=on_fallback,
+                )
                 result.extend([prefix + following[0], *following[1:]])
                 index += 2
             else:
@@ -153,7 +204,7 @@ def parent_introduction(metadata: dict[str, Any], body: str) -> str:
     return content
 
 
-def context_prefix(
+def character_context_prefix(
     metadata: dict[str, Any], chunk_size: int, *, include_unit: bool = False, body: str = ""
 ) -> str:
     """Bound title and path, giving the nearest parent priority over distant ones."""
@@ -189,6 +240,33 @@ def context_prefix(
     path = shorten_breadcrumb(" > ".join(headings), path_budget) if headings and path_budget > 0 else ""
     parts = [part for part in (title, path, intro) if part]
     return "\n".join(parts) + "\n\n" if parts else ""
+
+
+def context_prefix(
+    metadata: dict[str, Any],
+    chunk_size: int,
+    *,
+    include_unit: bool = False,
+    body: str = "",
+    measure: Callable[[str], int] = len,
+) -> str:
+    """Reserve at least half the measured budget for source text."""
+    # Character bounding still limits title/path lengths, independently of token units.
+    context_size = chunk_size if measure is len else chunk_size * CHARS_PER_TOKEN
+    prefix = character_context_prefix(metadata, context_size, include_unit=include_unit, body=body)
+
+    if measure(prefix) <= chunk_size // 2:
+        return prefix
+
+    # Introductory conditions stay whole in metadata; never truncate them mid-sentence.
+    reduced = {**metadata, "parent_units": []}
+    prefix = character_context_prefix(reduced, context_size, include_unit=include_unit, body=body)
+
+    if measure(prefix) > chunk_size // 2:
+        reduced["doc_title"] = ""
+        prefix = character_context_prefix(reduced, context_size, include_unit=include_unit, body=body)
+
+    return prefix if measure(prefix) <= chunk_size // 2 else ""
 
 
 def step_documents(doc: Document) -> list[Document]:
@@ -233,14 +311,16 @@ def step_documents(doc: Document) -> list[Document]:
     return result
 
 
-def pack_step_documents(doc: Document, chunk_size: int) -> list[Document]:
+def pack_step_documents(
+    doc: Document, chunk_size: int, measure: Callable[[str], int] = len
+) -> list[Document]:
     """Pack complete neighboring steps, retaining all their numbers."""
     steps = step_documents(doc)
 
     if len(steps) == 1:
         return steps
 
-    budget = chunk_size - len(context_prefix(doc.metadata, chunk_size))
+    budget = chunk_size - measure(context_prefix(doc.metadata, chunk_size, measure=measure))
     result: list[Document] = []
     pending: list[Document] = []
     low = high = 0
@@ -254,7 +334,7 @@ def pack_step_documents(doc: Document, chunk_size: int) -> list[Document]:
 
         start, end = located
 
-        if pending and end - low > budget:
+        if pending and measure(doc.page_content[low:end]) > budget:
             result.append(_packed_steps(doc, pending, low, high))
             pending = []
 
@@ -329,7 +409,13 @@ def document_slice(doc: Document, content: str, cursor: int = 0) -> Document:
     return Document(page_content=content, metadata=meta)
 
 
-def assign_chunk_pages(chunks: list[Document], source: Document, bodies: list[str], overlap: int) -> None:
+def assign_chunk_pages(
+    chunks: list[Document],
+    source: Document,
+    bodies: list[str],
+    overlap: int,
+    measure: Callable[[str], int] = len,
+) -> None:
     """Derive each final chunk's pages from its body, excluding repeated context."""
     spans = source.metadata.get("_page_spans")
 
@@ -346,7 +432,7 @@ def assign_chunk_pages(chunks: list[Document], source: Document, bodies: list[st
             raise ValueError(message)
 
         start, end = located
-        cursor = max(start + 1, end - overlap)
+        cursor = max(start + 1, end - len(overlap_tail(body, overlap, measure)))
         pages = sorted({page for low, high, page in spans if low < end and high > start})
         chunk.metadata.pop("_page_spans", None)
         chunk.metadata.pop("page", None)
@@ -357,45 +443,70 @@ def assign_chunk_pages(chunks: list[Document], source: Document, bodies: list[st
 
 
 def text_document_chunks(
-    doc: Document, chunk_size: int, chunk_overlap: int, patterns: list[re.Pattern[str]] | None = None
+    doc: Document,
+    chunk_size: int,
+    chunk_overlap: int,
+    patterns: list[re.Pattern[str]] | None = None,
+    measure: Callable[[str], int] = len,
+    *,
+    target: int | None = None,
+    on_fallback: Callable[[], None] | None = None,
 ) -> list[Document]:
-    """Split after reserving context; the final content always fits the limit."""
+    """Fit atomic bodies to max; split oversized bodies near target in measured units."""
     if chunk_size <= 0 or not 0 <= chunk_overlap < chunk_size:
         message = "chunk_size must be positive and 0 <= chunk_overlap < chunk_size"
         raise ValueError(message)
 
-    context_metadata = doc.metadata
-    prefix = context_prefix(context_metadata, chunk_size)
-
-    include_unit = len(doc.page_content) > chunk_size - len(prefix)
+    prefix = context_prefix(doc.metadata, chunk_size, body=doc.page_content, measure=measure)
+    include_unit = measure(prefix + doc.page_content) > chunk_size
 
     if include_unit:
-        prefix = context_prefix(context_metadata, chunk_size, include_unit=True)
+        prefix = context_prefix(doc.metadata, chunk_size, include_unit=True, measure=measure)
 
-    body_budget = chunk_size - len(prefix)
-    overlap = min(chunk_overlap, body_budget - 1)
-    # Separator lines ("-----") carry nothing searchable and must not become chunks.
-    bodies = [
-        body
-        for body in split_overflow(doc.page_content, body_budget, overlap, patterns)
-        if any(char.isalnum() for char in body)
-    ]
-    # A heading already repeated in the prefix needs no standalone chunk.
+    body_budget = max(1, chunk_size - measure(prefix) - (2 if measure is not len else 0))
+    packing_budget = min(body_budget, max(1, (target or chunk_size) - measure(prefix)))
+    overlap = min(chunk_overlap, packing_budget - 1)
+
+    if measure(prefix + doc.page_content) <= chunk_size:
+        bodies = [doc.page_content.strip()]
+    else:
+        bodies = split_overflow(
+            doc.page_content, packing_budget, overlap, patterns, measure, on_fallback=on_fallback
+        )
+
+    bodies = [body for body in bodies if any(char.isalnum() for char in body)]
     heading = doc.metadata.get("unit_heading_text") or doc.metadata.get("heading")
 
     if heading and heading in prefix and len(bodies) > 1:
         bodies = [body for body in bodies if body.strip() != heading]
 
     chunks = []
+    final_bodies = []
 
     for body in bodies:
-        body_prefix = context_prefix(context_metadata, chunk_size, include_unit=include_unit, body=body)
-        chunks.append(
-            Document(
-                page_content=body_prefix + body,
-                metadata={**doc.metadata, "context_prefix": body_prefix, "body_text": body},
-            )
+        body_prefix = context_prefix(
+            doc.metadata, chunk_size, include_unit=include_unit, body=body, measure=measure
+        )
+        # Check actual concatenation: token counts are not exactly additive at joins.
+        available = max(1, chunk_size - measure(body_prefix) - 2)
+        pieces = (
+            [body]
+            if measure(body_prefix + body) <= chunk_size
+            else fallback_split([body], available, 0, measure, on_fallback=on_fallback)
         )
 
-    assign_chunk_pages(chunks, doc, bodies, overlap)
+        for piece in pieces:
+            if measure(body_prefix + piece) > chunk_size:
+                message = "Context and source body exceed the chunk token budget"
+                raise ValueError(message)
+
+            chunks.append(
+                Document(
+                    page_content=body_prefix + piece,
+                    metadata={**doc.metadata, "context_prefix": body_prefix, "body_text": piece},
+                )
+            )
+            final_bodies.append(piece)
+
+    assign_chunk_pages(chunks, doc, final_bodies, overlap, measure)
     return chunks

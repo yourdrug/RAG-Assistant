@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from domain.ingestion.content_splitter import SplitUnit
@@ -40,6 +41,21 @@ def pack_units(
         message = "budget must be positive and min_size non-negative"
         raise ValueError(message)
 
+    sizes = {id(unit): measure(unit.content) for unit in units}
+    gaps = {
+        (id(left), id(right)): (
+            measure(source[left.end : right.start])
+            if source is not None and left.end < right.start
+            else (measure("\n") if source is None else 0)
+        )
+        for left, right in pairwise(units)
+    }
+
+    def window_size(group: list[SplitUnit]) -> int:
+        return sum(sizes[id(unit)] for unit in group) + sum(
+            gaps.get((id(left), id(right)), 0) for left, right in pairwise(group)
+        )
+
     ranks = rank or {}
     result: list[PackedUnit] = []
     pending: list[SplitUnit] = []
@@ -51,7 +67,7 @@ def pack_units(
             result.append(packed_group(pending, source, ranks))
             pending = []
 
-        while pending and measure(packing_content([*pending, unit], source)) > budget:
+        while pending and window_size([*pending, unit]) > budget:
             window = [*pending, unit]
             cut = min(
                 range(1, len(window)),

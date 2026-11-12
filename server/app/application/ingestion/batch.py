@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -62,7 +63,7 @@ class BatchIngestionWorkflow:
 
         full_text_by_source, source_chars = self.source_content(docs)
         source_domains = self._loader.classify_source_domains(full_text_by_source, scope.domain)
-        chunks = self._loader.split_docs(docs, source_domains=source_domains)
+        chunks = await asyncio.to_thread(self._loader.split_docs, docs, source_domains=source_domains)
         tag_chunks(
             chunks,
             visibility=scope.visibility,

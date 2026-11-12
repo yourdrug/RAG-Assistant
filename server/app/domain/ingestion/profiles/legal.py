@@ -39,9 +39,9 @@ if TYPE_CHECKING:
 # Official texts often set headings in capitals ("ГЛАВА 3"), so headings ignore case.
 _CHAPTER_RE = re.compile(r"^\s*Глава\s+(\d+(?:\.\d+)*)", re.MULTILINE | re.IGNORECASE)
 _SECTION_RE = re.compile(r"^\s*Раздел\s+(\d+(?:\.\d+)*)", re.MULTILINE | re.IGNORECASE)
-_ARTICLE_RE = re.compile(r"^\s*Статья\s+(\d+(?:\.\d+)*)", re.MULTILINE | re.IGNORECASE)
+_ARTICLE_RE = re.compile(r"^\s*Статья\s+(\d+(?:[.-]\d+)*)", re.MULTILINE | re.IGNORECASE)
 
-_ARTICLE_REF_RE = re.compile(r"ст(?:ать[июяе]|\.)\s*(\d+[\.\d]*)", re.IGNORECASE)
+_ARTICLE_REF_RE = re.compile(r"ст(?:ать[июяе]|\.)\s*(\d+(?:[.-]\d+)*)", re.IGNORECASE)
 _CHAPTER_REF_RE = re.compile(r"глав(?:[ауы]|ой)\s*(\d+[\.\d]*)", re.IGNORECASE)
 _LAW_NAME_RE = re.compile(
     r"(?:Федеральный закон|Федеральный конституционный закон|ГК "
@@ -86,23 +86,11 @@ class LegalDomainProfile(SettingsBackedProfile):
     key = "legal"
     display_name = "Нормативные акты"
     is_versioned = True
-    chunk_size = 1000
-    chunk_overlap = 250
 
     def config_defaults(self) -> list[ConfigDefault]:
         return [
-            ConfigDefault(f"{self.key}_chunk_size", str(self.chunk_size), "int", "Chunk size", 100, 10000),
-            ConfigDefault(
-                f"{self.key}_chunk_overlap", str(self.chunk_overlap), "int", "Chunk overlap", 0, 5000
-            ),
-            ConfigDefault(
-                "max_unit_chars",
-                "1500",
-                "int",
-                "Safety-net: above this size, split to finer boundary level",
-                200,
-                10000,
-            ),
+            ConfigDefault(f"{self.key}_chunk_target_tokens", "400", "int", "Target chunk tokens", 50, 8192),
+            ConfigDefault(f"{self.key}_chunk_max_tokens", "800", "int", "Maximum chunk tokens", 50, 8192),
             ConfigDefault(
                 "fingerprint_min_articles",
                 "2",

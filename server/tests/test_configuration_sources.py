@@ -77,10 +77,10 @@ def test_dynamic_registry_keys_match_target_ownership() -> None:
 
 def test_domain_parameters_keep_scope_and_stay_out_of_global_map() -> None:
     expected = {
-        "legal_chunk_size": DocDomain.LEGAL,
-        "legal_chunk_overlap": DocDomain.LEGAL,
-        "decree_chunk_size": DocDomain.DECREE,
-        "decree_chunk_overlap": DocDomain.DECREE,
+        "legal_chunk_max_tokens": DocDomain.LEGAL,
+        "legal_chunk_target_tokens": DocDomain.LEGAL,
+        "decree_chunk_max_tokens": DocDomain.DECREE,
+        "decree_chunk_target_tokens": DocDomain.DECREE,
     }
     scoped = {p.key: p.domain_key for p in application.runtime.dynamic_params.DYNAMIC_PARAMS if p.domain_key}
     assert scoped == expected
@@ -126,8 +126,8 @@ def test_seed_uses_defaults_and_preserves_domain_scope(monkeypatch: pytest.Monke
     rows = {(p.key, p.domain_key): p for p in initialization.build_defaults()}
     assert rows[("llm_provider", None)].value == LLMProvider.OPENROUTER.value
     assert rows[("openrouter_model", None)].value == "qwen/qwen-2.5-7b-instruct"
-    assert rows[("legal_chunk_size", DocDomain.LEGAL)].value == str(settings.legal_chunk_size)
-    assert ("legal_chunk_size", None) not in rows
+    assert rows[("legal_chunk_max_tokens", DocDomain.LEGAL)].value == str(settings.legal_chunk_max_tokens)
+    assert ("legal_chunk_max_tokens", None) not in rows
 
 
 @pytest.mark.asyncio
@@ -136,7 +136,7 @@ async def test_seed_keeps_existing_database_values_and_is_repeatable() -> None:
     existing = initialization.build_defaults()
     model = next(p for p in existing if p.key == "openrouter_model")
     model.value = "preserved-db-model"
-    scoped = next(p for p in existing if p.key == "legal_chunk_size")
+    scoped = next(p for p in existing if p.key == "legal_chunk_max_tokens")
     scoped.value = "1777"
 
     for row in (model, scoped):
@@ -148,4 +148,4 @@ async def test_seed_keeps_existing_database_values_and_is_repeatable() -> None:
     assert len(rows) == len(existing)
     values = {(p.key, p.domain_key): p.value for p in rows}
     assert values[("openrouter_model", None)] == model.value
-    assert values[("legal_chunk_size", DocDomain.LEGAL)] == scoped.value
+    assert values[("legal_chunk_max_tokens", DocDomain.LEGAL)] == scoped.value

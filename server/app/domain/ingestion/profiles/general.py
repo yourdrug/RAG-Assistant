@@ -1,7 +1,7 @@
 """GeneralDomainProfile — fallback for unstructured documents.
 
 No structural boundaries, no fingerprint, no versioning.
-Uses char-based splitting (existing RecursiveCharacterTextSplitter).
+Uses token budgets with sentence boundaries and atomic instruction steps.
 """
 
 from __future__ import annotations

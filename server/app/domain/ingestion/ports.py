@@ -1,6 +1,6 @@
 """DomainSettingsPort -- per-domain config access protocol.
 
-Domain-specific config parameters (max_unit_chars, classification_threshold, etc.)
+Domain-specific config parameters (token budgets, classification_threshold, etc.)
 are read through this port, never from global settings or hardcoded values.
 """
 
@@ -12,3 +12,9 @@ from typing import Protocol, runtime_checkable
 @runtime_checkable
 class DomainSettingsPort(Protocol):
     def get(self, key: str, domain_key: str) -> str: ...
+
+
+class TokenCounter(Protocol):
+    """Measure text in embedding tokens without coupling the domain to a tokenizer."""
+
+    def count(self, text: str) -> int: ...

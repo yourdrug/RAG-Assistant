@@ -35,6 +35,7 @@ dependencies = [
     "langchain-openai>=0.2.0",
     "openai==1.109.1",
     "numpy==1.26.4",
+    "tokenizers==0.22.2",
     "qdrant-client==1.11.3",
     # --- OCR ---
     "paddlepaddle==2.6.2",
@@ -336,6 +337,10 @@ warn_required_dynamic_aliases = true
 module = "tests.*"
 disallow_untyped_decorators = false   # pytest-фикстуры
 disallow_any_decorated = false
+
+[[tool.mypy.overrides]]
+module = ["tokenizers", "tokenizers.*"]
+ignore_missing_imports = true
 
 # Библиотеки без типов добавляйте сюда:
 # [[tool.mypy.overrides]]

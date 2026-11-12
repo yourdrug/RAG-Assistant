@@ -14,10 +14,7 @@ from infrastructure.ml.rag.context_rendering import (
 )
 from infrastructure.ml.rag.context_selection import select_context
 from infrastructure.ml.rag.prompt_budget import estimate_text_tokens
-
-
-# Legacy neighbor-prefetch estimate; prompt selection uses prompt_budget counters.
-CHARS_PER_TOKEN = 4
+from infrastructure.ml.tokenization import CHARS_PER_TOKEN
 
 
 def format_docs_with_selection[ItemT: Document | tuple[Document, float]](

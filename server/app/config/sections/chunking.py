@@ -5,25 +5,43 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from application.runtime.dynamic_params import PROFILE_CONFIG_DEFAULTS
+from config.ownership import Static
 
 
 class ChunkingSection(BaseModel):
+    # Character limits for manual chunk edit validation. Ingestion uses tokens below.
     chunk_size: int = 550
     chunk_overlap: int = 200
-    legal_chunk_size: int = int(PROFILE_CONFIG_DEFAULTS[("legal_chunk_size", "legal")].value)
-    legal_chunk_overlap: int = int(PROFILE_CONFIG_DEFAULTS[("legal_chunk_overlap", "legal")].value)
-    decree_chunk_size: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_size", "decree")].value)
-    decree_chunk_overlap: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_overlap", "decree")].value)
+    chunk_target_tokens: int = 350
+    chunk_max_tokens: int = 512
+    chunk_overlap_tokens: int = 50
+    legal_chunk_target_tokens: int = int(
+        PROFILE_CONFIG_DEFAULTS[("legal_chunk_target_tokens", "legal")].value
+    )
+    legal_chunk_max_tokens: int = int(PROFILE_CONFIG_DEFAULTS[("legal_chunk_max_tokens", "legal")].value)
+    decree_chunk_target_tokens: int = int(
+        PROFILE_CONFIG_DEFAULTS[("decree_chunk_target_tokens", "decree")].value
+    )
+    decree_chunk_max_tokens: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_max_tokens", "decree")].value)
+    embed_tokenizer_path: Static[str] = "data/tei_cache/bge-m3/tokenizer.json"
 
     def check_chunking(self) -> list[str]:
         # Each bound is checked per field; the splitter also needs overlap < size.
-        pairs = (
-            ("chunk_overlap", "chunk_size"),
-            ("legal_chunk_overlap", "legal_chunk_size"),
-            ("decree_chunk_overlap", "decree_chunk_size"),
-        )
-        return [
+        pairs = (("chunk_overlap", "chunk_size"),)
+        errors = [
             f"{overlap.upper()} must be less than {size.upper()}"
             for overlap, size in pairs
             if getattr(self, overlap) >= getattr(self, size)
         ]
+
+        for prefix in ("", "legal_", "decree_"):
+            target = getattr(self, f"{prefix}chunk_target_tokens")
+            maximum = getattr(self, f"{prefix}chunk_max_tokens")
+
+            if target <= 0 or maximum < target:
+                errors.append(f"{prefix.upper()}CHUNK_TARGET_TOKENS must be positive and <= max tokens")
+
+        if not 0 <= self.chunk_overlap_tokens < self.chunk_target_tokens:
+            errors.append("CHUNK_OVERLAP_TOKENS must be non-negative and less than target tokens")
+
+        return errors

@@ -68,6 +68,7 @@ from infrastructure.ml.langchain_document_parser import (
     LangchainDocumentSplitter,
 )
 from infrastructure.ml.preview.factory import PreviewStrategyFactory
+from infrastructure.ml.tokenization import build_token_counter
 from infrastructure.rate_limit.idempotency import IdempotencyStore
 from infrastructure.rate_limit.limiter import DynamicRateLimiter
 from infrastructure.redis.redis_client import redis_client
@@ -169,6 +170,7 @@ class MLContainer:
             domain_settings=domain_settings,
         )
         self.document_splitter = LangchainDocumentSplitter(
+            token_counter=build_token_counter(settings.embed_tokenizer_path),
             domain_registry=domain_registry,
             domain_settings=domain_settings,
         )

@@ -65,15 +65,33 @@
     "metadata": "[]",
     "required": false
   },
+  "chunk_max_tokens": {
+    "annotation": "<class 'int'>",
+    "default": "512",
+    "metadata": "[]",
+    "required": false
+  },
   "chunk_overlap": {
     "annotation": "<class 'int'>",
     "default": "200",
     "metadata": "[]",
     "required": false
   },
+  "chunk_overlap_tokens": {
+    "annotation": "<class 'int'>",
+    "default": "50",
+    "metadata": "[]",
+    "required": false
+  },
   "chunk_size": {
     "annotation": "<class 'int'>",
     "default": "550",
+    "metadata": "[]",
+    "required": false
+  },
+  "chunk_target_tokens": {
+    "annotation": "<class 'int'>",
+    "default": "350",
     "metadata": "[]",
     "required": false
   },
@@ -203,15 +221,15 @@
     "metadata": "[]",
     "required": false
   },
-  "decree_chunk_overlap": {
+  "decree_chunk_max_tokens": {
     "annotation": "<class 'int'>",
-    "default": "200",
+    "default": "800",
     "metadata": "[]",
     "required": false
   },
-  "decree_chunk_size": {
+  "decree_chunk_target_tokens": {
     "annotation": "<class 'int'>",
-    "default": "1200",
+    "default": "400",
     "metadata": "[]",
     "required": false
   },
@@ -255,6 +273,12 @@
     "annotation": "<class 'int'>",
     "default": "1024",
     "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "embed_tokenizer_path": {
+    "annotation": "<class 'str'>",
+    "default": "'data/tei_cache/bge-m3/tokenizer.json'",
+    "metadata": "[]",
     "required": false
   },
   "embedding_http_max_connections": {
@@ -341,15 +365,15 @@
     "metadata": "[]",
     "required": true
   },
-  "legal_chunk_overlap": {
+  "legal_chunk_max_tokens": {
     "annotation": "<class 'int'>",
-    "default": "250",
+    "default": "800",
     "metadata": "[]",
     "required": false
   },
-  "legal_chunk_size": {
+  "legal_chunk_target_tokens": {
     "annotation": "<class 'int'>",
-    "default": "1000",
+    "default": "400",
     "metadata": "[]",
     "required": false
   },

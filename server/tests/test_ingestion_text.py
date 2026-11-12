@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from langchain_core.documents import Document
 
+from config import ChunkingSection
 from infrastructure.ml.ingestion import (
     clean_pdf_text,
     merge_pdf_pages,
@@ -19,9 +20,11 @@ from infrastructure.ml.ingestion import (
     split_markdown_tables,
 )
 from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS
+from infrastructure.ml.tokenization import CharEstimateTokenCounter
 
 
 if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
     from pathlib import Path
 
 
@@ -271,6 +274,13 @@ class TestMergePdfPages:
 # ---------------------------------------------------------------------------
 
 
+def patch_chunk_tokens(*, target: int, maximum: int, overlap: int) -> AbstractContextManager[object]:
+    section = ChunkingSection(
+        chunk_target_tokens=target, chunk_max_tokens=maximum, chunk_overlap_tokens=overlap
+    )
+    return patch("infrastructure.ml.ingestion.splitting.process_section", return_value=section)
+
+
 class TestSplitDocuments:
     def test_short_text_single_chunk(self) -> None:
 
@@ -283,10 +293,9 @@ class TestSplitDocuments:
 
         long_text = "word " * 200  # ~1000 chars
         docs = [Document(page_content=long_text, metadata={"source": "t.txt"})]
-        with patch("config.settings") as mock_settings:
-            mock_settings.chunk_size = 900
-            mock_settings.chunk_overlap = 150
-            chunks = split_documents(docs)
+        # ~250 estimated tokens; ingestion limits are measured in tokens.
+        with patch_chunk_tokens(target=150, maximum=225, overlap=30):
+            chunks = split_documents(docs, token_counter=CharEstimateTokenCounter())
         assert len(chunks) > 1
 
     def test_prefers_paragraph_breaks(self) -> None:
@@ -303,10 +312,8 @@ class TestSplitDocuments:
         p1 = "A" * 500
         p2 = "B" * 500
         docs = [Document(page_content=f"{p1}\n\n{p2}", metadata={"source": "t.txt"})]
-        with patch("config.settings") as mock_settings:
-            mock_settings.chunk_size = 600
-            mock_settings.chunk_overlap = 100
-            chunks = split_documents(docs)
+        with patch_chunk_tokens(target=120, maximum=150, overlap=20):
+            chunks = split_documents(docs, token_counter=CharEstimateTokenCounter())
         assert len(chunks) >= 2
 
     def test_article_separator_preferred(self) -> None:

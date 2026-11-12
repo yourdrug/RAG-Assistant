@@ -1,6 +1,7 @@
 """Structural packing preserves scope, source spans and atomic boundaries."""
 
 import re
+from types import SimpleNamespace
 
 from langchain.schema import Document
 import pytest
@@ -79,7 +80,10 @@ def test_heading_only_intro_is_context_but_meaningful_intro_survives() -> None:
 
 
 def test_legal_letter_subpoint_has_point_parent_and_numeric_subpoints_accept_both_forms() -> None:
-    text = "Статья 1. Правила\n1. Условия:\nа) первое условие;\nб) второе условие.\n2.1 Первое.\n2.2. Второе."
+    text = (
+        "Статья 1. Правила\n1. Условия:\nа) первое условие;\nб) второе условие.\n"
+        "2. Новый пункт:\n2.1 Первое.\n2.2. Второе."
+    )
     units = split_by_content(text, LegalDomainProfile().content_boundaries(), 35)
     letters = [unit for unit in units if unit.unit_kind == "subpoint"]
     assert letters
@@ -102,7 +106,6 @@ def test_section_chapter_order_follows_document(text: str) -> None:
     assert kinds[:2] == expected
 
 
-@pytest.mark.xfail(strict=True, reason="plan 3.6: validate boundary candidates after PDF hard wraps")
 def test_pdf_wrapped_reference_is_not_a_point() -> None:
     text = "Статья 1. Правила\nСогласно статье\n1. настоящего Закона действует правило."
     units = split_by_content(text, LegalDomainProfile().content_boundaries(), 40)
@@ -139,13 +142,18 @@ def test_short_articles_inside_one_chapter_still_remain_separate() -> None:
 def test_legal_article_produces_two_or_three_chunks_instead_of_sentence_fragments() -> None:
     settings = DomainSettingsAdapter()
     profile = LegalDomainProfile(settings)
-    settings.replace_snapshot(
-        {(default.key, profile.key): default.value for default in profile.config_defaults()}
-    )
+    values = {(default.key, profile.key): default.value for default in profile.config_defaults()}
+    values["legal_chunk_max_tokens", profile.key] = "1000"
+    values["legal_chunk_target_tokens", profile.key] = "1000"
+    settings.replace_snapshot(values)
     sentence = "Работодатель обеспечивает работнику условия для выполнения обязанностей. "
     text = "Глава 1\nОБЩИЕ ПОЛОЖЕНИЯ\nСтатья 1. Термины\n1. " + sentence * 10 + "\n2. " + sentence * 13
     chunks = split_documents(
-        [Document(page_content=text)], domain="legal", profile=profile, settings=settings
+        [Document(page_content=text)],
+        domain="legal",
+        profile=profile,
+        settings=settings,
+        token_counter=SimpleNamespace(count=len),
     )
     assert 2 <= len(chunks) <= 3
     assert all(len(chunk.page_content) <= 1000 for chunk in chunks)
@@ -154,9 +162,10 @@ def test_legal_article_produces_two_or_three_chunks_instead_of_sentence_fragment
 def test_packed_repeated_bodies_keep_their_exact_page_ranges() -> None:
     settings = DomainSettingsAdapter()
     profile = LegalDomainProfile(settings)
-    settings.replace_snapshot(
-        {(default.key, profile.key): default.value for default in profile.config_defaults()}
-    )
+    values = {(default.key, profile.key): default.value for default in profile.config_defaults()}
+    values["legal_chunk_max_tokens", profile.key] = "1000"
+    values["legal_chunk_target_tokens", profile.key] = "1000"
+    settings.replace_snapshot(values)
     article = "Статья 1. Правила\n1. Повторяющийся текст.\n"
     text = article + article
     chunks = split_documents(
@@ -169,6 +178,7 @@ def test_packed_repeated_bodies_keep_their_exact_page_ranges() -> None:
         domain="legal",
         profile=profile,
         settings=settings,
+        token_counter=SimpleNamespace(count=len),
     )
     assert len(chunks) == 2
     assert [chunk.metadata["pages"] for chunk in chunks] == [[1], [2]]
@@ -178,11 +188,16 @@ def test_point_and_letter_numbers_reach_final_metadata() -> None:
     settings = DomainSettingsAdapter()
     profile = LegalDomainProfile(settings)
     values = {(default.key, profile.key): default.value for default in profile.config_defaults()}
-    values["max_unit_chars", profile.key] = "60"
+    values["legal_chunk_max_tokens", profile.key] = "100"
+    values["legal_chunk_target_tokens", profile.key] = "100"
     settings.replace_snapshot(values)
     text = "Статья 1. Правила\n1. Условия:\nа) " + "первое условие; " * 4 + "\nб) " + "второе условие. " * 4
     chunks = split_documents(
-        [Document(page_content=text)], domain="legal", profile=profile, settings=settings
+        [Document(page_content=text)],
+        domain="legal",
+        profile=profile,
+        settings=settings,
+        token_counter=SimpleNamespace(count=len),
     )
     assert all(chunk.metadata["point_number"] == "1" for chunk in chunks)
     assert {chunk.metadata["subpoint_number"] for chunk in chunks} == {"а", "б"}
@@ -191,10 +206,17 @@ def test_point_and_letter_numbers_reach_final_metadata() -> None:
 def legal_chunks(text: str) -> list[Document]:
     settings = DomainSettingsAdapter()
     profile = LegalDomainProfile(settings)
-    settings.replace_snapshot(
-        {(default.key, profile.key): default.value for default in profile.config_defaults()}
+    values = {(default.key, profile.key): default.value for default in profile.config_defaults()}
+    values["legal_chunk_max_tokens", profile.key] = "1000"
+    values["legal_chunk_target_tokens", profile.key] = "1000"
+    settings.replace_snapshot(values)
+    return split_documents(
+        [Document(page_content=text)],
+        domain="legal",
+        profile=profile,
+        settings=settings,
+        token_counter=SimpleNamespace(count=len),
     )
-    return split_documents([Document(page_content=text)], domain="legal", profile=profile, settings=settings)
 
 
 def test_long_intro_in_another_article_does_not_reduce_packing_budget() -> None:
@@ -211,7 +233,7 @@ def test_long_intro_in_another_article_does_not_reduce_packing_budget() -> None:
     assert len(alone) == 2
 
 
-def test_article_below_max_unit_chars_splits_at_complete_points() -> None:
+def test_article_over_body_budget_splits_at_complete_points() -> None:
     points = [
         f"{number}. " + "Работник исполняет обязанности согласно установленным правилам. " * 2
         for number in range(1, 10)
@@ -234,9 +256,8 @@ def test_compact_context_allows_fitting_article_points_to_pack() -> None:
     chunks = legal_chunks(text)
     assert len(chunks) == 1
     assert all(len(chunk.page_content) <= 1000 for chunk in chunks)
-    assert [number for chunk in chunks for number in chunk.metadata["point_numbers"]] == [
-        str(number) for number in range(1, 10)
-    ]
+    assert chunks[0].metadata["article_number"] == "3"
+    assert all(point in chunks[0].metadata["body_text"] for point in points)
 
 
 def test_anonymous_paragraph_does_not_become_a_heading() -> None:
@@ -294,6 +315,20 @@ def test_real_sentence_ends_still_split() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Согласно статье 15. Далее текст.", ["Согласно статье 15.", "Далее текст."]),
+        ("1. Первый пункт.\n2. Второй.", ["1. Первый пункт.", "2. Второй."]),
+        ("Статья 1. Термины", ["Статья 1. Термины"]),
+        ("Глава 12. Общие положения", ["Глава 12. Общие положения"]),
+        ("1.2. Вложенный пункт.", ["1.2. Вложенный пункт."]),
+    ],
+)
+def test_number_ends_sentence_unless_it_numbers_a_unit(text: str, expected: list[str]) -> None:
+    assert SENTENCE_RE.split(text) == expected
+
+
 def test_capitalized_chapter_is_a_boundary_and_not_a_standalone_chunk() -> None:
     text = (
         "ГЛАВА 1\nОБЩИЕ ПОЛОЖЕНИЯ\nСтатья 1. Термины\n1. "
@@ -314,12 +349,17 @@ def test_capitalized_chapter_is_a_boundary_and_not_a_standalone_chunk() -> None:
 def test_separator_line_does_not_become_a_chunk() -> None:
     settings = DomainSettingsAdapter()
     profile = LegalDomainProfile(settings)
-    settings.replace_snapshot(
-        {(default.key, profile.key): default.value for default in profile.config_defaults()}
-    )
+    values = {(default.key, profile.key): default.value for default in profile.config_defaults()}
+    values["legal_chunk_max_tokens", profile.key] = "1000"
+    values["legal_chunk_target_tokens", profile.key] = "1000"
+    settings.replace_snapshot(values)
     text = "Статья 1. Правила\n1. Первое правило действует.\n" + "-" * 66
     chunks = split_documents(
-        [Document(page_content=text)], domain="legal", profile=profile, settings=settings
+        [Document(page_content=text)],
+        domain="legal",
+        profile=profile,
+        settings=settings,
+        token_counter=SimpleNamespace(count=len),
     )
     assert chunks
     assert all(any(char.isalnum() for char in chunk.page_content) for chunk in chunks)

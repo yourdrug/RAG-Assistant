@@ -460,11 +460,17 @@ def test_chunking_check_requires_overlap_below_size() -> None:
     assert settings.check_chunking() == []
 
     broken = settings.model_copy(
-        update={"chunk_size": 150, "chunk_overlap": 150, "legal_chunk_overlap": 10**6}
+        update={
+            "chunk_size": 150,
+            "chunk_overlap": 150,
+            "legal_chunk_target_tokens": 10**6,
+            "chunk_overlap_tokens": settings.chunk_target_tokens,
+        }
     )
     assert broken.check_chunking() == [
         "CHUNK_OVERLAP must be less than CHUNK_SIZE",
-        "LEGAL_CHUNK_OVERLAP must be less than LEGAL_CHUNK_SIZE",
+        "LEGAL_CHUNK_TARGET_TOKENS must be positive and <= max tokens",
+        "CHUNK_OVERLAP_TOKENS must be non-negative and less than target tokens",
     ]
 
 

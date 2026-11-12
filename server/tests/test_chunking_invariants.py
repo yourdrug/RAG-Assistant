@@ -19,8 +19,9 @@ from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocumentVisibility, PageContentType
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from infrastructure.ml.ingestion.splitting import settings_chunk_size
+from infrastructure.ml.ingestion.splitting import Chunker
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+from infrastructure.ml.tokenization import build_token_counter
 from tests.chunking_fixtures import CHUNKING_FIXTURES, source_text
 
 
@@ -52,7 +53,7 @@ class SplitResult:
     fixture: ChunkingFixture
     raw: list[RawDocument]
     chunks: list[RawDocument]
-    max_chars: int
+    max_tokens: int
 
 
 @pytest.fixture(scope="module")
@@ -95,7 +96,7 @@ def split_results(
             [RawDocument(d.page_content, dict(d.metadata)) for d in raw], domain=fixture.domain
         )
         results[fixture.case_id] = SplitResult(
-            fixture, raw, chunks, settings_chunk_size(fixture.domain, settings)
+            fixture, raw, chunks, Chunker(fixture.domain, domain_settings=settings).chunk_size
         )
 
     return results
@@ -199,10 +200,14 @@ def test_2_chunks_cover_all_meaningful_source_text(
 
 @pytest.mark.parametrize("case_id", case("size within budget"))
 def test_3_every_chunk_fits_the_budget(case_id: str, split_results: dict[str, SplitResult]) -> None:
-    # Budget is in characters until the token counter (plan 3.1) replaces it.
+    counter = build_token_counter("data/tei_cache/bge-m3/tokenizer.json")
     result = split_results[case_id]
-    oversized = [len(c.page_content) for c in result.chunks if len(c.page_content) > result.max_chars]
-    assert not oversized, f"limit {result.max_chars}, got {oversized}"
+    oversized = [
+        counter.count(c.page_content)
+        for c in result.chunks
+        if counter.count(c.page_content) > result.max_tokens
+    ]
+    assert not oversized, f"limit {result.max_tokens}, got {oversized}"
 
 
 MAX_LEAD_IN_CHARS = 100

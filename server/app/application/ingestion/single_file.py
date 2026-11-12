@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -86,7 +87,7 @@ class SingleFileIngestionWorkflow:
         domain = self._loader.classify_text_domain(full_text, scope.domain)
         log.info("doc_domain=%s for %s", domain, file_info.filename)
 
-        chunks = self._loader.index_docs(docs, domain=domain)
+        chunks = await asyncio.to_thread(self._loader.index_docs, docs, domain=domain)
 
         if not chunks:
             msg = f"No chunks prepared for {file_info.key}"

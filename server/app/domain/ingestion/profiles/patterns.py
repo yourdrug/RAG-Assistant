@@ -53,10 +53,17 @@ LEGAL_ABBREVIATIONS = (
     "т.к",
     "т.ч",
 )
+# A number ends a sentence ("согласно статье 15."), except where it numbers a
+# unit: a line-start item ("1. Текст"), a nested item ("1.2.") or a heading
+# ("Статья 1. Термины"). Lookbehinds need fixed widths, hence one per digit count.
+NUMBERED_UNIT_WORDS = ("статья", "глава", "раздел", "пункт", "подпункт", "часть", "параграф")
+NUMBER_WIDTHS = (1, 2, 3)
 SENTENCE_RE = re.compile(
     r"(?<=[.!?])"
     r"(?<!\b[а-яёa-z]\.)"
+    + "".join(rf"(?<!^\d{{{width}}}\.)(?<!\.\d{{{width}}}\.)" for width in NUMBER_WIDTHS)
+    + "".join(rf"(?<!\b{word} \d{{{width}}}\.)" for word in NUMBERED_UNIT_WORDS for width in NUMBER_WIDTHS)
     + "".join(rf"(?<!\b{re.escape(abbreviation)}\.)" for abbreviation in LEGAL_ABBREVIATIONS)
     + r"\s+",
-    re.IGNORECASE,
+    re.IGNORECASE | re.MULTILINE,
 )

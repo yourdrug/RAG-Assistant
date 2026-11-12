@@ -1,7 +1,7 @@
 """Content-based text splitting — recursive descent by structural boundaries.
 
 Replaces RecursiveCharacterTextSplitter for structured domains.
-Text is cut at semantic boundaries. The body budget and max_unit_chars decide when to descend
+Text is cut at semantic boundaries. The measured body budget decides when to descend
 to a finer level; it never cuts through a structural unit at an arbitrary character.
 """
 
@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 import re
 from typing import TYPE_CHECKING
 
+from domain.ingestion.boundary_validation import boundary_candidates, validate_candidates
 from domain.knowledge.chunk import SENTENCE_UNIT_KIND
 
 
@@ -50,23 +51,25 @@ class SplitUnit:
     end: int = 0
 
 
-def split_by_content(
+def split_by_content(  # noqa: PLR0913 - measurement and observations are injected ports
     text: str,
     levels: list[BoundaryLevel],
-    max_unit_chars: int,
+    max_unit_size: int,
     min_chunk_chars: int = 0,
     *,
     unit_budget: Callable[[SplitUnit], int] | None = None,
     unit_label: Callable[[str, str], str] | None = None,
+    measure: Callable[[str], int] = len,
+    on_boundary_event: Callable[[str, int], None] | None = None,
 ) -> list[SplitUnit]:
     """Split text by structural boundary hierarchy.
 
     Recursively descends through boundary levels. If a unit at the current level
-    exceeds max_unit_chars, the next finer level is tried on that unit's text.
+    exceeds max_unit_size, the next finer level is tried on that unit's text.
     The finest level (typically sentence) is the terminal fallback.
 
     unit_budget can lower the descent threshold for each unit using its complete
-    parent context. It uses character counts, as does max_unit_chars.
+    parent context. All sizes use the supplied measure.
 
     Levels with ``always_split=True`` are applied unconditionally regardless
     of unit size (structural boundaries like numeric subpoints).
@@ -74,7 +77,15 @@ def split_by_content(
     min_chunk_chars: when > 0, attach orphaned numeric markers to the next
     sibling. Other small bodies are left intact for the sibling packer.
     """
-    result = recursive_split(text, levels, max_unit_chars, unit_budget=unit_budget, unit_label=unit_label)
+    result = recursive_split(
+        text,
+        levels,
+        max_unit_size,
+        unit_budget=unit_budget,
+        unit_label=unit_label,
+        measure=measure,
+        on_boundary_event=on_boundary_event,
+    )
 
     if min_chunk_chars > 0:
         result = [
@@ -85,20 +96,22 @@ def split_by_content(
     return result
 
 
-def recursive_split(
+def recursive_split(  # noqa: PLR0913 - recursive source span and parent context
     text: str,
     levels: list[BoundaryLevel],
-    max_unit_chars: int,
+    max_unit_size: int,
     offset: int = 0,
     *,
     parents: tuple[BoundaryContext, ...] = (),
     unit_budget: Callable[[SplitUnit], int] | None = None,
     unit_label: Callable[[str, str], str] | None = None,
+    measure: Callable[[str], int] = len,
+    on_boundary_event: Callable[[str, int], None] | None = None,
 ) -> list[SplitUnit]:
     """Recursively descend through boundary levels.
 
     Levels with ``always_split=True`` are applied unconditionally.
-    Other levels are applied when the unit exceeds its budget or ``max_unit_chars``.
+    Other levels are applied when the unit exceeds its budget or ``max_unit_size``.
     """
     if not levels:
         return (
@@ -121,15 +134,29 @@ def recursive_split(
     level, *rest = levels
     raw_units = [
         replace(unit, start=unit.start + offset, end=unit.end + offset, parents=parents)
-        for unit in split_at_boundary(text, level, unit_label=unit_label, following_levels=rest)
+        for unit in split_at_boundary(
+            text,
+            level,
+            unit_label=unit_label,
+            following_levels=rest,
+            parent_number=next(
+                (p.boundary_value for p in reversed(parents) if p.unit_kind in ("point", "subpoint_num")),
+                None,
+            ),
+            on_boundary_event=(
+                (lambda rule, position: on_boundary_event(rule, offset + position))
+                if on_boundary_event
+                else None
+            ),
+        )
     ]
 
     result: list[SplitUnit] = []
 
     for unit in raw_units:
-        budget = min(max_unit_chars, unit_budget(unit)) if unit_budget else max_unit_chars
+        budget = min(max_unit_size, unit_budget(unit)) if unit_budget else max_unit_size
 
-        if rest and needs_finer_boundary(unit, level, rest, budget):
+        if rest and needs_finer_boundary(unit, level, rest, budget, measure):
             child_parents = parents
 
             if unit.heading and level.name != SENTENCE_UNIT_KIND:
@@ -138,11 +165,13 @@ def recursive_split(
             children = recursive_split(
                 unit.content,
                 rest,
-                max_unit_chars,
+                max_unit_size,
                 unit.start,
                 parents=child_parents,
                 unit_budget=unit_budget,
                 unit_label=unit_label,
+                measure=measure,
+                on_boundary_event=on_boundary_event,
             )
 
             if (
@@ -168,11 +197,15 @@ def recursive_split(
 
 
 def needs_finer_boundary(
-    unit: SplitUnit, level: BoundaryLevel, rest: list[BoundaryLevel], budget: int
+    unit: SplitUnit,
+    level: BoundaryLevel,
+    rest: list[BoundaryLevel],
+    budget: int,
+    measure: Callable[[str], int] = len,
 ) -> bool:
     """Respect the body budget and mandatory or otherwise hidden structure."""
     return (
-        len(unit.content) > budget
+        measure(unit.content) > budget
         or any(child.always_split and child.pattern.search(unit.content) for child in rest)
         or (
             not level.pattern.search(unit.content)
@@ -234,9 +267,17 @@ def split_at_boundary(
     *,
     unit_label: Callable[[str, str], str] | None = None,
     following_levels: list[BoundaryLevel] | None = None,
+    parent_number: str | None = None,
+    on_boundary_event: Callable[[str, int], None] | None = None,
 ) -> list[SplitUnit]:
     """Split text at all occurrences of a boundary level's regex pattern."""
-    matches = list(level.pattern.finditer(text))
+    matches = validate_candidates(
+        boundary_candidates(text, level),
+        text,
+        [level, *(following_levels or [])],
+        parent_number=parent_number,
+        on_event=on_boundary_event,
+    )
 
     if not matches:
         return (
@@ -256,8 +297,8 @@ def split_at_boundary(
     units: list[SplitUnit] = []
 
     # Text before the first boundary (preamble/introduction)
-    if matches[0].start() > 0:
-        lead = text[: matches[0].start()].strip()
+    if matches[0].start > 0:
+        lead = text[: matches[0].start].strip()
 
         if lead:
             units.append(
@@ -265,18 +306,18 @@ def split_at_boundary(
                     None,
                     lead,
                     "preamble",
-                    start=len(text[: matches[0].start()]) - len(text[: matches[0].start()].lstrip()),
-                    end=len(text[: matches[0].start()].rstrip()),
+                    start=len(text[: matches[0].start]) - len(text[: matches[0].start].lstrip()),
+                    end=len(text[: matches[0].start].rstrip()),
                 )
             )
 
     for i, m in enumerate(matches):
-        start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        start = m.start
+        end = matches[i + 1].start if i + 1 < len(matches) else len(text)
         chunk_text = text[start:end].strip()
 
         if chunk_text:
-            boundary_value = m.group(1) if m.groups() else None
+            boundary_value = m.value
             heading = boundary_heading(chunk_text, level, boundary_value, unit_label, following_levels or [])
             units.append(
                 SplitUnit(
@@ -366,11 +407,17 @@ def unit_parent_context(unit: SplitUnit, rest: list[BoundaryLevel]) -> BoundaryC
     # Keep the condition before the first finer structural boundary.
     # For sentence descent, only the heading line is context; the
     # complete body stays in the children and is never duplicated.
+    parent_number = unit.boundary_value if unit.unit_kind in ("point", "subpoint_num") else None
     starts = [
-        match.start()
+        candidate.start
         for child_level in rest
         if child_level.name != SENTENCE_UNIT_KIND
-        if (match := child_level.pattern.search(unit.content)) is not None
+        for candidate in validate_candidates(
+            boundary_candidates(unit.content, child_level),
+            unit.content,
+            rest,
+            parent_number=parent_number,
+        )[:1]
     ]
     intro = unit.content[: min(starts)].strip() if starts else unit.content.split("\n", 1)[0]
 

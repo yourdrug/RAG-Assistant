@@ -71,7 +71,7 @@ def migration_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
 
     path = tmp_path / ".env"
     path.write_text(
-        '# preserved comment\nOPENROUTER_MODEL="legacy model"\nLEGAL_CHUNK_SIZE=1600\n'
+        '# preserved comment\nOPENROUTER_MODEL="legacy model"\nLEGAL_CHUNK_MAX_TOKENS=1600\n'
         "ML_PROVIDER=tei\nRATE_LIMIT_ENABLED=false\nHTTP_POOL_MAX_CONNECTIONS=42\n"
         "HTTP_POOL_MAX_KEEPALIVE=18\nS3_ACCESS_KEY=private-access\nS3_SECRET_KEY=private-secret\n"
     )
@@ -267,8 +267,8 @@ async def test_apply_preserves_database_values_scopes_and_pending_env(
     await config_migration.migrate_env_configuration(factory, path, apply=True)
     rows = {(r.key, r.domain_key): r.value for r in await factory.repository.get_all()}
     assert rows[("openrouter_model", None)] == "db model"
-    assert rows[("legal_chunk_size", DocDomain.LEGAL.value)] == "1600"
-    assert ("legal_chunk_size", None) not in rows
+    assert rows[("legal_chunk_max_tokens", DocDomain.LEGAL.value)] == "1600"
+    assert ("legal_chunk_max_tokens", None) not in rows
     assert rows[("embedding_http_max_connections", None)] == "42"
     assert rows[("rerank_http_max_connections", None)] == "21"
     assert rows[("rerank_http_max_keepalive_connections", None)] == "9"
@@ -626,7 +626,7 @@ async def test_final_trim_preserves_static_overrides_and_db_values(
     assert (
         not {
             "OPENROUTER_MODEL",
-            "LEGAL_CHUNK_SIZE",
+            "LEGAL_CHUNK_MAX_TOKENS",
             "RATE_LIMIT_ENABLED",
             "HTTP_POOL_MAX_CONNECTIONS",
             "HTTP_POOL_MAX_KEEPALIVE",
