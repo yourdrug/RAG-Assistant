@@ -967,8 +967,16 @@
       "expected_refusal": false,
       "expected_fragments": [
         {
-          "text": "не позднее 1 рабочего дня, сообщить Раскрывающей стороне о факте утечки",
-          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+          "alternatives": [
+            {
+              "text": "не позднее 1 рабочего дня, сообщить Раскрывающей стороне о факте утечки",
+              "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+            },
+            {
+              "text": "но не позднее 1 рабочего дня,",
+              "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+            }
+          ]
         }
       ],
       "answer_type": "factual",
@@ -997,7 +1005,10 @@
     "annotations": {
       "required_facts": [
         "общедоступн",
-        "государственного органа"
+        [
+          "государственного органа",
+          "госоргана"
+        ]
       ],
       "expected_refusal": false,
       "expected_fragments": [
@@ -1076,8 +1087,16 @@
       "expected_refusal": false,
       "expected_fragments": [
         {
-          "text": "сохраняют силу в течение 5 лет после прекращения действия соглашения",
-          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+          "alternatives": [
+            {
+              "text": "сохраняют силу в течение 5 лет после прекращения действия соглашения",
+              "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+            },
+            {
+              "text": "лет после прекращения действия соглашения.",
+              "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+            }
+          ]
         }
       ],
       "answer_type": "false_premise",
@@ -1100,5 +1119,254 @@
     "case_id": "rag-c-031",
     "variant_of": null,
     "question_style": "reference_guided"
+  },
+  {
+    "question": "Какой гарантийный срок на поддоны установлен договором поставки № 45-П/2026?",
+    "expected_answer": "Гарантийный срок договором не установлен. Предусмотрено только, что скрытые недостатки покупатель может заявить в течение 6 месяцев с даты поставки (п. 4.3).",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        [
+          "не установлен",
+          "не предусмотрен",
+          "не указан"
+        ],
+        "6 месяцев"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Скрытые недостатки могут быть заявлены Покупателем в течение 6 месяцев с даты поставки.",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "negative",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "near_miss",
+      "negative"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-032",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какую неустойку платит EDI-провайдер «Северный Узел», если не передал сведения об электронных накладных в МНС в срок?",
+    "expected_answer": "Такая неустойка договором № 17-EDI/2026 не предусмотрена. Неустойка (пеня 0,1 % в день, не более 10 %) установлена только для заказчика за просрочку оплаты (п. 5.1); исполнитель не отвечает за сбои информационных систем МНС (п. 5.2), а при доступности ниже 99,5 % стоимость услуг за месяц снижается на 10 % (п. 4.3).",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        [
+          "не предусмотр",
+          "не установлен"
+        ],
+        "10 %"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Исполнитель не несёт ответственности за невозможность передачи документов, вызванную сбоями в работе информационных систем Министерства по налогам и сборам.",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        },
+        {
+          "text": "При снижении доступности ниже гарантированного уровня стоимость услуг за соответствующий месяц уменьшается на 10 %.",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "negative",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "broad",
+      "near_miss",
+      "negative"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-033",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какая пеня за просрочку оплаты установлена соглашением о конфиденциальности № 3-К/2026?",
+    "expected_answer": "Соглашение о конфиденциальности не содержит платёжных обязательств и пени за просрочку оплаты. Единственная санкция — штраф 5 000 бел. руб. за каждый случай разглашения (п. 5.1) с возмещением убытков сверх штрафа (п. 5.2).",
+    "source_hint": "Соглашение о конфиденциальности № 3-К-2026.pdf",
+    "annotations": {
+      "required_facts": [
+        [
+          "не предусмотр",
+          "не содержит",
+          "не установлен"
+        ],
+        "5 000"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "уплачивает штраф в размере 5 000 бел. руб.",
+          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+        }
+      ],
+      "answer_type": "negative",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Соглашение о конфиденциальности № 3-К-2026.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "near_miss",
+      "negative"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-034",
+    "variant_of": null,
+    "question_style": "reference_guided"
+  },
+  {
+    "question": "Верно ли, что по договору поставки № 45-П/2026 поставщик может повысить цену поддонов в одностороннем порядке, предупредив покупателя за 30 дней?",
+    "expected_answer": "Нет. По п. 5.3 цена товара фиксируется на срок действия спецификации и не подлежит изменению в одностороннем порядке. Одностороннее изменение с уведомлением за 30 дней предусмотрено для тарифов в договоре на EDI-услуги (п. 3.3), а не в договоре поставки.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        [
+          "не подлежит изменению",
+          "фиксируется"
+        ]
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Цена товара фиксируется на срок действия спецификации и не подлежит изменению в одностороннем порядке.",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "false_premise",
+      "expected_behavior": "correct_premise",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "near_miss",
+      "cross_doc"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-035",
+    "variant_of": null,
+    "question_style": "reference_guided"
+  },
+  {
+    "question": "Сколько действует соглашение о конфиденциальности, заключённое «Северным Узлом» с «Ромашка-Трейд»?",
+    "expected_answer": "Соглашение о конфиденциальности № 3-К/2026 заключено «Северным Узлом» не с «Ромашка-Трейд», а с ОДО «Вектор Логистик». Оно действует 3 года с даты подписания (п. 6.1), а обязательства по конфиденциальности сохраняются 5 лет после его прекращения (п. 6.2). С «Ромашка-Трейд» заключён договор на EDI-услуги № 17-EDI/2026.",
+    "source_hint": "Соглашение о конфиденциальности № 3-К-2026.pdf",
+    "annotations": {
+      "required_facts": [
+        [
+          "Вектор Логистик"
+        ],
+        "3 года"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "«Вектор Логистик», именуемое в дальнейшем «Получающая",
+          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+        },
+        {
+          "text": "Соглашение вступает в силу с даты подписания и действует 3 года.",
+          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+        }
+      ],
+      "answer_type": "false_premise",
+      "expected_behavior": "correct_premise",
+      "review_required": false,
+      "source_files": [
+        "Соглашение о конфиденциальности № 3-К-2026.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "near_miss",
+      "cross_doc"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-036",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "С какими организациями заключило договоры ООО «Северный Узел» и о чём каждый из них?",
+    "expected_answer": "С ОАО «Ромашка-Трейд» — договор № 17-EDI/2026 на оказание услуг EDI-провайдера (обмен электронными документами через EDI-FLOW); с ОДО «Вектор Логистик» — соглашение о конфиденциальности № 3-К/2026 в связи с переговорами об интеграции учётной системы с EDI-FLOW.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx; Соглашение о конфиденциальности № 3-К-2026.pdf",
+    "annotations": {
+      "required_facts": [
+        "Ромашка-Трейд",
+        "Вектор Логистик"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Открытое акционерное общество «Ромашка-Трейд», именуемое в дальнейшем «Заказчик»",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        },
+        {
+          "text": "«Вектор Логистик», именуемое в дальнейшем «Получающая",
+          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+        "Соглашение о конфиденциальности № 3-К-2026.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "broad",
+      "cross_doc"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-037",
+    "variant_of": null,
+    "question_style": "natural"
   }
 ]
