@@ -107,3 +107,8 @@ METADATA_SETTING_KEYS: frozenset[str] = frozenset(
 )
 
 TARGET_DYNAMIC_SETTING_KEYS: frozenset[str] = frozenset(param.key for param in DYNAMIC_PARAMS)
+
+
+GLOBAL_DYNAMIC_SETTING_KEYS: frozenset[str] = frozenset(
+    param.key for param in DYNAMIC_PARAMS if param.domain_key is None
+)

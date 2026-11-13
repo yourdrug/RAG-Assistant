@@ -17,7 +17,7 @@ from domain.shared.breadcrumb import shorten_breadcrumb
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
-from infrastructure.ml.ingestion.text_chunks import text_document_chunks
+from infrastructure.ml.ingestion.text_chunks import text_tree_chunks
 from infrastructure.ml.rag.context_rendering import build_header, render_selected_docs
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.generation_budget import prepare_generation_budget
@@ -89,7 +89,7 @@ def test_real_ingestion_overlap() -> None:
         page_content=" ".join(f"Содержание предложения номер {i}." for i in range(60)),
         metadata={"document_id": 1, "section": "Статья 31"},
     )
-    chunks = text_document_chunks(source, 550, 200)
+    chunks = text_tree_chunks(source, 550, 200)
 
     for index, chunk in enumerate(chunks):
         chunk.metadata["chunk_index"] = index
@@ -178,7 +178,7 @@ def test_prompt_keeps_provision_heading_stripped_with_ingestion_prefix() -> None
         page_content=heading + "\n" + " ".join(f"Положение номер {i} продолжается." for i in range(60)),
         metadata={"document_id": 1, "section": "Глава 2", "unit_heading_text": heading},
     )
-    chunks = text_document_chunks(source, 550, 100)
+    chunks = text_tree_chunks(source, 550, 100)
 
     for index, chunk in enumerate(chunks):
         chunk.metadata["chunk_index"] = index

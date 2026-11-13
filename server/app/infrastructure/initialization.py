@@ -28,17 +28,20 @@ def build_defaults() -> list[ConfigParameter]:
     result = []
 
     for declaration in DYNAMIC_PARAMS:
-        field = Settings.model_fields[declaration.key]
-        raw = field.get_default(call_default_factory=True)
-
-        if raw is None:
-            raw = declaration.min_val if declaration.min_val is not None else 0.0
-
         scoped_default = (
             PROFILE_CONFIG_DEFAULTS.get((declaration.key, declaration.domain_key))
             if declaration.domain_key is not None
             else None
         )
+        raw = (
+            scoped_default.value
+            if scoped_default is not None
+            else Settings.model_fields[declaration.key].get_default(call_default_factory=True)
+        )
+
+        if raw is None:
+            raw = declaration.min_val if declaration.min_val is not None else 0.0
+
         value = (
             scoped_default.value
             if scoped_default is not None

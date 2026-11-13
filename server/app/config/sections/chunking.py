@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from application.runtime.dynamic_params import PROFILE_CONFIG_DEFAULTS
 from config.ownership import Static
 
 
@@ -15,20 +14,6 @@ class ChunkingSection(BaseModel):
     chunk_target_tokens: int = 350
     chunk_max_tokens: int = 512
     chunk_overlap_tokens: int = 50
-    legal_chunk_target_tokens: int = int(
-        PROFILE_CONFIG_DEFAULTS[("legal_chunk_target_tokens", "legal")].value
-    )
-    legal_chunk_max_tokens: int = int(PROFILE_CONFIG_DEFAULTS[("legal_chunk_max_tokens", "legal")].value)
-    decree_chunk_target_tokens: int = int(
-        PROFILE_CONFIG_DEFAULTS[("decree_chunk_target_tokens", "decree")].value
-    )
-    decree_chunk_max_tokens: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_max_tokens", "decree")].value)
-    contract_chunk_target_tokens: int = int(
-        PROFILE_CONFIG_DEFAULTS[("contract_chunk_target_tokens", "contract")].value
-    )
-    contract_chunk_max_tokens: int = int(
-        PROFILE_CONFIG_DEFAULTS[("contract_chunk_max_tokens", "contract")].value
-    )
     embed_tokenizer_path: Static[str] = "data/tei_cache/bge-m3/tokenizer.json"
     # Plan 4.3: LLM situating notes added only to the dense embedding input.
     chunk_contextualization_enabled: Static[bool] = False
@@ -44,12 +29,8 @@ class ChunkingSection(BaseModel):
             if getattr(self, overlap) >= getattr(self, size)
         ]
 
-        for prefix in ("", "legal_", "decree_", "contract_"):
-            target = getattr(self, f"{prefix}chunk_target_tokens")
-            maximum = getattr(self, f"{prefix}chunk_max_tokens")
-
-            if target <= 0 or maximum < target:
-                errors.append(f"{prefix.upper()}CHUNK_TARGET_TOKENS must be positive and <= max tokens")
+        if self.chunk_target_tokens <= 0 or self.chunk_max_tokens < self.chunk_target_tokens:
+            errors.append("CHUNK_TARGET_TOKENS must be positive and <= max tokens")
 
         if self.chunk_contextualization_concurrency <= 0 or self.chunk_contextualization_timeout <= 0:
             errors.append("CHUNK_CONTEXTUALIZATION_CONCURRENCY and _TIMEOUT must be positive")

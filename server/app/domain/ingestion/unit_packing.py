@@ -19,7 +19,7 @@ class PackedUnit(SplitUnit):
     point_numbers: tuple[str, ...] = ()
 
 
-def pack_units(
+def pack_units(  # noqa: C901, PLR0913 - profile packing and exact source measurement
     units: list[SplitUnit],
     budget: int,
     measure: Callable[[str], int],
@@ -28,6 +28,7 @@ def pack_units(
     min_size: int = 0,
     source: str | None = None,
     scope_boundaries: frozenset[str] = frozenset(),
+    exact_measure: bool = False,
 ) -> list[PackedUnit]:
     """Prefer the coarsest break in a full window; keep fitting units atomic.
 
@@ -52,6 +53,9 @@ def pack_units(
     }
 
     def window_size(group: list[SplitUnit]) -> int:
+        if exact_measure:
+            return measure(packing_content(group, source))
+
         return sum(sizes[id(unit)] for unit in group) + sum(
             gaps.get((id(left), id(right)), 0) for left, right in pairwise(group)
         )

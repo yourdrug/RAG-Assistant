@@ -1,8 +1,11 @@
 """Keep explicit table replacements interpretable after independent retrieval."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 import re
+from typing import Any, cast
 
+from domain.ingestion.document_tree import DocNode, NodeKind, tree_text
 from domain.knowledge.enums import PageContentType
 from domain.rag.ranking import RetrievalDocument
 
@@ -12,13 +15,54 @@ TABLE_TARGET_RE = re.compile(r"в\s+таблице\s+\d+(?:\.\d+)*", re.IGNORECA
 POSITION_TARGET_END_RE = re.compile(r"\bпозицию\s*:?\s*$", re.IGNORECASE)
 
 
-def attach_table_replacement_scope(docs: Sequence[RetrievalDocument]) -> None:
+@dataclass
+class TreeBlock:
+    node: DocNode
+    parent_id: str | None = None
+
+    @property
+    def page_content(self) -> str:
+        return tree_text(self.node)
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return cast("dict[str, Any]", self.node.hints["metadata"])
+
+
+def tree_blocks(tree: DocNode, parent_id: str | None = None) -> list[TreeBlock]:
+    if "metadata" in tree.hints and tree.kind not in (NodeKind.DOCUMENT, NodeKind.HEADING_BLOCK):
+        return [TreeBlock(tree, parent_id)]
+
+    scope = tree.node_id if tree.label else parent_id
+    return [block for child in tree.children for block in tree_blocks(child, scope)]
+
+
+def attach_table_replacement_scope(document: DocNode | Sequence[RetrievalDocument]) -> None:
     """Attach the exact target/old/operation/new sequence to both table parts.
 
     Only adjacent sections under the same heading and source qualify. Existing
     parent_units persistence and prompt budgeting carry this indivisible scope;
     no relationship is inferred from row equality or the order of search hits.
     """
+    tree = (
+        document
+        if isinstance(document, DocNode)
+        else DocNode(
+            NodeKind.DOCUMENT,
+            children=tuple(
+                DocNode(
+                    NodeKind.TABLE
+                    if doc.metadata.get("content_type") == PageContentType.TABLE.value
+                    else NodeKind.PARAGRAPH,
+                    text=doc.page_content,
+                    hints={"metadata": doc.metadata},
+                )
+                for doc in document
+            ),
+        )
+    )
+    docs = tree_blocks(tree)
+
     for index in range(1, len(docs) - 2):
         target, old, bridge, new = docs[index - 1 : index + 3]
         matches = list(TABLE_TARGET_RE.finditer(target.page_content))
@@ -29,13 +73,13 @@ def attach_table_replacement_scope(docs: Sequence[RetrievalDocument]) -> None:
         if not REPLACEMENT_BRIDGE_RE.fullmatch(bridge.page_content):
             continue
 
-        if any(doc.metadata.get("content_type") != PageContentType.TABLE.value for doc in (old, new)):
+        if any(doc.node.kind != NodeKind.TABLE for doc in (old, new)):
             continue
 
         if (
             len(
                 {
-                    (doc.metadata.get("source"), doc.metadata.get("section"))
+                    (doc.parent_id, doc.metadata.get("source"), doc.metadata.get("section"))
                     for doc in (target, old, bridge, new)
                 }
             )

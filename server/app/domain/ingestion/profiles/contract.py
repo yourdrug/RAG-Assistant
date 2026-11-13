@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from domain.ingestion.chunking_policy import profile_policy
 from domain.ingestion.profiles.base import SettingsBackedProfile
 from domain.ingestion.profiles.patterns import PARAGRAPH_RE, SENTENCE_RE, SUBPOINT_LETTER_RE
 from domain.ingestion.profiles.types import (
@@ -12,10 +13,14 @@ from domain.ingestion.profiles.types import (
     ConfigDefault,
     ReferenceMatch,
 )
+from domain.ingestion.tree_refinement import refine_tree
 from domain.shared.profile_policy import AnswerPolicy
 
 
 if TYPE_CHECKING:
+    from domain.ingestion.chunking_policy import ChunkingPolicy
+    from domain.ingestion.document_tree import BoundaryEventSink, DocNode
+    from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.types import EffectiveDateCandidate
 
 
@@ -47,6 +52,12 @@ class ContractDomainProfile(SettingsBackedProfile):
         "- Нормы закона цитируй с указанием статьи и акта.\n",
         fallback_to_full_corpus=False,
     )
+
+    def refine(self, tree: DocNode, on_boundary_event: BoundaryEventSink | None = None) -> DocNode:
+        return refine_tree(tree, self, on_boundary_event)
+
+    def chunking_policy(self, settings: DomainSettingsPort | None = None) -> ChunkingPolicy:
+        return profile_policy(self.key, self.config_defaults(), settings)
 
     def config_defaults(self) -> list[ConfigDefault]:
         return [

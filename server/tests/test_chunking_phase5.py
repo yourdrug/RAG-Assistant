@@ -15,20 +15,20 @@ import pytest
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.ingestion.content_splitter import split_by_content
 from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 from domain.ingestion.profiles.contract import ContractDomainProfile
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.profiles.types import refs_to_metadata
+from domain.ingestion.tree_packer import select_structural_units
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.enums import DocDomain, DocumentVisibility
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.answer_policy import classify_query_domain, policy_for
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from infrastructure.ml.ingestion.docx import read_docx
+from infrastructure.ml.ingestion.docx import parse_docx_sections
 from infrastructure.ml.ingestion.pdf_headings import apply_pdf_headings, toc_headings
 from infrastructure.ml.ingestion.registry import FormatContext, pdf_sections
 from infrastructure.ml.ingestion.splitting import classify_content_shape
@@ -72,7 +72,7 @@ def test_contract_classification_and_law_are_unambiguous(
 def test_contract_boundaries_preserve_parents_and_appendix() -> None:
     text = Path("tests/fixtures/chunking/contract.txt").read_text()
     profile = ContractDomainProfile()
-    units = split_by_content(text, profile.content_boundaries(), 600, unit_label=profile.unit_label)
+    units = select_structural_units(text, profile.content_boundaries(), 600, unit_label=profile.unit_label)
     assert any(unit.boundary_value == "2.1.1" for unit in units)
     child = next(unit for unit in units if unit.boundary_value == "2.1.1")
     assert any(parent.boundary_value == "2.1" for parent in child.parents)
@@ -299,7 +299,7 @@ def test_docx_numbering_and_bold_create_hierarchy(tmp_path: Path) -> None:
     document.add_paragraph().add_run("Final provisions").bold = True
     document.add_paragraph("Closing sentence.")
     document.save(str(path))
-    _, sections, _ = read_docx(path)
+    sections = parse_docx_sections(path)
     assert len(sections) == 3
     assert sections[1].heading
     assert " > " in sections[1].heading
@@ -319,7 +319,7 @@ def test_plain_numbered_list_items_keep_styled_section(tmp_path: Path) -> None:
 
     document.add_paragraph("После установки перезагрузите компьютер.")
     document.save(str(path))
-    _, sections, _ = read_docx(path)
+    sections = parse_docx_sections(path)
     assert [section.heading for section in sections] == ["Требования к рабочему месту"]
     assert "Необходимо установить следующие программы:\n1. Microsoft Office" in sections[0].content
 
@@ -333,7 +333,7 @@ def test_bold_numbered_title_nests_under_styled_heading(tmp_path: Path) -> None:
     add_numbering(title, 0)
     document.add_paragraph("Текст раздела.")
     document.save(str(path))
-    _, sections, _ = read_docx(path)
+    sections = parse_docx_sections(path)
     assert sections[-1].heading == "Регламент > 1. Порядок работы"
 
 
@@ -358,7 +358,7 @@ def test_docx_russian_heading_style(tmp_path: Path) -> None:
     document.add_paragraph("Общие положения", "Заголовок 1")
     document.add_paragraph("Содержание раздела.")
     document.save(str(path))
-    _, sections, _ = read_docx(path)
+    sections = parse_docx_sections(path)
     assert sections[0].heading == "Общие положения"
     assert sections[0].content == "Содержание раздела."
 
@@ -366,7 +366,7 @@ def test_docx_russian_heading_style(tmp_path: Path) -> None:
 def test_format_hint_only_confirms_line_not_invalid_numbering() -> None:
     profile = ContractDomainProfile()
     text = "1. ПРЕДМЕТ\n1.1. Условия без точки\n1.2. Следующий пункт.\n1.1. Повторный номер."
-    units = split_by_content(
+    units = select_structural_units(
         text, profile.content_boundaries(), 1000, confirmed_starts=frozenset({text.index("1.2.")})
     )
     assert sum(unit.boundary_value == "1.1" for unit in units) == 1

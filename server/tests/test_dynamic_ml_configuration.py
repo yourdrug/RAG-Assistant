@@ -18,6 +18,7 @@ from application.admin import ConfigService
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
 from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
 from config import Settings, settings
+from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.rag.breadth import Breadth
 from domain.shared.exceptions import ValidationError
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
@@ -103,15 +104,23 @@ def test_factories_use_independent_effective_pool_limits(
     asyncio.run(adapter.close())
 
 
-def test_domain_token_target_without_max_uses_section_limit(model: Settings) -> None:
+def test_domain_token_target_without_max_uses_profile_limit(model: Settings) -> None:
     with pytest.raises(ValidationError, match="legal_chunk_target_tokens"):
         validate_chunking(
-            model, {("legal_chunk_target_tokens", "legal"): str(model.legal_chunk_max_tokens + 1)}
+            model,
+            {
+                ("legal_chunk_target_tokens", "legal"): str(
+                    LegalDomainProfile().chunking_policy().max_tokens + 1
+                )
+            },
         )
 
 
-def test_domain_token_target_below_section_max_is_accepted(model: Settings) -> None:
-    validate_chunking(model, {("legal_chunk_target_tokens", "legal"): str(model.legal_chunk_max_tokens - 1)})
+def test_domain_token_target_below_profile_max_is_accepted(model: Settings) -> None:
+    validate_chunking(
+        model,
+        {("legal_chunk_target_tokens", "legal"): str(LegalDomainProfile().chunking_policy().max_tokens - 1)},
+    )
 
 
 def test_domain_token_max_below_domain_target_is_rejected(model: Settings) -> None:

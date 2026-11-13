@@ -12,13 +12,17 @@ import fitz
 from langchain.schema import Document
 
 from domain.ingestion.boundary_validation import BoundaryCandidate, validate_candidates
+from domain.ingestion.document_tree import NodeKind
 from domain.ingestion.profiles.types import BoundaryLevel
 from domain.knowledge.enums import PageContentType
+from infrastructure.ml.ingestion.format_tree import DocumentTreeBuilder
 from infrastructure.ml.ingestion.utils import clean_pdf_text
 
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from domain.ingestion.document_tree import DocNode
 
 
 MIN_HEADINGS = 2
@@ -245,25 +249,47 @@ def attach_pdf_line_hints(pages: list[Document], styles: dict[int, list[dict[str
         item.metadata["line_hints"] = hints
 
 
-def apply_pdf_headings(doc: fitz.Document, pages: list[Document]) -> list[Document]:
+def apply_pdf_headings(
+    doc: fitz.Document, pages: list[Document], builder: DocumentTreeBuilder | None = None
+) -> list[Document]:
+    """Section pages by TOC or inferred headings; ``builder`` receives the same structure."""
     styles, base_size = pdf_line_styles(doc)
     attach_pdf_line_hints(pages, styles)
     toc = doc.get_toc()
     headings = toc_headings(pages, toc) if toc else inferred_headings(pages, base_size)
 
     if len(headings) < MIN_HEADINGS:
+        if builder is not None:
+            for page in pages:
+                add_pdf_block(builder, page)
+
         return pages
 
-    sections = section_pdf_documents(pages, headings)
-
-    if not toc:
-        for section in sections:
-            section.metadata["inferred_heading"] = True
-
-    return sections
+    return section_pdf_documents(pages, headings, inferred=not toc, builder=builder)
 
 
-def section_pdf_documents(pages: list[Document], headings: list[PDFHeading]) -> list[Document]:
+def pdf_heading_tree(doc: fitz.Document, pages: list[Document]) -> DocNode:
+    builder = DocumentTreeBuilder()
+    apply_pdf_headings(doc, pages, builder)
+    return builder.build()
+
+
+def add_pdf_block(builder: DocumentTreeBuilder, item: Document) -> None:
+    kind = (
+        NodeKind.TABLE
+        if item.metadata.get("content_type") == PageContentType.TABLE.value
+        else NodeKind.PARAGRAPH
+    )
+    builder.block(item.page_content, kind, item.metadata)
+
+
+def section_pdf_documents(
+    pages: list[Document],
+    headings: list[PDFHeading],
+    *,
+    inferred: bool = False,
+    builder: DocumentTreeBuilder | None = None,
+) -> list[Document]:
     by_document: dict[int, list[PDFHeading]] = {}
 
     for heading in headings:
@@ -284,15 +310,35 @@ def section_pdf_documents(pages: list[Document], headings: list[PDFHeading]) -> 
 
                 stack.append(current_heading)
 
+                if builder is not None:
+                    # The title stays in the page text, so the node does not emit it again.
+                    builder.heading(current_heading.level, current_heading.title, emit=False)
+
             section = pdf_section_slice(item, low, high, frozenset(starts))
 
             if section is not None:
-                if stack:
-                    section.metadata["section"] = " > ".join(heading.title for heading in stack)
-
-                result.append(section)
+                result.append(finish_pdf_section(section, stack, inferred=inferred, builder=builder))
 
     return result
+
+
+def finish_pdf_section(
+    section: Document,
+    stack: list[PDFHeading],
+    *,
+    inferred: bool,
+    builder: DocumentTreeBuilder | None,
+) -> Document:
+    if stack:
+        section.metadata["section"] = " > ".join(heading.title for heading in stack)
+
+    if inferred:
+        section.metadata["inferred_heading"] = True
+
+    if builder is not None:
+        add_pdf_block(builder, section)
+
+    return section
 
 
 def pdf_section_slice(item: Document, low: int, high: int, heading_starts: frozenset[int]) -> Document | None:

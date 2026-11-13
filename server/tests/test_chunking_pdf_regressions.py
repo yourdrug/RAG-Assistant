@@ -9,11 +9,15 @@ import fitz
 from langchain.schema import Document
 import pytest
 
-from domain.ingestion.content_splitter import split_by_content
 from domain.ingestion.profiles.contract import ContractDomainProfile
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
-from infrastructure.ml.ingestion.splitting import Chunker, merge_inferred_sections, split_documents
+from domain.ingestion.tree_packer import select_structural_units
+from infrastructure.ml.ingestion.splitting import (
+    TreeChunkingAdapter,
+    merge_inferred_sections,
+    split_documents,
+)
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 
 
@@ -98,7 +102,7 @@ def test_pdf_guide_packing_respects_limits_and_boundaries(barrier: str) -> None:
             ),
         )
 
-    chunker = Chunker("general", token_counter=SimpleNamespace(count=len))
+    chunker = TreeChunkingAdapter("general", token_counter=SimpleNamespace(count=len))
     assert merge_inferred_sections(docs, chunker) == docs
 
 
@@ -107,7 +111,7 @@ def test_unmatched_structural_boundaries_keep_preamble_type(
     profile: LegalDomainProfile | DecreeDomainProfile | ContractDomainProfile,
 ) -> None:
     text = "  This introduction has no structural markers.  "
-    units = split_by_content(text, profile.content_boundaries(), 1000)
+    units = select_structural_units(text, profile.content_boundaries(), 1000)
     assert len(units) == 1
     unit = units[0]
     assert unit.unit_kind == "preamble"

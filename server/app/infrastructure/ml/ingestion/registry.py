@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.docx import read_docx
-from infrastructure.ml.ingestion.markdown import extract_doc_title, parse_markdown_sections
-from infrastructure.ml.ingestion.pdf import parse_pdf
+from infrastructure.ml.ingestion.format_tree import has_heading_scopes, single_block_tree
+from infrastructure.ml.ingestion.markdown import extract_doc_title, parse_markdown_tree
+from infrastructure.ml.ingestion.pdf import parse_pdf_tree
 from infrastructure.ml.ingestion.rtf import RtfDocumentParser
-from infrastructure.ml.ingestion.sections import ParsedFormat, Section
+from infrastructure.ml.ingestion.sections import ParsedFormat
 from infrastructure.ml.ingestion.txt import parse_txt
 from infrastructure.ml.preview.docx_preview_strategy import DocxPreviewStrategy
 from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy
@@ -46,33 +46,20 @@ class FormatHandler:
 
 def docx_sections(path: Path, context: FormatContext) -> ParsedFormat:
     del context
-    _text, sections, metadata = read_docx(path)
-    return ParsedFormat(sections, metadata)
+    _text, tree, metadata = read_docx(path)
+    return ParsedFormat(tree, metadata)
 
 
 def markdown_sections(path: Path, context: FormatContext) -> ParsedFormat:
     del context
     title = extract_doc_title(path)
-    return ParsedFormat(parse_markdown_sections(path), {"doc_title": title} if title else {})
+    return ParsedFormat(parse_markdown_tree(path), {"doc_title": title} if title else {})
 
 
 def pdf_sections(path: Path, context: FormatContext) -> ParsedFormat:
     del context
-    pages = parse_pdf(path)
-    return ParsedFormat(
-        [
-            Section(
-                doc.metadata.get("section"),
-                doc.page_content,
-                PageContentType.TABLE
-                if doc.metadata.get("content_type") == PageContentType.TABLE.value
-                else PageContentType.TEXT,
-                metadata=dict(doc.metadata),
-            )
-            for doc in pages
-        ],
-        structured=any(doc.metadata.get("section") for doc in pages),
-    )
+    tree = parse_pdf_tree(path)
+    return ParsedFormat(tree, structured=has_heading_scopes(tree))
 
 
 def rtf_sections(path: Path, context: FormatContext) -> ParsedFormat:
@@ -87,7 +74,7 @@ def txt_sections(path: Path, context: FormatContext) -> ParsedFormat:
         message = "Too little text in document"
         raise RuntimeError(message)
 
-    return ParsedFormat([Section(None, text)], structured=False)
+    return ParsedFormat(single_block_tree(text), structured=False)
 
 
 def pdf_preview(context: FormatContext) -> DocumentPreviewStrategy:

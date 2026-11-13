@@ -3,27 +3,49 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from application.act_versioning import ActVersioningService
+from application.documents.dto import ProcessDocumentCommand
 from application.indexing import process_chunks
 from application.ingestion import IngestionScope, SingleFileIngestionWorkflow
+from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.chunk import ChunkInsert
-from domain.knowledge.enums import DocDomain, DocumentVisibility
+from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from domain.shared.hashing import content_hash
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from tests.fakes import FakeUnitOfWorkFactory
+from tests.test_document_processor_characterization import build_harness, seed_document
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from domain.knowledge.chunk import Chunk
+
+
+DECREE_TEXT = (
+    "УКАЗ ПРЕЗИДЕНТА № 15 от 10 мая 2026 г.\nПОСТАНОВЛЯЮ:\n"
+    "1. Мера первая по совершенствованию системы управления.\n"
+    "2. Мера вторая по контролю за исполнением настоящего указа.\n"
+)
+
+
+class VersioningSettings:
+    def get(self, key: str, domain_key: str = "") -> str:
+        _ = domain_key
+        return {"effective_date_auto_trust_threshold": "0.85"}.get(key, "0")
 
 
 async def index(factory: FakeUnitOfWorkFactory, text: str) -> None:
@@ -364,3 +386,70 @@ async def test_overlapping_upserts_retry_stale_write_with_current_content() -> N
     await first._apply_one(old_entry)
     assert points == {1: "new text"}
     assert OutboxStatus(old_entry.status) == OutboxStatus.DONE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extraction_fails", [False, True])
+async def test_reindex_keeps_act_version_dates_and_current_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, extraction_fails: bool
+) -> None:
+    """Re-chunking reuses the document's edition; dates on chunks come from it, not from text."""
+    profile = DecreeDomainProfile(settings=VersioningSettings())
+    registry = DomainProfileRegistry()
+    registry.register(profile)
+    harness = build_harness(
+        tmp_path,
+        docs=[RawDocument(page_content=DECREE_TEXT)],
+        registry=registry,
+        act_versioning=None,
+    )
+    service = ActVersioningService(harness.uow_factory, VersioningSettings())
+    harness.processor._act_versioning_service = service
+    document = await seed_document(harness.repo, status=DocumentStatus.DONE, doc_domain="decree")
+    # An administrator-corrected, superseded edition: none of it matches the text.
+    edition = await harness.uow.act_versions.create(
+        ActVersion(
+            id=None,
+            act_id=4,
+            document_id=document.id or 0,
+            effective_from=date(2024, 3, 1),
+            effective_to=date(2025, 1, 1),
+            is_current=False,
+            date_source="manual",
+        )
+    )
+
+    if extraction_fails:
+        monkeypatch.setattr(profile, "extract_references", MagicMock(side_effect=ValueError("broken")))
+
+    await harness.processor.process(
+        ProcessDocumentCommand(
+            document_id=document.id or 0,
+            storage_key=document.source_path,
+            original_filename=document.filename,
+            visibility=document.visibility,
+            owner_id=document.owner_id,
+            group_id=document.group_id,
+            replace_id=None,
+            doc_domain="decree",
+            reindex_snapshot=replace(document),
+        )
+    )
+
+    assert await harness.uow.act_versions.list_by_act(4) == [edition]
+    points = [
+        point
+        for entry in harness.uow.fake_vector_outbox._entries.values()
+        if entry.operation == OutboxOperation.UPSERT_CHUNKS
+        for point in entry.payload["points"]
+    ]
+    assert points
+
+    for point in points:
+        metadata = point["metadata"]
+        assert (metadata["act_version_id"], metadata["act_id"], metadata["is_current"]) == (
+            edition.id,
+            4,
+            False,
+        )
+        assert (metadata["effective_from"], metadata["effective_to"]) == ("2024-03-01", "2025-01-01")

@@ -19,7 +19,7 @@ from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocumentVisibility, PageContentType
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from infrastructure.ml.ingestion.splitting import Chunker
+from infrastructure.ml.ingestion.splitting import TreeChunkingAdapter
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.tokenization import build_token_counter
 from tests.chunking_fixtures import CHUNKING_FIXTURES, source_text
@@ -96,7 +96,7 @@ def split_results(
             [RawDocument(d.page_content, dict(d.metadata)) for d in raw], domain=fixture.domain
         )
         results[fixture.case_id] = SplitResult(
-            fixture, raw, chunks, Chunker(fixture.domain, domain_settings=settings).chunk_size
+            fixture, raw, chunks, TreeChunkingAdapter(fixture.domain, domain_settings=settings).chunk_size
         )
 
     return results

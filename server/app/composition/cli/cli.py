@@ -10,6 +10,7 @@ from composition.cli.commands.benchmark import benchmark_app
 from composition.cli.commands.config import config_app
 from composition.cli.commands.ingest import ingest_app
 from composition.cli.commands.reconcile import reconcile_app
+from composition.cli.commands.reindex import reindex_app
 from composition.cli.commands.runserver import runserver
 from composition.cli.commands.worker import worker
 
@@ -43,6 +44,9 @@ class CLI:
 
         # Reconcile Qdrant/Postgres
         self.cli.add_typer(reconcile_app, name="reconcile")
+
+        # Перенарезка сохранённых документов текущим кодом
+        self.cli.add_typer(reindex_app, name="reindex")
 
         # Конфигурация
         self.cli.add_typer(config_app, name="config")

@@ -12,9 +12,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.ingestion.content_splitter import SplitUnit, split_by_content
+from domain.ingestion.content_splitter import SplitUnit
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.types import BoundaryLevel
+from domain.ingestion.tree_packer import select_structural_units
 
 
 _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)
@@ -26,36 +27,36 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 @pytest.mark.parametrize("line", ["12.03.2020 вступает в силу.", "2.5 тонн продукции."])
 def test_decree_dates_and_decimals_are_not_numeric_subpoints(line: str) -> None:
     text = "1. Порядок исполнения:\n" + line + "\n1.1. Настоящий подпункт."
-    units = split_by_content(text, DecreeDomainProfile().content_boundaries(), 5000)
+    units = select_structural_units(text, DecreeDomainProfile().content_boundaries(), 5000)
     assert [unit.boundary_value for unit in units if unit.unit_kind == "subpoint_num"] == ["1.1"]
     assert any(line in unit.content for unit in units)
 
 
 class TestSplitByContent:
     def test_empty_text(self) -> None:
-        result = split_by_content("", [], 1000)
+        result = select_structural_units("", [], 1000)
         assert result == []
 
     def test_whitespace_only(self) -> None:
-        result = split_by_content("   \n  ", [], 1000)
+        result = select_structural_units("   \n  ", [], 1000)
         assert result == []
 
     def test_no_levels_returns_raw(self) -> None:
-        result = split_by_content("Hello world", [], 1000)
+        result = select_structural_units("Hello world", [], 1000)
         assert len(result) == 1
         assert result[0].content == "Hello world"
         assert result[0].unit_kind == "raw"
 
     def test_single_level_no_match(self) -> None:
         levels = [BoundaryLevel("point", _POINT_RE)]
-        result = split_by_content("No points here.", levels, 1000)
+        result = select_structural_units("No points here.", levels, 1000)
         assert len(result) == 1
         assert result[0].unit_kind == "preamble"
 
     def test_single_level_with_matches(self) -> None:
         text = "1. First point.\n2. Second point.\n3. Third point."
         levels = [BoundaryLevel("point", _POINT_RE)]
-        result = split_by_content(text, levels, 1000)
+        result = select_structural_units(text, levels, 1000)
         assert len(result) == 3
         assert result[0].boundary_value == "1"
         assert result[1].boundary_value == "2"
@@ -64,7 +65,7 @@ class TestSplitByContent:
     def test_preamble_extracted(self) -> None:
         text = "Introduction text.\n1. First point.\n2. Second point."
         levels = [BoundaryLevel("point", _POINT_RE)]
-        result = split_by_content(text, levels, 1000)
+        result = select_structural_units(text, levels, 1000)
         assert len(result) == 3
         assert result[0].unit_kind == "preamble"
         assert result[0].heading is None
@@ -78,7 +79,7 @@ class TestSplitByContent:
             BoundaryLevel("point", _POINT_RE),
             BoundaryLevel("subpoint", _SUBPOINT_RE),
         ]
-        result = split_by_content(text, levels, 30)
+        result = select_structural_units(text, levels, 30)
         # First point >30 chars → descends to subpoint
         kinds = [u.unit_kind for u in result]
         assert "subpoint" in kinds or len(result) >= 2
@@ -86,14 +87,14 @@ class TestSplitByContent:
     def test_boundary_value_captured(self) -> None:
         text = "10. Tenth point.\n11. Eleventh point."
         levels = [BoundaryLevel("point", _POINT_RE)]
-        result = split_by_content(text, levels, 1000)
+        result = select_structural_units(text, levels, 1000)
         assert result[0].boundary_value == "10"
         assert result[1].boundary_value == "11"
 
     def test_heading_uses_profile_label(self) -> None:
         text = "5. Fifth point."
         levels = [BoundaryLevel("point", _POINT_RE)]
-        result = split_by_content(text, levels, 1000, unit_label=DecreeDomainProfile().unit_label)
+        result = select_structural_units(text, levels, 1000, unit_label=DecreeDomainProfile().unit_label)
         assert result[0].heading == "п. 5"
 
     def test_multi_level_hierarchy(self) -> None:
@@ -108,7 +109,7 @@ class TestSplitByContent:
             BoundaryLevel("sentence", _SENTENCE_RE),
         ]
         # max_unit_chars small enough to trigger descent on first point
-        result = split_by_content(text, levels, 50)
+        result = select_structural_units(text, levels, 50)
         # First point should be split into sentences
         assert len(result) > 2
 
@@ -155,7 +156,7 @@ class TestDecreeNumericSubpoints:
             BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
             BoundaryLevel("sentence", _SENTENCE_RE),
         ]
-        result = split_by_content(self.DECREE_TEXT, levels, 5000)
+        result = select_structural_units(self.DECREE_TEXT, levels, 5000)
         kinds = [u.unit_kind for u in result]
         # Each 21.x should become its own subpoint_num unit
         assert kinds.count("subpoint_num") == 3
@@ -166,7 +167,7 @@ class TestDecreeNumericSubpoints:
             BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
             BoundaryLevel("sentence", _SENTENCE_RE),
         ]
-        result = split_by_content(self.DECREE_TEXT, levels, 5000)
+        result = select_structural_units(self.DECREE_TEXT, levels, 5000)
         subpoints = [u for u in result if u.unit_kind == "subpoint_num"]
         assert subpoints[0].boundary_value == "21.1"
         assert subpoints[1].boundary_value == "21.2"
@@ -178,7 +179,7 @@ class TestDecreeNumericSubpoints:
             BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
             BoundaryLevel("sentence", _SENTENCE_RE),
         ]
-        result = split_by_content(self.DECREE_TEXT, levels, 5000)
+        result = select_structural_units(self.DECREE_TEXT, levels, 5000)
         subpoints = [u for u in result if u.unit_kind == "subpoint_num"]
         # Content should start with the actual text, not the number
         assert subpoints[0].content.startswith("21.1.")
@@ -190,7 +191,7 @@ class TestDecreeNumericSubpoints:
             BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
             BoundaryLevel("sentence", _SENTENCE_RE),
         ]
-        result = split_by_content(self.DECREE_TEXT, levels, 5000)
+        result = select_structural_units(self.DECREE_TEXT, levels, 5000)
         subpoints = [u for u in result if u.unit_kind == "subpoint_num"]
         # Subpoint 21.1 should NOT contain text from 21.2
         assert "серебряные изделия, изготовленные" not in subpoints[0].content
@@ -204,7 +205,7 @@ class TestDecreeNumericSubpoints:
             BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
             BoundaryLevel("sentence", _SENTENCE_RE),
         ]
-        result = split_by_content(self.DECREE_TEXT, levels, 100)
+        result = select_structural_units(self.DECREE_TEXT, levels, 100)
         kinds = [u.unit_kind for u in result]
         # With max_unit_chars=100, subpoints should be further split into sentences
         assert "sentence" in kinds

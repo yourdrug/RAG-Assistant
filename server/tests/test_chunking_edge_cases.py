@@ -15,13 +15,13 @@ from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
+from domain.ingestion.text_budget import split_leaf_text
 from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
     IngestionDocumentSplitter,
 )
-from infrastructure.ml.ingestion.text_chunks import split_overflow
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag.rag_formatting import format_docs
 
@@ -104,7 +104,7 @@ def make_pdf(path: Path, texts: list[str]) -> None:
 def test_overflow_bodies_remain_contiguous_source_slices(marker: str, overlap: int) -> None:
     text = marker + " Порядок подачи документов\n" + "Заявитель передаёт сведения в электронной форме " * 30
     patterns = [re.compile(r"(?<=[.!?])\s+")]
-    bodies = split_overflow(text, 1000, overlap, patterns)
+    bodies = split_leaf_text(text, 1000, overlap, patterns)
     assert len(bodies) > 1
     assert all(len(body) <= 1000 for body in bodies)
     assert all(normalize(body) in normalize(text) for body in bodies)

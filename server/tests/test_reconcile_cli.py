@@ -100,7 +100,13 @@ def reconciliation(
             await registry.close()
 
     monkeypatch.setattr(reconcile, "run_with_infrastructure", run)
+
+    async def chunk_ids() -> set[int]:
+        return set(env.chunk_ids)
+
+    env.chunk_ids = {10, 20}
     monkeypatch.setattr(reconcile, "get_all_postgres_doc_ids", postgres_ids)
+    monkeypatch.setattr(reconcile, "get_all_postgres_chunk_ids", chunk_ids)
     return env
 
 
@@ -143,3 +149,31 @@ async def test_reconcile_reads_primary_without_owning_database_lifecycle(
     assert await reconcile.get_all_postgres_doc_ids() == ({10, 20}, {10})
     primary.assert_called_once_with()
     session.close.assert_awaited_once()
+
+
+@pytest.mark.parametrize("delete", [False, True])
+def test_reconcile_removes_stale_chunk_points_of_live_documents(
+    reconciliation: SimpleNamespace, reconcile_corpus: tuple[QdrantClient, CorpusSnapshot], *, delete: bool
+) -> None:
+    """Re-chunking replaces chunk ids; a point whose chunk row is gone is stale."""
+    raw, _snapshot = reconcile_corpus
+    raw.upsert(
+        "physical",
+        [
+            models.PointStruct(id=point_id, vector=[1.0, 0.0], payload={"metadata": {"document_id": 10}})
+            for point_id in (11, 12)
+        ],
+    )
+    env = reconciliation
+    env.chunk_ids = {10, 11, 20}  # Chunk 12 of live document 10 was replaced.
+
+    result = CliRunner().invoke(cli.cli, ["reconcile", "run", *(["--delete"] if delete else [])])
+
+    assert result.exit_code == 1
+    expected = {10, 11, 20} if delete else {10, 11, 12, 20, 30}
+    assert env.remaining["physical"] == expected
+
+
+def test_stale_points_skip_unknown_documents_and_current_chunks() -> None:
+    points = {1: 7, 2: 7, 3: 8, 4: 9}
+    assert reconcile.find_stale_chunk_points(points, postgres_ids={7, 8}, chunk_ids={1, 3}) == {7: [2]}

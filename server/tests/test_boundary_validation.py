@@ -6,11 +6,11 @@ from dataclasses import replace
 import pytest
 
 from domain.ingestion.boundary_validation import boundary_candidates, validate_candidates
-from domain.ingestion.content_splitter import split_by_content
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.patterns import POINT_RE, SUBPOINT_LETTER_RE, SUBPOINT_NUM_RE
 from domain.ingestion.profiles.types import BoundaryLevel
+from domain.ingestion.tree_packer import select_structural_units
 
 
 def accepted(
@@ -40,7 +40,7 @@ def test_wrapped_numeric_reference_is_not_a_point() -> None:
 def test_article_reference_is_not_a_heading() -> None:
     profile = LegalDomainProfile()
     text = "Статья 12 настоящего Закона применяется.\nСтатья 13. Права работника"
-    units = split_by_content(text, profile.content_boundaries(), 1000)
+    units = select_structural_units(text, profile.content_boundaries(), 1000)
     assert [unit.boundary_value for unit in units if unit.unit_kind == "article"] == ["13"]
     assert any("Статья 12" in unit.content for unit in units)
 
@@ -49,7 +49,7 @@ def test_nested_number_reset_is_text_until_a_new_parent() -> None:
     text = "1. Первое.\n2. Второе.\n3. Вложенный список:\n1. Вложенное правило."
     assert accepted(text, BoundaryLevel("point", POINT_RE)) == ["1", "2", "3"]
     article_text = "Статья 1. Один\n1. Первый пункт.\nСтатья 2. Два\n1. Другой пункт."
-    units = split_by_content(article_text, LegalDomainProfile().content_boundaries(), 20)
+    units = select_structural_units(article_text, LegalDomainProfile().content_boundaries(), 20)
     points = [unit for unit in units if unit.boundary_value == "1" and unit.unit_kind == "point"]
     assert len(points) == 2
     assert points[0].parents != points[1].parents
@@ -83,7 +83,7 @@ def test_nested_subpoints_keep_independent_sequences() -> None:
 
 def test_article_order_resets_in_a_new_chapter() -> None:
     text = "Глава 1\nСтатья 3. Первая\nСтатья 2. Ссылка\nГлава 2\nСтатья 1. Новая"
-    units = split_by_content(text, LegalDomainProfile().content_boundaries(), 1000)
+    units = select_structural_units(text, LegalDomainProfile().content_boundaries(), 1000)
     assert [unit.boundary_value for unit in units if unit.unit_kind == "article"] == ["3", "1"]
     assert any("Статья 2" in unit.content for unit in units)
 
@@ -137,7 +137,7 @@ def test_point_after_chapter_opens_parent_scope_for_numeric_subpoints() -> None:
         "8. Предыдущее правило.\nГЛАВА 2\nПОРЯДОК РЕАЛИЗАЦИИ\n"
         "9. Применяются условия:\n9.1. Первое условие.\n9.2. Второе условие."
     )
-    units = split_by_content(text, DecreeDomainProfile().content_boundaries(), 1000)
+    units = select_structural_units(text, DecreeDomainProfile().content_boundaries(), 1000)
     subpoints = [unit for unit in units if unit.unit_kind == "subpoint_num"]
     assert [unit.boundary_value for unit in subpoints] == ["9.1", "9.2"]
     assert all(unit.parents[-1].boundary_value == "9" for unit in subpoints)
@@ -169,7 +169,7 @@ def test_editorial_note_does_not_hide_next_point(note: str) -> None:
 @pytest.mark.parametrize("title", ["«Термины» и определения", "(исключена)", "общие положения"])
 def test_article_titles_do_not_require_an_uppercase_initial(title: str) -> None:
     text = f"Статья 1. {title}\nСтатья 2. Следующая статья"
-    units = split_by_content(text, LegalDomainProfile().content_boundaries(), 1000)
+    units = select_structural_units(text, LegalDomainProfile().content_boundaries(), 1000)
     assert [unit.boundary_value for unit in units if unit.unit_kind == "article"] == ["1", "2"]
 
 
@@ -178,7 +178,7 @@ def test_inserted_article_keeps_its_full_number_and_order() -> None:
         "Статья 26. Сертификат\nСтатья 26-1. Атрибутный сертификат\n"
         "Статья 26. Ссылка назад\nСтатья 27. Следующая статья"
     )
-    units = split_by_content(text, LegalDomainProfile().content_boundaries(), 1000)
+    units = select_structural_units(text, LegalDomainProfile().content_boundaries(), 1000)
     articles = [unit for unit in units if unit.unit_kind == "article"]
     assert [unit.boundary_value for unit in articles] == ["26", "26-1", "27"]
     assert "Статья 26-1" not in articles[0].content

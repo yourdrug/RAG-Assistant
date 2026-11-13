@@ -6,6 +6,9 @@ from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
+    from domain.ingestion.chunking_policy import ChunkingPolicy
+    from domain.ingestion.document_tree import BoundaryEventSink, DocNode
+    from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.types import (
         BoundaryLevel,
         ConfigDefault,
@@ -33,6 +36,10 @@ class DocumentProfile(Protocol):
     key: str
     display_name: str
     is_versioned: bool
+
+    def refine(self, tree: DocNode, on_boundary_event: BoundaryEventSink | None = None) -> DocNode: ...
+
+    def chunking_policy(self, settings: DomainSettingsPort | None) -> ChunkingPolicy: ...
 
     def config_defaults(self) -> list[ConfigDefault]:
         """Declare config parameters this domain needs.

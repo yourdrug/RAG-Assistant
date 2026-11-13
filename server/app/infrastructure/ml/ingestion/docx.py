@@ -10,7 +10,7 @@ import docx
 from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 
-from domain.knowledge.enums import PageContentType
+from domain.ingestion.document_tree import NodeKind
 from infrastructure.ml.ingestion.docx_numbering import (
     ListNumberer,
     _get_numbering_formats,
@@ -18,7 +18,7 @@ from infrastructure.ml.ingestion.docx_numbering import (
     get_numbering_texts,
     xml_element,
 )
-from infrastructure.ml.ingestion.sections import Section
+from infrastructure.ml.ingestion.format_tree import DocumentTreeBuilder, sections_from_tree
 
 
 if TYPE_CHECKING:
@@ -27,6 +27,9 @@ if TYPE_CHECKING:
     from docx.document import Document as WordDocument
     from docx.table import Table
     from docx.text.paragraph import Paragraph
+
+    from domain.ingestion.document_tree import DocNode
+    from infrastructure.ml.ingestion.section_types import Section
 
 from infrastructure.ml.ingestion.table_formatting import markdown_cell, render_table
 from infrastructure.storage.docx_validation import validate_docx_archive
@@ -181,16 +184,14 @@ def docx_table_to_markdown(table: Table) -> str:
     return render_table(rows)
 
 
-# --- parse_docx_sections helpers (extracted to reduce C901) -----------------
+# --- Document tree helpers (extracted to reduce C901) ------------------------
 
 
 @dataclass
 class DocxSectionState:
     """Heading and numbering state for the document body walk."""
 
-    sections: list[Section]
-    heading_stack: list[tuple[int, str]]
-    current_heading: str | None = None
+    builder: DocumentTreeBuilder = field(default_factory=DocumentTreeBuilder)
     inferred_heading: bool = True
     styled_level: int = 0
     current_lines: list[str] = field(default_factory=list)
@@ -248,12 +249,9 @@ def flush_docx_text(state: DocxSectionState) -> None:
     content = "\n".join(state.current_lines).strip()
 
     if content:
-        state.sections.append(
-            Section(
-                state.current_heading,
-                content,
-                metadata={"line_hints": state.current_hints, "inferred_heading": state.inferred_heading},
-            )
+        state.builder.block(
+            content,
+            metadata={"line_hints": state.current_hints, "inferred_heading": state.inferred_heading},
         )
 
     state.current_lines = []
@@ -261,16 +259,16 @@ def flush_docx_text(state: DocxSectionState) -> None:
     state.current_length = 0
 
 
-def apply_heading(state: DocxSectionState, heading_level: int, text: str) -> None:
-    """Flush current content and update heading stack."""
+def apply_heading(state: DocxSectionState, heading_level: int, text: str, *, styled: bool) -> None:
+    """Flush current content and open the heading node.
+
+    Styled headings leave the body, so their label is emitted as the node text;
+    inferred headings stay in the following block as profile markers.
+    """
     if not state.current_hints or not all(hint.get("heading") for hint in state.current_hints):
         flush_docx_text(state)
 
-    while state.heading_stack and state.heading_stack[-1][0] >= heading_level:
-        state.heading_stack.pop()
-
-    state.heading_stack.append((heading_level, text))
-    state.current_heading = " > ".join(h for _, h in state.heading_stack)
+    state.builder.heading(heading_level, text, emit=styled)
 
 
 def flush_table(state: DocxSectionState, md_table: str) -> None:
@@ -278,7 +276,7 @@ def flush_table(state: DocxSectionState, md_table: str) -> None:
     if md_table:
         flush_docx_text(state)
 
-        state.sections.append(Section(state.current_heading, md_table, PageContentType.TABLE))
+        state.builder.block(md_table, NodeKind.TABLE)
         state.current_lines = []
 
 
@@ -304,7 +302,7 @@ def process_section_paragraph(state: DocxSectionState, paragraph: Paragraph, tex
         heading_level += state.styled_level
 
     if heading_level is not None:
-        apply_heading(state, heading_level, text)
+        apply_heading(state, heading_level, text, styled=styled)
 
     if heading_level is not None and styled:
         state.styled_level = heading_level
@@ -409,7 +407,7 @@ def read_docx_body(
     para_by_element = {id(xml_element(p)): p for p in doc.paragraphs}
     tbl_by_element = {id(xml_element(t)): t for t in doc.tables}
 
-    state = DocxSectionState(sections=[], heading_stack=[], numberer=ListNumberer(formats, level_texts))
+    state = DocxSectionState(numberer=ListNumberer(formats, level_texts))
 
     for child in body:
         if child.tag == para_tag:
@@ -436,8 +434,8 @@ def read_docx_body(
     return parts, page_numbers, paragraph_count, table_count, state
 
 
-def read_docx(file_path: Path) -> tuple[str, list[Section], dict[str, Any]]:
-    """Read body order, sections and document metadata in one document pass."""
+def read_docx(file_path: Path) -> tuple[str, DocNode, dict[str, Any]]:
+    """Read body order, the document tree and metadata in one document pass."""
     validate_docx_archive(file_path)
     doc = docx.Document(str(file_path))
     formats = _get_numbering_formats(doc)
@@ -467,20 +465,32 @@ def read_docx(file_path: Path) -> tuple[str, list[Section], dict[str, Any]]:
     note_lines = [f"[footnote {i}: {n}]" for i, n in enumerate(footnotes, start=1)]
     note_lines += [f"[endnote {i}: {n}]" for i, n in enumerate(endnotes, start=1)]
 
-    if note_lines:
-        state.sections.append(Section("Footnotes", "\n".join(note_lines)))
-
     text = "\n".join(parts)
-    return text, state.sections or [Section(None, text)], metadata
+    builder = state.builder
+
+    if note_lines:
+        builder.close_headings()
+        builder.heading(0, "Footnotes")
+        builder.block("\n".join(note_lines))
+
+    if not builder.has_blocks():
+        builder.block(text)
+
+    return text, builder.build(), metadata
 
 
 def parse_docx(file_path: Path) -> tuple[str, dict[str, Any]]:
     """Parse DOCX and return flat text and metadata."""
-    text, _sections, metadata = read_docx(file_path)
+    text, _tree, metadata = read_docx(file_path)
     return text, metadata
 
 
+def parse_docx_tree(file_path: Path) -> DocNode:
+    """DOCX tree: headings from Heading/Title styles and emphasis, tables as table nodes."""
+    _text, tree, _metadata = read_docx(file_path)
+    return tree
+
+
 def parse_docx_sections(file_path: Path) -> list[Section]:
-    """Split DOCX by Heading/Title styles, preserving table kinds."""
-    _text, sections, _metadata = read_docx(file_path)
-    return sections
+    """Preview DTOs of the DOCX tree blocks."""
+    return sections_from_tree(parse_docx_tree(file_path))

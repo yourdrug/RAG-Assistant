@@ -131,18 +131,6 @@
     "metadata": "[]",
     "required": false
   },
-  "contract_chunk_max_tokens": {
-    "annotation": "<class 'int'>",
-    "required": false,
-    "default": "800",
-    "metadata": "[]"
-  },
-  "contract_chunk_target_tokens": {
-    "annotation": "<class 'int'>",
-    "required": false,
-    "default": "400",
-    "metadata": "[]"
-  },
   "cost_daily_limit": {
     "annotation": "<class 'float'>",
     "default": "5.0",
@@ -248,18 +236,6 @@
   "decomposition_enabled": {
     "annotation": "<class 'bool'>",
     "default": "False",
-    "metadata": "[]",
-    "required": false
-  },
-  "decree_chunk_max_tokens": {
-    "annotation": "<class 'int'>",
-    "default": "800",
-    "metadata": "[]",
-    "required": false
-  },
-  "decree_chunk_target_tokens": {
-    "annotation": "<class 'int'>",
-    "default": "400",
     "metadata": "[]",
     "required": false
   },
@@ -394,18 +370,6 @@
     "default": null,
     "metadata": "[]",
     "required": true
-  },
-  "legal_chunk_max_tokens": {
-    "annotation": "<class 'int'>",
-    "default": "800",
-    "metadata": "[]",
-    "required": false
-  },
-  "legal_chunk_target_tokens": {
-    "annotation": "<class 'int'>",
-    "default": "400",
-    "metadata": "[]",
-    "required": false
   },
   "llm_auxiliary_max_concurrent": {
     "annotation": "<class 'int'>",

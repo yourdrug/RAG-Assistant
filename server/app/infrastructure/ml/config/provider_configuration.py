@@ -24,7 +24,7 @@ from pyrate_limiter.utils import validate_rate_list
 
 from application.admin import ConfigurationStatus, EffectiveParameter
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType, parse_bool
-from application.runtime.dynamic_params import DYNAMIC_PARAMS
+from application.runtime.dynamic_params import DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
 from application.runtime.enums import LLMProvider, MLProvider
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from config import settings
@@ -488,11 +488,19 @@ def validate_chunking(candidate: Settings, domain_values: dict[tuple[str, str], 
         target_key, max_key = f"{domain}_chunk_target_tokens", f"{domain}_chunk_max_tokens"
         target = int(
             domain_values.get(
-                (target_key, domain), getattr(candidate, target_key, candidate.chunk_target_tokens)
+                (target_key, domain),
+                PROFILE_CONFIG_DEFAULTS[(target_key, domain)].value
+                if (target_key, domain) in PROFILE_CONFIG_DEFAULTS
+                else candidate.chunk_target_tokens,
             )
         )
         maximum = int(
-            domain_values.get((max_key, domain), getattr(candidate, max_key, candidate.chunk_max_tokens))
+            domain_values.get(
+                (max_key, domain),
+                PROFILE_CONFIG_DEFAULTS[(max_key, domain)].value
+                if (max_key, domain) in PROFILE_CONFIG_DEFAULTS
+                else candidate.chunk_max_tokens,
+            )
         )
 
         if target <= 0 or target > maximum:

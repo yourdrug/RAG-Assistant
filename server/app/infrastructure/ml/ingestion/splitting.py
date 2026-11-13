@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from itertools import groupby
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -11,12 +10,14 @@ from typing import TYPE_CHECKING, Any
 from langchain.schema import Document
 
 from config import ChunkingSection, process_section
-from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
+from domain.ingestion.document_tree import DocNode, NodeKind
 from domain.ingestion.embed_text import EMBED_PREFIX_KEY, MAX_EMBED_TOKENS, build_embed_text, context_prefix
 from domain.ingestion.profiles.contract import ContractDomainProfile
 from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
-from domain.ingestion.unit_packing import pack_units
+from domain.ingestion.tree_packer import ChunkDraft, pack_tree
+from domain.ingestion.unit_packing import PackedUnit
 from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.metrics.ingestion import (
     BOUNDARY_CANDIDATES_REJECTED_TOTAL,
@@ -24,13 +25,14 @@ from infrastructure.metrics.ingestion import (
     CHUNK_FALLBACK_SPLIT_TOTAL,
 )
 from infrastructure.ml.ingestion.page_joining import join_page_word, page_word_evidence
+from infrastructure.ml.ingestion.policy_settings import PolicySettings
 from infrastructure.ml.ingestion.structural_metadata import unit_metadata
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
 from infrastructure.ml.ingestion.text_chunks import (
     STEP_HEADING_RE,
     document_slice,
-    pack_step_documents,
-    text_document_chunks,
+    pack_instruction_tree,
+    text_tree_chunks,
 )
 from infrastructure.ml.tokenization import build_token_counter
 
@@ -41,7 +43,6 @@ if TYPE_CHECKING:
     from domain.ingestion.content_splitter import SplitUnit
     from domain.ingestion.ports import DomainSettingsPort, TokenCounter
     from domain.ingestion.profiles.protocol import DocumentProfile
-    from domain.ingestion.unit_packing import PackedUnit
     from domain.rag.ranking import RetrievalDocument
 
 log = logging.getLogger("detailed")
@@ -265,14 +266,14 @@ def split_documents(
 
     Structured domains (profile with non-empty content_boundaries) are split
     content-based: recursively by the domain's structural boundary hierarchy
-    (see split_by_content). The measured body budget triggers descent to a
+    (see pack_tree). The measured body budget triggers descent to a
     finer level; structural markers define the boundaries.
 
     Unstructured domains pack complete instruction steps, then use paragraph/
     sentence splitting for oversized blocks. Table row batches retain their
     original position and repeat headers in every domain.
     """
-    chunker = Chunker(domain, profile, settings, token_counter)
+    chunker = TreeChunkingAdapter(domain, profile, settings, token_counter)
     chunks: list[Document] = []
     table_counts: dict[str, int] = {}
 
@@ -289,15 +290,20 @@ def split_documents(
                 page_content=doc.page_content,
                 metadata={**doc.metadata, "table_id": f"table-{table_counts[source]}"},
             )
+            tree = DocNode(
+                NodeKind.TABLE,
+                text=doc.page_content,
+                span=(0, len(doc.page_content)),
+                hints={"metadata": doc.metadata},
+            )
+            drafts = pack_tree(
+                tree,
+                chunker.policy,
+                chunker.measure,
+                table_packer=lambda node: table_tree_drafts(node, chunker),
+            )
             chunks.extend(
-                table_document_chunks(
-                    doc,
-                    chunker.chunk_size,
-                    TABLE_BATCH_ROWS,
-                    chunker.measure,
-                    target=chunker.target_tokens,
-                    on_fallback=chunker.record_fallback,
-                )
+                Document(page_content=draft.content, metadata=dict(draft.metadata)) for draft in drafts
             )
         else:
             chunks.extend(chunker.split(doc))
@@ -336,7 +342,33 @@ def split_documents(
     return chunks
 
 
-def merge_inferred_sections(docs: list[Document], chunker: Chunker) -> list[Document]:
+def table_tree_drafts(tree: DocNode, chunker: TreeChunkingAdapter) -> list[ChunkDraft]:
+    documents = table_document_chunks(
+        Document(page_content=tree.text, metadata=dict(tree.hints.get("metadata", {}))),
+        chunker.chunk_size,
+        TABLE_BATCH_ROWS,
+        chunker.measure,
+        target=chunker.target_tokens,
+        on_fallback=chunker.record_fallback,
+    )
+    return [
+        ChunkDraft(
+            doc.page_content,
+            doc.page_content,
+            (),
+            tree.span,
+            tuple(doc.metadata.get("pages", ())),
+            NodeKind.TABLE,
+            (),
+            None,
+            PackedUnit(None, doc.page_content, NodeKind.TABLE.value, start=tree.span[0], end=tree.span[1]),
+            doc.metadata,
+        )
+        for doc in documents
+    ]
+
+
+def merge_inferred_sections(docs: list[Document], chunker: TreeChunkingAdapter) -> list[Document]:
     """Let domain rules refine inferred DOCX headings and pack short guides whole.
 
     Explicit styles and tables remain boundaries. Short inferred PDF instructions
@@ -364,7 +396,7 @@ def merge_inferred_sections(docs: list[Document], chunker: Chunker) -> list[Docu
     return result
 
 
-def pack_inferred_run(docs: list[Document], chunker: Chunker) -> list[Document]:
+def pack_inferred_run(docs: list[Document], chunker: TreeChunkingAdapter) -> list[Document]:
     if not docs or len(docs) == 1:
         return docs
 
@@ -416,7 +448,7 @@ def pack_inferred_run(docs: list[Document], chunker: Chunker) -> list[Document]:
     return [Document(page_content=text, metadata=metadata)]
 
 
-class Chunker:
+class TreeChunkingAdapter:
     """Resolve a document profile's limits once and preserve its splitting policy."""
 
     def __init__(
@@ -445,19 +477,12 @@ class Chunker:
             self.profile = None
 
         self.domain_settings = domain_settings
-        key = self.profile.key if self.profile else domain
-        default_target = getattr(config, f"{key}_chunk_target_tokens", config.chunk_target_tokens)
-        default_max = getattr(config, f"{key}_chunk_max_tokens", config.chunk_max_tokens)
-        self.target_tokens = domain_setting(
-            domain_settings, f"{key}_chunk_target_tokens", key, default_target
-        )
-        self.chunk_size = domain_setting(domain_settings, f"{key}_chunk_max_tokens", key, default_max)
+        policy_profile = self.profile or profile or GeneralDomainProfile()
+        self.policy = policy_profile.chunking_policy(PolicySettings(domain_settings, config))
 
-        if self.target_tokens > self.chunk_size:
-            message = "Target chunk tokens must not exceed maximum chunk tokens"
-            raise ValueError(message)
-
-        self.chunk_overlap = 0 if self.profile else config.chunk_overlap_tokens
+        self.target_tokens = self.policy.target_tokens
+        self.chunk_size = self.policy.max_tokens
+        self.chunk_overlap = self.policy.overlap_tokens
 
     def record_fallback(self) -> None:
         CHUNK_FALLBACK_SPLIT_TOTAL.labels(domain=self.domain).inc()
@@ -471,7 +496,7 @@ class Chunker:
             log.debug("Rejected boundary (domain=%s, rule=%s, position=%d)", self.domain, rule, position)
 
     def text_chunks(self, doc: Document) -> list[Document]:
-        return text_document_chunks(
+        return text_tree_chunks(
             doc,
             self.chunk_size,
             self.chunk_overlap,
@@ -484,7 +509,7 @@ class Chunker:
         if self.profile is not None:
             return self.split_structured(doc)
 
-        documents = pack_step_documents(doc, self.target_tokens, self.measure)
+        documents = pack_instruction_tree(doc, self.target_tokens, self.measure, policy=self.policy)
         return [chunk for item in documents for chunk in self.text_chunks(item)]
 
     def split_structured(self, doc: Document) -> list[Document]:
@@ -495,39 +520,26 @@ class Chunker:
         if "unit_kind" in doc.metadata:
             return self.text_chunks(doc)
 
-        levels = self.profile.content_boundaries()
-        units = split_by_content(
-            doc.page_content,
-            levels,
-            self.chunk_size,
-            min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS,
-            unit_budget=lambda unit: self.structured_body_budget(unit, doc),
-            unit_label=self.profile.unit_label,
-            measure=self.measure,
-            on_boundary_event=self.record_boundary_event,
-            confirmed_starts=frozenset(
-                hint["start"]
-                for hint in doc.metadata.get("line_hints", [])
-                if hint.get("heading") or hint.get("numbering_level") is not None
-            ),
+        tree = DocNode(
+            NodeKind.DOCUMENT,
+            text=doc.page_content,
+            span=(0, len(doc.page_content)),
+            hints={
+                "source_text": doc.page_content,
+                "line_hints": doc.metadata.get("line_hints", []),
+            },
         )
-        packed: list[PackedUnit] = []
-
-        for _, siblings in groupby(units, key=lambda unit: unit.parents):
-            group = list(siblings)
-            # A long condition only reduces its own parent group's body budget.
-            budget = min(self.structured_body_budget(unit, doc, target=True) for unit in group)
-            packed.extend(
-                pack_units(
-                    group,
-                    budget,
-                    self.measure,
-                    rank={level.name: index for index, level in enumerate(levels)},
-                    min_size=MIN_STRUCTURAL_CHUNK_TOKENS,
-                    source=doc.page_content,
-                    scope_boundaries=frozenset(level.name for level in levels if level.packing_barrier),
-                )
+        tree = self.profile.refine(tree, self.record_boundary_event)
+        packed = [
+            draft.unit
+            for draft in pack_tree(
+                tree,
+                self.policy,
+                self.measure,
+                budget=lambda unit, *, target: self.structured_body_budget(unit, doc, target=target),
+                split_leaves=False,
             )
+        ]
 
         result: list[Document] = []
 
@@ -561,21 +573,6 @@ class Chunker:
         )
         limit = self.target_tokens if target else self.chunk_size
         return max(1, int((limit - reserve) * (0.97 if target else 1)))
-
-
-def domain_setting(
-    settings: DomainSettingsPort | None, key: str, domain_key: str, default: int, *, allow_zero: bool = False
-) -> int:
-    """Read a domain-specific setting with fallback to default."""
-    if settings is None:
-        return default
-
-    try:
-        val = int(settings.get(key, domain_key=domain_key))
-    except (KeyError, ValueError, TypeError):
-        return default
-    else:
-        return val if val > 0 or (allow_zero and val == 0) else default
 
 
 def extract_article_number(chunk_text: str) -> str | None:

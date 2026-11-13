@@ -28,7 +28,8 @@ async def load_doc_for_edit(
     *,
     user_ctx_factory: UserContextFactory | None = None,
 ) -> tuple[Document, UserContext]:
-    doc = await uow.documents.get_by_id(document_id)
+    # Lock the document before chunk rows, in the same order as re-chunking persists.
+    doc = await uow.documents.get_by_id(document_id, for_update=True)
 
     if doc is None:
         msg = "Document"

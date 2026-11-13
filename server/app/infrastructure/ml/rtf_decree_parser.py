@@ -13,12 +13,13 @@ from typing import TYPE_CHECKING, Any
 from striprtf.striprtf import rtf_to_text
 
 from config import ChunkingSection, process_section
-from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, SplitUnit, split_by_content
+from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, SplitUnit
 from domain.ingestion.profiles.decree import (
     _DECREE_DATE_RE,
     _DECREE_NUMBER_RE,
     _POSTANOVLYAYU_RE,
 )
+from domain.ingestion.tree_packer import select_structural_units
 from infrastructure.ml.tokenization import build_token_counter
 
 
@@ -50,14 +51,14 @@ def parse_decree_rtf(
         doc_metadata["decree_date"] = m.group(1)
 
     split_match = _POSTANOVLYAYU_RE.search(raw)
-    max_tokens = int(settings.get(f"{profile.key}_chunk_max_tokens", domain_key=profile.key))
+    max_tokens = profile.chunking_policy(settings).max_tokens
     counter = token_counter or build_token_counter(process_section(ChunkingSection).embed_tokenizer_path)
 
     if split_match is None:
         # Decree-constatation without a postanovlyayushchaya part — boundaries
         # still apply: the coarsest level finds no matches and hands the text
         # to the next level, down to sentence if needed.
-        return split_by_content(
+        return select_structural_units(
             raw,
             profile.content_boundaries(),
             max_tokens,
@@ -75,7 +76,7 @@ def parse_decree_rtf(
         units.append(SplitUnit(None, preamble, "preamble"))
 
     units.extend(
-        split_by_content(
+        select_structural_units(
             body,
             profile.content_boundaries(),
             max_tokens,

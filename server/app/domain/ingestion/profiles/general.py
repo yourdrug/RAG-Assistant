@@ -8,10 +8,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from domain.ingestion.chunking_policy import profile_policy
+from domain.ingestion.tree_refinement import refine_tree
 from domain.shared.profile_policy import AnswerPolicy
 
 
 if TYPE_CHECKING:
+    from domain.ingestion.chunking_policy import ChunkingPolicy
+    from domain.ingestion.document_tree import BoundaryEventSink, DocNode
+    from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.types import (
         BoundaryLevel,
         ConfigDefault,
@@ -28,6 +33,13 @@ class GeneralDomainProfile:
     display_name = "Общие документы"
     is_versioned = False
     resolution_strategy: Literal["version", "replace"] = "replace"
+
+    def refine(self, tree: DocNode, on_boundary_event: BoundaryEventSink | None = None) -> DocNode:
+        return refine_tree(tree, self, on_boundary_event)
+
+    def chunking_policy(self, settings: DomainSettingsPort | None = None) -> ChunkingPolicy:
+        # Sentence overlap helps unstructured guides; structured profiles keep exact boundaries.
+        return profile_policy(self.key, self.config_defaults(), settings, overlap_tokens=50)
 
     def config_defaults(self) -> list[ConfigDefault]:
         return []

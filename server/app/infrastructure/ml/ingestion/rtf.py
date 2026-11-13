@@ -9,9 +9,15 @@ from typing import TYPE_CHECKING, Any
 
 from striprtf.striprtf import rtf_to_text
 
-from domain.knowledge.enums import PageContentType
+from domain.ingestion.document_tree import NodeKind, structural_kind
+from infrastructure.ml.ingestion.format_tree import (
+    DocumentTreeBuilder,
+    content_blocks,
+    sections_from_tree,
+    single_block_tree,
+)
 from infrastructure.ml.ingestion.rtf_walker import _walk_paragraphs
-from infrastructure.ml.ingestion.sections import ParsedFormat, Section
+from infrastructure.ml.ingestion.sections import ParsedFormat
 from infrastructure.ml.ingestion.structural_metadata import unit_metadata
 from infrastructure.ml.ingestion.table_formatting import render_table
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
@@ -20,10 +26,12 @@ from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from domain.ingestion.document_tree import DocNode
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from infrastructure.ml.ingestion.rtf_walker import Paragraph, Segment, Table
+    from infrastructure.ml.ingestion.section_types import Section
 
 log = logging.getLogger(__name__)
 _DECREE_FINGERPRINT_PREFIX_CHARS = 3000
@@ -186,16 +194,8 @@ def _build_heading_index(segments: list[Segment], baseline: float | None) -> tup
     return size_to_level, fallback_level
 
 
-def advance_rtf_heading(
-    paragraph: Paragraph, stack: list[tuple[int, str]], size_to_level: dict[float, int], fallback_level: int
-) -> str:
-    level = size_to_level.get(paragraph.font_size, fallback_level) if paragraph.font_size else fallback_level
-
-    while stack and stack[-1][0] >= level:
-        stack.pop()
-
-    stack.append((level, paragraph.text))
-    return " > ".join(h for _, h in stack)
+def rtf_heading_level(paragraph: Paragraph, size_to_level: dict[float, int], fallback_level: int) -> int:
+    return size_to_level.get(paragraph.font_size, fallback_level) if paragraph.font_size else fallback_level
 
 
 def _split_by_headings(
@@ -203,18 +203,16 @@ def _split_by_headings(
     baseline: float | None,
     size_to_level: dict[float, int],
     fallback_level: int,
-) -> list[Section]:
-    """Walk segments, splitting on detected headings into (heading, content) pairs."""
-    sections: list[Section] = []
-    stack: list[tuple[int, str]] = []
-    current_heading: str | None = None
+) -> DocumentTreeBuilder:
+    """Walk segments, opening heading nodes by font-size level and adding blocks."""
+    builder = DocumentTreeBuilder()
     current_lines: list[str] = []
 
     def flush() -> None:
         content = "\n".join(current_lines).strip()
 
         if content:
-            sections.append(Section(current_heading, content))
+            builder.block(content)
 
     for seg in segments:
         if seg.table:
@@ -222,18 +220,20 @@ def _split_by_headings(
 
             if md:
                 flush()
-                sections.append(Section(current_heading, md, PageContentType.TABLE))
+                builder.block(md, NodeKind.TABLE)
                 current_lines = []
         elif seg.paragraph:
             if _is_heading(seg, baseline):
                 flush()
-                current_heading = advance_rtf_heading(seg.paragraph, stack, size_to_level, fallback_level)
+                builder.heading(
+                    rtf_heading_level(seg.paragraph, size_to_level, fallback_level), seg.paragraph.text
+                )
                 current_lines = []
             else:
                 current_lines.append(seg.paragraph.text)
 
     flush()
-    return sections
+    return builder
 
 
 def _fallback_flat_text(segments: list[Segment]) -> str:
@@ -252,22 +252,27 @@ def _fallback_flat_text(segments: list[Segment]) -> str:
     return "\n".join(all_text)
 
 
-def parse_rtf_sections(file_path: Path) -> list[Section]:
-    r"""Split RTF into (heading, content) sections using paragraph formatting."""
+def parse_rtf_tree(file_path: Path) -> DocNode:
+    r"""Build the RTF tree using paragraph formatting (heading fonts and numbered titles)."""
     raw = _read_rtf_text(file_path)
     segments = _walk_paragraphs(raw, codepage=_detect_codepage(raw))
 
     if not segments:
-        return [Section(None, rtf_to_text(raw))]
+        return single_block_tree(rtf_to_text(raw))
 
     baseline = _most_common_size(segments)
     size_to_level, fallback_level = _build_heading_index(segments, baseline)
-    sections = _split_by_headings(segments, baseline, size_to_level, fallback_level)
+    builder = _split_by_headings(segments, baseline, size_to_level, fallback_level)
 
-    if not sections:
-        return [Section(None, _fallback_flat_text(segments))]
+    if not builder.has_blocks():
+        return single_block_tree(_fallback_flat_text(segments))
 
-    return sections
+    return builder.build()
+
+
+def parse_rtf_sections(file_path: Path) -> list[Section]:
+    """Preview DTOs of the RTF tree blocks."""
+    return sections_from_tree(parse_rtf_tree(file_path))
 
 
 class RtfDocumentParser:
@@ -303,10 +308,10 @@ class RtfDocumentParser:
             return decree_docs
 
         try:
-            sections = parse_rtf_sections(file_path)
+            tree = parse_rtf_tree(file_path)
         except Exception:
             log.exception("Structured RTF parsing failed for %s — falling back to flat parse", file_path.name)
-            sections = None
+            tree = None
 
         page_meta = {}
         title = extract_doc_title(file_path)
@@ -314,10 +319,10 @@ class RtfDocumentParser:
         if title:
             page_meta["doc_title"] = title
 
-        if sections and len(sections) > 1:
-            return ParsedFormat(sections, page_meta)
+        if tree is not None and len(content_blocks(tree)) > 1:
+            return ParsedFormat(tree, page_meta)
 
-        return ParsedFormat([Section(None, text)], page_meta, structured=False)
+        return ParsedFormat(single_block_tree(text), page_meta, structured=False)
 
     def get_decree_profile(self) -> DocumentProfile | None:
         if self._domain_registry is None or self._domain_settings is None:
@@ -349,18 +354,25 @@ class RtfDocumentParser:
             log.exception("Decree RTF parsing failed for %s — falling back to flat parse", file_path.name)
             return None
 
-        docs = []
+        builder = DocumentTreeBuilder()
+        count = 0
+        chars = 0
 
         for unit in units:
             if not unit.content.strip():
                 continue
 
-            metadata = unit_metadata(unit, profile, {"source": file_path.name, **doc_metadata})
-            docs.append(Section(None, unit.content, metadata=metadata))
+            builder.block(
+                unit.content,
+                structural_kind(unit.unit_kind),
+                unit_metadata(unit, profile, {"source": file_path.name, **doc_metadata}),
+            )
+            count += 1
+            chars += len(unit.content)
 
-        if not docs or sum(len(d.content) for d in docs) < MIN_DOCUMENT_CHARS:
+        if not count or chars < MIN_DOCUMENT_CHARS:
             message = "Too little text in document"
             raise RuntimeError(message)
 
-        log.info("Decree RTF detected: %d structural units from %s", len(docs), file_path.name)
-        return ParsedFormat(docs, structured=False)
+        log.info("Decree RTF detected: %d structural units from %s", count, file_path.name)
+        return ParsedFormat(builder.build(), structured=False)

@@ -26,6 +26,7 @@ from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
     IngestionDocumentSplitter,
 )
+from infrastructure.ml.ingestion.format_tree import DocumentTreeBuilder
 from infrastructure.ml.ingestion.markdown import extract_date_from_filename
 from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
@@ -233,18 +234,12 @@ def write_parity_fixture(path: Path, extension: str, monkeypatch: pytest.MonkeyP
         )
     elif extension == ".pdf":
         path.write_bytes(b"fixture")
-        monkeypatch.setattr(
-            "infrastructure.ml.ingestion.registry.parse_pdf",
-            lambda _: [
-                Document(
-                    page_content="Service is available only if", metadata={"source": str(path), "page": 1}
-                ),
-                Document(
-                    page_content="the application is submitted before April 30.",
-                    metadata={"source": str(path), "page": 2},
-                ),
-            ],
+        builder = DocumentTreeBuilder()
+        builder.block("Service is available only if", metadata={"source": str(path), "page": 1})
+        builder.block(
+            "the application is submitted before April 30.", metadata={"source": str(path), "page": 2}
         )
+        monkeypatch.setattr("infrastructure.ml.ingestion.registry.parse_pdf_tree", lambda _: builder.build())
     else:
         path.write_text(
             "# Guide\n\n1. Open document\nOpen the document card.\n"

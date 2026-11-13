@@ -1,25 +1,34 @@
 """Typed intermediate sections shared by format parsers and preview."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field, replace
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from domain.knowledge.enums import PageContentType
+from infrastructure.ml.ingestion.format_tree import sections_from_tree
+from infrastructure.ml.ingestion.section_types import Section
 
 
-@dataclass(frozen=True)
-class Section:
-    heading: str | None
-    content: str
-    kind: PageContentType = PageContentType.TEXT
-    metadata: dict[str, Any] = field(default_factory=dict)
+if TYPE_CHECKING:
+    from domain.ingestion.document_tree import DocNode
+
+
+__all__ = ["ParsedFormat", "Section", "table_context_sections"]
 
 
 @dataclass(frozen=True)
 class ParsedFormat:
-    sections: list[Section]
+    """A format parser's tree; ``structured`` selects heading-aware chunk metadata."""
+
+    tree: DocNode
     metadata: dict[str, Any] = field(default_factory=dict)
     structured: bool = True
+
+    @property
+    def sections(self) -> list[Section]:
+        return sections_from_tree(self.tree)
 
 
 TABLE_NOTE_RE = re.compile(r"^(?:примечани[ея]|notes?|сноска|источник|source)\b|^\[\^", re.IGNORECASE)

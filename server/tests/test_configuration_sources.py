@@ -25,7 +25,7 @@ def test_every_setting_has_exactly_one_owner() -> None:
     groups = (
         application.runtime.setting_keys.STATIC_SETTING_KEYS,
         application.runtime.setting_keys.SECRET_SETTING_KEYS,
-        application.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS,
+        application.runtime.setting_keys.GLOBAL_DYNAMIC_SETTING_KEYS,
         application.runtime.setting_keys.METADATA_SETTING_KEYS,
     )
     assert set().union(*groups) == set(Settings.model_fields)
@@ -42,7 +42,7 @@ def test_ownership_markers_match_setting_key_registry() -> None:
 
 def test_unmarked_settings_are_exactly_the_dynamic_ones() -> None:
     unmarked = {name for name in Settings.model_fields if field_ownership(Settings, name) is None}
-    assert unmarked == application.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
+    assert unmarked == application.runtime.setting_keys.GLOBAL_DYNAMIC_SETTING_KEYS
 
 
 def test_only_database_owned_settings_are_seeded() -> None:
@@ -128,7 +128,9 @@ def test_seed_uses_defaults_and_preserves_domain_scope(monkeypatch: pytest.Monke
     rows = {(p.key, p.domain_key): p for p in initialization.build_defaults()}
     assert rows[("llm_provider", None)].value == LLMProvider.OPENROUTER.value
     assert rows[("openrouter_model", None)].value == "qwen/qwen-2.5-7b-instruct"
-    assert rows[("legal_chunk_max_tokens", DocDomain.LEGAL)].value == str(settings.legal_chunk_max_tokens)
+    assert rows[("legal_chunk_max_tokens", DocDomain.LEGAL)].value == str(
+        LegalDomainProfile().chunking_policy().max_tokens
+    )
     assert ("legal_chunk_max_tokens", None) not in rows
 
 
@@ -151,3 +153,8 @@ async def test_seed_keeps_existing_database_values_and_is_repeatable() -> None:
     values = {(p.key, p.domain_key): p.value for p in rows}
     assert values[("openrouter_model", None)] == model.value
     assert values[("legal_chunk_max_tokens", DocDomain.LEGAL)] == scoped.value
+
+
+def test_profile_token_limits_are_not_global_settings_fields() -> None:
+    scoped = {param.key for param in application.runtime.dynamic_params.DYNAMIC_PARAMS if param.domain_key}
+    assert not scoped & Settings.model_fields.keys()

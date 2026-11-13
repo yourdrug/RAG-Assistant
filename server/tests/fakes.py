@@ -576,6 +576,16 @@ class FakeDocumentRepository:
     async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]:
         return list(self._documents.values())[offset : offset + limit]
 
+    async def list_after_id(
+        self, after_id: int, limit: int, *, doc_domain: str | None = None
+    ) -> list[Document]:
+        matching = [
+            document
+            for document_id, document in sorted(self._documents.items())
+            if document_id > after_id and (doc_domain is None or document.doc_domain == doc_domain)
+        ]
+        return matching[:limit]
+
     async def list_visible(self, filters: DocumentFilter) -> list[Document]:
         visible = [d for d in self._documents.values() if can_view_document(d, filters.user)]
         page = filters.pagination

@@ -9,7 +9,8 @@ from langchain.schema import Document
 
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS
 from domain.ingestion.embed_text import context_prefix
-from infrastructure.ml.ingestion.text_chunks import fallback_split, text_document_chunks
+from domain.ingestion.text_budget import fallback_split
+from infrastructure.ml.ingestion.text_chunks import text_tree_chunks
 
 
 log = logging.getLogger("default")
@@ -90,7 +91,7 @@ def table_document_chunks(
     lines = doc.page_content.splitlines()
 
     if len(lines) < MIN_TABLE_LINES:
-        return text_document_chunks(doc, chunk_size, 0, measure=measure, on_fallback=on_fallback)
+        return text_tree_chunks(doc, chunk_size, 0, measure=measure, on_fallback=on_fallback)
 
     # GFM delimiter cells need only one hyphen ("|-|:-:|"), with optional colons.
     header_size = 2 if re.fullmatch(r"\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?", lines[1]) else 1
@@ -107,7 +108,7 @@ def table_document_chunks(
     row_budget = chunk_size - measure(prefix + header + "\n") - (3 if measure is not len else 0)
 
     if row_budget <= 0:
-        return text_document_chunks(
+        return text_tree_chunks(
             Document(page_content=doc.page_content, metadata=metadata),
             chunk_size,
             0,
@@ -133,7 +134,7 @@ def table_document_chunks(
         for part in (
             [chunk]
             if measure(chunk.page_content) <= chunk_size
-            else text_document_chunks(chunk, chunk_size, 0, measure=measure, on_fallback=on_fallback)
+            else text_tree_chunks(chunk, chunk_size, 0, measure=measure, on_fallback=on_fallback)
         )
     ]
 

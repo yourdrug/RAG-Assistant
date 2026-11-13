@@ -305,6 +305,17 @@ class SQLAlchemyDocumentRepository:
         )
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
+    async def list_after_id(
+        self, after_id: int, limit: int, *, doc_domain: str | None = None
+    ) -> list[Document]:
+        query = select(DocumentModel).where(DocumentModel.id > after_id)
+
+        if doc_domain is not None:
+            query = query.where(DocumentModel.doc_domain == doc_domain)
+
+        result = await self._db.execute(query.order_by(DocumentModel.id).limit(limit))
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
     async def list_warned(self, quality_threshold: float = 0.3) -> list[Document]:
         result = await self._db.execute(
             select(DocumentModel)

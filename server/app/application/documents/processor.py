@@ -68,10 +68,33 @@ class DocumentProcessor:
         async with self._uow_factory.create() as uow:
             return await uow.documents.get_by_id(document_id)
 
-    async def handle_processing_failure(self, document_id: int, e: Exception) -> None:
+    async def handle_processing_failure(
+        self, document_id: int, e: Exception, snapshot: Document | None = None
+    ) -> None:
         log.error("Document processing failed for doc %d: %s", document_id, e, exc_info=e)
         try:
             async with self._uow_factory.create(master=True) as uow:
+                current = await uow.documents.get_by_id(document_id, for_update=True)
+
+                # Still PROCESSING means the new chunks were not committed: the stored
+                # chunks and vectors still match the snapshot, so restore its status.
+                if (
+                    snapshot is not None
+                    and snapshot.status == DocumentStatus.DONE
+                    and current is not None
+                    and current.status == DocumentStatus.PROCESSING
+                ):
+                    await uow.documents.update_status(
+                        document_id,
+                        status=DocumentStatus.DONE.value,
+                        chunks=snapshot.chunks or 0,
+                        chars=snapshot.chars or 0,
+                        warning=snapshot.warning_message,
+                        quality_score=snapshot.quality_score,
+                    )
+                    log.warning("Re-chunking doc %d failed; previous chunks kept", document_id)
+                    return
+
                 await uow.documents.update_status(
                     document_id, status=DocumentStatus.FAILED.value, error=str(e)
                 )
@@ -159,6 +182,7 @@ class DocumentProcessor:
                     quality=content.quality,
                     storage_deletes=ctx.storage_deletes,
                     versioning=prepared_versioning,
+                    abort_on_manual_edits=command.reindex_snapshot is not None,
                 ),
                 domain_registry=self._domain_registry,
                 act_versioning_service=self._act_versioning_service,
@@ -170,7 +194,7 @@ class DocumentProcessor:
             ctx.status = DocumentStatus.INDEXING
 
         except Exception as e:
-            await self.handle_processing_failure(document_id, e)
+            await self.handle_processing_failure(document_id, e, command.reindex_snapshot)
             raise
         finally:
             self.finalize_processing(ctx, t_start)

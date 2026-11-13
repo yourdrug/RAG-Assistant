@@ -14,15 +14,32 @@ from application.act_versioning import VersioningResult
 from application.documents.conflicts import apply_async_replacement
 from application.indexing import enrich_chunks_metadata, process_chunks
 from domain.knowledge.enums import DocumentStatus
+from domain.shared.exceptions import BusinessRuleViolationError
 
 
 if TYPE_CHECKING:
     from application.act_versioning import ActVersioningService
     from application.documents.dto import PersistDocumentCommand
-    from application.uow import UnitOfWorkFactory
+    from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.knowledge.document import Document
 
 log = logging.getLogger("default")
+
+
+class ManualChunkEditsError(BusinessRuleViolationError):
+    """Re-chunking would discard manual chunk edits committed during processing."""
+
+
+async def lock_document_for_persist(uow: UnitOfWork, command: PersistDocumentCommand) -> Document | None:
+    """Lock the row first: chunk edits lock it too, so they cannot interleave with persist."""
+    existing = await uow.documents.get_by_id(command.document_id, for_update=True)
+
+    if existing is not None and command.abort_on_manual_edits and existing.has_manual_edits:
+        msg = f"Document {command.document_id} received manual chunk edits during re-chunking"
+        raise ManualChunkEditsError(msg)
+
+    return existing
 
 
 async def persist_document_result(
@@ -37,9 +54,7 @@ async def persist_document_result(
     versioning = VersioningResult(None, None, None, None, None)
     storage_deletes: list[str] = []
     async with uow_factory.create(master=True) as uow:
-        existing = await uow.documents.get_by_id(document_id)
-
-        if existing is None:
+        if await lock_document_for_persist(uow, command) is None:
             log.info("Document %d deleted before outbox enqueue — aborting", document_id)
             return None
 

@@ -119,6 +119,9 @@ class ProcessDocumentCommand:
     group_id: int | None
     replace_id: int | None
     doc_domain: str | None = None
+    # Re-chunking a stored document: its state before the run. A failure before the
+    # new chunks are committed restores it, and manual chunk edits abort the commit.
+    reindex_snapshot: Document | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +144,7 @@ class PersistDocumentCommand:
     quality: PDFQualityReport | None
     storage_deletes: list[str]
     versioning: PreparedDocumentVersioning | None = None
+    abort_on_manual_edits: bool = False
 
 
 class UploadOptions(TypedDict):

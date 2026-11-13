@@ -6,12 +6,17 @@ import html
 import re
 from typing import TYPE_CHECKING
 
+from domain.ingestion.document_tree import NodeKind
 from domain.knowledge.enums import PageContentType
-from infrastructure.ml.ingestion.sections import Section, table_context_sections
+from infrastructure.ml.ingestion.format_tree import DocumentTreeBuilder, sections_from_tree
+from infrastructure.ml.ingestion.sections import table_context_sections
 
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from domain.ingestion.document_tree import DocNode
+    from infrastructure.ml.ingestion.section_types import Section
 
 
 _MD_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
@@ -146,69 +151,56 @@ def split_markdown_tables(content: str) -> list[tuple[str, str]]:
     return segments or [(PageContentType.TEXT.value, content)]
 
 
-def parse_markdown_sections(file_path: Path) -> list[Section]:
-    r"""Split markdown into (heading, content) by header structure.
+def parse_markdown_tree(file_path: Path) -> DocNode:
+    r"""Build the markdown tree from the header hierarchy.
 
     Content between two headers belongs to the previous header. Text before
-    the first header (if any) gets heading=None. Both ATX ("# Title") and
-    setext ("Title\\n===") headers are recognized, and headers/tables inside
-    fenced code blocks are ignored.
+    the first header (if any) stays at the document root. Both ATX ("# Title")
+    and setext ("Title\\n===") headers are recognized, and headers/tables inside
+    fenced code blocks are ignored. Header levels nest the heading nodes, so a
+    deeply nested section's chunks keep their full path for retrieval.
 
-    The returned heading is a breadcrumb path ("Parent > Child > ...") built
-    from the full header hierarchy leading to that section, not just the
-    immediate header text — this keeps a deeply nested section's chunks
-    self-describing for retrieval even without their siblings for context.
-
-    Table blocks are separate sections with an explicit table kind.
+    Table blocks are separate nodes with an explicit table kind.
     """
     raw = file_path.read_text(encoding="utf-8", errors="replace")
     raw = _normalize_setext_headers(raw)
 
     masked, fence_blocks = _mask_code_fences(raw)
     matches = list(_MD_HEADER_RE.finditer(masked))
+    builder = DocumentTreeBuilder()
 
     if not matches:
-        return table_context_sections(
-            [
-                Section(None, text, PageContentType(ctype))
-                for ctype, text in split_markdown_tables(_clean_markdown_text(raw))
-            ]
-        )
-
-    result: list[Section] = []
+        add_markdown_blocks(builder, split_markdown_tables(_clean_markdown_text(raw)))
+        return builder.build()
 
     if matches[0].start() > 0:
         lead_raw = _unmask_code_fences(masked[: matches[0].start()], fence_blocks)
         lead = _clean_markdown_text(lead_raw)
 
         if lead:
-            result.extend(
-                Section(None, text, PageContentType(ctype)) for ctype, text in split_markdown_tables(lead)
-            )
-
-    # Track heading hierarchy to build breadcrumb paths, e.g. "H1 > H2 > H3".
-    stack: list[tuple[int, str]] = []
+            add_markdown_blocks(builder, split_markdown_tables(lead))
 
     for i, m in enumerate(matches):
-        level = len(m.group(1))
-        heading = m.group(2).strip()
-
-        while stack and stack[-1][0] >= level:
-            stack.pop()
-
-        stack.append((level, heading))
-        breadcrumb = " > ".join(h for _, h in stack)
-
+        builder.heading(len(m.group(1)), m.group(2).strip())
         start = m.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(masked)
         content_raw = _unmask_code_fences(masked[start:end], fence_blocks)
         content = _clean_markdown_text(content_raw)
 
         if content:
-            for ctype, text in split_markdown_tables(content):
-                result.append(Section(breadcrumb, text, PageContentType(ctype)))
+            add_markdown_blocks(builder, split_markdown_tables(content))
 
-    return table_context_sections(result)
+    return builder.build()
+
+
+def add_markdown_blocks(builder: DocumentTreeBuilder, segments: list[tuple[str, str]]) -> None:
+    for ctype, text in segments:
+        builder.block(text, NodeKind.TABLE if ctype == PageContentType.TABLE.value else NodeKind.PARAGRAPH)
+
+
+def parse_markdown_sections(file_path: Path) -> list[Section]:
+    """Preview DTOs of the markdown tree blocks, with table context attached."""
+    return table_context_sections(sections_from_tree(parse_markdown_tree(file_path)))
 
 
 def parse_markdown(file_path: Path) -> str:

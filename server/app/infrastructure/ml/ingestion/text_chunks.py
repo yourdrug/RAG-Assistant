@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import itertools
+from dataclasses import replace
 import re
 from typing import TYPE_CHECKING
 
 from langchain.schema import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-from domain.ingestion.content_splitter import TINY_FRAGMENT_MAX_CHARS
+from domain.ingestion.chunking_policy import ChunkingPolicy
+from domain.ingestion.document_tree import DocNode, NodeKind
 from domain.ingestion.embed_text import context_prefix
-from domain.ingestion.profiles.patterns import SENTENCE_RE
+from domain.ingestion.text_budget import fallback_split, locate_span, overlap_tail
+from domain.ingestion.tree_packer import pack_tree
 
 
 if TYPE_CHECKING:
@@ -19,155 +20,6 @@ if TYPE_CHECKING:
 
 
 STEP_HEADING_RE = re.compile(r"^[ \t]*(?:Шаг\s+)?(\d+)[.)][ \t]+([^\n]+)", re.MULTILINE)
-
-
-def split_at_boundaries(text: str, patterns: list[re.Pattern[str]]) -> list[str]:
-    """Slice at match offsets, retaining complete markers and capture groups."""
-    offsets = sorted({0, len(text), *(m.start() for pattern in patterns for m in pattern.finditer(text))})
-    return [text[start:end] for start, end in itertools.pairwise(offsets) if text[start:end].strip()]
-
-
-def sentence_fragments(text: str) -> list[str]:
-    """Keep exact source spans and the legal abbreviation dictionary."""
-    offsets = [0, *(match.end() for match in SENTENCE_RE.finditer(text)), len(text)]
-    return [text[start:end] for start, end in itertools.pairwise(offsets) if text[start:end].strip()]
-
-
-def overlap_tail(text: str, size: int, measure: Callable[[str], int] = len) -> str:
-    """Return complete trailing sentences whose total size fits the overlap."""
-    tail = ""
-
-    for fragment in reversed(sentence_fragments(text)):
-        candidate = fragment + tail
-
-        if measure(candidate) > size:
-            break
-
-        tail = candidate
-
-    return tail if size > 0 else ""
-
-
-def merge_fragments(
-    fragments: list[str], chunk_size: int, chunk_overlap: int, measure: Callable[[str], int] = len
-) -> list[str]:
-    """Pack exact contiguous fragments, overlapping only complete sentences."""
-    merged: list[str] = []
-    current = ""
-
-    for fragment in fragments:
-        if current and measure(current + fragment) > chunk_size:
-            merged.append(current.strip())
-            current = overlap_tail(current, chunk_overlap, measure)
-
-            if measure(current + fragment) > chunk_size:
-                current = ""
-
-        current += fragment
-
-    if current.strip():
-        merged.append(current.strip())
-
-    return merged
-
-
-def fallback_split(
-    chunks: list[str],
-    chunk_size: int,
-    chunk_overlap: int,
-    measure: Callable[[str], int] = len,
-    *,
-    on_fallback: Callable[[], None] | None = None,
-) -> list[str]:
-    """Split whole sentences first; only oversized sentences reach word/character splitting."""
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=0,
-        length_function=measure,
-        separators=[r"\s+", ""],
-        is_separator_regex=True,
-        keep_separator="end",
-    )
-    result = []
-
-    for chunk in chunks:
-        pending: list[str] = []
-
-        for sentence in sentence_fragments(chunk):
-            if measure(sentence) <= chunk_size:
-                pending.append(sentence)
-                continue
-
-            result.extend(merge_fragments(pending, chunk_size, chunk_overlap, measure))
-            pending = []
-
-            if on_fallback:
-                on_fallback()
-
-            result.extend(splitter.split_text(sentence))
-
-        result.extend(merge_fragments(pending, chunk_size, chunk_overlap, measure))
-
-    return result
-
-
-def split_overflow(
-    text: str,
-    chunk_size: int,
-    chunk_overlap: int,
-    boundary_patterns: list[re.Pattern[str]] | None = None,
-    measure: Callable[[str], int] = len,
-    *,
-    on_fallback: Callable[[], None] | None = None,
-) -> list[str]:
-    """Retain structural markers while enforcing a strict character budget."""
-    if measure(text) <= chunk_size:
-        return [text.strip()] if text.strip() else []
-
-    if boundary_patterns:
-        fragments = split_at_boundaries(text, boundary_patterns)
-        chunks = merge_fragments(fragments, chunk_size, chunk_overlap, measure)
-    else:
-        chunks = [text]
-
-    parts = fallback_split(chunks, chunk_size, chunk_overlap, measure, on_fallback=on_fallback)
-    result = []
-    index = 0
-
-    while index < len(parts):
-        part = parts[index]
-
-        if (
-            len(part) < TINY_FRAGMENT_MAX_CHARS
-            and index + 1 < len(parts)
-            and re.fullmatch(r"(?:\d+[.\d]*|Статья\s+\d+[.\d]*)", part)
-        ):
-            if parts[index + 1].startswith(part):
-                # The next body already carries this marker through overlap.
-                index += 1
-                continue
-
-            prefix = part + "\n"
-            budget = chunk_size - measure(prefix)
-
-            if budget > 0:
-                following = fallback_split(
-                    [parts[index + 1]],
-                    budget,
-                    min(chunk_overlap, budget - 1),
-                    measure,
-                    on_fallback=on_fallback,
-                )
-                result.extend([prefix + following[0], *following[1:]])
-                index += 2
-            else:
-                result.append(part)
-                index += 1
-        else:
-            result.append(part)
-            index += 1
-
-    return result
 
 
 def step_documents(doc: Document) -> list[Document]:
@@ -212,43 +64,67 @@ def step_documents(doc: Document) -> list[Document]:
     return result
 
 
-def pack_step_documents(
-    doc: Document, chunk_size: int, measure: Callable[[str], int] = len
+def pack_instruction_tree(
+    doc: Document,
+    chunk_size: int,
+    measure: Callable[[str], int] = len,
+    *,
+    policy: ChunkingPolicy | None = None,
 ) -> list[Document]:
-    """Pack complete neighboring steps, retaining all their numbers."""
+    """Instruction steps are atomic tree siblings, packed by the common policy."""
     steps = step_documents(doc)
 
     if len(steps) == 1:
         return steps
 
-    budget = chunk_size - measure(context_prefix(doc.metadata, chunk_size, measure=measure))
-    result: list[Document] = []
-    pending: list[Document] = []
-    low = high = 0
+    budget = max(1, chunk_size - measure(context_prefix(doc.metadata, chunk_size, measure=measure)))
+    nodes = []
+    cursor = 0
 
     for step in steps:
-        located = locate_span(doc.page_content, step.page_content, high)
+        located = locate_span(doc.page_content, step.page_content, cursor)
 
         if located is None:
             message = "Cannot locate instruction step in its source"
             raise ValueError(message)
 
         start, end = located
+        nodes.append(
+            DocNode(
+                NodeKind.STEP if "step_number" in step.metadata else NodeKind.PREAMBLE,
+                number=step.metadata.get("step_number"),
+                text=step.page_content,
+                span=(start, end),
+            )
+        )
+        cursor = end
 
-        if pending and measure(doc.page_content[low:end]) > budget:
-            result.append(_packed_steps(doc, pending, low, high))
-            pending = []
-
-        if not pending:
-            low = start
-
-        pending.append(step)
-        high = end
-
-    if pending:
-        result.append(_packed_steps(doc, pending, low, high))
-
-    return result
+    tree = DocNode(
+        NodeKind.DOCUMENT,
+        children=tuple(nodes),
+        span=(0, len(doc.page_content)),
+        hints={"source_text": doc.page_content},
+    )
+    drafts = pack_tree(
+        tree,
+        replace(policy, target_tokens=budget, max_tokens=budget, overlap_tokens=0)
+        if policy
+        else ChunkingPolicy(budget, budget),
+        measure,
+        split_leaves=False,
+    )
+    return [
+        _packed_steps(
+            doc,
+            [
+                step
+                for step, node in zip(steps, nodes, strict=True)
+                if draft.span[0] <= node.span[0] and node.span[1] <= draft.span[1]
+            ],
+            *draft.span,
+        )
+        for draft in drafts
+    ]
 
 
 def _packed_steps(doc: Document, steps: list[Document], start: int, end: int) -> Document:
@@ -270,22 +146,6 @@ def _packed_steps(doc: Document, steps: list[Document], start: int, end: int) ->
         merged.metadata["parent_units"] = parents
 
     return merged
-
-
-def locate_span(source: str, content: str, cursor: int = 0) -> tuple[int, int] | None:
-    """Locate text even if structural merging changed only whitespace."""
-    start = source.find(content, cursor)
-
-    if start >= 0:
-        return start, start + len(content)
-
-    pattern = r"\s+".join(re.escape(word) for word in content.split())
-
-    if not pattern:
-        return None
-
-    match = re.search(pattern, source[cursor:])
-    return (cursor + match.start(), cursor + match.end()) if match else None
 
 
 def document_slice(doc: Document, content: str, cursor: int = 0) -> Document:
@@ -352,11 +212,11 @@ def assign_chunk_pages(
             chunk.metadata["page"] = pages[0]
 
 
-def text_document_chunks(
+def text_tree_chunks(  # noqa: PLR0915 - context reservation and final provenance are one operation
     doc: Document,
     chunk_size: int,
     chunk_overlap: int,
-    patterns: list[re.Pattern[str]] | None = None,
+    _patterns: list[re.Pattern[str]] | None = None,
     measure: Callable[[str], int] = len,
     *,
     target: int | None = None,
@@ -380,9 +240,21 @@ def text_document_chunks(
     if measure(prefix + doc.page_content) <= chunk_size:
         bodies = [doc.page_content.strip()]
     else:
-        bodies = split_overflow(
-            doc.page_content, packing_budget, overlap, patterns, measure, on_fallback=on_fallback
+        tree = DocNode(
+            NodeKind.PARAGRAPH,
+            text=doc.page_content,
+            span=(0, len(doc.page_content)),
+            hints={"source_text": doc.page_content},
         )
+        bodies = [
+            draft.content
+            for draft in pack_tree(
+                tree,
+                ChunkingPolicy(packing_budget, packing_budget, overlap_tokens=overlap),
+                measure,
+                on_fallback=on_fallback,
+            )
+        ]
 
     bodies = [body for body in bodies if any(char.isalnum() for char in body)]
     heading = doc.metadata.get("unit_heading_text") or doc.metadata.get("heading")

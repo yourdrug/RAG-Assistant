@@ -104,16 +104,24 @@ class ActVersioningService:
     ) -> VersioningResult:
         # The caller owns the transaction and cache invalidation after commit.
         if plan.warning:
-            return VersioningResult(plan.domain_metadata, None, None, plan.effective_from, plan.warning)
+            # Re-chunking must not detach chunks from an existing edition when
+            # extraction fails this time; keep its dates and current flag.
+            existing = await uow.act_versions.get_by_document_id(document_id, for_update=True)
 
-        version = await self.create_version_in_uow(
-            uow,
-            profile,
-            document_id,
-            plan.extracted_refs,
-            effective_date=plan.effective_from,
-            date_confidence=plan.date_confidence,
-        )
+            if existing is None:
+                return VersioningResult(plan.domain_metadata, None, None, plan.effective_from, plan.warning)
+
+            version = existing
+        else:
+            version = await self.create_version_in_uow(
+                uow,
+                profile,
+                document_id,
+                plan.extracted_refs,
+                effective_date=plan.effective_from,
+                date_confidence=plan.date_confidence,
+            )
+
         return VersioningResult(
             plan.domain_metadata,
             version.id,

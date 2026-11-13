@@ -16,6 +16,7 @@ from domain.knowledge.enums import PageContentType
 from infrastructure.ingestion.document_parser_adapter import IngestionDocumentParser
 from infrastructure.ml.extraction.extraction_adapter import MLPDFQualityAssessor
 from infrastructure.ml.ingestion import docx, ocr, rtf
+from infrastructure.ml.ingestion.format_tree import tree_from_sections
 from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS, FormatContext
 from infrastructure.ml.ingestion.sections import ParsedFormat, Section
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser
@@ -57,7 +58,7 @@ def test_docx_reads_archive_and_renders_each_table_once(
 def test_ingestion_and_preview_dispatch_through_the_same_handler(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    parse = Mock(return_value=ParsedFormat([Section("Heading", "Document body.")]))
+    parse = Mock(return_value=ParsedFormat(tree_from_sections([Section("Heading", "Document body.")])))
     strategy = Mock()
     preview = Mock(return_value=strategy)
     handler = replace(FORMAT_HANDLERS[".md"], extensions=(".custom",), parse=parse, preview=preview)
@@ -139,7 +140,7 @@ def test_rtf_structural_failure_preserves_flat_fallback(
     path.write_text(
         r"{\rtf1\ansi Meaningful document text with enough words for ingestion.}", encoding="ascii"
     )
-    monkeypatch.setattr(rtf, "parse_rtf_sections", Mock(side_effect=ValueError("invalid structure")))
+    monkeypatch.setattr(rtf, "parse_rtf_tree", Mock(side_effect=ValueError("invalid structure")))
     docs = LangchainDocumentParser().parse(path)
     assert docs[0].page_content == rtf.parse_rtf(path)[0]
     assert "falling back to flat parse" in caplog.text

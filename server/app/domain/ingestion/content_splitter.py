@@ -7,7 +7,7 @@ to a finer level; it never cuts through a structural unit at an arbitrary charac
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import re
 from typing import TYPE_CHECKING
 
@@ -51,164 +51,6 @@ class SplitUnit:
     end: int = 0
 
 
-def split_by_content(  # noqa: PLR0913 - measurement and observations are injected ports
-    text: str,
-    levels: list[BoundaryLevel],
-    max_unit_size: int,
-    min_chunk_chars: int = 0,
-    *,
-    unit_budget: Callable[[SplitUnit], int] | None = None,
-    unit_label: Callable[[str, str], str] | None = None,
-    measure: Callable[[str], int] = len,
-    on_boundary_event: Callable[[str, int], None] | None = None,
-    confirmed_starts: frozenset[int] = frozenset(),
-) -> list[SplitUnit]:
-    """Split text by structural boundary hierarchy.
-
-    Recursively descends through boundary levels. If a unit at the current level
-    exceeds max_unit_size, the next finer level is tried on that unit's text.
-    The finest level (typically sentence) is the terminal fallback.
-
-    unit_budget can lower the descent threshold for each unit using its complete
-    parent context. All sizes use the supplied measure.
-
-    Levels with ``always_split=True`` are applied unconditionally regardless
-    of unit size (structural boundaries like numeric subpoints).
-
-    min_chunk_chars: when > 0, attach orphaned numeric markers to the next
-    sibling. Other small bodies are left intact for the sibling packer.
-    """
-    result = recursive_split(
-        text,
-        levels,
-        max_unit_size,
-        unit_budget=unit_budget,
-        unit_label=unit_label,
-        measure=measure,
-        on_boundary_event=on_boundary_event,
-        confirmed_starts=confirmed_starts,
-    )
-
-    if min_chunk_chars > 0:
-        result = [
-            replace(unit, content=text[unit.start : unit.end])
-            for unit in _merge_small_units(result, min_chunk_chars)
-        ]
-
-    return result
-
-
-def recursive_split(  # noqa: PLR0913 - recursive source span and parent context
-    text: str,
-    levels: list[BoundaryLevel],
-    max_unit_size: int,
-    offset: int = 0,
-    *,
-    parents: tuple[BoundaryContext, ...] = (),
-    unit_budget: Callable[[SplitUnit], int] | None = None,
-    unit_label: Callable[[str, str], str] | None = None,
-    measure: Callable[[str], int] = len,
-    on_boundary_event: Callable[[str, int], None] | None = None,
-    confirmed_starts: frozenset[int] = frozenset(),
-) -> list[SplitUnit]:
-    """Recursively descend through boundary levels.
-
-    Levels with ``always_split=True`` are applied unconditionally.
-    Other levels are applied when the unit exceeds its budget or ``max_unit_size``.
-    """
-    if not levels:
-        return (
-            [
-                SplitUnit(
-                    None,
-                    text.strip(),
-                    "raw",
-                    parents=parents,
-                    start=offset + len(text) - len(text.lstrip()),
-                    end=offset + len(text.rstrip()),
-                )
-            ]
-            if text.strip()
-            else []
-        )
-
-    levels = order_enclosing_levels(text, levels)
-
-    level, *rest = levels
-    raw_units = [
-        replace(unit, start=unit.start + offset, end=unit.end + offset, parents=parents)
-        for unit in split_at_boundary(
-            text,
-            level,
-            unit_label=unit_label,
-            following_levels=rest,
-            confirmed_starts=frozenset(start - offset for start in confirmed_starts),
-            parent_number=next(
-                (
-                    p.boundary_value
-                    for p in reversed(parents)
-                    if p.unit_kind in ("point", "subpoint_num")
-                    or (
-                        level.name in ("clause", "subclause")
-                        and p.unit_kind in ("section", "clause", "subclause")
-                    )
-                ),
-                None,
-            ),
-            on_boundary_event=(
-                (lambda rule, position: on_boundary_event(rule, offset + position))
-                if on_boundary_event
-                else None
-            ),
-        )
-    ]
-
-    result: list[SplitUnit] = []
-
-    for unit in raw_units:
-        budget = min(max_unit_size, unit_budget(unit)) if unit_budget else max_unit_size
-
-        if rest and needs_finer_boundary(unit, level, rest, budget, measure):
-            child_parents = parents
-
-            if unit.heading and level.name != SENTENCE_UNIT_KIND:
-                child_parents = (*parents, unit_parent_context(unit, rest))
-
-            children = recursive_split(
-                unit.content,
-                rest,
-                max_unit_size,
-                unit.start,
-                parents=child_parents,
-                unit_budget=unit_budget,
-                unit_label=unit_label,
-                measure=measure,
-                on_boundary_event=on_boundary_event,
-                confirmed_starts=confirmed_starts,
-            )
-
-            if (
-                children
-                and unit.heading
-                and (
-                    (children[0].unit_kind == "preamble" and heading_only_intro(children[0].content, level))
-                    or (
-                        children[0].unit_kind in ("preamble", SENTENCE_UNIT_KIND)
-                        and level.packing_barrier
-                        and level.pattern.match(children[0].content)
-                        and " ".join(unit.heading.split()).startswith(" ".join(children[0].content.split()))
-                    )
-                )
-            ):
-                children = children[1:]
-
-            result.extend(children)
-        else:
-            result.append(unit)
-
-    return result
-
-
 def needs_finer_boundary(
     unit: SplitUnit,
     level: BoundaryLevel,
@@ -227,7 +69,7 @@ def needs_finer_boundary(
     )
 
 
-def _merge_small_units(units: list[SplitUnit], min_chars: int) -> list[SplitUnit]:
+def merge_small_units(units: list[SplitUnit], min_chars: int) -> list[SplitUnit]:
     """Attach bare number fragments to the next sibling; packing handles small bodies."""
     if not units or min_chars <= 0:
         return units

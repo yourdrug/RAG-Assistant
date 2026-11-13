@@ -16,6 +16,11 @@ from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.ml.ingestion.act_identity import act_heading_title
 from infrastructure.ml.ingestion.amendment_context import attach_table_replacement_scope
+from infrastructure.ml.ingestion.format_tree import (
+    sections_from_tree,
+    tree_from_sections,
+    tree_heading_context,
+)
 from infrastructure.ml.ingestion.markdown import extract_date_from_filename
 from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS, FormatContext
 from infrastructure.ml.ingestion.sections import table_context_sections
@@ -23,6 +28,7 @@ from infrastructure.ml.ingestion.splitting import split_documents
 
 
 if TYPE_CHECKING:
+    from domain.ingestion.document_tree import DocNode
     from domain.ingestion.ports import DomainSettingsPort, TokenCounter
     from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.profiles.registry import DomainProfileRegistry
@@ -95,60 +101,6 @@ def build_section_metadata(
     return metadata
 
 
-def heading_context(sections: list[Section]) -> dict[str, Any]:
-    """Derive level/parent/siblings/prev/next/toc from a list of breadcrumb headings.
-
-    Breadcrumbs already look like "Раздел 1 > Пункт 1.1" (see
-    parse_markdown_sections / parse_docx_sections / parse_rtf_sections) — this
-    just parses that string structure into per-heading context, once per
-    unique breadcrumb, in first-seen document order. Repeated tuples sharing
-    the same breadcrumb (e.g. a text segment and a table segment under the
-    same heading) all resolve to the same context.
-    """
-    order: list[str] = []
-    seen: set[str] = set()
-
-    for section in sections:
-        heading = section.heading
-
-        if heading and heading not in seen:
-            seen.add(heading)
-            order.append(heading)
-
-    parts = {h: h.split(" > ") for h in order}
-    level = {h: len(parts[h]) for h in order}
-    immediate = {h: parts[h][-1] for h in order}
-    parent = {h: (" > ".join(parts[h][:-1]) or None) for h in order}
-
-    groups: dict[str | None, list[str]] = {}
-
-    for h in order:
-        groups.setdefault(parent[h], []).append(h)
-
-    prev_h, next_h, siblings = heading_neighbors(groups, immediate)
-
-    toc: list[str] = []
-    seen_toc: set[str] = set()
-
-    if level:
-        top_level = min(level.values())
-
-        for h in order:
-            if level[h] == top_level and immediate[h] not in seen_toc:
-                seen_toc.add(immediate[h])
-                toc.append(immediate[h])
-
-    return {
-        "level": level,
-        "immediate": immediate,
-        "parent": parent,
-        "prev": prev_h,
-        "next": next_h,
-        "siblings": siblings,
-        "toc": toc,
-    }
-
-
 def act_title_with_subject(requisites: str, title: str | None) -> str:
     """Prefix a descriptive document title with the act requisites instead of replacing it.
 
@@ -198,7 +150,7 @@ class LangchainDocumentParser:
         parsed = handler.parse(file_path, FormatContext(self._domain_registry, self._domain_settings))
 
         if parsed.structured:
-            docs = self.sections_to_documents(parsed.sections, file_path, parsed.metadata)
+            docs = self.tree_to_documents(parsed.tree, file_path, parsed.metadata)
         else:
             docs = [
                 RawDocument(
@@ -260,8 +212,16 @@ class LangchainDocumentParser:
         file_path: Path,
         page_meta: dict[str, Any] | None = None,
     ) -> list[RawDocument]:
-        sections = table_context_sections(sections)
-        ctx = heading_context(sections)
+        return LangchainDocumentParser.tree_to_documents(tree_from_sections(sections), file_path, page_meta)
+
+    @staticmethod
+    def tree_to_documents(
+        tree: DocNode,
+        file_path: Path,
+        page_meta: dict[str, Any] | None = None,
+    ) -> list[RawDocument]:
+        sections = table_context_sections(sections_from_tree(tree))
+        ctx = tree_heading_context(tree)
         total = sum(bool(section.content.strip()) for section in sections)
         docs: list[RawDocument] = []
         chunk_index = 0

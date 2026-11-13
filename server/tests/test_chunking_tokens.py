@@ -10,9 +10,10 @@ from domain.ingestion.embed_text import MAX_EMBED_TOKENS
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.raw_document import RawDocument
+from domain.ingestion.text_budget import overlap_tail, sentence_fragments
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from infrastructure.ml.ingestion.splitting import Chunker, split_documents
-from infrastructure.ml.ingestion.text_chunks import overlap_tail, sentence_fragments, text_document_chunks
+from infrastructure.ml.ingestion.splitting import TreeChunkingAdapter, split_documents
+from infrastructure.ml.ingestion.text_chunks import text_tree_chunks
 from infrastructure.ml.langchain_document_parser import LangchainDocumentSplitter
 from infrastructure.ml.tokenization import CharEstimateTokenCounter, HfTokenCounter, build_token_counter
 
@@ -75,7 +76,7 @@ def test_only_complete_sentences_overlap_and_pages_follow_source() -> None:
     first = "Первое предложение. Второе предложение. "
     second = "Третье предложение. Четвёртое предложение. Пятое предложение."
     text = first + second
-    chunks = text_document_chunks(
+    chunks = text_tree_chunks(
         Document(
             page_content=text, metadata={"_page_spans": [(0, len(first), 1), (len(first), len(text), 2)]}
         ),
@@ -95,7 +96,7 @@ def test_only_complete_sentences_overlap_and_pages_follow_source() -> None:
 def test_legal_abbreviations_survive_overflow() -> None:
     sentence = "В соответствии со ст. 5 и п. 3 т.е. по ст. 12 действует правило. "
     assert sentence_fragments(sentence) == [sentence]
-    chunks = text_document_chunks(Document(page_content=sentence * 10), 140, 50)
+    chunks = text_tree_chunks(Document(page_content=sentence * 10), 140, 50)
     assert all(chunk.page_content.startswith("В соответствии") for chunk in chunks)
 
 
@@ -116,7 +117,7 @@ def test_structured_domains_ignore_retired_character_limits_and_overlap(
     )
     bodies = " ".join(chunk.page_content for chunk in chunks)
     assert bodies.count("Содержательное правило.") == 120
-    assert Chunker(profile.key, profile, settings, real_counter).chunk_overlap == 0
+    assert TreeChunkingAdapter(profile.key, profile, settings, real_counter).chunk_overlap == 0
 
 
 def test_invalid_token_budget_is_rejected() -> None:

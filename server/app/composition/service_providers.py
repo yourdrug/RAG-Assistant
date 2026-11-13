@@ -17,6 +17,7 @@ from application.benchmark.sweep import SweepBenchmarkDependencies, SweepEngine
 from application.benchmark.sweep_evaluation import SweepFullEvaluator
 from application.documents import DocumentProcessor
 from application.documents.dto import DocumentProcessingDependencies
+from application.documents.reindex import DocumentReindexService
 from application.indexing.contextualization import ChunkContextualization
 from application.ingestion import (
     BatchIngestionWorkflow,
@@ -225,6 +226,11 @@ def create_document_processor(
         domain_settings=infra.domain_settings,
         act_versioning_service=act_versioning,
     )
+
+
+def create_reindex_service(infra: InfrastructureContainer) -> DocumentReindexService:
+    uow = require(infra.db.uow_factory, "uow_factory")
+    return DocumentReindexService(uow, create_document_processor(infra, uow))
 
 
 # Compatibility for integrations using the former application facade factory.
