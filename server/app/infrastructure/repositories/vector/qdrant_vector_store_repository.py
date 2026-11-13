@@ -10,7 +10,6 @@ from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from config import VectorStoreSection, process_section
-from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.corpus.snapshot import collection_for, pin_corpus_call
 from infrastructure.ml.clients.factories import create_embeddings, create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
@@ -61,7 +60,10 @@ class QdrantVectorStoreRepository:
             msg = "ml_clients not initialized — cannot upload documents"
             raise ValueError(msg)
 
-        lcdocs = [LCDocument(page_content=c.content, metadata=c.metadata) for c in chunks]
+        lcdocs = [
+            LCDocument(page_content=c.content, metadata={**c.metadata, "embed_text": c.embed_text})
+            for c in chunks
+        ]
         async with self._ml_clients.ingestion_semaphore:
             await upload_to_qdrant(
                 lcdocs,
@@ -118,12 +120,9 @@ class QdrantVectorStoreRepository:
                 raise ValueError(msg)
 
             ensure_embedding_identity(client, identity)
-            # Sparse text must match bulk upload (upload_document_batches), which
-            # indexes the chunk together with its parent scope.
-            scoped_text = content_with_parent_scope(
-                LCDocument(page_content=payload["page_content"], metadata=payload.get("metadata", {}))
+            point = PointStruct(
+                id=point_id, vector=point_vectors(payload["page_content"], vector), payload=payload
             )
-            point = PointStruct(id=point_id, vector=point_vectors(scoped_text, vector), payload=payload)
             client.upsert(collection_name=process_section(VectorStoreSection).collection_name, points=[point])
 
         await asyncio.to_thread(upsert)

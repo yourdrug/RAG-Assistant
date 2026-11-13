@@ -183,7 +183,7 @@ def test_2_chunks_cover_all_meaningful_source_text(
 
     for chunk in result.chunks:
         section_path = re.split(SECTION_SEPARATOR_RE, chunk.metadata.get("section") or "")
-        pieces = [body(chunk), *chunk.page_content.splitlines(), *section_path]
+        pieces = [body(chunk), *(chunk.embed_text or chunk.page_content).splitlines(), *section_path]
         pieces += [cell for line in pieces for cell in line.split("|")] if is_table(chunk) else []
 
         for piece in filter(None, map(compact, pieces)):
@@ -239,7 +239,9 @@ def test_4_no_chunk_is_only_a_heading_or_prefix(case_id: str, split_results: dic
         and is_heading_only(
             body(chunk).strip(),
             "\x00".join(
-                compact(c.metadata.get("context_prefix") or "") for j, c in enumerate(chunks) if j != i
+                compact((c.embed_text or c.page_content).removesuffix(c.page_content))
+                for j, c in enumerate(chunks)
+                if j != i
             ),
         )
     ]

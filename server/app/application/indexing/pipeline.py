@@ -240,6 +240,7 @@ async def process_chunks_in_uow(
         chunks=[
             ChunkInsert(
                 content=rc.page_content,
+                embed_text=rc.embed_text,
                 content_hash=content_hash(rc.page_content),
                 section=rc.metadata.get("section"),
                 heading=rc.metadata.get("heading"),
@@ -289,6 +290,7 @@ async def process_chunks_in_uow(
                     {
                         "chunk_id": cid,
                         "page_content": rc.page_content,
+                        "embed_text": rc.embed_text,
                         "metadata": rc.metadata,
                     }
                     for cid, rc in zip(chunk_ids, chunks, strict=True)

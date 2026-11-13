@@ -6,6 +6,7 @@ from langchain.schema import Document
 import pytest
 
 from config import ChunkingSection, process_section
+from domain.ingestion.embed_text import MAX_EMBED_TOKENS
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.raw_document import RawDocument
@@ -49,11 +50,11 @@ def test_every_final_chunk_fits_real_bge_tokens(
     )
     assert len(chunks) > 1
     assert all(real_counter.count(chunk.page_content) <= maximum for chunk in chunks)
-    assert all(chunk.metadata["owner_id"] == 42 and chunk.metadata["group_id"] == 7 for chunk in chunks)
     assert all(
-        chunk.page_content == chunk.metadata["context_prefix"] + chunk.metadata["body_text"]
-        for chunk in chunks
+        real_counter.count(chunk.embed_text or chunk.page_content) <= MAX_EMBED_TOKENS for chunk in chunks
     )
+    assert all(chunk.metadata["owner_id"] == 42 and chunk.metadata["group_id"] == 7 for chunk in chunks)
+    assert all((chunk.embed_text or chunk.page_content).endswith(chunk.page_content) for chunk in chunks)
     assert any(
         "Заключительное правило" in chunk.page_content or "Последняя строка" in chunk.page_content
         for chunk in chunks
@@ -86,7 +87,7 @@ def test_only_complete_sentences_overlap_and_pages_follow_source() -> None:
     assert chunks[0].metadata["pages"] == [1]
     assert chunks[-1].metadata["pages"] == [2]
     starts = {sentence.strip().split()[0] for sentence in sentence_fragments(text)}
-    assert all(chunk.metadata["body_text"].split()[0] in starts for chunk in chunks)
+    assert all(chunk.page_content.split()[0] in starts for chunk in chunks)
     assert overlap_tail(first, 25).strip() == "Второе предложение."
     assert overlap_tail(first, 5) == ""
 
@@ -95,7 +96,7 @@ def test_legal_abbreviations_survive_overflow() -> None:
     sentence = "В соответствии со ст. 5 и п. 3 т.е. по ст. 12 действует правило. "
     assert sentence_fragments(sentence) == [sentence]
     chunks = text_document_chunks(Document(page_content=sentence * 10), 140, 50)
-    assert all(chunk.metadata["body_text"].startswith("В соответствии") for chunk in chunks)
+    assert all(chunk.page_content.startswith("В соответствии") for chunk in chunks)
 
 
 @pytest.mark.parametrize("profile_type", [LegalDomainProfile, DecreeDomainProfile])
@@ -113,7 +114,7 @@ def test_structured_domains_ignore_retired_character_limits_and_overlap(
     chunks = split_documents(
         [Document(page_content=text)], profile.key, profile, settings, token_counter=real_counter
     )
-    bodies = " ".join(chunk.metadata["body_text"] for chunk in chunks)
+    bodies = " ".join(chunk.page_content for chunk in chunks)
     assert bodies.count("Содержательное правило.") == 120
     assert Chunker(profile.key, profile, settings, real_counter).chunk_overlap == 0
 

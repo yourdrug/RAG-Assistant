@@ -94,6 +94,7 @@ class SQLAlchemyChunkCrudRepository:
                 document_id=document_id,
                 chunk_index=i,
                 content=chunk.content,
+                embed_text=chunk.embed_text,
                 filename=filename,
                 visibility=visibility,
                 doc_domain=doc_domain,
@@ -142,6 +143,8 @@ class SQLAlchemyChunkCrudRepository:
         content_hash: str,
         edited_at: datetime,
         edited_by: int,
+        *,
+        embed_text: str | None = None,
     ) -> None:
         stmt = select(ChunkModel).where(ChunkModel.id == chunk_id)
         result = await self._session.execute(stmt)
@@ -151,6 +154,7 @@ class SQLAlchemyChunkCrudRepository:
             msg = f"Chunk {chunk_id} not found"
             raise ValueError(msg)
 
+        orm.embed_text = embed_text
         orm.content = content
         orm.content_hash = content_hash
         orm.edited_at = edited_at
@@ -181,6 +185,8 @@ class SQLAlchemyChunkCrudRepository:
             document_id=document_id,
             chunk_index=chunk_index,
             content=content,
+            embed_text=options.embed_text,
+            doc_title=options.doc_title,
             filename=filename,
             visibility=visibility,
             doc_domain=doc_domain,

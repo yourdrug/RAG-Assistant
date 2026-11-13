@@ -748,7 +748,7 @@ def test_factory_captures_one_snapshot_even_if_settings_change_during_constructi
     client = factories.create_embeddings(model)
     try:
         assert client._base_url == "http://tei-embed:8080"
-        assert client.embedding_identity == "tei:BAAI/bge-m3:v1"
+        assert client.embedding_identity == "tei:BAAI/bge-m3:v2"
     finally:
         asyncio.run(client.close())
 

@@ -6,8 +6,20 @@ closing the demotion cache poisoning vulnerability.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from config import settings
 from domain.identity.user_context import CuratorScope
-from infrastructure.ml.cache.answers import CACHE_PREFIX, compute_question_hash, compute_visibility_scope_hash
+from infrastructure.ml.cache.answers import (
+    CACHE_PREFIX,
+    cache_key,
+    compute_question_hash,
+    compute_visibility_scope_hash,
+)
+
+
+if TYPE_CHECKING:
+    import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -17,7 +29,7 @@ from infrastructure.ml.cache.answers import CACHE_PREFIX, compute_question_hash,
 
 class TestCachePrefix:
     def test_prefix_versions_document_citations_and_revision_fence(self) -> None:
-        assert CACHE_PREFIX == "rag:cache:v5:"
+        assert CACHE_PREFIX == "rag:cache:v6:"
 
 
 # ---------------------------------------------------------------------------
@@ -182,3 +194,10 @@ class TestCacheScopeContracts:
         h1 = compute_visibility_scope_hash("internal_user", 1, [1])
         h2 = compute_visibility_scope_hash("internal_user", 2, [1])
         assert h1 != h2
+
+
+def test_cache_key_changes_with_embedding_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "embedding_revision", "v1")
+    first = cache_key("question", "same-acl")
+    monkeypatch.setattr(settings, "embedding_revision", "v2")
+    assert cache_key("question", "same-acl") != first

@@ -11,6 +11,7 @@ def to_chunk_search_result(orm: ChunkModel) -> ChunkRecord:
         document_id=orm.document_id,
         filename=orm.filename,
         content=orm.content,
+        embed_text=orm.embed_text,
         chunk_index=orm.chunk_index,
         visibility=DocumentVisibility.parse(orm.visibility),
         doc_domain=DomainKey(orm.doc_domain),

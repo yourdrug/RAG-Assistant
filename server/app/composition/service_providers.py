@@ -17,6 +17,7 @@ from application.benchmark.sweep import SweepBenchmarkDependencies, SweepEngine
 from application.benchmark.sweep_evaluation import SweepFullEvaluator
 from application.documents import DocumentProcessor
 from application.documents.dto import DocumentProcessingDependencies
+from application.indexing.contextualization import ChunkContextualization
 from application.ingestion import (
     BatchIngestionWorkflow,
     DocumentSyncService,
@@ -29,6 +30,7 @@ from application.ingestion import (
 )
 from application.rag.service import RagService as ApplicationRagService
 from composition.utils import require
+from config import ChunkingSection, process_section
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.sweep.data import SweepDataSource
@@ -41,7 +43,9 @@ from infrastructure.ingestion.document_parser_adapter import (
 )
 from infrastructure.ml.config.settings_adapters import LiveIngestionSettings
 from infrastructure.ml.guardrails.text_quality_adapter import TextQualityAssessorAdapter
+from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer, RedisNoteCache
 from infrastructure.ml.rag.rag_steps import RagOperations
+from infrastructure.redis.redis_client import redis_client
 
 
 if TYPE_CHECKING:
@@ -98,6 +102,25 @@ def create_sweep_engine(infra: InfrastructureContainer) -> SweepEngine:
     )
 
 
+def create_chunk_contextualization(infra: InfrastructureContainer) -> ChunkContextualization | None:
+    """Build plan 4.3 notes only when explicitly enabled (off by default)."""
+    config = process_section(ChunkingSection)
+
+    if not config.chunk_contextualization_enabled:
+        return None
+
+    clients = require(infra.ml.ml_clients, "ml_clients")
+    return ChunkContextualization(
+        LLMChunkContextualizer(
+            clients.fast_llm,
+            RedisNoteCache(redis_client.async_redis),
+            concurrency=config.chunk_contextualization_concurrency,
+            timeout_seconds=config.chunk_contextualization_timeout,
+        ),
+        infra.ml.token_counter,
+    )
+
+
 def create_ingestion_service(
     infra: InfrastructureContainer,
     uow_factory: UnitOfWorkFactory | None = None,
@@ -127,7 +150,13 @@ def create_ingestion_service(
     file_storage = require(infra.ml.file_storage, "file_storage")
 
     registry = IngestionRegistry(uow, file_storage)
-    sync = DocumentSyncService(uow, act_versioning, infra.domain_registry, infra.domain_settings)
+    sync = DocumentSyncService(
+        uow,
+        act_versioning,
+        infra.domain_registry,
+        infra.domain_settings,
+        contextualization=create_chunk_contextualization(infra),
+    )
     ingestion_settings = LiveIngestionSettings()
     loader = S3DocumentLoader(
         file_storage,
@@ -190,6 +219,7 @@ def create_document_processor(
             pdf_quality_assessor=require(infra.ml.pdf_quality_assessor, "pdf_quality_assessor"),
             text_quality_assessor=TextQualityAssessorAdapter(),
             metrics=require(infra.ml.metrics_collector, "metrics_collector"),
+            chunk_contextualization=create_chunk_contextualization(infra),
         ),
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,

@@ -182,25 +182,66 @@ def same_evidence_block(anchor: RetrievalDocument, candidate: RetrievalDocument)
     end = candidate.metadata.get("chunk_index")
 
     if key is None:
-        # Plain text has no provision label. Only immediate chunks within the
-        # same document, edition and inherited conditions form a neighborhood.
-        source = anchor.metadata.get("document_id") or anchor.metadata.get("source")
-        other_source = candidate.metadata.get("document_id") or candidate.metadata.get("source")
-        return bool(
-            source
-            and source == other_source
-            and anchor.metadata.get("act_version_id") == candidate.metadata.get("act_version_id")
-            and not anchor.metadata.get("table_id")
-            and not candidate.metadata.get("table_id")
-            and anchor.metadata.get("content_type") != PageContentType.TABLE.value
-            and candidate.metadata.get("content_type") != PageContentType.TABLE.value
-            and anchor.metadata.get("parent_units") == candidate.metadata.get("parent_units")
-            and start is not None
-            and end is not None
-            and abs(end - start) <= 1
-        )
+        return same_text_run(anchor, candidate)
 
     return start is None or end is None or abs(end - start) < MAX_PROVISION_CHUNKS
+
+
+def same_text_run(anchor: RetrievalDocument, candidate: RetrievalDocument) -> bool:
+    """Recognize immediate plain-text neighbors within one document and edition."""
+    source = anchor.metadata.get("document_id")
+    start = anchor.metadata.get("chunk_index")
+    end = candidate.metadata.get("chunk_index")
+
+    if (
+        not source
+        or source != candidate.metadata.get("document_id")
+        or anchor.metadata.get("act_version_id") != candidate.metadata.get("act_version_id")
+        or any(
+            doc.metadata.get("section")
+            or doc.metadata.get("heading")
+            or doc.metadata.get("table_id")
+            or doc.metadata.get("content_type") == PageContentType.TABLE.value
+            for doc in (anchor, candidate)
+        )
+        or anchor.metadata.get("parent_units") != candidate.metadata.get("parent_units")
+        or not isinstance(start, int)
+        or not isinstance(end, int)
+        or abs(end - start) != 1
+    ):
+        return False
+
+    anchor_pages = text_run_pages(anchor)
+    candidate_pages = text_run_pages(candidate)
+
+    # Page-less formats (TXT) rely on consecutive indices. A partial page span
+    # cannot establish adjacency and is rejected.
+    if not anchor_pages and not candidate_pages:
+        return True
+
+    return bool(
+        anchor_pages
+        and candidate_pages
+        and min(abs(a - b) for a in anchor_pages for b in candidate_pages) <= 1
+    )
+
+
+def text_run_pages(doc: RetrievalDocument) -> set[int]:
+    """Read page identity from either parser representation."""
+    metadata = doc.metadata
+    pages = set(metadata.get("pages") or [])
+    page = metadata.get("page")
+
+    if page is not None:
+        pages.add(page)
+
+    start = metadata.get("page_start")
+    end = metadata.get("page_end", start)
+
+    if isinstance(start, int) and isinstance(end, int):
+        pages.update((start, end))
+
+    return pages
 
 
 def compute_reranker_score(sources: Sequence[object]) -> float | None:

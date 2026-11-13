@@ -116,3 +116,11 @@ def test_focus_requires_explicit_operation_and_requested_table(replacement_docs:
     scope = table_parts(replacement_docs)[0].metadata["parent_units"][0]["content"]
     assert amendment_anchors(scope.replace("таблице 4.1", "таблице 4.2"), QUESTION) == []
     assert amendment_anchors(scope, QUESTION.replace("четырех", "четырёх")) == [scope]
+
+
+def test_old_row_retains_following_operation_as_source_body(replacement_docs: list[RawDocument]) -> None:
+    old = table_parts(replacement_docs)[0]
+    chunks = table_document_chunks(Document(page_content=old.page_content, metadata=old.metadata), 250, 5)
+    assert chunks[-1].page_content.endswith(BRIDGE)
+    assert "table_replacement_suffix" not in chunks[-1].metadata
+    assert all(len(chunk.page_content) <= 250 for chunk in chunks)

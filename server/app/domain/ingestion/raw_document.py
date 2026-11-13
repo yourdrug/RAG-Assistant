@@ -21,3 +21,4 @@ class RawDocument:
 
     page_content: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    embed_text: str | None = None

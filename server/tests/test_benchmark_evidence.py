@@ -12,7 +12,12 @@ from pydantic import ValidationError
 import pytest
 
 from config import settings
-from domain.benchmark.evaluation import evaluate_evidence, evaluate_retrieval, summarize_evidence
+from domain.benchmark.evaluation import (
+    evaluate_evidence,
+    evaluate_retrieval,
+    matches_fragment,
+    summarize_evidence,
+)
 from domain.benchmark.question import (
     BenchmarkQuestion,
     answer_annotations,
@@ -428,3 +433,21 @@ def test_gold_anchor_locates_a_passage_split_across_chunks() -> None:
 
     assert evaluate_retrieval(question, [row_only, heading])["fragment_mrr"] == 0.5
     assert evaluate_retrieval(question, [row_only])["hit_rate"] == 0
+
+
+def test_fragment_matches_authorized_inherited_scope_without_dense_text() -> None:
+    fragment = {"text": "Only organizations", "source": "rules.pdf", "document_id": 7, "act_version_id": 9}
+    doc = {
+        "content": "Submit the application.",
+        "scoped_content": "Only organizations\nSubmit the application.",
+        "metadata": {"source": "rules.pdf", "document_id": 7, "act_version_id": 9},
+    }
+    assert matches_fragment(fragment, doc)
+    assert not matches_fragment(
+        fragment, {key: value for key, value in doc.items() if key != "scoped_content"}
+    )
+    assert not matches_fragment({**fragment, "act_version_id": 10}, doc)
+    assert not matches_fragment({**fragment, "document_id": 8}, doc)
+    assert not matches_fragment({**fragment, "source": "other.pdf"}, doc)
+    dense_only = {"content": "body", "metadata": doc["metadata"], "embed_text": "Only organizations"}
+    assert not matches_fragment(fragment, dense_only)

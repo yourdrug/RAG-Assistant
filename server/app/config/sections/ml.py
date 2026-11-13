@@ -14,7 +14,7 @@ class MLProviderSection(BaseModel):
     ml_provider: Static[Literal["tei", "deepinfra"]] = MLProvider.DEEPINFRA.value
     tei_embed_url: str = "http://tei-embed:8080"
     tei_embed_model: Static[str] = "BAAI/bge-m3"
-    embedding_revision: Static[str] = "v1"
+    embedding_revision: Static[str] = "v2"
     tei_rerank_url: str = "http://tei-rerank:8080"
     deepinfra_api_key: Secret = SecretStr("")
     deepinfra_base_url: str = "https://api.deepinfra.com/v1"

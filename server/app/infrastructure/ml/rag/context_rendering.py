@@ -15,7 +15,6 @@ from domain.knowledge.enums import PageContentType
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.guardrails.sanitization import sanitize_for_prompt
 from domain.shared.breadcrumb import shorten_breadcrumb
-from infrastructure.ml.ingestion.text_chunks import context_prefix
 from infrastructure.ml.rag.document_sources import group_by_document
 from infrastructure.ml.rag.utils import clean_source_name
 
@@ -171,12 +170,6 @@ def ingestion_prefix(doc: Document) -> str:
 
     if prefix:
         return prefix if body.startswith(prefix) else ""
-
-    for include_unit in (True, False):
-        candidate = context_prefix(doc.metadata, max(len(body), 360), include_unit=include_unit)
-
-        if candidate and body.startswith(candidate):
-            return candidate
 
     return ""
 

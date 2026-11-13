@@ -85,7 +85,7 @@ def test_large_step_repeats_heading_without_exceeding_budget(
     chunks = splitter.split([RawDocument(text, {"source": "guide.txt"})])
     continuations = [c for c in chunks if c.metadata.get("step_number") == "2"]
     assert len(continuations) > 1
-    assert all("2. Заполните сведения" in c.page_content for c in continuations)
+    assert all("2. Заполните сведения" in (c.embed_text or c.page_content) for c in continuations)
     assert all(len(c.page_content) <= 550 for c in chunks)
 
 
@@ -114,7 +114,7 @@ def test_subpoints_keep_parent_condition_and_distinct_numbers(
     # Fitting siblings now share a body, preserving both identities in metadata.
     assert len(subpoints) == 1
     assert subpoints[0].metadata["boundary_values"] == ["21.1", "21.2"]
-    assert all(condition in c.page_content for c in subpoints)
+    assert all(condition in (c.embed_text or c.page_content) for c in subpoints)
     assert all(c.metadata["point_number"] == "21" for c in subpoints)
     assert "21.1." in subpoints[0].page_content
     assert "21.2." in subpoints[0].page_content
@@ -391,6 +391,6 @@ async def test_api_content_processor_and_cli_construct_identical_final_chunks(
     )
     assert [c.page_content for c in api_chunks] == [c.page_content for c in cli_chunks]
     assert all("[Раздел:" not in c.page_content for c in api_chunks)
-    assert all(c.page_content == c.metadata["context_prefix"] + c.metadata["body_text"] for c in api_chunks)
+    assert all((c.embed_text or c.page_content).endswith(c.page_content) for c in api_chunks)
     assert all(len(c.page_content) <= 550 for c in api_chunks)
     assert all(c.metadata["char_count"] == len(c.page_content) for c in api_chunks)

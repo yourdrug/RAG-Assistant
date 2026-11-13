@@ -11,6 +11,7 @@ import pytest
 from application.search import HybridRetriever
 from domain.identity.roles import UserKind
 from domain.identity.user_context import UserContext
+from domain.ingestion.embed_text import build_embed_text
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.enums import PageContentType
 from domain.rag.evidence.context import content_with_parent_scope
@@ -92,8 +93,8 @@ async def test_dense_and_reranker_keep_parent_conditions_while_sparse_indexes_bo
         metadata={"chunk_id": 1, "source": "rules.md", "parent_units": [{"content": condition}]},
     )
     original = doc.page_content
-    scoped = content_with_parent_scope(doc)
-    assert prepare_upload_texts([doc]) == [scoped]
+    doc.metadata["embed_text"] = build_embed_text(doc.metadata, doc.page_content)
+    assert prepare_upload_texts([doc]) == [doc.metadata["embed_text"]]
     assert doc.metadata["content_hash"] == content_hash(original)
     point = build_points([doc], [[1.0, 0.0]])[0]
     assert isinstance(point.vector, dict)
@@ -135,7 +136,7 @@ def test_table_keeps_introduction_caption_and_notes_through_chunking(tmp_path: P
         scoped = content_with_parent_scope(doc)
         assert all(text in scoped for text in (condition, caption, note, "50"))
         assert "цена 100" not in scoped
-        assert prepare_upload_texts([doc]) == [scoped]
+        assert prepare_upload_texts([doc]) == [doc.metadata["embed_text"]]
         assert condition in reranker_text(doc)
         assert scoped.count(condition) == 1
 

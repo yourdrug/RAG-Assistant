@@ -24,6 +24,10 @@ class ChunkingSection(BaseModel):
     )
     decree_chunk_max_tokens: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_max_tokens", "decree")].value)
     embed_tokenizer_path: Static[str] = "data/tei_cache/bge-m3/tokenizer.json"
+    # Plan 4.3: LLM situating notes added only to the dense embedding input.
+    chunk_contextualization_enabled: Static[bool] = False
+    chunk_contextualization_concurrency: Static[int] = 4
+    chunk_contextualization_timeout: Static[int] = 30
 
     def check_chunking(self) -> list[str]:
         # Each bound is checked per field; the splitter also needs overlap < size.
@@ -40,6 +44,9 @@ class ChunkingSection(BaseModel):
 
             if target <= 0 or maximum < target:
                 errors.append(f"{prefix.upper()}CHUNK_TARGET_TOKENS must be positive and <= max tokens")
+
+        if self.chunk_contextualization_concurrency <= 0 or self.chunk_contextualization_timeout <= 0:
+            errors.append("CHUNK_CONTEXTUALIZATION_CONCURRENCY and _TIMEOUT must be positive")
 
         if not 0 <= self.chunk_overlap_tokens < self.chunk_target_tokens:
             errors.append("CHUNK_OVERLAP_TOKENS must be non-negative and less than target tokens")

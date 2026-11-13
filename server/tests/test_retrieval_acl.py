@@ -8,16 +8,26 @@ rather than being silently dropped.
 from __future__ import annotations
 
 import asyncio
+from datetime import date
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain.schema import Document
 import pytest
+from sqlalchemy import JSON, Column, MetaData, Table, create_engine
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Session
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.access_control import get_visibility_conditions
+from domain.knowledge.chunk import ChunkRecord
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
+from domain.rag.ranking import same_text_run
+from infrastructure.database.models import ChunkModel
+from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors
 from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search, resolve_hashes_batch
 from infrastructure.ml.rag.retrieval_pipeline import (
     rerank_and_enrich,
@@ -25,11 +35,16 @@ from infrastructure.ml.rag.retrieval_pipeline import (
     run_retrieval,
 )
 from infrastructure.ml.rag.retrieval_work import RetrievalWork
+from infrastructure.repositories.chunk.chunk_context import SQLAlchemyChunkContextRepository
 from infrastructure.repositories.vector.acl import (
     build_qdrant_filter,
     with_domain_filter,
     with_temporal_filter,
 )
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 # ---------------------------------------------------------------------------
@@ -478,3 +493,158 @@ async def test_legal_rerank_fallback_searches_full_question_after_decomposition(
     assert fallback_call.args[0] == "query"
     assert fallback_call.args[2] is af
     assert [doc for doc, _ in docs] == [found]
+
+
+@pytest.mark.parametrize(
+    "candidate, expected",
+    [
+        ({"chunk_index": 1, "page": 4}, True),
+        ({"chunk_index": 3, "pages": [5]}, True),
+        ({"chunk_index": 3, "page_start": 5, "page_end": 6}, True),
+        ({"chunk_index": 2}, False),
+        ({"chunk_index": 4}, False),
+        ({"document_id": 8}, False),
+        ({"act_version_id": 10}, False),
+        ({"page": 9}, False),
+        ({"section": "Another section"}, False),
+        ({"content_type": "table"}, False),
+        ({"parent_units": [{"content": "Different conditions"}]}, False),
+    ],
+)
+def test_plain_text_run_keeps_document_version_position_and_pages(
+    candidate: dict[str, object],
+    expected: bool,
+) -> None:
+    anchor = Document(
+        page_content="anchor", metadata={"document_id": 7, "act_version_id": 9, "chunk_index": 2, "page": 4}
+    )
+    other = Document(page_content="neighbor", metadata={**anchor.metadata, "chunk_index": 3, **candidate})
+    assert same_text_run(anchor, other) is expected
+
+
+@pytest.mark.parametrize("enumerate_cases", [False, True])
+@pytest.mark.asyncio
+async def test_general_expansion_accepts_only_immediate_same_document_neighbors(
+    enumerate_cases: bool,
+) -> None:
+    user = UserContext(user_id=12, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    anchor = Document(
+        page_content="anchor", metadata={"document_id": 7, "act_version_id": 9, "chunk_index": 2, "page": 4}
+    )
+    neighbors = [
+        ChunkRecord(
+            chunk_id=1,
+            document_id=7,
+            filename="guide.pdf",
+            content="permitted neighbor",
+            chunk_index=3,
+            act_version_id=9,
+            context_metadata={"page": 5},
+        ),
+        ChunkRecord(
+            chunk_id=2,
+            document_id=8,
+            filename="other.pdf",
+            content="foreign neighbor",
+            chunk_index=3,
+            act_version_id=9,
+            context_metadata={"page": 5},
+        ),
+        ChunkRecord(
+            chunk_id=3,
+            document_id=7,
+            filename="guide.pdf",
+            content="other edition",
+            chunk_index=1,
+            act_version_id=8,
+            context_metadata={"page": 4},
+        ),
+        ChunkRecord(
+            chunk_id=4,
+            document_id=7,
+            filename="guide.pdf",
+            content="distant page",
+            chunk_index=1,
+            act_version_id=9,
+            context_metadata={"page": 9},
+        ),
+    ]
+    search = SimpleNamespace(get_neighbors=AsyncMock(return_value=neighbors))
+    enriched = await enrich_with_neighbors(
+        [(anchor, 1.0)], enumerate_cases=enumerate_cases, chunk_search=search, user=user
+    )
+    assert [doc.page_content for doc, _ in enriched] == ["anchor", "permitted neighbor"]
+    assert enriched[1][1] == 0.9
+    assert search.get_neighbors.call_args.kwargs["window"] == 1
+    assert search.get_neighbors.call_args.kwargs["user"] is user
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "visibility, role, viewer, expected",
+    [
+        ("internal_private", UserRole.USER, 12, 2),
+        ("internal_private", UserRole.USER, 99, 0),
+        ("client_private", UserRole.ADMIN, 99, 0),
+        ("internal_public", UserRole.USER, 99, 2),
+    ],
+)
+async def test_neighbor_sql_applies_search_acl_and_document_scope(
+    visibility: str,
+    role: UserRole,
+    viewer: int,
+    expected: int,
+) -> None:
+    # Execute the actual ORM query locally. Copy only storage types to SQLite;
+    # authorization and the mapped query remain the production implementations.
+    engine = create_engine("sqlite://")
+    schema = MetaData()
+    Table(
+        "chunks",
+        schema,
+        *(
+            Column(
+                column.name,
+                JSON() if isinstance(column.type, JSONB) else column.type,
+                primary_key=column.primary_key,
+            )
+            for column in ChunkModel.__table__.columns
+        ),
+    )
+    schema.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(
+            [
+                ChunkModel(
+                    id=index,
+                    document_id=7,
+                    chunk_index=index,
+                    filename="guide.pdf",
+                    content=f"neighbor {index}",
+                    visibility=visibility,
+                    owner_id=12,
+                    act_version_id=9,
+                    effective_from=date(2025, 1, 1),
+                )
+                for index in (1, 3)
+            ]
+            + [
+                ChunkModel(
+                    id=4,
+                    document_id=8,
+                    chunk_index=1,
+                    filename="foreign.pdf",
+                    content="foreign",
+                    visibility="internal_public",
+                    owner_id=None,
+                )
+            ]
+        )
+        session.flush()
+        async_session = SimpleNamespace(execute=AsyncMock(side_effect=session.execute))
+        repository = SQLAlchemyChunkContextRepository(cast("AsyncSession", async_session))
+        user = UserContext(user_id=viewer, user_kind=UserKind.INTERNAL, user_role=role)
+        results = await repository.get_neighbors(7, 2, user=user)
+        assert len(results) == expected
+        assert all(row.document_id == 7 for row in results)
+    engine.dispose()

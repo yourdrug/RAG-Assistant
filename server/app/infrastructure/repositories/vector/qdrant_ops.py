@@ -27,7 +27,6 @@ from qdrant_client.models import (
 
 from application.ports.ml_clients import AsyncSemaphorePort
 from config import MLProviderSection, process_section
-from domain.rag.evidence.context import content_with_parent_scope
 from domain.shared.hashing import content_hash
 from infrastructure.bm25.document_text import bm25_document_text
 from infrastructure.corpus.snapshot import collection_for
@@ -213,7 +212,10 @@ def build_points(chunks: list[Document], vectors: list[list[float]]) -> list[Poi
         PointStruct(
             id=doc.metadata["chunk_id"],
             vector=point_vectors(bm25_document_text(doc), vector),
-            payload={"page_content": doc.page_content, "metadata": doc.metadata},
+            payload={
+                "page_content": doc.page_content,
+                "metadata": {key: value for key, value in doc.metadata.items() if key != "embed_text"},
+            },
         )
         for doc, vector in zip(chunks, vectors, strict=True)
     ]
@@ -253,7 +255,7 @@ def prepare_upload_texts(chunks: list[Document]) -> list[str]:
     for doc in chunks:
         doc.metadata["content_hash"] = content_hash(doc.page_content)
 
-    return [content_with_parent_scope(doc) for doc in chunks]
+    return [doc.metadata.get("embed_text") or doc.page_content for doc in chunks]
 
 
 def log_upload_progress(done: int, total: int, t0: float) -> None:

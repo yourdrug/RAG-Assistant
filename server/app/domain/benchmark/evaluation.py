@@ -107,7 +107,7 @@ def matches_fragment(fragment: dict[str, Any], document: dict[str, Any]) -> bool
             or normalize_text(fragment["section"]) == normalize_text(metadata.get("section", ""))
         )
         and (not fragment.get("pages") or fragment_pages_match(fragment["pages"], metadata))
-        and fragment_text_in(fragment["text"], document["content"])
+        and fragment_text_in(fragment["text"], document.get("scoped_content") or document["content"])
     )
 
 

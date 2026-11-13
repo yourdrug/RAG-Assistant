@@ -251,6 +251,7 @@ async def test_chunk_vectors_are_deferred_to_outbox(
             find_duplicate_by_hash=AsyncMock(return_value=None),
             update_content=AsyncMock(),
             get_max_chunk_index=AsyncMock(return_value=0),
+            list_for_document=AsyncMock(return_value=([], 0)),
             insert_one=AsyncMock(return_value=2),
             delete_one=AsyncMock(),
         ),

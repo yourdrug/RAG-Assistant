@@ -13,6 +13,7 @@ import pytest
 from application.indexing import process_chunks
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
+from domain.ingestion.embed_text import build_embed_text
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import ChunkInsert, ChunkRecord, extract_chunk_context
 from domain.knowledge.enums import DocDomain, DocumentVisibility
@@ -75,7 +76,11 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> No
         documents=SimpleNamespace(update_status=AsyncMock()),
     )
     context = make_context()
-    chunk = RawDocument("21.2. Submit the passport.", {**context, "document_id": 7})
+    chunk = RawDocument(
+        "21.2. Submit the passport.",
+        {**context, "document_id": 7},
+        embed_text=build_embed_text(context, "21.2. Submit the passport."),
+    )
     await process_chunks(
         FakeUnitOfWorkFactory(),
         7,
@@ -87,6 +92,7 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> No
         doc_domain=DocDomain.DECREE.value,
         _existing_uow=cast("UnitOfWork", uow),
     )
+    assert models[0].embed_text == chunk.embed_text
     assert models[0].context_metadata == context
     assert "document_id" not in models[0].context_metadata
     assert models[0].visibility == DocumentVisibility.INTERNAL_PRIVATE.value
@@ -123,7 +129,9 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> No
 
     neighbor = to_chunk_search_result(models[0])
     search = SimpleNamespace(get_neighbors=AsyncMock(return_value=[neighbor]))
-    seed = Document(page_content="A separate related passage.", metadata={"document_id": 7, "chunk_index": 2})
+    seed = Document(
+        page_content="A separate related passage.", metadata={**context, "document_id": 7, "chunk_index": 1}
+    )
     enriched = await enrich_with_neighbors(
         [(seed, 0.9)], enumerate_cases=True, chunk_search=search, user=user
     )
@@ -253,6 +261,10 @@ async def test_edit_keeps_scope_and_current_acl_in_vector_outbox() -> None:
     uow = _make_uow(doc=doc, chunk=chunk)
     await _make_service(uow).edit_chunk(1, 10, "Updated passport submission rule. " * 8, 12, UserRole.USER)
     metadata = uow.vector_outbox.enqueue.call_args.args[0].payload["points"][0]["metadata"]
+    point = uow.vector_outbox.enqueue.call_args.args[0].payload["points"][0]
+    assert point["embed_text"] == uow.chunks.update_content.call_args.kwargs["embed_text"]
+    assert point["embed_text"].endswith(point["page_content"])
+    assert context["parent_units"][0]["content"] in point["embed_text"]
     assert metadata["parent_units"] == context["parent_units"]
     assert metadata["page"] == 4
     assert metadata["visibility"] == DocumentVisibility.INTERNAL_PRIVATE.value

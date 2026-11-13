@@ -25,6 +25,7 @@ from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 if TYPE_CHECKING:
     from application.act_versioning import ActVersioningService, VersioningPlan
+    from application.indexing.contextualization import ChunkContextualization
     from application.ingestion.dto import RegistryRecord, SyncOneDocumentOptions
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.ingestion.ports import DomainSettingsPort
@@ -43,11 +44,21 @@ class DocumentSyncService:
         act_versioning_service: ActVersioningService | None = None,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsPort | None = None,
+        contextualization: ChunkContextualization | None = None,
     ) -> None:
         self._uow_factory = uow_factory
+        self._contextualization = contextualization
         self._act_versioning_service = act_versioning_service
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
+
+    async def contextualize_sources(self, groups: list[list[RawDocument]]) -> None:
+        """Generate plan 4.3 notes once per source, outside every transaction."""
+        if self._contextualization is None:
+            return
+
+        for group in {id(group): group for group in groups}.values():
+            await self._contextualization.apply(group)
 
     def get_profile(self, domain: str) -> DocumentProfile | None:
         return get_domain_profile(self._domain_registry, domain)
@@ -86,6 +97,10 @@ class DocumentSyncService:
         documents_to_sync = {
             fname: info for fname, info in registry.items() if chunks_by_source.get(info.get("source", ""))
         }
+
+        await self.contextualize_sources(
+            [chunks_by_source[info["source"]] for info in documents_to_sync.values()]
+        )
 
         # Finish version preparation before creating or changing any documents.
         prepared = {}
@@ -200,7 +215,11 @@ class DocumentSyncService:
             visibility, owner_id, group_id = document.visibility, document.owner_id, document.group_id
             # Copy per target: one source can have several different ACL assignments.
             raw_chunks = [
-                RawDocument(page_content=c.page_content, metadata={**c.metadata, "source": src})
+                RawDocument(
+                    page_content=c.page_content,
+                    metadata={**c.metadata, "source": src},
+                    embed_text=c.embed_text,
+                )
                 for c in file_chunks
             ]
             tag_chunks(

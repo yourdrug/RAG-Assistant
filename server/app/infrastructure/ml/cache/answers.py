@@ -17,7 +17,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
-from config import VectorStoreSection, request_section
+from config import MLProviderSection, VectorStoreSection, request_section
 from domain.identity.roles import UserRole
 from domain.shared.hashing import content_hash
 from infrastructure.corpus.snapshot import active_corpus
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-CACHE_PREFIX = "rag:cache:v5:"
+CACHE_PREFIX = "rag:cache:v6:"
 CORPUS_REVISION_KEY = "rag:corpus:revision"
 DOC_INDEX_PREFIX = "rag:doc:"
 DOC_INDEX_TTL = CACHE_TTL_SECONDS
@@ -115,7 +115,8 @@ def cache_key(question_hash: str, visibility_scope_hash: str) -> str:
         if pinned is not None
         else content_hash(f"{vector_store_settings.qdrant_url}:{vector_store_settings.collection_name}")
     )
-    return f"{CACHE_PREFIX}{namespace}:{question_hash}:{visibility_scope_hash}"
+    revision = request_section(MLProviderSection).embedding_revision
+    return f"{CACHE_PREFIX}{namespace}:{revision}:{question_hash}:{visibility_scope_hash}"
 
 
 def doc_index_key(doc_id: int) -> str:

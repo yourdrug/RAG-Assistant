@@ -30,7 +30,14 @@ if TYPE_CHECKING:
 
 
 def _lc_to_raw(docs: list[Document]) -> list[RawDocument]:
-    return [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in docs]
+    return [
+        RawDocument(
+            page_content=d.page_content,
+            metadata={key: value for key, value in d.metadata.items() if key != "embed_text"},
+            embed_text=d.metadata.get("embed_text"),
+        )
+        for d in docs
+    ]
 
 
 def _raw_to_lc(docs: list[RawDocument]) -> list[Document]:

@@ -257,7 +257,7 @@ def test_compact_context_allows_fitting_article_points_to_pack() -> None:
     assert len(chunks) == 1
     assert all(len(chunk.page_content) <= 1000 for chunk in chunks)
     assert chunks[0].metadata["article_number"] == "3"
-    assert all(point in chunks[0].metadata["body_text"] for point in points)
+    assert all(point in chunks[0].page_content for point in points)
 
 
 def test_anonymous_paragraph_does_not_become_a_heading() -> None:

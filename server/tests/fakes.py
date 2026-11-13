@@ -277,6 +277,7 @@ class FakeChunkRepository:
                     "id": chunk_id,
                     "document_id": document_id,
                     "content": chunk.content,
+                    "embed_text": chunk.embed_text,
                     "domain_metadata": domain_metadata,
                     "act_version_id": act_version_id,
                     "effective_from": effective_from,
@@ -361,6 +362,7 @@ class FakeChunkRepository:
                 document_id=c["document_id"],
                 filename=c.get("filename", ""),
                 content=c.get("content", ""),
+                embed_text=c.get("embed_text"),
                 chunk_index=c.get("chunk_index", 0),
                 visibility=c.get("visibility"),
                 doc_domain=c.get("doc_domain", "general"),
@@ -429,6 +431,7 @@ class FakeChunkRepository:
                 document_id=c["document_id"],
                 filename=c.get("filename", ""),
                 content=c.get("content", ""),
+                embed_text=c.get("embed_text"),
                 chunk_index=c.get("chunk_index", 0),
                 visibility=c.get("visibility"),
                 owner_id=c.get("owner_id"),
@@ -454,12 +457,23 @@ class FakeChunkRepository:
         )
 
     async def update_content(
-        self, chunk_id: int, content: str, content_hash: str, edited_at: datetime, edited_by: int
+        self,
+        chunk_id: int,
+        content: str,
+        content_hash: str,
+        edited_at: datetime,
+        edited_by: int,
+        *,
+        embed_text: str | None = None,
     ) -> None:
         for row in self._chunks:
             if row["id"] == chunk_id:
                 row.update(
-                    content=content, content_hash=content_hash, edited_at=edited_at, edited_by=edited_by
+                    content=content,
+                    content_hash=content_hash,
+                    edited_at=edited_at,
+                    edited_by=edited_by,
+                    embed_text=embed_text,
                 )
 
     async def insert_one(
@@ -488,6 +502,7 @@ class FakeChunkRepository:
                 "group_id": options.group_id,
                 "content_hash": options.content_hash,
                 "context_metadata": options.context_metadata or {},
+                "embed_text": options.embed_text,
             }
         )
         return chunk_id

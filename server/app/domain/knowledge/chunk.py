@@ -19,6 +19,7 @@ class Chunk:
     content: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
     score: float | None = None
+    embed_text: str | None = None
 
 
 TABLE_CONTEXT_MAX_CHUNKS = 32
@@ -41,8 +42,7 @@ CHUNK_CONTEXT_FIELDS = frozenset(
         "unit_kind",
         "unit_heading_text",
         "parent_units",
-        "context_prefix",
-        "body_text",
+        "embed_prefix",
         "article_number",
         "chapter_number",
         "section_number",
@@ -82,6 +82,7 @@ class ChunkInsert:
     doc_title: str | None = None
     doc_type: str | None = None
     context_metadata: dict[str, Any] = field(default_factory=dict)
+    embed_text: str | None = None
 
 
 @dataclass
@@ -114,6 +115,7 @@ class ChunkRecord:
     effective_to: date | None = None
     is_current: bool = True
     context_metadata: dict[str, Any] = field(default_factory=dict)
+    embed_text: str | None = None
 
     def __post_init__(self) -> None:
         self.doc_domain = DomainKey(self.doc_domain)

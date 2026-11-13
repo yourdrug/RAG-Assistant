@@ -89,6 +89,7 @@ def _make_uow(doc: Document | None = None, chunk: ChunkRecord | None = None, max
     uow.documents.get_by_id = AsyncMock(return_value=doc)
     uow.chunks.get_by_id = AsyncMock(return_value=chunk)
     uow.chunks.get_max_chunk_index = AsyncMock(return_value=max_index)
+    uow.chunks.list_for_document = AsyncMock(return_value=([chunk], 1))
     uow.chunks.find_duplicate_by_hash = AsyncMock(return_value=None)
     uow.chunks.get_document_stats = AsyncMock(return_value=ChunkStats(total_chunks=5, total_chars=1234))
     uow.chunks.insert_one = AsyncMock(return_value=20)

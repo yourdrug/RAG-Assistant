@@ -152,7 +152,7 @@ def test_single_large_step_repeats_heading_with_body(
     path.write_text(section + heading + "\n" + "Проверьте реквизиты получателя и сведения о документе. " * 30)
     chunks = splitter.split(parser.parse(path))
     assert len(chunks) > 1
-    assert all(heading in c.page_content for c in chunks)
+    assert all(heading in (c.embed_text or c.page_content) for c in chunks)
     assert all(c.metadata["step_number"] == "1" for c in chunks)
     assert all("Проверьте" in c.page_content for c in chunks)
     assert all(len(c.page_content) <= 550 for c in chunks)
@@ -185,7 +185,7 @@ def test_long_parent_exception_survives_in_every_subpoint(
     assert {value for c in children for value in c.metadata["boundary_values"]} == {
         f"21.{i}" for i in range(1, 9)
     }
-    assert all(normalize(intro) in normalize(c.page_content) for c in children)
+    assert all(normalize(intro) in normalize(c.embed_text or c.page_content) for c in children)
     assert all(c.metadata["parent_units"][0]["content"] == intro for c in children)
     assert all(len(c.page_content) <= 1200 for c in children)
 

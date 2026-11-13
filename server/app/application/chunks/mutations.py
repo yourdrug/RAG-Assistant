@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from application.chunks.access import load_doc_for_add, load_doc_for_edit
 from application.chunks.dto import AddChunkResult, EditChunkResult
 from application.indexing import build_outbox_metadata
+from domain.ingestion.embed_text import build_embed_text, estimate_tokens
 from domain.knowledge.chunk import extract_chunk_context
 from domain.knowledge.enums import SourceType
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.identity.roles import UserRole
+    from domain.ingestion.ports import TokenCounter
     from domain.knowledge.repositories.chunk import ChunkCrudRepository
 
 log = logging.getLogger(__name__)
@@ -40,10 +42,13 @@ class ChunkMutationService:
         chunk_settings: ChunkSettingsPort,
         *,
         cache_invalidator: CacheInvalidatorPort | None = None,
+        token_counter: TokenCounter | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._settings = chunk_settings
         self._cache_invalidator = cache_invalidator
+        # Dense context is budgeted in embedding tokens, exactly as at splitting.
+        self._measure = token_counter.count if token_counter is not None else estimate_tokens
 
     async def invalidate_answers(self, document_id: int) -> None:
         if self._cache_invalidator is not None:
@@ -129,12 +134,24 @@ class ChunkMutationService:
             new_hash = content_hash(content)
             now = datetime.now(UTC)
 
+            # The stored splitting prefix (embed_prefix) keeps the ingestion formula;
+            # a generated context note described the old text and is not reused.
+            embed_text = build_embed_text(
+                {
+                    "doc_title": chunk.doc_title,
+                    "section": chunk.section,
+                    **extract_chunk_context(chunk.context_metadata),
+                },
+                content,
+                measure=self._measure,
+            )
             await chunks.update_content(
                 chunk_id=chunk_id,
                 content=content,
                 content_hash=new_hash,
                 edited_at=now,
                 edited_by=user_id,
+                embed_text=embed_text,
             )
 
             await uow.documents.set_has_manual_edits(document_id, value=True)
@@ -167,6 +184,7 @@ class ChunkMutationService:
                             {
                                 "chunk_id": chunk_id,
                                 "page_content": content,
+                                "embed_text": embed_text,
                                 "metadata": metadata,
                             }
                         ]
@@ -227,6 +245,10 @@ class ChunkMutationService:
             new_hash = content_hash(content)
 
             context_metadata = self.manual_chunk_context(page, section)
+            doc_title = await self.document_title(chunks, document_id)
+            embed_text = build_embed_text(
+                {**context_metadata, "doc_title": doc_title}, content, measure=self._measure
+            )
 
             chunk_id = await chunks.insert_one(
                 document_id=document_id,
@@ -241,6 +263,8 @@ class ChunkMutationService:
                     manual=True,
                     content_hash=new_hash,
                     context_metadata=context_metadata,
+                    embed_text=embed_text,
+                    doc_title=doc_title,
                     act_version_id=act_version_id,
                     effective_from=effective_from,
                     effective_to=effective_to,
@@ -263,12 +287,8 @@ class ChunkMutationService:
                 effective_to=effective_to.isoformat() if effective_to else None,
                 is_current=is_current,
             )
-
-            if page is not None:
-                metadata["page"] = page
-
-            if section is not None:
-                metadata["section"] = section
+            optional = {"page": page, "section": section, "doc_title": doc_title}
+            metadata.update({key: value for key, value in optional.items() if value is not None})
 
             await uow.vector_outbox.enqueue(
                 VectorOutboxEntry(
@@ -280,6 +300,7 @@ class ChunkMutationService:
                             {
                                 "chunk_id": chunk_id,
                                 "page_content": content,
+                                "embed_text": embed_text,
                                 "metadata": metadata,
                             }
                         ]
@@ -351,6 +372,12 @@ class ChunkMutationService:
             )
 
         await self.invalidate_answers(document_id)
+
+    @staticmethod
+    async def document_title(chunks: ChunkCrudRepository, document_id: int) -> str | None:
+        """Manual chunks inherit the document title that parsing gave its other chunks."""
+        existing, _total = await chunks.list_for_document(document_id, limit=1)
+        return existing[0].doc_title if existing else None
 
     @staticmethod
     def manual_chunk_context(page: int | None, section: str | None) -> dict[str, int | str]:

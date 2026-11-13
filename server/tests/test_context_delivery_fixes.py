@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import dialect
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
+from domain.ingestion.embed_text import context_prefix
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.rag.evidence.table_context import row_matches_query
@@ -16,7 +17,7 @@ from domain.shared.breadcrumb import shorten_breadcrumb
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
-from infrastructure.ml.ingestion.text_chunks import context_prefix, text_document_chunks
+from infrastructure.ml.ingestion.text_chunks import text_document_chunks
 from infrastructure.ml.rag.context_rendering import build_header, render_selected_docs
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.generation_budget import prepare_generation_budget

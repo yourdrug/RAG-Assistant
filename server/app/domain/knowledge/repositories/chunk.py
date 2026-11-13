@@ -33,6 +33,8 @@ class ManualChunkInsertOptions:
     manual: bool = False
     content_hash: str | None = None
     context_metadata: dict[str, Any] | None = None
+    embed_text: str | None = None
+    doc_title: str | None = None
     act_version_id: int | None = None
     effective_from: date | None = None
     effective_to: date | None = None
@@ -67,7 +69,14 @@ class ChunkCrudRepository(Protocol):
     async def get_max_chunk_index(self, document_id: int) -> int: ...
 
     async def update_content(
-        self, chunk_id: int, content: str, content_hash: str, edited_at: datetime, edited_by: int
+        self,
+        chunk_id: int,
+        content: str,
+        content_hash: str,
+        edited_at: datetime,
+        edited_by: int,
+        *,
+        embed_text: str | None = None,
     ) -> None: ...
 
     async def insert_one(

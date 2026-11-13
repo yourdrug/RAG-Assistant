@@ -12,6 +12,7 @@ from langchain.schema import Document
 
 from config import ChunkingSection, process_section
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
+from domain.ingestion.embed_text import EMBED_PREFIX_KEY, MAX_EMBED_TOKENS, build_embed_text, context_prefix
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.unit_packing import pack_units
@@ -25,7 +26,6 @@ from infrastructure.ml.ingestion.page_joining import join_page_word, page_word_e
 from infrastructure.ml.ingestion.structural_metadata import unit_metadata
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
 from infrastructure.ml.ingestion.text_chunks import (
-    context_prefix,
     document_slice,
     pack_step_documents,
     text_document_chunks,
@@ -308,6 +308,19 @@ def split_documents(
 
     if len(chunks) < before:
         log.warning("Filtered %d empty chunks during split", before - len(chunks))
+
+    for chunk in chunks:
+        dense_text = chunk.page_content
+        prefix = chunk.metadata.pop("context_prefix", "")
+        chunk.page_content = dense_text.removeprefix(prefix)
+        # Persisted with the chunk context so manual edits rebuild the same dense formula.
+        chunk.metadata[EMBED_PREFIX_KEY] = prefix
+        chunk.metadata["embed_text"] = build_embed_text(
+            chunk.metadata,
+            chunk.page_content,
+            max_tokens=MAX_EMBED_TOKENS,
+            measure=chunker.measure,
+        )
 
     _enrich_final_chunks(chunks)
 

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         PDFQualityAssessorPort,
         TextQualityAssessorPort,
     )
+    from application.indexing.contextualization import ChunkContextualization
     from application.ingestion import DocumentParserPort, DocumentSplitterPort
     from domain.ingestion.preview import PDFQualityReport
     from domain.ingestion.profiles.protocol import DocumentProfile
@@ -105,6 +106,7 @@ class DocumentProcessingDependencies:
     pdf_quality_assessor: PDFQualityAssessorPort
     text_quality_assessor: TextQualityAssessorPort
     metrics: MetricsCollectorPort
+    chunk_contextualization: ChunkContextualization | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

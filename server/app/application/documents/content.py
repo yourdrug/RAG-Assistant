@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         PDFQualityAssessorPort,
         TextQualityAssessorPort,
     )
+    from application.indexing.contextualization import ChunkContextualization
     from application.ingestion import DocumentParserPort, DocumentSplitterPort
     from domain.ingestion.preview import PDFQualityReport
     from domain.ingestion.raw_document import RawDocument
@@ -48,6 +49,7 @@ class DocumentContentProcessor:
         *,
         text_assessor: TextQualityAssessorPort,
         metrics: MetricsCollectorPort,
+        contextualization: ChunkContextualization | None = None,
     ) -> None:
         self._parser = parser
         self._splitter = splitter
@@ -55,6 +57,7 @@ class DocumentContentProcessor:
         self._pdf_assessor = pdf_assessor
         self._text_assessor = text_assessor
         self._metrics = metrics
+        self._contextualization = contextualization
         self._blocking_semaphore = asyncio.Semaphore(1)
 
     async def offload(self, function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
@@ -90,7 +93,13 @@ class DocumentContentProcessor:
         return self._parser.parse(path, meta)
 
     async def split(self, documents: list[RawDocument], filename: str, domain: str) -> list[RawDocument]:
-        return await self.offload(self.attach_metadata_and_split, documents, filename, domain)
+        chunks = await self.offload(self.attach_metadata_and_split, documents, filename, domain)
+
+        # Notes are generated before persistence opens its write transaction.
+        if self._contextualization is not None:
+            await self._contextualization.apply(chunks)
+
+        return chunks
 
     def attach_metadata_and_split(
         self, docs: list[RawDocument], filename: str, domain: str

@@ -456,6 +456,7 @@ class ChunkModel(BaseModel):
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    embed_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     visibility: Mapped[str] = mapped_column(String(20), nullable=False)
     doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default=DocDomain.GENERAL.value)

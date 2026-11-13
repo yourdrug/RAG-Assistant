@@ -22,7 +22,7 @@ from application.documents import DocumentPreviewStrategy, PreviewCache
 from application.runtime.config import ConfigParameterChanged
 from composition.utils import missing_fields, require
 from config import settings
-from domain.ingestion.ports import DomainSettingsPort
+from domain.ingestion.ports import DomainSettingsPort, TokenCounter
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.adapters.action_logger_adapter import ActionLoggerAdapter
 from infrastructure.adapters.cache_invalidator_adapter import CacheInvalidatorAdapter
@@ -144,6 +144,7 @@ class MLContainer:
     file_storage: LazyStorage | None = field(default=None)
     document_parser: LangchainDocumentParser | None = field(default=None)
     document_splitter: LangchainDocumentSplitter | None = field(default=None)
+    token_counter: TokenCounter | None = field(default=None)
     summary_updater: RollingSummaryUpdater | None = field(default=None)
     content_extractor: MLContentExtractor | None = field(default=None)
     pdf_quality_assessor: MLPDFQualityAssessor | None = field(default=None)
@@ -169,8 +170,9 @@ class MLContainer:
             domain_registry=domain_registry,
             domain_settings=domain_settings,
         )
+        self.token_counter = build_token_counter(settings.embed_tokenizer_path)
         self.document_splitter = LangchainDocumentSplitter(
-            token_counter=build_token_counter(settings.embed_tokenizer_path),
+            token_counter=self.token_counter,
             domain_registry=domain_registry,
             domain_settings=domain_settings,
         )

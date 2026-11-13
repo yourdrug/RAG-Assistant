@@ -60,6 +60,7 @@ class DocumentProcessor:
             dependencies.pdf_quality_assessor,
             text_assessor=dependencies.text_quality_assessor,
             metrics=dependencies.metrics,
+            contextualization=dependencies.chunk_contextualization,
         )
 
     async def get_document(self, document_id: int) -> Document | None:

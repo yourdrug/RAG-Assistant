@@ -193,6 +193,7 @@ class ApplicationContainer:
             uow,
             LiveChunkSettings(),
             cache_invalidator=infra.services.cache_invalidator,
+            token_counter=infra.ml.token_counter,
         )
         self.manual_document_service = ManualDocumentService(uow)
 

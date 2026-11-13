@@ -1,13 +1,18 @@
 """Bounded table batches with repeated column headers and row identity."""
 
 from collections.abc import Callable
+import logging
 import re
 from typing import Any
 
 from langchain.schema import Document
 
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS
-from infrastructure.ml.ingestion.text_chunks import context_prefix, fallback_split, text_document_chunks
+from domain.ingestion.embed_text import context_prefix
+from infrastructure.ml.ingestion.text_chunks import fallback_split, text_document_chunks
+
+
+log = logging.getLogger("default")
 
 
 def _cells(line: str) -> list[str]:
@@ -76,6 +81,11 @@ def table_document_chunks(
     if chunk_size <= 0 or max_rows <= 0:
         message = "chunk_size and max_rows must be positive"
         raise ValueError(message)
+
+    if doc.metadata.get("table_replacement_suffix"):
+        return table_chunks_with_operation(
+            doc, chunk_size, max_rows, measure, target=target, on_fallback=on_fallback
+        )
 
     lines = doc.page_content.splitlines()
 
@@ -153,7 +163,6 @@ def pack_rows(
                     page_content=content,
                     metadata={
                         **metadata,
-                        "body_text": content.removeprefix(prefix),
                         "table_row_start": low,
                         "table_row_end": high,
                     },
@@ -174,7 +183,6 @@ def pack_rows(
                     page_content=prefix + header + "\n" + part,
                     metadata={
                         **metadata,
-                        "body_text": header + "\n" + part,
                         "table_row_start": number,
                         "table_row_end": number,
                         "table_row_key": cells[0] if cells else "",
@@ -202,3 +210,33 @@ def pack_rows(
 
 
 MIN_TABLE_LINES = 3
+
+
+def table_chunks_with_operation(
+    doc: Document,
+    chunk_size: int,
+    max_rows: int,
+    measure: Callable[[str], int],
+    *,
+    target: int | None,
+    on_fallback: Callable[[], None] | None,
+) -> list[Document]:
+    """Keep a replacement operation with the last batch of the replaced rows when it fits."""
+    suffix = str(doc.metadata["table_replacement_suffix"])
+    metadata = {key: value for key, value in doc.metadata.items() if key != "table_replacement_suffix"}
+    plain = Document(page_content=doc.page_content, metadata=metadata)
+    budget = chunk_size - measure("\n" + suffix) - 2
+    parts = (
+        table_document_chunks(plain, budget, max_rows, measure, target=target, on_fallback=on_fallback)
+        if budget > 0
+        else []
+    )
+
+    if parts and measure(parts[-1].page_content + "\n" + suffix) <= chunk_size:
+        parts[-1].page_content += "\n" + suffix
+        return parts
+
+    # The operation stays a separate chunk and part of the parent scope;
+    # only its copy next to the replaced row is dropped.
+    log.warning("Table replacement operation does not fit the chunk budget; kept separately")
+    return table_document_chunks(plain, chunk_size, max_rows, measure, target=target, on_fallback=on_fallback)

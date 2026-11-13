@@ -4,6 +4,7 @@ from langchain_core.documents import Document
 import pytest
 
 from domain.identity.roles import UserKind, UserRole
+from domain.ingestion.embed_text import context_prefix
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.chunk import extract_chunk_context
 from domain.rag.evidence.context import content_with_parent_scope
@@ -12,7 +13,6 @@ from domain.shared.hashing import content_hash
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.document_text import bm25_document_text
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
-from infrastructure.ml.ingestion.text_chunks import context_prefix
 from infrastructure.repositories.vector.qdrant_ops import build_points
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, encode_sparse
 from tests.test_unit_packing import legal_chunks
@@ -50,7 +50,7 @@ def test_two_line_article_title_does_not_emit_a_bare_marker_chunk() -> None:
         "Статья 9.\nПолномочия Совета Министров\n" + "Правительство определяет порядок обмена. " * 50
     )
     assert len(chunks) > 1
-    assert all(chunk.metadata["body_text"] != "Статья 9." for chunk in chunks)
+    assert all(chunk.page_content != "Статья 9." for chunk in chunks)
     assert all("Полномочия Совета Министров" in chunk.metadata["section"] for chunk in chunks)
 
 
@@ -83,7 +83,7 @@ def test_dense_scope_does_not_repeat_introduction_carried_by_the_prefix() -> Non
     assert len(chunks) == 2
 
     for chunk in chunks:
-        assert intro in chunk.metadata["context_prefix"]
+        assert intro in chunk.metadata["embed_text"]
         scoped = content_with_parent_scope(chunk)
         assert scoped.count(intro) == 1
         assert scoped.count("Статья 1. Обязанности сторон") == 1
@@ -124,7 +124,7 @@ def test_body_on_the_article_marker_line_is_not_used_as_its_title() -> None:
         "Глава 5. Заключительные положения > Статья 31"
     }
     assert all(chunk.metadata["unit_heading_text"] == "Статья 31" for chunk in long_article)
-    assert all("Настоящий Закон вступает в силу" in chunk.metadata["body_text"] for chunk in long_article)
+    assert all("Настоящий Закон вступает в силу" in chunk.page_content for chunk in long_article)
 
 
 def test_narrow_prefix_drops_distant_chapter_before_article() -> None:
@@ -161,7 +161,7 @@ def test_table_title_does_not_force_a_fitting_row_to_split() -> None:
     doc = Document(page_content=header + "\n" + row, metadata={"doc_title": title})
     chunks = table_document_chunks(doc, 550, 15)
     assert len(chunks) == 1
-    assert row in chunks[0].metadata["body_text"]
+    assert row in chunks[0].page_content
     assert chunks[0].metadata["context_prefix"] == ""
     assert chunks[0].metadata["doc_title"] == title
 
@@ -188,10 +188,9 @@ def test_large_introduction_stays_atomic_in_metadata_without_consuming_body_budg
 def test_body_only_bm25_preserves_hash_acl_and_snapshot_roundtrip() -> None:
     docs = [
         Document(
-            page_content="Префикс\n\nПодача заявления",
+            page_content="Подача заявления",
             metadata={
-                "context_prefix": "Префикс\n\n",
-                "body_text": "Подача заявления",
+                "embed_text": "Префикс\n\nПодача заявления",
                 "visibility": "internal_private",
                 "owner_id": owner,
             },
@@ -220,8 +219,8 @@ def test_qdrant_sparse_uses_body_and_full_payload_identity(*, manual_edit: bool)
     body = "Подача заявления"
     prefix = "Глава 1 > Статья 2\n\n"
     doc = Document(
-        page_content=prefix + body,
-        metadata={"chunk_id": 1, "context_prefix": prefix, "body_text": body},
+        page_content=body,
+        metadata={"chunk_id": 1, "embed_text": prefix + body},
     )
 
     if manual_edit:
@@ -234,4 +233,4 @@ def test_qdrant_sparse_uses_body_and_full_payload_identity(*, manual_edit: bool)
     assert point.vector[SPARSE_VECTOR_NAME] == encode_sparse(expected)
     assert point.payload is not None
     assert point.payload["page_content"] == doc.page_content
-    assert extract_chunk_context(doc.metadata)["body_text"] == body
+    assert "embed_text" not in extract_chunk_context(doc.metadata)

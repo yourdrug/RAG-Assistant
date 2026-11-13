@@ -21,7 +21,7 @@ from domain.knowledge.enums import PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.evidence.table_context import requests_table_overview
 from domain.rag.ports import ChunkRetrievalRepository
-from domain.rag.ranking import evidence_identity, same_evidence_block
+from domain.rag.ranking import evidence_identity, same_evidence_block, same_text_run
 from domain.rag.settings import RagSettings
 from infrastructure.metrics.metrics import (
     RAG_RELEVANCE_GATE_TOTAL,
@@ -186,20 +186,21 @@ async def fetch_context_neighbors(
         return []
 
     if doc.metadata.get("content_type") != PageContentType.TABLE.value:
+        plain_text = not (doc.metadata.get("section") or doc.metadata.get("heading"))
         neighbors = await chunk_search.get_neighbors(
             document_id,
             chunk_index,
-            window=3 if enumerate_cases else 1,
+            window=3 if enumerate_cases and not plain_text else 1,
             exclude_hashes=hashes,
             user=user,
         )
         return (
             neighbors
-            if enumerate_cases
+            if enumerate_cases and not plain_text
             else [
                 neighbor
                 for neighbor in neighbors
-                if same_evidence_block(
+                if (same_text_run if plain_text else same_evidence_block)(
                     doc, LCDocument(page_content=neighbor.content, metadata=chunk_result_metadata(neighbor))
                 )
             ]

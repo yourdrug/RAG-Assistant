@@ -84,7 +84,14 @@ class SQLAlchemyChunkRepository:
         return await self._crud.get_max_chunk_index(document_id=document_id)
 
     async def update_content(
-        self, chunk_id: int, content: str, content_hash: str, edited_at: datetime, edited_by: int
+        self,
+        chunk_id: int,
+        content: str,
+        content_hash: str,
+        edited_at: datetime,
+        edited_by: int,
+        *,
+        embed_text: str | None = None,
     ) -> None:
         return await self._crud.update_content(
             chunk_id=chunk_id,
@@ -92,6 +99,7 @@ class SQLAlchemyChunkRepository:
             content_hash=content_hash,
             edited_at=edited_at,
             edited_by=edited_by,
+            embed_text=embed_text,
         )
 
     async def insert_one(

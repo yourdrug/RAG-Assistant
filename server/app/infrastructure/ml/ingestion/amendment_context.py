@@ -52,6 +52,15 @@ def attach_table_replacement_scope(docs: Sequence[RetrievalDocument]) -> None:
                 new.page_content,
             ]
         )
+
+        # The operation immediately follows the old row in the source. Keep it
+        # with the last row batch as source text, independently of dense context.
+        if all(
+            old.metadata.get(key) == bridge.metadata.get(key)
+            for key in ("page", "pages", "page_start", "page_end")
+        ):
+            old.metadata["table_replacement_suffix"] = bridge.page_content.strip()
+
         parent = {"content": content}
         normalized = " ".join(content.split())
 

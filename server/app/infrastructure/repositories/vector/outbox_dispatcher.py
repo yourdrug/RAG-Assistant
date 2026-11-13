@@ -226,7 +226,10 @@ class OutboxDispatcher:
         # Concurrent edits keep their IDs; a stale write must retry from SQL.
         if any(
             chunk.metadata["chunk_id"] in current
-            and chunk.content != current[chunk.metadata["chunk_id"]].content
+            and (
+                chunk.content != current[chunk.metadata["chunk_id"]].content
+                or chunk.embed_text != current[chunk.metadata["chunk_id"]].embed_text
+            )
             for chunk in chunks
         ):
             message = "Chunk content changed during vector upload; retry required"
@@ -262,6 +265,7 @@ class OutboxDispatcher:
         chunks = [
             Chunk(
                 content=current[p["chunk_id"]].content,
+                embed_text=current[p["chunk_id"]].embed_text,
                 metadata={
                     **p["metadata"],
                     "chunk_id": p["chunk_id"],

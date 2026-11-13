@@ -65,6 +65,24 @@
     "metadata": "[]",
     "required": false
   },
+  "chunk_contextualization_concurrency": {
+    "annotation": "<class 'int'>",
+    "default": "4",
+    "metadata": "[]",
+    "required": false
+  },
+  "chunk_contextualization_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "False",
+    "metadata": "[]",
+    "required": false
+  },
+  "chunk_contextualization_timeout": {
+    "annotation": "<class 'int'>",
+    "default": "30",
+    "metadata": "[]",
+    "required": false
+  },
   "chunk_max_tokens": {
     "annotation": "<class 'int'>",
     "default": "512",
@@ -301,7 +319,7 @@
   },
   "embedding_revision": {
     "annotation": "<class 'str'>",
-    "default": "'v1'",
+    "default": "'v2'",
     "metadata": "[]",
     "required": false
   },

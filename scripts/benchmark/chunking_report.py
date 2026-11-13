@@ -6,7 +6,9 @@ Splits the benchmark corpus with the current code, then measures:
 - fragment reachability: labelled fragments that lie whole inside one chunk;
 - BM25 recall@5/@10 and MRR with the production tokenizer (free, local);
 - with ``--dense``: bge-m3 recall via DeepInfra (embeddings cached by text hash,
-  so only changed chunks are paid for) and an RRF hybrid of BM25 + dense.
+  so only changed chunks are paid for) and an RRF hybrid of BM25 + dense;
+- with ``--contextualize``: plan 4.3 LLM notes (OpenRouter, the production auxiliary
+  model) are added to dense inputs; notes are cached in ``data/chunking_cache/notes.sqlite``.
 
 No generation and no judge: this is the cheap per-change check of the chunking
 plan. The full online benchmark is run only at the end of a phase.
@@ -23,6 +25,7 @@ compare runs of this script with each other, not with the online table.
 from __future__ import annotations
 
 import argparse
+import asyncio
 from datetime import date
 import hashlib
 import json
@@ -41,6 +44,7 @@ from langchain_core.documents import Document
 import numpy as np
 from tokenizers import Tokenizer
 
+from application.indexing.contextualization import ChunkContextualization
 from domain.benchmark.evaluation import matches_fragment, source_name
 from domain.benchmark.question import evaluation_annotations
 from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
@@ -50,7 +54,10 @@ from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
+from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
+from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+from infrastructure.ml.tokenization import build_token_counter
 
 
 log = logging.getLogger("chunking_report")
@@ -94,10 +101,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dense", action="store_true", help="add bge-m3 and hybrid recall (DeepInfra, paid)")
     parser.add_argument("--cache", type=Path, default=ROOT / "data/chunking_cache/embeddings.sqlite")
     parser.add_argument("--chunks-out", type=Path, default=None, help="dump chunks as JSON for inspection")
+    parser.add_argument(
+        "--contextualize",
+        action="store_true",
+        help="add plan 4.3 LLM notes to dense inputs (OpenRouter, paid)",
+    )
+    parser.add_argument("--notes-cache", type=Path, default=ROOT / "data/chunking_cache/notes.sqlite")
     args = parser.parse_args()
 
     # `task chunking:report` runs from server/; relative paths always mean the repository root.
-    for name in ("corpus", "datasets", "baseline", "tokenizer", "out", "cache", "chunks_out"):
+    for name in ("corpus", "datasets", "baseline", "tokenizer", "out", "cache", "chunks_out", "notes_cache"):
         value = getattr(args, name)
 
         if value is not None and not value.is_absolute():
@@ -132,7 +145,62 @@ def build_pipeline() -> tuple[DomainProfileRegistry, DomainSettingsAdapter, Any,
     )
 
 
-def split_corpus(corpus: Path) -> list[dict[str, Any]]:
+class SqliteNoteCache:
+    """Local note cache, so repeated report runs do not pay for the same notes."""
+
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.db = sqlite3.connect(path)
+        self.db.execute("CREATE TABLE IF NOT EXISTS notes (key TEXT PRIMARY KEY, note TEXT NOT NULL)")
+
+    async def get(self, key: str) -> str | None:
+        row = self.db.execute("SELECT note FROM notes WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    async def set(self, key: str, value: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO notes VALUES (?, ?)", (key, value))
+        self.db.commit()
+
+
+def openrouter_key() -> str:
+    """Read the key from the environment or server/.env.secrets; it is never printed."""
+    if key := os.environ.get("OPENROUTER_API_KEY"):
+        return key
+
+    secrets = ROOT / "server/.env.secrets"
+
+    if secrets.exists():
+        for line in secrets.read_text().splitlines():
+            name, _, value = line.partition("=")
+
+            if name.strip() == "OPENROUTER_API_KEY" and value.strip():
+                return value.strip().strip("'\"")
+
+    message = "OPENROUTER_API_KEY is not set (environment or server/.env.secrets)"
+    raise SystemExit(message)
+
+
+def build_contextualization(notes_cache: Path, tokenizer_path: Path) -> ChunkContextualization:
+    from langchain_openai import ChatOpenAI  # noqa: PLC0415 - Optional paid mode of the report only.
+
+    llm = ChatOpenAI(
+        model=FAST_OPENROUTER_MODEL,
+        base_url="https://openrouter.ai/api/v1",
+        api_key=openrouter_key(),
+        temperature=0,
+        max_tokens=200,
+        max_retries=2,
+        timeout=60,
+    )
+    return ChunkContextualization(
+        LLMChunkContextualizer(lambda: llm, SqliteNoteCache(notes_cache), concurrency=8, timeout_seconds=60),
+        build_token_counter(str(tokenizer_path)),
+    )
+
+
+def split_corpus(
+    corpus: Path, contextualization: ChunkContextualization | None = None
+) -> list[dict[str, Any]]:
     """Split every file the way the loader does: one registry-classified domain per document."""
     registry, settings, parser, splitter = build_pipeline()
     files = sorted(path for path in corpus.iterdir() if path.is_file() and not path.name.startswith("."))
@@ -149,6 +217,13 @@ def split_corpus(corpus: Path) -> list[dict[str, Any]]:
         chunks = splitter.split(
             [RawDocument(item.page_content, dict(item.metadata)) for item in raw], domain=domain
         )
+
+        if contextualization is not None:
+            for chunk in chunks:
+                chunk.metadata["source"] = path.name
+
+            asyncio.run(contextualization.apply(chunks))
+
         documents.append(
             {
                 "file": path.name,
@@ -156,11 +231,11 @@ def split_corpus(corpus: Path) -> list[dict[str, Any]]:
                 "chunks": [
                     {
                         "content": chunk.page_content,
-                        "prefix": chunk.metadata.get("context_prefix") or "",
-                        "body_text": chunk.metadata.get("body_text", chunk.page_content),
-                        "index_text": content_with_parent_scope(
+                        "scoped_content": content_with_parent_scope(
                             Document(page_content=chunk.page_content, metadata=chunk.metadata)
                         ),
+                        "prefix": (chunk.embed_text or chunk.page_content).removesuffix(chunk.page_content),
+                        "index_text": chunk.embed_text or chunk.page_content,
                         "metadata": {
                             "source": path.name,
                             **{
@@ -196,8 +271,8 @@ def percentile(values: list[int], q: float) -> int:
 
 
 def size_stats(chunks: list[dict[str, Any]], count: Any) -> dict[str, Any]:
-    full = [count(chunk["content"]) for chunk in chunks]
-    bodies = [count(chunk["content"][len(chunk["prefix"]) :]) for chunk in chunks]
+    full = [count(chunk["index_text"]) for chunk in chunks]
+    bodies = [count(chunk["content"]) for chunk in chunks]
     return {
         "chunks": len(chunks),
         "avg_tokens": round(statistics.mean(full), 1),
@@ -290,7 +365,7 @@ def bm25_rankings(questions: list[dict[str, Any]], chunks: list[dict[str, Any]])
         [
             Document(
                 page_content=chunk["content"],
-                metadata={"body_text": chunk["body_text"], "context_prefix": chunk["prefix"]},
+                metadata={},
             )
             for chunk in chunks
         ]
@@ -331,7 +406,7 @@ class EmbeddingCache:
             placeholders = ",".join("?" * len(batch))
             known.update(
                 self.db.execute(f"SELECT key, vector FROM vectors WHERE key IN ({placeholders})", batch)
-            )  # noqa: S608
+            )
 
         missing = list(
             dict.fromkeys((key, text) for key, text in zip(keys, texts, strict=True) if key not in known)
@@ -420,7 +495,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     def count(text: str) -> int:
         return len(tokenizer.encode(text, add_special_tokens=False).ids)
 
-    documents = split_corpus(args.corpus)
+    contextualization = (
+        build_contextualization(args.notes_cache, tokenizer_path) if args.contextualize else None
+    )
+    documents = split_corpus(args.corpus, contextualization)
 
     if args.chunks_out:
         args.chunks_out.parent.mkdir(parents=True, exist_ok=True)
@@ -462,6 +540,27 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         if questions[domain]:
             stats["dataset_questions"] = len(questions[domain])
             stats.update(reachability(questions[domain], by_source))
+            body_sources = {
+                name: {
+                    **document,
+                    "chunks": [
+                        {key: value for key, value in chunk.items() if key != "scoped_content"}
+                        for chunk in document["chunks"]
+                    ],
+                }
+                for name, document in by_source.items()
+            }
+            stats["body_fragment_reachability"] = reachability(questions[domain], body_sources)[
+                "fragment_reachability"
+            ]
+            body_chunks = [
+                {key: value for key, value in chunk.items() if key != "scoped_content"}
+                for chunk in all_chunks
+            ]
+            stats["body_retrieval"] = {
+                mode: retrieval_metrics(questions[domain], ranking, body_chunks)
+                for mode, ranking in rankings.items()
+            }
             stats["retrieval"] = {
                 mode: retrieval_metrics(questions[domain], ranking, all_chunks)
                 for mode, ranking in rankings.items()
