@@ -31,13 +31,24 @@ export type AdminNavItem = {
   icon: typeof LayoutDashboard;
   disabled?: boolean;
   adminOnly?: boolean;
+  activePaths?: readonly string[];
 };
+
+export const peopleNavItems = [
+  { title: "Users", href: "/admin/users", icon: Users },
+  { title: "Groups", href: "/admin/groups", icon: UserCog },
+  { title: "Curators", href: "/admin/curators", icon: UserCog },
+] as const;
 
 export const adminNavItems: AdminNavItem[] = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard, adminOnly: true },
-  { title: "Users", href: "/admin/users", icon: Users, adminOnly: true },
-  { title: "Groups", href: "/admin/groups", icon: UserCog, adminOnly: true },
-  { title: "Curators", href: "/admin/curators", icon: UserCog, adminOnly: true },
+  {
+    title: "People & Access",
+    href: "/admin/users",
+    icon: Users,
+    adminOnly: true,
+    activePaths: peopleNavItems.map((item) => item.href),
+  },
   { title: "API Keys", href: "/admin/api-keys", icon: Key, adminOnly: true },
   { title: "Documents", href: "/admin/documents", icon: FileText },
   { title: "Act Versions", href: "/admin/act-versions", icon: ScrollText, adminOnly: true },

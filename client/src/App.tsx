@@ -13,6 +13,7 @@ import { ErrorBoundary } from "@/shared/ui/error-boundary";
 import { TooltipProvider } from "@/shared/ui/tooltip";
 import { AdminLayout } from "@/widgets/layout/admin-layout";
 import { DashboardLayout } from "@/widgets/layout/dashboard-layout";
+import { PeopleLayout } from "@/widgets/layout/people-layout";
 
 // Lazy-loaded admin pages — separate chunk, only loaded when navigating to /admin
 const AdminDashboardPage = lazy(() =>
@@ -99,30 +100,32 @@ export default function App() {
                       </Suspense>
                     }
                   />
-                  <Route
-                    path="users"
-                    element={
-                      <Suspense fallback={<AdminFallback />}>
-                        <AdminUsersPage />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="groups"
-                    element={
-                      <Suspense fallback={<AdminFallback />}>
-                        <AdminGroupsPage />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="curators"
-                    element={
-                      <Suspense fallback={<AdminFallback />}>
-                        <AdminCuratorsPage />
-                      </Suspense>
-                    }
-                  />
+                  <Route element={<PeopleLayout />}>
+                    <Route
+                      path="users"
+                      element={
+                        <Suspense fallback={<AdminFallback />}>
+                          <AdminUsersPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="groups"
+                      element={
+                        <Suspense fallback={<AdminFallback />}>
+                          <AdminGroupsPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="curators"
+                      element={
+                        <Suspense fallback={<AdminFallback />}>
+                          <AdminCuratorsPage />
+                        </Suspense>
+                      }
+                    />
+                  </Route>
                   <Route
                     path="api-keys"
                     element={

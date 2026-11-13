@@ -3,7 +3,7 @@ import { ArrowLeft, Menu, Shield, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useCurrentUser } from "@/shared/api/hooks";
-import { adminNavItems, userNavItems } from "@/shared/config/nav";
+import { adminNavItems, peopleNavItems, userNavItems } from "@/shared/config/nav";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
 import { ScrollArea } from "@/shared/ui/scroll-area";
@@ -27,6 +27,7 @@ export function AdminLayout() {
 
   const isAdmin = user?.role === "admin";
   const visibleNavItems = adminNavItems.filter((item) => !item.adminOnly || isAdmin);
+  const peoplePage = peopleNavItems.find((item) => item.href === location.pathname);
 
   return (
     <div className="flex h-screen bg-background">
@@ -91,9 +92,11 @@ export function AdminLayout() {
           <nav className="space-y-1">
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
-              const active =
-                location.pathname === item.href ||
-                (item.href !== "/admin" && location.pathname.startsWith(item.href));
+              const active = (item.activePaths ?? [item.href]).some(
+                (path) =>
+                  location.pathname === path ||
+                  (path !== "/admin" && location.pathname.startsWith(path + "/")),
+              );
               return (
                 <Link
                   key={item.href}
@@ -135,7 +138,10 @@ export function AdminLayout() {
             <Menu className="h-5 w-5" />
           </Button>
           <div className="ml-4 text-sm text-muted-foreground">
-            Admin / {location.pathname.split("/").pop() || "Dashboard"}
+            Admin /{" "}
+            {peoplePage
+              ? `People & Access / ${peoplePage.title}`
+              : location.pathname.split("/").pop() || "Dashboard"}
           </div>
         </header>
         <main className="flex-1 overflow-auto">
