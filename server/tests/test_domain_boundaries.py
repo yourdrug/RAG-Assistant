@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import contextvars
 from graphlib import TopologicalSorter
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
+from config import settings
+from config.sections import RetrievalSection
 from domain.benchmark.evaluation import evaluate_evidence, summarize_evidence
 from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus
 from domain.identity import CuratorScope, UserContext, UserKind, UserRole
@@ -23,10 +27,13 @@ from domain.shared.profile_policy import AnswerPolicy
 from infrastructure.domain_profile.answer_policy import classify_query_domain, policy_for
 from infrastructure.ml.evidence_profiles.profiles import (
     EVIDENCE_PROFILES,
+    EvidenceProfileNotSelectedError,
     active_evidence_profile,
+    current_evidence_profile,
     evidence_profile_scope,
 )
 from infrastructure.ml.rag.prompts import build_system_prompt
+from infrastructure.ml.rag.rag_steps import RagOperations
 
 
 @pytest.mark.asyncio
@@ -41,13 +48,42 @@ async def test_evidence_profiles_are_task_local_and_generic_has_no_transport_rul
                 build_system_prompt(question="Кто получил право?"),
             )
 
+    outer = active_evidence_profile.get()
     generic, belarus = await asyncio.gather(selected("generic"), selected("belarus"))
     assert generic[0] == "generic"
     assert belarus[0] == "belarus"
     assert len(generic[1]) == 1
     assert "<norm_subject_reading>" not in generic[2]
     assert "<norm_subject_reading>" in belarus[2]
-    assert active_evidence_profile.get().key == "belarus"
+    assert active_evidence_profile.get() is outer
+
+
+def test_evidence_profile_defaults_to_neutral_rules() -> None:
+    assert RetrievalSection().evidence_profile == "generic"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["generic", "belarus"])
+async def test_live_request_selects_configured_evidence_profile(
+    monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    monkeypatch.setattr(settings, "evidence_profile", key)
+    operations = RagOperations(MagicMock(), document_access=MagicMock())
+
+    async def request_profile() -> str:
+        async with operations.corpus():
+            return current_evidence_profile().key
+
+    # A fresh context has no inherited profile, exactly like a new request task.
+    assert await asyncio.create_task(request_profile(), context=contextvars.Context()) == key
+
+
+def test_standalone_call_without_evidence_profile_fails_explicitly() -> None:
+    with pytest.raises(EvidenceProfileNotSelectedError):
+        contextvars.Context().run(current_evidence_profile)
+
+    with pytest.raises(EvidenceProfileNotSelectedError):
+        contextvars.Context().run(build_system_prompt, question="Кто получил право?")
 
 
 def test_custom_document_profile_controls_query_classification_and_answer_policy() -> None:

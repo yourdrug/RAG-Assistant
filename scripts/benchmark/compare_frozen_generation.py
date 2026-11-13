@@ -41,6 +41,7 @@ def save_json(path: Path, value):
 
 def prepare_snapshot(runs, dataset, run_id, ids, diagnostic_ids, git_commit=None):
     from domain.rag.breadth import Breadth
+    from infrastructure.ml.evidence_profiles.profiles import EVIDENCE_PROFILES, evidence_profile_scope
     from infrastructure.ml.rag.evidence_focus import format_generation_messages
     from infrastructure.ml.rag.rag_prompts import build_prompt
 
@@ -60,8 +61,12 @@ def prepare_snapshot(runs, dataset, run_id, ids, diagnostic_ids, git_commit=None
         budget = case["evidence"].get("prompt_budget") or {}
         breadth = budget.get("effective_breadth", case["breadth"])
         enumerate_cases = budget.get("enumerate_cases", breadth == Breadth.BROAD.value)
-        prompt = build_prompt(breadth, enumerate_cases=enumerate_cases, question=case["question"])
-        messages = format_generation_messages(prompt, context=context, history=[], question=case["question"])
+        # Runs come from the legal benchmark, so the legal evidence rules are selected explicitly.
+        with evidence_profile_scope(EVIDENCE_PROFILES["belarus"]):
+            prompt = build_prompt(breadth, enumerate_cases=enumerate_cases, question=case["question"])
+            messages = format_generation_messages(
+                prompt, context=context, history=[], question=case["question"]
+            )
         roles = {"system": "system", "human": "user", "ai": "assistant"}
         serialized = [{"role": roles[message.type], "content": message.content} for message in messages]
         cases.append(

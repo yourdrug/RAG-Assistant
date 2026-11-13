@@ -728,6 +728,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests requiring external services (deselect with '-m \"not integration\"')",
     "security: marks security-sensitive tests",
+    "belarus: tests of Belarusian-law evidence rules (deselect with '-m \"not belarus\"')",
 ]
 
 python_classes = "*Test Test*"

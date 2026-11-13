@@ -16,6 +16,7 @@ from langchain_openai import ChatOpenAI
 
 from config import settings
 from domain.rag.breadth import Breadth
+from infrastructure.ml.evidence_profiles.profiles import EVIDENCE_PROFILES, evidence_profile_scope
 from infrastructure.ml.rag.rag_prompts import build_prompt
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 
@@ -33,18 +34,20 @@ async def replay(snapshot: dict) -> dict:
     )
     results = []
     for case in snapshot["cases"]:
-        prompt = build_prompt(
-            case.get("breadth", Breadth.NARROW.value),
-            enumerate_cases=case.get("enumerate_cases", True),
-            domain_addendum=case.get("domain_addendum"),
-            question=case["question"],
-        )
-        messages = format_generation_messages(
-            prompt,
-            context=case["context"],
-            question=case["question"],
-            history=[],
-        )
+        # Frozen cases come from the legal benchmark, so the legal evidence rules are selected explicitly.
+        with evidence_profile_scope(EVIDENCE_PROFILES["belarus"]):
+            prompt = build_prompt(
+                case.get("breadth", Breadth.NARROW.value),
+                enumerate_cases=case.get("enumerate_cases", True),
+                domain_addendum=case.get("domain_addendum"),
+                question=case["question"],
+            )
+            messages = format_generation_messages(
+                prompt,
+                context=case["context"],
+                question=case["question"],
+                history=[],
+            )
         response = await llm.ainvoke(messages)
         results.append(
             {

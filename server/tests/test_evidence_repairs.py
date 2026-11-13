@@ -44,6 +44,9 @@ from tests.rag_stage_fixtures import check_cache as step_check_cache, generate a
 from tests.test_rag_pipeline import make_rag
 
 
+pytestmark = pytest.mark.belarus
+
+
 FIELD = "Дополнительный четырёхзначный код по классификатору дополнительной таможенной информации"
 AMENDMENT_QUESTION = f"Как изменился статус поля «{FIELD}» (позиция 57 таблицы 4.1)?"
 PROCEDURE_QUESTION = "Опишите порядок: передача товара на хранение и последующая отгрузка."

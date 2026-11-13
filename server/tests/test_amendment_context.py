@@ -19,6 +19,9 @@ from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_prompts import build_prompt
 
 
+pytestmark = pytest.mark.belarus
+
+
 if TYPE_CHECKING:
     from pathlib import Path
 

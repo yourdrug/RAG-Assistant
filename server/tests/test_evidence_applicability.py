@@ -31,6 +31,9 @@ from tests.rag_stage_fixtures import (
 )
 
 
+pytestmark = pytest.mark.belarus
+
+
 PROBES = json.loads((Path(__file__).parent / "fixtures/evidence_scope_probes.json").read_text())["cases"]
 FAILURES = {
     "timing-unrelated-action",

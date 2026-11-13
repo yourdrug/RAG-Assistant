@@ -10,7 +10,7 @@ from config.ownership import Static
 
 
 class RetrievalSection(BaseModel):
-    evidence_profile: Static[Literal["generic", "belarus"]] = "belarus"
+    evidence_profile: Static[Literal["generic", "belarus"]] = "generic"
     retriever_fetch_k: int = 15
     retriever_top_k: int = 4
     retriever_fetch_k_broad: int = 40

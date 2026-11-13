@@ -138,6 +138,7 @@ def test_without_named_act_evidence_order_is_unchanged() -> None:
     assert prioritize_referenced_acts(items, (), top_n=2) == items
 
 
+@pytest.mark.belarus
 @pytest.mark.asyncio
 async def test_rerank_prefers_act_named_in_question_over_similar_act() -> None:
     wrong = chunk("Сведения о товарах представляются в формате JSON.", MNS_13, 13, "point 4")
@@ -163,6 +164,7 @@ async def test_generic_profile_keeps_reranker_order_for_named_acts() -> None:
     assert [doc.metadata["document_id"] for doc, _ in ranked] == [13, 11]
 
 
+@pytest.mark.belarus
 @pytest.mark.asyncio
 async def test_comparison_keeps_both_acts_within_top_n() -> None:
     mns = [chunk(f"Подпись EDI-провайдера {i}.", MNS_11, 11, f"point {i}") for i in range(4)]
@@ -186,6 +188,7 @@ async def test_sibling_sentences_of_one_provision_cannot_crowd_out_another_provi
     assert answer in [doc for doc, _ in ranked]
 
 
+@pytest.mark.belarus
 @pytest.mark.asyncio
 async def test_comparison_question_searches_each_act_under_the_same_filter() -> None:
     rag = MagicMock()

@@ -10,7 +10,7 @@ from config import LLMSection, MLProviderSection, RetrievalSection, request_sect
 from domain.rag.breadth import Breadth
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.cache.answers import compute_question_hash, compute_visibility_scope_hash
-from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.prompts import build_system_prompt
 
 
@@ -49,7 +49,7 @@ class CacheKeyBuilder:
                 "rag_settings": asdict(state.request.settings),
                 "corpus_revision": state.cache_revision,
                 "generation": dict(state.request.generation_config) or dict(generation_identity()),
-                "evidence_policy": (active_evidence_profile.get().key, active_evidence_profile.get().version),
+                "evidence_policy": (current_evidence_profile().key, current_evidence_profile().version),
                 "domain_prompts": {
                     domain_key: [
                         policy_for(domain_key, domain_registry).prompt_addendum(state.request.ctx.as_of_date),

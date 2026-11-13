@@ -14,7 +14,7 @@ from domain.rag.classification import extract_exact_references, should_enumerate
 from domain.rag.ranking import evidence_identity
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.metrics.metrics import RAG_DECOMPOSED_TOTAL, RAG_STAGE_DURATION
-from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.benchmark_evidence import (
     active_evidence,
     authorize_capture,
@@ -284,7 +284,7 @@ async def retrieve_with_decomposition(
 
     # Comparisons across named acts search each act separately; the shared
     # access filter applies, and every candidate is reranked on the full query.
-    profile = active_evidence_profile.get()
+    profile = current_evidence_profile()
     probes = [*profile.search_queries(query)[1:], *profile.act_queries(query)]
 
     pending = [probe for probe in dict.fromkeys(probes) if probe not in sub_queries]
@@ -315,9 +315,7 @@ async def rerank_and_enrich(
         message = "state.breadth must be set before reranking"
         raise ValueError(message)
 
-    candidates = await active_evidence_profile.get().augment_fields(
-        query, candidates, chunk_search, state.ctx
-    )
+    candidates = await current_evidence_profile().augment_fields(query, candidates, chunk_search, state.ctx)
 
     if document_access is not None:
         candidates = await filter_documents(candidates, document_access, state.ctx.to_user_context())
@@ -408,12 +406,12 @@ async def enrich_retained_docs(
     record_origins([item for item in docs if id(item[0]) not in retained_ids], "neighbor")
     docs = filter_scope_candidates(docs, query, "context")
     before_links = {id(doc) for doc, _ in docs}
-    docs = await active_evidence_profile.get().enrich_links(
+    docs = await current_evidence_profile().enrich_links(
         docs, query, chunk_search, state.ctx.to_user_context()
     )
     record_origins([item for item in docs if id(item[0]) not in before_links], "linked_fragment")
     before_scope = {id(doc) for doc, _ in docs}
-    docs = await active_evidence_profile.get().enrich_scope(
+    docs = await current_evidence_profile().enrich_scope(
         docs, query, chunk_search, state.ctx.to_user_context()
     )
     record_origins([item for item in docs if id(item[0]) not in before_scope], "scope_context")

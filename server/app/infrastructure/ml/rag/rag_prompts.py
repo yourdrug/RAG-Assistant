@@ -22,7 +22,7 @@ from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import DecompositionCheck, create_structured_response
-from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.prompts import build_context_message, build_system_prompt
 
@@ -295,7 +295,7 @@ def build_prompt(
     messages.append(("human", build_context_message()))
     messages.append(MessagesPlaceholder(variable_name="history"))
 
-    reminder = active_evidence_profile.get().reading_reminder(question).replace("{", "{{").replace("}", "}}")
+    reminder = current_evidence_profile().reading_reminder(question).replace("{", "{{").replace("}", "}}")
     messages.append(("human", "{question}" + reminder))
     return ChatPromptTemplate.from_messages(messages)
 

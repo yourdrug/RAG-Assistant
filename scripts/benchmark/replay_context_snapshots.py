@@ -25,6 +25,7 @@ from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.shared.hashing import content_hash
+from infrastructure.ml.evidence_profiles.profiles import EVIDENCE_PROFILES, evidence_profile_scope
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence, active_evidence, snapshot_documents
 from infrastructure.ml.rag.document_sources import group_by_document
 from infrastructure.ml.rag.langchain_mapping import lc_documents, scored_values
@@ -228,11 +229,14 @@ def replay_question(
 def replay(snapshot: dict[str, Any]) -> dict[str, Any]:
     rag = build_rag_settings(SimpleNamespace(**snapshot["runtime"]))
     domain_keys = (DocDomain.LEGAL.value, DocDomain.GENERAL.value)
+    # Snapshots come from the legal benchmark, so the legal evidence rules are selected explicitly.
+    with evidence_profile_scope(EVIDENCE_PROFILES["belarus"]):
+        questions = [replay_question(question, rag, domain_keys) for question in snapshot["questions"]]
     return {
         "sweep_id": snapshot["sweep_id"],
         "run_id": snapshot["run_id"],
         "reconstruction": snapshot.get("reconstruction"),
-        "questions": [replay_question(question, rag, domain_keys) for question in snapshot["questions"]],
+        "questions": questions,
     }
 
 

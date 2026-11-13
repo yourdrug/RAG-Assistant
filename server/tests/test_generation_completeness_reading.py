@@ -19,6 +19,9 @@ SNAPSHOT = json.loads(
 )
 
 
+pytestmark = pytest.mark.belarus
+
+
 @pytest.mark.parametrize("case", SNAPSHOT["cases"], ids=lambda case: str(case["id"]))
 @pytest.mark.parametrize("enumerate_cases", [False, True])
 def test_reading_checks_reach_model_after_frozen_context(case: Any, enumerate_cases: bool) -> None:

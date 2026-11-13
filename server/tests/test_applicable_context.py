@@ -24,6 +24,9 @@ from infrastructure.ml.evidence_profiles.belarus.grounded_response import (
 USER = RagContext(
     user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
 ).to_user_context()
+
+
+pytestmark = pytest.mark.belarus
 QUESTION = "Формат поля «Код» (позиция 18 таблицы 4.2, BLRDLN)?"
 
 

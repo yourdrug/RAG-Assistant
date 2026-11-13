@@ -30,11 +30,25 @@ if TYPE_CHECKING:
     from domain.rag.ports import ChunkRetrievalRepository
 
 
+# Neutral budget for exact reading excerpts appended to the generation prompt.
+DEFAULT_FOCUS_CHARS = 3000
+
+
+class EvidenceProfileNotSelectedError(RuntimeError):
+    """Evidence rules were requested outside an explicit profile scope."""
+
+    def __init__(self) -> None:
+        super().__init__("Evidence profile is not selected; wrap the call in evidence_profile_scope()")
+
+
 class EvidenceProfile(Protocol):
     key: str
 
     @property
     def version(self) -> str: ...
+
+    @property
+    def max_focus_chars(self) -> int: ...
 
     def reading_rules(self, question: str) -> list[str]: ...
 
@@ -87,6 +101,10 @@ class GenericEvidenceProfile(EvidenceProfile):
     @property
     def version(self) -> str:
         return "1"
+
+    @property
+    def max_focus_chars(self) -> int:
+        return DEFAULT_FOCUS_CHARS
 
     @override
     def reading_rules(self, question: str) -> list[str]:
@@ -160,6 +178,11 @@ class BelarusEvidenceProfile(GenericEvidenceProfile):
     def version(self) -> str:
         return focus.EVIDENCE_POLICY_VERSION
 
+    @property
+    @override
+    def max_focus_chars(self) -> int:
+        return focus.MAX_FOCUS_CHARS
+
     @override
     def reading_rules(self, question: str) -> list[str]:
         return reading.evidence_reading_rules(question)
@@ -228,11 +251,15 @@ class BelarusEvidenceProfile(GenericEvidenceProfile):
 EVIDENCE_PROFILES: dict[str, EvidenceProfile] = {
     profile.key: profile for profile in (GenericEvidenceProfile(), BelarusEvidenceProfile())
 }
-# Preserve the existing corpus for standalone tools; live requests explicitly select a profile.
-active_evidence_profile: ContextVar[EvidenceProfile] = ContextVar(
-    "evidence_profile",
-    default=EVIDENCE_PROFILES["belarus"],
-)
+# No default: live requests select the configured profile, standalone tools pass one explicitly.
+active_evidence_profile: ContextVar[EvidenceProfile] = ContextVar("evidence_profile")
+
+
+def current_evidence_profile() -> EvidenceProfile:
+    try:
+        return active_evidence_profile.get()
+    except LookupError as exc:
+        raise EvidenceProfileNotSelectedError from exc
 
 
 @contextmanager

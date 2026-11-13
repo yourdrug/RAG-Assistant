@@ -12,6 +12,9 @@ from infrastructure.ml.evidence_profiles.belarus.reading import evidence_reading
 from infrastructure.ml.rag.rag_prompts import build_prompt
 
 
+pytestmark = pytest.mark.belarus
+
+
 @pytest.mark.parametrize("question", ["цена 12.05.2024", "на 3 этапе 2025"])
 def test_non_temporal_questions_do_not_extract_date(question: str) -> None:
     assert explicit_question_date(question) is None

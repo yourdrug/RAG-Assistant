@@ -13,6 +13,7 @@ from infrastructure.benchmark.sweep.scoring import score_config_cheap
 from infrastructure.benchmark.sweep.settings import settings_snapshot
 
 
+@pytest.mark.belarus
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sparse_only", [False, True])
 @pytest.mark.parametrize("include_matching", [False, True])

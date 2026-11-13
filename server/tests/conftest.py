@@ -65,6 +65,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 # Initialize circuit breakers for all tests (required by step_generate, handle_relevance_gate, etc.)
+import config  # noqa: E402
+from infrastructure.ml.evidence_profiles.profiles import EVIDENCE_PROFILES, evidence_profile_scope  # noqa: E402
 from infrastructure.resilience.circuit_breaker import init_breakers  # noqa: E402
 
 
@@ -77,6 +79,22 @@ def reset_breakers_between_tests() -> Iterator[None]:
     init_breakers(fail_max=5, timeout_duration=300)
     yield
     init_breakers(fail_max=5, timeout_duration=300)
+
+
+@pytest.fixture(autouse=True)
+def selected_evidence_profile(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Run like a live request: neutral rules unless the test opts into the legal corpus.
+
+    ``@pytest.mark.belarus`` marks tests of Belarusian-law evidence rules; deselect them
+    with ``-m "not belarus"``. The setting is pinned too, so a local ``.env`` cannot leak in.
+    """
+    key = "belarus" if request.node.get_closest_marker("belarus") else "generic"
+    monkeypatch.setattr(config.settings, "evidence_profile", key)
+
+    with evidence_profile_scope(EVIDENCE_PROFILES[key]):
+        yield
 
 
 # Mock surya before any test module imports domain.ingestion

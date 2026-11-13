@@ -52,7 +52,7 @@ from infrastructure.ml.cache.pipeline import check_cache, handle_cache_hit, stor
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.evidence_profiles.profiles import (
     EVIDENCE_PROFILES,
-    active_evidence_profile,
+    current_evidence_profile,
     evidence_profile_scope,
 )
 from infrastructure.ml.guardrails.input_scanner import InputScanner
@@ -482,7 +482,7 @@ class RagOperations:
     ) -> ContextAssembly:
         # relevant(), assess() and the final build() pack the same result into the
         # token budget; reuse the packing while the inputs are the same objects.
-        profile = active_evidence_profile.get()
+        profile = current_evidence_profile()
         cached = context_assembly_memo.get()
 
         if (

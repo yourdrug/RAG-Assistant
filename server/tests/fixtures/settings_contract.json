@@ -313,7 +313,7 @@
   },
   "evidence_profile": {
     "annotation": "typing.Literal['generic', 'belarus']",
-    "default": "'belarus'",
+    "default": "'generic'",
     "metadata": "[]",
     "required": false
   },

@@ -23,6 +23,9 @@ from infrastructure.ml.rag.prompts import build_system_prompt
 from infrastructure.ml.rag.rag_postprocess import mark_partial_answer
 
 
+pytestmark = pytest.mark.belarus
+
+
 def test_docx_act_requisites_survive_filename_and_propagate_to_every_section(tmp_path: Path) -> None:
     path = tmp_path / "temporary.docx"
     word = docx.Document()

@@ -16,6 +16,9 @@ from infrastructure.ml.evidence_profiles.belarus.focus import reading_anchors
 from infrastructure.ml.rag.rag_prompts import build_prompt
 
 
+pytestmark = pytest.mark.belarus
+
+
 FIXTURE = Path(__file__).parent / "fixtures" / "fixed_generation_reading.json"
 
 

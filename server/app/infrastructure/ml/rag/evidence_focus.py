@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage
 
-from infrastructure.ml.evidence_profiles.belarus.focus import MAX_FOCUS_CHARS
-from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 
 
 if TYPE_CHECKING:
@@ -24,12 +23,13 @@ def format_generation_messages(
     counting and the final model call use this same assembly function.
     """
     messages = prompt.format_messages(context=context, history=history, question=question)
-    anchors = active_evidence_profile.get().anchors(context, question)
+    profile = current_evidence_profile()
+    anchors = profile.anchors(context, question)
     selected = []
     size = 0
 
     for anchor in anchors:
-        if size + len(anchor) > MAX_FOCUS_CHARS:
+        if size + len(anchor) > profile.max_focus_chars:
             continue
 
         selected.append(anchor)

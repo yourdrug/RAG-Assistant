@@ -15,7 +15,7 @@ from domain.rag.ranking import (
     prioritize_distinct_provisions,
     prioritize_referenced_acts,
 )
-from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions, capture_stage
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 
@@ -52,7 +52,7 @@ def filter_scope_candidates[ItemT: RetrievalDocument | tuple[RetrievalDocument, 
     for item in docs:
         doc = item[0] if isinstance(item, tuple) else item
 
-        if active_evidence_profile.get().contradicts_scope(question, content_with_parent_scope(doc)):
+        if current_evidence_profile().contradicts_scope(question, content_with_parent_scope(doc)):
             if active_evidence.get() is not None:
                 capture_exclusions([exclusion_record(item, ExclusionReason.SCOPE_MISMATCH, stage)])
         else:
@@ -90,7 +90,7 @@ async def rerank_documents(
     retriever = HybridRetriever()
     eligible = retriever.apply_rerank_filters(scored, min_score=min_score, score_gap_ratio=score_gap_ratio)
     ranked = prioritize_referenced_acts(
-        prioritize_distinct_provisions(eligible), active_evidence_profile.get().named_acts(question), top_n
+        prioritize_distinct_provisions(eligible), current_evidence_profile().named_acts(question), top_n
     )
 
     if active_evidence.get() is not None:

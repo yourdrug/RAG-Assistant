@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from domain.rag.breadth import Breadth
-from infrastructure.ml.evidence_profiles.profiles import active_evidence_profile
+from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.prompt_blocks import (
     BROAD_FORMATTING,
     CITATION_CONTEXT_HANDLING_BLOCK,
@@ -80,7 +80,7 @@ def build_system_prompt(
         CITATION_CONTEXT_HANDLING_BLOCK,
         "<formatting_rules>\n" + formatting_rules + "\n</formatting_rules>",
         TABLE_IMAGE_RULES_BLOCK,
-        *active_evidence_profile.get().reading_rules(question),
+        *current_evidence_profile().reading_rules(question),
         SOURCE_REFERENCE_STYLE_BLOCK,
     ]
 
