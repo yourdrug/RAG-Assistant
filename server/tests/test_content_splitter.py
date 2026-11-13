@@ -50,7 +50,7 @@ class TestSplitByContent:
         levels = [BoundaryLevel("point", _POINT_RE)]
         result = split_by_content("No points here.", levels, 1000)
         assert len(result) == 1
-        assert result[0].unit_kind == "point"
+        assert result[0].unit_kind == "preamble"
 
     def test_single_level_with_matches(self) -> None:
         text = "1. First point.\n2. Second point.\n3. Third point."

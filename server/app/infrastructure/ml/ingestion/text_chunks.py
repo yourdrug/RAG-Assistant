@@ -293,7 +293,7 @@ def document_slice(doc: Document, content: str, cursor: int = 0) -> Document:
     meta = dict(doc.metadata)
     spans = meta.get("_page_spans")
 
-    if spans:
+    if spans or meta.get("line_hints"):
         located = locate_span(doc.page_content, content, cursor)
 
         if located is None:
@@ -303,8 +303,17 @@ def document_slice(doc: Document, content: str, cursor: int = 0) -> Document:
         start, end = located
         meta["_page_spans"] = [
             (max(low, start) - start, min(high, end) - start, page)
-            for low, high, page in spans
+            for low, high, page in (spans or [])
             if low < end and high > start
+        ]
+
+        if not spans:
+            meta.pop("_page_spans", None)
+
+        meta["line_hints"] = [
+            {**hint, "start": hint["start"] - start, "end": min(hint["end"], end) - start}
+            for hint in meta.get("line_hints", [])
+            if start <= hint["start"] < end
         ]
 
     return Document(page_content=content, metadata=meta)

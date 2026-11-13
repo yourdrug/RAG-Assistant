@@ -131,6 +131,18 @@
     "metadata": "[]",
     "required": false
   },
+  "contract_chunk_max_tokens": {
+    "annotation": "<class 'int'>",
+    "required": false,
+    "default": "800",
+    "metadata": "[]"
+  },
+  "contract_chunk_target_tokens": {
+    "annotation": "<class 'int'>",
+    "required": false,
+    "default": "400",
+    "metadata": "[]"
+  },
   "cost_daily_limit": {
     "annotation": "<class 'float'>",
     "default": "5.0",

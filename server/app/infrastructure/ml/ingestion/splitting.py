@@ -6,13 +6,14 @@ from functools import lru_cache
 from itertools import groupby
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain.schema import Document
 
 from config import ChunkingSection, process_section
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
 from domain.ingestion.embed_text import EMBED_PREFIX_KEY, MAX_EMBED_TOKENS, build_embed_text, context_prefix
+from domain.ingestion.profiles.contract import ContractDomainProfile
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.unit_packing import pack_units
@@ -26,6 +27,7 @@ from infrastructure.ml.ingestion.page_joining import join_page_word, page_word_e
 from infrastructure.ml.ingestion.structural_metadata import unit_metadata
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
 from infrastructure.ml.ingestion.text_chunks import (
+    STEP_HEADING_RE,
     document_slice,
     pack_step_documents,
     text_document_chunks,
@@ -65,18 +67,10 @@ _LIST_LINE_RE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
 _LIST_MIN_LINES = 2
 _LIST_MIN_RATIO = 0.6
 _SENTENCE_RE = re.compile(r"[.!?…]+[\s\n]+|[.!?…]+$")
-_DEFINTION_RE = re.compile(
-    r"(?:это|означает|представляет собой|является|определяется как|definition:|means:|is defined as)",
-    re.IGNORECASE,
-)
-_PROCEDURE_RE = re.compile(
-    r"(?:шаг\s*\d|пошагов|инструкц|порядок действий|алгоритм|procedure:|step\s*\d|instructions?:)",
-    re.IGNORECASE,
-)
 
 
-def _classify_content_shape(text: str) -> str | None:
-    """Cheap structural classification: list, definition, procedure, or None."""
+def classify_content_shape(text: str) -> str | None:
+    """Classify lists only from explicit line markers."""
     lines = [ln for ln in text.split("\n") if ln.strip()]
 
     if len(lines) >= _LIST_MIN_LINES:
@@ -84,10 +78,6 @@ def _classify_content_shape(text: str) -> str | None:
 
         if list_lines / len(lines) >= _LIST_MIN_RATIO:
             return "list"
-
-    for name, pattern in [("definition", _DEFINTION_RE), ("procedure", _PROCEDURE_RE)]:
-        if pattern.search(text):
-            return name
 
     return None
 
@@ -162,7 +152,7 @@ def enrich_chunk_metadata(c: RetrievalDocument, i: int, total: int) -> None:
         c.metadata["first_sentence"] = first
 
     if c.metadata.get("content_type") != PageContentType.TABLE.value:
-        shape = _classify_content_shape(c.page_content)
+        shape = classify_content_shape(c.page_content)
 
         if shape:
             c.metadata["content_type"] = shape
@@ -216,6 +206,7 @@ def _merge_page_run(pages: list[Document]) -> list[Document]:
 
     text = ""
     spans: list[tuple[int, int, int]] = []
+    hints: list[dict[str, Any]] = []
     evidence = page_word_evidence([doc.page_content for doc in pages])
 
     for doc in pages:
@@ -234,9 +225,18 @@ def _merge_page_run(pages: list[Document]) -> list[Document]:
         start = len(text)
         text += content
         spans.append((start, len(text), doc.metadata["page"]))
+        hints.extend(
+            {
+                **hint,
+                "start": hint["start"] + start - len(doc.page_content) + len(content),
+                "end": hint["end"] + start - len(doc.page_content) + len(content),
+            }
+            for hint in doc.metadata.get("line_hints", [])
+        )
 
     meta = dict(pages[0].metadata)
     numbers = sorted({page for _, _, page in spans})
+    meta["line_hints"] = hints
     meta.update(page_start=numbers[0], page_end=numbers[-1], pages=numbers, _page_spans=spans)
     return [Document(page_content=text, metadata=meta)]
 
@@ -276,7 +276,7 @@ def split_documents(
     chunks: list[Document] = []
     table_counts: dict[str, int] = {}
 
-    for original_doc in merge_pdf_pages(docs):
+    for original_doc in merge_pdf_pages(merge_inferred_sections(docs, chunker)):
         doc = original_doc
 
         if not doc.page_content.strip():
@@ -310,6 +310,8 @@ def split_documents(
         log.warning("Filtered %d empty chunks during split", before - len(chunks))
 
     for chunk in chunks:
+        chunk.metadata.pop("line_hints", None)
+        chunk.metadata.pop("inferred_heading", None)
         dense_text = chunk.page_content
         prefix = chunk.metadata.pop("context_prefix", "")
         chunk.page_content = dense_text.removeprefix(prefix)
@@ -334,6 +336,86 @@ def split_documents(
     return chunks
 
 
+def merge_inferred_sections(docs: list[Document], chunker: Chunker) -> list[Document]:
+    """Let domain rules refine inferred DOCX headings and pack short guides whole.
+
+    Explicit styles and tables remain boundaries. Short inferred PDF instructions
+    retain page spans; larger guides keep the inferred section hierarchy.
+    """
+    result = []
+    pending: list[Document] = []
+
+    for doc in docs:
+        inferred = (
+            doc.metadata.get("inferred_heading")
+            and doc.metadata.get("content_type") != PageContentType.TABLE.value
+        )
+
+        if pending and (not inferred or doc.metadata.get("source") != pending[-1].metadata.get("source")):
+            result.extend(pack_inferred_run(pending, chunker))
+            pending = []
+
+        if inferred:
+            pending.append(doc)
+        else:
+            result.append(doc)
+
+    result.extend(pack_inferred_run(pending, chunker))
+    return result
+
+
+def pack_inferred_run(docs: list[Document], chunker: Chunker) -> list[Document]:
+    if not docs or len(docs) == 1:
+        return docs
+
+    pdf_run = all("page" in doc.metadata for doc in docs)
+
+    if pdf_run and (
+        chunker.profile is not None
+        or not any(STEP_HEADING_RE.match(doc.metadata.get("heading", "")) for doc in docs)
+    ):
+        return docs
+
+    combined = _merge_page_run(docs)[0] if pdf_run else None
+    text = combined.page_content if combined else "\n".join(doc.page_content for doc in docs)
+    metadata = dict(combined.metadata if combined else docs[0].metadata)
+
+    if combined:
+        metadata.pop("page", None)
+
+    for key in (
+        "section",
+        "heading",
+        "heading_level",
+        "parent_section",
+        "prev_heading",
+        "next_heading",
+        "sibling_headings",
+    ):
+        metadata.pop(key, None)
+
+    metadata["section_headings"] = list(
+        dict.fromkeys(doc.metadata["section"] for doc in docs if doc.metadata.get("section"))
+    )
+    hints: list[dict[str, Any]] = []
+    offset = 0
+
+    for doc in docs:
+        hints.extend(
+            {**hint, "start": hint["start"] + offset, "end": hint["end"] + offset}
+            for hint in doc.metadata.get("line_hints", [])
+        )
+        offset += len(doc.page_content) + 1
+
+    metadata["line_hints"] = combined.metadata["line_hints"] if combined else hints
+    prefix = context_prefix(metadata, chunker.chunk_size, body=text, measure=chunker.measure)
+
+    if chunker.profile is None and chunker.measure(prefix + text) > chunker.chunk_size:
+        return docs
+
+    return [Document(page_content=text, metadata=metadata)]
+
+
 class Chunker:
     """Resolve a document profile's limits once and preserve its splitting policy."""
 
@@ -354,6 +436,8 @@ class Chunker:
         if self.profile is None:
             if domain == DocDomain.LEGAL.value:
                 self.profile = LegalDomainProfile(domain_settings)
+            elif domain == DocDomain.CONTRACT.value:
+                self.profile = ContractDomainProfile(domain_settings)
             elif domain == DocDomain.DECREE.value:
                 self.profile = DecreeDomainProfile(domain_settings)
 
@@ -421,6 +505,11 @@ class Chunker:
             unit_label=self.profile.unit_label,
             measure=self.measure,
             on_boundary_event=self.record_boundary_event,
+            confirmed_starts=frozenset(
+                hint["start"]
+                for hint in doc.metadata.get("line_hints", [])
+                if hint.get("heading") or hint.get("numbering_level") is not None
+            ),
         )
         packed: list[PackedUnit] = []
 

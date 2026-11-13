@@ -36,7 +36,9 @@ if TYPE_CHECKING:
     )
 
 
-_DECREE_TITLE_RE = re.compile(r"^\s*УКАЗ\b", re.MULTILINE)
+# Case-sensitive: act titles are capitalised, while "Указ ..." at a line start is
+# usually a reference inside another act (e.g. a list of repealed acts).
+_DECREE_TITLE_RE = re.compile(r"^\s*(?:УКАЗ|ДЕКРЕТ)\b", re.MULTILINE)
 _POSTANOVLYAYU_RE = re.compile(r"ПОСТАНОВЛЯ[ЮЕ]\s*:?", re.IGNORECASE)
 _DECREE_NUMBER_RE = re.compile(r"№\s*(\d+)")
 _DECREE_DATE_RE = re.compile(
@@ -62,7 +64,7 @@ class DecreeDomainProfile(SettingsBackedProfile):
         "постановляющей части, не пересказывай указ целиком.\n",
         fallback_to_full_corpus=True,
     )
-    query_patterns: tuple[str, ...] = ("\\bуказ\\w*\\b", "\\bпостановлен\\w*\\b")
+    query_patterns: tuple[str, ...] = ("\\bуказ\\w*\\b", "\\bпостановлен\\w*\\b", "\\bдекрет\\w*\\b")
     query_priority = 2
     key = "decree"
     display_name = "Указы и постановления"

@@ -266,13 +266,11 @@ class TestLegalProfileEdgeCases:
         # Base: 0.5*2 + 0.3*1 + 0.2*0 = 1.3, +2.0 for Федеральный закон = 3.3
         assert score >= 3.0
 
-    def test_classify_score_with_contract_language(self) -> None:
-        """Contract language adds +1.5 to legal score."""
+    def test_contract_language_does_not_raise_legal_score(self) -> None:
+        """Agreements belong to ContractDomainProfile; only structure counts for legal."""
         profile = LegalDomainProfile(settings=FakeSettings())
         text = "Стороны договорились о следующем.\nСтатья 1. Текст.\nСтатья 2. Текст.\nГлава 1. Раздел.\n"
-        score = profile.classify_score(text)
-        # Base: 1.3, +1.5 for contract language = 2.8
-        assert score >= 2.5
+        assert abs(profile.classify_score(text) - 1.3) < 1e-9
 
 
 class TestAnswerPolicies:

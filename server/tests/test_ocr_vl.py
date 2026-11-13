@@ -184,6 +184,18 @@ def test_service_preserves_reading_order_without_retry(monkeypatch: pytest.Monke
     predict.assert_called_once()
 
 
+def test_service_preserves_heading_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    blocks = [
+        {"block_label": "doc_title", "block_content": "Руководство"},
+        {"block_label": "paragraph_title", "block_content": "Подключение"},
+        {"block_label": "text", "block_content": "Содержание раздела."},
+    ]
+    monkeypatch.setattr(vl_service, "predict_blocks", Mock(return_value=(blocks, {})))
+    result = vl_service.recognize(Mock(), np.zeros((20, 20, 3), dtype=np.uint8))
+    page = OCRPage.model_validate(result)
+    assert [block.kind for block in page.blocks] == ["title", "section-header", "text"]
+
+
 def test_html_table_merged_cells_keep_column_alignment() -> None:
     content = (
         '<table><tr><th rowspan="2">Название</th><th colspan="2">Масса</th></tr>'

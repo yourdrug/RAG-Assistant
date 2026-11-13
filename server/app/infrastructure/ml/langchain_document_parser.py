@@ -238,15 +238,6 @@ class LangchainDocumentParser:
         doc_title = next((d.metadata.get("doc_title") for d in docs if d.metadata.get("doc_title")), None)
 
         if not doc_title:
-            # Fall back to the top segment of the first breadcrumb (e.g. a
-            # level-1 "# Title" that has no body content of its own, so it
-            # never became a standalone section — still the best title we have).
-            first_section = next((d.metadata.get("section") for d in docs if d.metadata.get("section")), None)
-
-            if first_section:
-                doc_title = first_section.split(" > ")[0]
-
-        if not doc_title:
             doc_title = file_path.stem
 
             for doc in docs:

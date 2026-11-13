@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import TYPE_CHECKING, Any
 
 import docx
@@ -14,6 +15,7 @@ from infrastructure.ml.ingestion.docx_numbering import (
     ListNumberer,
     _get_numbering_formats,
     _paragraph_list_info,
+    get_numbering_texts,
     xml_element,
 )
 from infrastructure.ml.ingestion.sections import Section
@@ -189,46 +191,92 @@ class DocxSectionState:
     sections: list[Section]
     heading_stack: list[tuple[int, str]]
     current_heading: str | None = None
+    inferred_heading: bool = True
+    styled_level: int = 0
     current_lines: list[str] = field(default_factory=list)
+    current_hints: list[dict[str, Any]] = field(default_factory=list)
+    current_length: int = 0
     numberer: ListNumberer = field(default_factory=lambda: ListNumberer({}))
 
 
-def _detect_heading_level(p: Paragraph) -> int | None:
-    """Detect heading level from paragraph style. Returns 0 for Title, 1-N for Heading N, None otherwise."""
+MAX_MANUAL_HEADING_CHARS = 120
+
+
+def paragraph_is_bold(p: Paragraph) -> bool:
+    runs = [run for run in p.runs if run.text.strip()]
+    return bool(
+        runs and all(run.bold or (run.bold is None and p.style and p.style.font.bold) for run in runs)
+    )
+
+
+def heading_style_level(p: Paragraph) -> int | None:
+    """Return 0 for Title, 1-N for Heading N (English or Russian style names)."""
     style_name = (p.style.name or "").lower() if p.style else ""
 
-    if style_name == "title":
+    if style_name in {"title", "название"}:
         return 0
 
-    if style_name.startswith("heading"):
-        suffix = style_name.replace("heading", "").strip()
-        return int(suffix) if suffix.isdigit() else 1
+    if match := re.fullmatch(r"(?:heading|заголовок)\s*(\d+)?", style_name):
+        return int(match.group(1) or 1)
 
     return None
 
 
-def _apply_heading(state: DocxSectionState, heading_level: int, text: str) -> None:
-    """Flush current content and update heading stack."""
+def detect_heading_level(p: Paragraph) -> int | None:
+    """Styles are authoritative; short emphasized lines provide a fallback.
+
+    Numbering alone is not a heading signal: ordinary short list items would
+    otherwise replace the real section path. The fallback level is relative
+    to the enclosing styled heading (see ``process_section_paragraph``).
+    """
+    if (level := heading_style_level(p)) is not None:
+        return level
+
+    text = _paragraph_full_text(p).strip()
+
+    if not text or len(text) >= MAX_MANUAL_HEADING_CHARS or text.endswith((".", ":", ";", ",", "!", "?")):
+        return None
+
+    if not (paragraph_is_bold(p) or (text.isupper() and any(char.isalpha() for char in text))):
+        return None
+
+    list_info = _paragraph_list_info(p)
+    return list_info[1] + 1 if list_info else 1
+
+
+def flush_docx_text(state: DocxSectionState) -> None:
     content = "\n".join(state.current_lines).strip()
 
     if content:
-        state.sections.append(Section(state.current_heading, content))
+        state.sections.append(
+            Section(
+                state.current_heading,
+                content,
+                metadata={"line_hints": state.current_hints, "inferred_heading": state.inferred_heading},
+            )
+        )
+
+    state.current_lines = []
+    state.current_hints = []
+    state.current_length = 0
+
+
+def apply_heading(state: DocxSectionState, heading_level: int, text: str) -> None:
+    """Flush current content and update heading stack."""
+    if not state.current_hints or not all(hint.get("heading") for hint in state.current_hints):
+        flush_docx_text(state)
 
     while state.heading_stack and state.heading_stack[-1][0] >= heading_level:
         state.heading_stack.pop()
 
     state.heading_stack.append((heading_level, text))
     state.current_heading = " > ".join(h for _, h in state.heading_stack)
-    state.current_lines = []
 
 
 def flush_table(state: DocxSectionState, md_table: str) -> None:
     """Flush preceding text and append the rendered table."""
     if md_table:
-        content = "\n".join(state.current_lines).strip()
-
-        if content:
-            state.sections.append(Section(state.current_heading, content))
+        flush_docx_text(state)
 
         state.sections.append(Section(state.current_heading, md_table, PageContentType.TABLE))
         state.current_lines = []
@@ -240,18 +288,47 @@ def process_section_paragraph(state: DocxSectionState, paragraph: Paragraph, tex
     if not text:
         return
 
-    heading_level = _detect_heading_level(paragraph)
+    heading_level = detect_heading_level(paragraph)
+    styled = heading_style_level(paragraph) is not None
+    list_info = _paragraph_list_info(paragraph)
+
+    if list_info:
+        num_id, level = list_info
+
+        if not state.numberer.is_ordered(num_id, level):
+            heading_level = None
+
+        text = state.numberer.prefix(num_id, level).strip() + " " + text
+
+    if heading_level is not None and not styled:
+        heading_level += state.styled_level
 
     if heading_level is not None:
-        _apply_heading(state, heading_level, text)
-    else:
-        list_info = _paragraph_list_info(paragraph)
+        apply_heading(state, heading_level, text)
 
-        if list_info:
-            num_id, level = list_info
-            text = state.numberer.prefix(num_id, level) + text
+    if heading_level is not None and styled:
+        state.styled_level = heading_level
+        state.inferred_heading = False
+        return
 
-        state.current_lines.append(text)
+    if heading_level is not None:
+        state.inferred_heading = True
+
+    start = state.current_length
+    state.current_length += len(text) + 1
+    state.current_hints.append(
+        {
+            "start": start,
+            "end": start + len(text),
+            "text": text,
+            "bold": paragraph_is_bold(paragraph),
+            "heading": heading_level is not None,
+            "numbering_level": list_info[1] if list_info else None,
+        }
+    )
+    # Retain heading text in the body as well as the breadcrumb. Numbered titles
+    # are semantic markers used by the domain profile and flat-text classifier.
+    state.current_lines.append(text)
 
 
 def _collect_docx_metadata(
@@ -314,9 +391,11 @@ def append_docx_paragraph(
 
 
 def read_docx_body(
-    doc: WordDocument, formats: dict[tuple[str, int], str]
+    doc: WordDocument,
+    formats: dict[tuple[str, int], str],
+    level_texts: dict[tuple[str, int], str] | None = None,
 ) -> tuple[list[str], list[int], int, int, DocxSectionState]:
-    numberer = ListNumberer(formats)
+    numberer = ListNumberer(formats, level_texts)
     parts: list[str] = []
     page_numbers: list[int] = []
     current_page = 1
@@ -330,7 +409,7 @@ def read_docx_body(
     para_by_element = {id(xml_element(p)): p for p in doc.paragraphs}
     tbl_by_element = {id(xml_element(t)): t for t in doc.tables}
 
-    state = DocxSectionState(sections=[], heading_stack=[], numberer=ListNumberer(formats))
+    state = DocxSectionState(sections=[], heading_stack=[], numberer=ListNumberer(formats, level_texts))
 
     for child in body:
         if child.tag == para_tag:
@@ -362,7 +441,9 @@ def read_docx(file_path: Path) -> tuple[str, list[Section], dict[str, Any]]:
     validate_docx_archive(file_path)
     doc = docx.Document(str(file_path))
     formats = _get_numbering_formats(doc)
-    parts, page_numbers, paragraph_count, table_count, state = read_docx_body(doc, formats)
+    parts, page_numbers, paragraph_count, table_count, state = read_docx_body(
+        doc, formats, get_numbering_texts(doc)
+    )
 
     image_count = sum(1 for _ in doc.element.body.iter(qn("w:drawing")))
 
@@ -381,10 +462,7 @@ def read_docx(file_path: Path) -> tuple[str, list[Section], dict[str, Any]]:
 
     metadata = _collect_docx_metadata(doc, page_numbers, paragraph_count, table_count, image_count)
 
-    content = "\n".join(state.current_lines).strip()
-
-    if content:
-        state.sections.append(Section(state.current_heading, content))
+    flush_docx_text(state)
 
     note_lines = [f"[footnote {i}: {n}]" for i, n in enumerate(footnotes, start=1)]
     note_lines += [f"[endnote {i}: {n}]" for i, n in enumerate(endnotes, start=1)]

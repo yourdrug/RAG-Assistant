@@ -138,7 +138,8 @@ CHUNKING_FIXTURES = (
     ChunkingFixture("law", ".docx", "legal"),
     ChunkingFixture("law", ".txt", "legal"),
     ChunkingFixture("decree", ".docx", "decree"),
-    # Contracts have no own profile yet (plan 5.3): split with legal and general.
+    # Keep the old paths and exercise the dedicated agreement profile.
+    ChunkingFixture("contract", ".docx", "contract"),
     ChunkingFixture("contract", ".docx", "legal"),
     ChunkingFixture("contract", ".docx", "general"),
     ChunkingFixture("instruction", ".docx", "general"),

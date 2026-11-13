@@ -23,6 +23,12 @@ class ChunkingSection(BaseModel):
         PROFILE_CONFIG_DEFAULTS[("decree_chunk_target_tokens", "decree")].value
     )
     decree_chunk_max_tokens: int = int(PROFILE_CONFIG_DEFAULTS[("decree_chunk_max_tokens", "decree")].value)
+    contract_chunk_target_tokens: int = int(
+        PROFILE_CONFIG_DEFAULTS[("contract_chunk_target_tokens", "contract")].value
+    )
+    contract_chunk_max_tokens: int = int(
+        PROFILE_CONFIG_DEFAULTS[("contract_chunk_max_tokens", "contract")].value
+    )
     embed_tokenizer_path: Static[str] = "data/tei_cache/bge-m3/tokenizer.json"
     # Plan 4.3: LLM situating notes added only to the dense embedding input.
     chunk_contextualization_enabled: Static[bool] = False
@@ -38,7 +44,7 @@ class ChunkingSection(BaseModel):
             if getattr(self, overlap) >= getattr(self, size)
         ]
 
-        for prefix in ("", "legal_", "decree_"):
+        for prefix in ("", "legal_", "decree_", "contract_"):
             target = getattr(self, f"{prefix}chunk_target_tokens")
             maximum = getattr(self, f"{prefix}chunk_max_tokens")
 

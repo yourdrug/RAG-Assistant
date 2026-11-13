@@ -61,6 +61,7 @@ def split_by_content(  # noqa: PLR0913 - measurement and observations are inject
     unit_label: Callable[[str, str], str] | None = None,
     measure: Callable[[str], int] = len,
     on_boundary_event: Callable[[str, int], None] | None = None,
+    confirmed_starts: frozenset[int] = frozenset(),
 ) -> list[SplitUnit]:
     """Split text by structural boundary hierarchy.
 
@@ -85,6 +86,7 @@ def split_by_content(  # noqa: PLR0913 - measurement and observations are inject
         unit_label=unit_label,
         measure=measure,
         on_boundary_event=on_boundary_event,
+        confirmed_starts=confirmed_starts,
     )
 
     if min_chunk_chars > 0:
@@ -107,6 +109,7 @@ def recursive_split(  # noqa: PLR0913 - recursive source span and parent context
     unit_label: Callable[[str, str], str] | None = None,
     measure: Callable[[str], int] = len,
     on_boundary_event: Callable[[str, int], None] | None = None,
+    confirmed_starts: frozenset[int] = frozenset(),
 ) -> list[SplitUnit]:
     """Recursively descend through boundary levels.
 
@@ -139,8 +142,17 @@ def recursive_split(  # noqa: PLR0913 - recursive source span and parent context
             level,
             unit_label=unit_label,
             following_levels=rest,
+            confirmed_starts=frozenset(start - offset for start in confirmed_starts),
             parent_number=next(
-                (p.boundary_value for p in reversed(parents) if p.unit_kind in ("point", "subpoint_num")),
+                (
+                    p.boundary_value
+                    for p in reversed(parents)
+                    if p.unit_kind in ("point", "subpoint_num")
+                    or (
+                        level.name in ("clause", "subclause")
+                        and p.unit_kind in ("section", "clause", "subclause")
+                    )
+                ),
                 None,
             ),
             on_boundary_event=(
@@ -172,6 +184,7 @@ def recursive_split(  # noqa: PLR0913 - recursive source span and parent context
                 unit_label=unit_label,
                 measure=measure,
                 on_boundary_event=on_boundary_event,
+                confirmed_starts=confirmed_starts,
             )
 
             if (
@@ -269,10 +282,11 @@ def split_at_boundary(
     following_levels: list[BoundaryLevel] | None = None,
     parent_number: str | None = None,
     on_boundary_event: Callable[[str, int], None] | None = None,
+    confirmed_starts: frozenset[int] = frozenset(),
 ) -> list[SplitUnit]:
     """Split text at all occurrences of a boundary level's regex pattern."""
     matches = validate_candidates(
-        boundary_candidates(text, level),
+        boundary_candidates(text, level, confirmed_starts),
         text,
         [level, *(following_levels or [])],
         parent_number=parent_number,
@@ -285,7 +299,7 @@ def split_at_boundary(
                 SplitUnit(
                     None,
                     text.strip(),
-                    level.name,
+                    SENTENCE_UNIT_KIND if level.name == SENTENCE_UNIT_KIND else "preamble",
                     start=len(text) - len(text.lstrip()),
                     end=len(text.rstrip()),
                 )

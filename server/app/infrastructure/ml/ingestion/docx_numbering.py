@@ -6,6 +6,7 @@ Extracted from ``docx.py`` to reduce its size and isolate the numbering concern.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, cast
 
 from docx.oxml.ns import qn
@@ -19,7 +20,12 @@ if TYPE_CHECKING:
 
 def _parse_abstract_formats(root: BaseOxmlElement) -> dict[str, dict[int, str]]:
     """Extract abstract numbering formats: abs_id -> {level: numFmt}."""
-    abstract_formats: dict[str, dict[int, str]] = {}
+    return parse_abstract_values(root, "w:numFmt")
+
+
+def parse_abstract_values(root: BaseOxmlElement, tag: str) -> dict[str, dict[int, str]]:
+    """Extract one per-level ``w:val`` (numFmt, lvlText) for every abstract numbering."""
+    abstract_values: dict[str, dict[int, str]] = {}
 
     for abstract_num in root.findall(qn("w:abstractNum")):
         abs_id = abstract_num.get(qn("w:abstractNumId"))
@@ -27,22 +33,18 @@ def _parse_abstract_formats(root: BaseOxmlElement) -> dict[str, dict[int, str]]:
         if abs_id is None:
             continue
 
-        lvl_formats: dict[int, str] = {}
+        values: dict[int, str] = {}
 
         for lvl in abstract_num.findall(qn("w:lvl")):
             ilvl_raw = lvl.get(qn("w:ilvl"))
+            element = lvl.find(qn(tag))
 
-            if ilvl_raw is None:
-                continue
+            if ilvl_raw is not None and element is not None and element.get(qn("w:val")) is not None:
+                values[int(ilvl_raw)] = str(element.get(qn("w:val")))
 
-            fmt_el = lvl.find(qn("w:numFmt"))
+        abstract_values[abs_id] = values
 
-            if fmt_el is not None:
-                lvl_formats[int(ilvl_raw)] = str(fmt_el.get(qn("w:val"), "bullet"))
-
-        abstract_formats[abs_id] = lvl_formats
-
-    return abstract_formats
+    return abstract_values
 
 
 def _resolve_num_formats(
@@ -68,19 +70,26 @@ def _resolve_num_formats(
 
 def _get_numbering_formats(doc: Document) -> dict[tuple[str, int], str]:
     """Map (numId, ilvl) -> numFmt ('bullet', 'decimal', 'lowerLetter', ...)."""
-    formats: dict[tuple[str, int], str] = {}
+    return numbering_values(doc, "w:numFmt")
+
+
+def get_numbering_texts(doc: Document) -> dict[tuple[str, int], str]:
+    """Map (numId, ilvl) -> lvlText template such as ``%1.%2.``."""
+    return numbering_values(doc, "w:lvlText")
+
+
+def numbering_values(doc: Document, tag: str) -> dict[tuple[str, int], str]:
     try:
         numbering_part = doc.part.numbering_part
     except Exception:
         logging.getLogger(__name__).debug("DOCX numbering unavailable", exc_info=True)
-        return formats
+        return {}
 
     if numbering_part is None:
-        return formats
+        return {}
 
     root = numbering_part.element
-    abstract_formats = _parse_abstract_formats(root)
-    return _resolve_num_formats(root, abstract_formats)
+    return _resolve_num_formats(root, parse_abstract_values(root, tag))
 
 
 def _paragraph_list_info(paragraph: Paragraph) -> tuple[str, int] | None:
@@ -134,9 +143,17 @@ def _to_roman(n: int) -> str:
 class ListNumberer:
     """Assigns sequential numbers to ordered-list items, per (numId, level)."""
 
-    def __init__(self, numbering_formats: dict[tuple[str, int], str]) -> None:
+    def __init__(
+        self,
+        numbering_formats: dict[tuple[str, int], str],
+        level_texts: dict[tuple[str, int], str] | None = None,
+    ) -> None:
         self._formats = numbering_formats
+        self._texts = level_texts or {}
         self._counters: dict[str, dict[int, int]] = {}
+
+    def is_ordered(self, num_id: str, level: int) -> bool:
+        return self._formats.get((num_id, level), "bullet") != "bullet"
 
     def prefix(self, num_id: str, level: int) -> str:
         fmt = self._formats.get((num_id, level), "bullet")
@@ -151,21 +168,37 @@ class ListNumberer:
             del counters[deeper]
 
         counters[level] = counters.get(level, 0) + 1
-        n = counters[level]
+        template = self._texts.get((num_id, level), "")
 
-        if fmt == "lowerLetter":
-            marker = chr(ord("a") + (n - 1) % 26)
-        elif fmt == "upperLetter":
-            marker = chr(ord("A") + (n - 1) % 26)
-        elif fmt in ("lowerRoman", "upperRoman"):
-            marker = _to_roman(n)
-
-            if fmt == "lowerRoman":
-                marker = marker.lower()
+        # Multi-level lists ("%1.%2.") must keep parent numbers: contract clauses
+        # such as 2.1 are recognised only from the full rendered number.
+        if "%" in template:
+            label = re.sub(
+                r"%(\d)",
+                lambda match: list_marker(
+                    self._formats.get((num_id, int(match.group(1)) - 1), "decimal"),
+                    counters.get(int(match.group(1)) - 1, 1),
+                ),
+                template,
+            ).strip()
         else:
-            marker = str(n)
+            label = f"{list_marker(fmt, counters[level])}."
 
-        return f"{indent}{marker}. "
+        return f"{indent}{label} "
+
+
+def list_marker(fmt: str, n: int) -> str:
+    if fmt == "lowerLetter":
+        return chr(ord("a") + (n - 1) % 26)
+
+    if fmt == "upperLetter":
+        return chr(ord("A") + (n - 1) % 26)
+
+    if fmt in ("lowerRoman", "upperRoman"):
+        marker = _to_roman(n)
+        return marker.lower() if fmt == "lowerRoman" else marker
+
+    return str(n)
 
 
 def xml_element(value: object) -> BaseOxmlElement:

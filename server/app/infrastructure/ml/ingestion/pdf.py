@@ -15,6 +15,7 @@ from langchain.schema import Document
 from config import OCRSection, process_section
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.ocr import ocr_pdf_pages, ocr_vl_pdf_pages
+from infrastructure.ml.ingestion.pdf_headings import apply_pdf_headings
 from infrastructure.ml.ingestion.table_formatting import markdown_cell, render_table
 from infrastructure.ml.ingestion.utils import clean_pdf_text
 
@@ -586,7 +587,7 @@ def parse_pdf_document(doc: fitz.Document, file_path: Path) -> list[Document]:
     is_scanned = len(ocr_page_set) >= n_pages * 0.8 if n_pages > 0 else False
     pages.sort(key=lambda page: page.metadata["page"])
     _apply_document_metadata(pages, doc_metadata, is_scanned=is_scanned)
-    return pages
+    return apply_pdf_headings(doc, pages)
 
 
 MIN_TABULAR_GAPS = 2

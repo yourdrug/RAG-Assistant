@@ -26,7 +26,7 @@ class OCRServiceError(AppServerError):
 class OCRBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: str = Field(pattern="^(text|table)$")
+    kind: str = Field(pattern="^(text|table|title|section-header|section_header)$")
     text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 

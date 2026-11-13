@@ -27,6 +27,7 @@ class DocDomain(StrEnum):
     GENERAL = "general"
     LEGAL = "legal"
     DECREE = "decree"
+    CONTRACT = "contract"
 
 
 GENERAL_DOMAIN_KEY = DomainKey(DocDomain.GENERAL)
@@ -36,7 +37,9 @@ class DomainDetectionMode(StrEnum):
     AUTO = "auto"
 
 
-DocDomainSelection = Literal[DocDomain.GENERAL, DocDomain.LEGAL, DocDomain.DECREE, DomainDetectionMode.AUTO]
+DocDomainSelection = Literal[
+    DocDomain.GENERAL, DocDomain.LEGAL, DocDomain.DECREE, DocDomain.CONTRACT, DomainDetectionMode.AUTO
+]
 
 
 class DocumentStatus(

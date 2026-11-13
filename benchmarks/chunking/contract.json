@@ -1,0 +1,1104 @@
+[
+  {
+    "question": "За сколько времени EDI-провайдер «Северный Узел» должен предупредить заказчика о плановых технических работах?",
+    "expected_answer": "Не позднее чем за 48 часов до начала, по электронной почте.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "48 час"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "уведомлять Заказчика о плановых технических работах не позднее чем за 48 часов до их начала",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-001",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Что предусмотрено подпунктом 2.2.2 договора № 17-EDI/2026?",
+    "expected_answer": "Заказчик обязан обеспечить наличие у работников действующих сертификатов открытых ключей для подписания электронных документов.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "сертификат"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "обеспечить наличие у своих работников действующих сертификатов открытых ключей",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "exact_ref"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-002",
+    "variant_of": null,
+    "question_style": "reference_guided"
+  },
+  {
+    "question": "При какой задолженности исполнитель по договору EDI-услуг может приостановить их оказание и как он должен предупредить заказчика?",
+    "expected_answer": "При задолженности более 30 календарных дней, уведомив заказчика за 5 рабочих дней.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "30 календарных",
+        "5 рабочих"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "приостановить оказание услуг при наличии задолженности Заказчика по оплате более 30 календарных дней",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-003",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "До какого числа заказчик должен оплатить EDI-услуги за прошедший месяц?",
+    "expected_answer": "Не позднее 15-го числа месяца, следующего за отчётным, на основании счёта исполнителя.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "15"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "не позднее 15-го числа месяца, следующего за отчётным",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-004",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Может ли EDI-провайдер поднять тарифы без согласия заказчика?",
+    "expected_answer": "Да, в одностороннем порядке, уведомив заказчика не менее чем за 30 календарных дней.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "30 календарных"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Исполнитель вправе изменить тарифы в одностороннем порядке",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-005",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какую доступность системы EDI-FLOW гарантирует исполнитель?",
+    "expected_answer": "Не менее 99,5 % времени в течение календарного месяца.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        [
+          "99,5",
+          "99.5"
+        ]
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "доступность системы EDI-FLOW не менее 99,5 % времени",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "sla"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-006",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какое время реакции поддержки на критическое обращение установлено пунктом 4.2 договора EDI?",
+    "expected_answer": "Не более 2 часов; для обычного приоритета — не более 1 рабочего дня.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "2 час"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "с критическим приоритетом составляет не более 2 часов",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "exact_ref",
+      "sla"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-007",
+    "variant_of": null,
+    "question_style": "reference_guided"
+  },
+  {
+    "question": "Что происходит со стоимостью EDI-услуг, если доступность системы оказалась ниже гарантированной?",
+    "expected_answer": "Стоимость услуг за этот месяц уменьшается на 10 %.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "10 %"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "стоимость услуг за соответствующий месяц уменьшается на 10 %",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "sla"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-008",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какая пеня предусмотрена за просрочку оплаты EDI-услуг и есть ли у неё предел?",
+    "expected_answer": "0,1 % от неоплаченной суммы за каждый день, но не более 10 % от суммы задолженности.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        [
+          "0,1",
+          "0.1"
+        ],
+        "10 %"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "пеню в размере 0,1 % от неоплаченной суммы за каждый день просрочки",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "distractor"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-009",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Отвечает ли EDI-провайдер, если документы не передались из-за сбоя информационных систем МНС?",
+    "expected_answer": "Нет, исполнитель не несёт ответственности за такие сбои.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "не несёт"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "вызванную сбоями в работе информационных систем Министерства по налогам и сборам",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-010",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Сколько лет EDI-провайдер хранит переданные электронные документы?",
+    "expected_answer": "10 лет с даты передачи.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "10 лет"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "хранение переданных электронных документов в течение 10 лет",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "distractor"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-011",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Продлевается ли договор на EDI-услуги автоматически после 31 декабря 2026 года?",
+    "expected_answer": "Да, если ни одна сторона не заявит о прекращении за 30 дней, договор продлевается на каждый следующий календарный год.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "30 дней",
+        "календарный год"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "договор считается продлённым на каждый следующий календарный год",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "distractor"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-012",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "За сколько дней заказчик должен уведомить исполнителя об одностороннем расторжении договора EDI?",
+    "expected_answer": "Не менее чем за 60 календарных дней, письменно.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "60"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "расторгнуть договор в одностороннем порядке, письменно уведомив Исполнителя не менее чем за 60 календарных дней",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-013",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Сколько стоит передача одной электронной накладной ЭТТН у EDI-провайдера «Северный Узел»?",
+    "expected_answer": "0,18 бел. руб. без НДС за документ (Приложение № 1).",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        [
+          "0,18",
+          "0.18"
+        ]
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Передача электронной накладной (ЭТТН, ЭТН) | документ | 0,18",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "table"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-014",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какая абонентская плата за подключение одного юридического лица к EDI-FLOW?",
+    "expected_answer": "25,00 бел. руб. без НДС в месяц.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        [
+          "25,00",
+          "25"
+        ]
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Абонентская плата за подключение одного юридического лица | месяц | 25,00",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "table"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-015",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Верно ли, что по пункту 8.1 договора EDI срок рассмотрения претензии составляет 30 дней?",
+    "expected_answer": "Нет, срок рассмотрения претензии — 15 календарных дней.",
+    "source_hint": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "15"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "срок рассмотрения претензии — 15 календарных дней",
+          "source": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+        }
+      ],
+      "answer_type": "false_premise",
+      "expected_behavior": "correct_premise",
+      "review_required": false,
+      "source_files": [
+        "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "exact_ref"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-016",
+    "variant_of": null,
+    "question_style": "reference_guided"
+  },
+  {
+    "question": "Какой стандарт качества должны соответствовать поддоны по договору поставки № 45-П/2026?",
+    "expected_answer": "ГОСТ 33757-2016 «Поддоны плоские деревянные».",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "33757"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Качество товара должно соответствовать ГОСТ 33757-2016",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-017",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какая максимальная влажность древесины поддонов допускается договором поставки?",
+    "expected_answer": "Не более 22 %.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "22"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Влажность древесины поддонов не должна превышать 22 %",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-018",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Когда к покупателю поддонов переходит право собственности и риск случайной гибели?",
+    "expected_answer": "С момента подписания покупателем ЭТТН.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "ЭТТН"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "переходят к Покупателю с момента подписания им ЭТТН",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-019",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "В какой срок покупатель должен направить поставщику акт о несоответствии по подпункту 4.2.2 договора поставки?",
+    "expected_answer": "В течение 2 рабочих дней.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "2 рабочих"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "составляет акт о несоответствии и направляет его Поставщику в течение 2 рабочих дней",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "exact_ref"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-020",
+    "variant_of": null,
+    "question_style": "reference_guided"
+  },
+  {
+    "question": "За сколько дней поставщик поддонов обязан заменить бракованный товар?",
+    "expected_answer": "В течение 10 календарных дней с даты получения акта.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "10 календарных"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Поставщик обязан заменить бракованный товар в течение 10 календарных дней",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-021",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "В течение какого срока покупатель поддонов может заявить о скрытых недостатках?",
+    "expected_answer": "В течение 6 месяцев с даты поставки.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "6 месяцев"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Скрытые недостатки могут быть заявлены Покупателем в течение 6 месяцев",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-022",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какой размер предоплаты и в какой срок платит покупатель по договору поставки поддонов?",
+    "expected_answer": "30 % стоимости в течение 3 банковских дней с даты выставления счёта.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "30 %",
+        "3 банковских"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "30 % стоимости — предоплатой в течение 3 банковских дней",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "subpoint"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-023",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какая неустойка грозит поставщику поддонов за просрочку поставки?",
+    "expected_answer": "0,2 % от стоимости недопоставленного товара за каждый день просрочки.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        [
+          "0,2",
+          "0.2"
+        ]
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "неустойку в размере 0,2 % от стоимости недопоставленного товара",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "distractor"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-024",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Каким документом подтверждаются обстоятельства непреодолимой силы по договору поставки и в какой срок нужно уведомить другую сторону?",
+    "expected_answer": "Справкой Белорусской торгово-промышленной палаты; уведомить в течение 5 календарных дней.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "торгово-промышленной",
+        "5 календарных"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "подтвердить их справкой Белорусской торгово-промышленной палаты",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-025",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Сколько усиленных поддонов 1200×1000 предусмотрено спецификацией № 1 и по какой цене?",
+    "expected_answer": "200 шт. по 41,90 бел. руб. с НДС.",
+    "source_hint": "Договор поставки № 45-П-2026.docx",
+    "annotations": {
+      "required_facts": [
+        "200",
+        [
+          "41,90",
+          "41.90"
+        ]
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "Поддон деревянный усиленный | 1200×1000 | 200 | 41,90",
+          "source": "Договор поставки № 45-П-2026.docx"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Договор поставки № 45-П-2026.docx"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "table"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-026",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Что считается конфиденциальной информацией по соглашению № 3-К/2026?",
+    "expected_answer": "Сведения технического, финансового и коммерческого характера, переданные раскрывающей стороной и обозначенные грифом «Конфиденциально».",
+    "source_hint": "Соглашение о конфиденциальности № 3-К-2026.pdf",
+    "annotations": {
+      "required_facts": [
+        "Конфиденциально"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "обозначенные грифом «Конфиденциально»",
+          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Соглашение о конфиденциальности № 3-К-2026.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-027",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "В какой срок получающая сторона должна сообщить об утечке конфиденциальной информации?",
+    "expected_answer": "Незамедлительно, но не позднее 1 рабочего дня.",
+    "source_hint": "Соглашение о конфиденциальности № 3-К-2026.pdf",
+    "annotations": {
+      "required_facts": [
+        "1 рабочего"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "не позднее 1 рабочего дня, сообщить Раскрывающей стороне о факте утечки",
+          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Соглашение о конфиденциальности № 3-К-2026.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-028",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "На какие сведения не распространяются обязательства соглашения о конфиденциальности?",
+    "expected_answer": "На общедоступные не по вине получающей стороны, известные ей до раскрытия (с документальным подтверждением) и подлежащие раскрытию по требованию госоргана.",
+    "source_hint": "Соглашение о конфиденциальности № 3-К-2026.pdf",
+    "annotations": {
+      "required_facts": [
+        "общедоступн",
+        "государственного органа"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "стали общедоступными не по вине Получающей стороны",
+          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Соглашение о конфиденциальности № 3-К-2026.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "broad",
+      "subpoint"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-029",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Какой штраф за разглашение установлен соглашением о конфиденциальности и покрывает ли он убытки?",
+    "expected_answer": "5 000 бел. руб. за каждый случай; убытки возмещаются в полной сумме сверх штрафа.",
+    "source_hint": "Соглашение о конфиденциальности № 3-К-2026.pdf",
+    "annotations": {
+      "required_facts": [
+        [
+          "5 000",
+          "5000"
+        ],
+        "сверх штрафа"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "уплачивает штраф в размере 5 000 бел. руб.",
+          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+        }
+      ],
+      "answer_type": "factual",
+      "expected_behavior": "answer",
+      "review_required": false,
+      "source_files": [
+        "Соглашение о конфиденциальности № 3-К-2026.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "distractor"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-030",
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "question": "Верно ли, что по пункту 6.2 соглашения о конфиденциальности обязательства прекращаются сразу после окончания его действия?",
+    "expected_answer": "Нет, обязательства по сохранению конфиденциальности сохраняют силу 5 лет после прекращения соглашения.",
+    "source_hint": "Соглашение о конфиденциальности № 3-К-2026.pdf",
+    "annotations": {
+      "required_facts": [
+        "5 лет"
+      ],
+      "expected_refusal": false,
+      "expected_fragments": [
+        {
+          "text": "сохраняют силу в течение 5 лет после прекращения действия соглашения",
+          "source": "Соглашение о конфиденциальности № 3-К-2026.pdf"
+        }
+      ],
+      "answer_type": "false_premise",
+      "expected_behavior": "correct_premise",
+      "review_required": false,
+      "source_files": [
+        "Соглашение о конфиденциальности № 3-К-2026.pdf"
+      ],
+      "evidence_text_check": "matched"
+    },
+    "tags": [
+      "chunking",
+      "contract",
+      "narrow",
+      "exact_ref",
+      "distractor"
+    ],
+    "dataset": "chunking-contract",
+    "is_active": true,
+    "case_id": "rag-c-031",
+    "variant_of": null,
+    "question_style": "reference_guided"
+  }
+]

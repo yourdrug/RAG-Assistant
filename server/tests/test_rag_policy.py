@@ -248,8 +248,8 @@ class TestClassifyQueryDomain:
     def test_legal_question_with_article(self) -> None:
         assert classify_query_domain("Статья 15 ФЗ-XXX говорит о") == DocDomain.LEGAL
 
-    def test_legal_question_with_clause(self) -> None:
-        assert classify_query_domain("Пункт 3.2 договора") == DocDomain.LEGAL
+    def test_contract_question_with_clause(self) -> None:
+        assert classify_query_domain("Пункт 3.2 договора") == DocDomain.CONTRACT
 
     def test_legal_question_with_accordance(self) -> None:
         assert classify_query_domain("В соответствии с законом") == DocDomain.LEGAL

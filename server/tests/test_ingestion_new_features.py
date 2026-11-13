@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from langchain.schema import Document
 
 from infrastructure.ml.ingestion.splitting import (
-    _classify_content_shape,
     _enrich_final_chunks,
     _extract_first_sentence,
+    classify_content_shape,
 )
 
 
@@ -23,21 +23,21 @@ from infrastructure.ml.ingestion.splitting import (
 
 
 class TestSplittingEnrichment:
-    def test_classify_content_shape_list(self) -> None:
+    def testclassify_content_shape_list(self) -> None:
         text = "- item one\n- item two\n- item three\n- item four"
-        assert _classify_content_shape(text) == "list"
+        assert classify_content_shape(text) == "list"
 
-    def test_classify_content_shape_definition(self) -> None:
+    def testclassify_content_shape_definition(self) -> None:
         text = "Recursion — это функция которая вызывает саму себя."
-        assert _classify_content_shape(text) == "definition"
+        assert classify_content_shape(text) is None
 
-    def test_classify_content_shape_procedure(self) -> None:
+    def testclassify_content_shape_procedure(self) -> None:
         text = "Шаг 1: Откройте файл.\nШаг 2: Нажмите сохранить."
-        assert _classify_content_shape(text) == "procedure"
+        assert classify_content_shape(text) is None
 
-    def test_classify_content_shape_none(self) -> None:
+    def testclassify_content_shape_none(self) -> None:
         text = "Just regular paragraph text with no special structure."
-        assert _classify_content_shape(text) is None
+        assert classify_content_shape(text) is None
 
     def test_extract_first_sentence(self) -> None:
         text = "This is the first sentence. And this is the second."

@@ -223,6 +223,15 @@ class TestListNumberer:
         # Level 1 counter should be fresh again
         assert numberer.prefix("1", 1) == "  1. "
 
+    def test_multilevel_text_keeps_parent_number(self) -> None:
+        numberer = ListNumberer(
+            {("1", 0): "decimal", ("1", 1): "decimal"}, {("1", 0): "%1.", ("1", 1): "%1.%2."}
+        )
+        assert numberer.prefix("1", 0) == "1. "
+        assert numberer.prefix("1", 0) == "2. "
+        assert numberer.prefix("1", 1) == "  2.1. "
+        assert numberer.prefix("1", 1) == "  2.2. "
+
     def test_letter_wraps_at_26(self) -> None:
         numberer = ListNumberer({("1", 0): "lowerLetter"})
 

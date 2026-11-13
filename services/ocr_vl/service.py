@@ -77,7 +77,11 @@ def recognize(pipeline: OCRPipeline, image: NDArray[np.uint8]) -> dict[str, list
         output = []
         for block in blocks:
             content = block["block_content"].strip()
-            kind = "table" if block["block_label"] == "table" else "text"
+            kind = {
+                "table": "table", "doc_title": "title", "title": "title",
+                "paragraph_title": "section-header", "section-header": "section-header",
+                "section_header": "section-header",
+            }.get(block["block_label"], "text")
             if kind == "table":
                 content = table_markdown(content)
                 # The model has no calibrated handwriting confidence. Retry only

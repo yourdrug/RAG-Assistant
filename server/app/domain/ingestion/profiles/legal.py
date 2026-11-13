@@ -1,4 +1,4 @@
-"""LegalDomainProfile -- regulatory acts, laws, contracts.
+"""LegalDomainProfile -- regulatory acts and laws.
 
 Content-based splitting by chapter/section/article/clause/sentence.
 Versioned: tracks effective dates and act versions.
@@ -43,14 +43,21 @@ _ARTICLE_RE = re.compile(r"^\s*Статья\s+(\d+(?:[.-]\d+)*)", re.MULTILINE |
 
 _ARTICLE_REF_RE = re.compile(r"ст(?:ать[июяе]|\.)\s*(\d+(?:[.-]\d+)*)", re.IGNORECASE)
 _CHAPTER_REF_RE = re.compile(r"глав(?:[ауы]|ой)\s*(\d+[\.\d]*)", re.IGNORECASE)
+# Belarusian act names are matched in any grammatical case ("Налоговому кодексу
+# Республики Беларусь"); a code's subject stops before its date or number.
+LAW_TITLE_PATTERN = (
+    r"Федеральн\w+ конституционн\w+ закон\w*|Федеральн\w+ закон\w*|Закон\w* Республики Беларусь|"
+    r"(?:[А-ЯЁа-яё]+\s+)?кодекс\w* Республики Беларусь(?:\s+об?\s+(?:(?!\s+от\s)[^\n.,;№])+)?|"
+    r"Декрет\w*(?: Президента)? Республики Беларусь|Указ\w* Президента Республики Беларусь|"
+    r"(?:ГК|НК|ТК|УК|КоАП)(?:\s+(?:РФ|РБ))?"
+)
 _LAW_NAME_RE = re.compile(
-    r"(?:Федеральный закон|Федеральный конституционный закон|ГК "
-    r"РФ|НК РФ|КоАП|УК РФ|ТК РФ)"
-    r"\s*(?:от\s+[\d.]+\s*)?(?:№\s*[\d]+(?:-[\dА-ЯЁ]+)*)?",
+    rf"\b(?:{LAW_TITLE_PATTERN})\b"
+    r"\s*(?:от\s+[^№N\n]+?\s*(?=[№N]))?(?:[№N]\s*\d+(?:-[\dА-ЯЁ]+)*)?",
     re.IGNORECASE,
 )
 _LAW_NUMBER_RE = re.compile(
-    r"^\s*(?:Федеральный закон|Федеральный конституционный закон)"
+    r"^\s*(?:Федеральный закон|Федеральный конституционный закон|Закон Республики Беларусь)"
     r"\s*(?:от\s+(?P<date>[^№N\n]+?)\s*)?(?:№|N)\s*(?P<number>[\d]+(?:-[\dА-ЯЁ]+)*)",
     re.IGNORECASE | re.MULTILINE,
 )
@@ -122,15 +129,12 @@ class LegalDomainProfile(SettingsBackedProfile):
         score += 0.3 * len(_CHAPTER_RE.findall(text))
         score += 0.2 * len(_SECTION_RE.findall(text))
 
-        if re.search(r"Федеральный закон|ГК РФ|НК РФ", text, re.IGNORECASE):
-            score += 2.0
-
         if re.search(
-            r"стороны\s+договорились|настоящ(им|его|ий)\s+(договор|соглашени)",
+            r"Федеральный закон|Закон Республики Беларусь|кодекс Республики Беларусь|ГК РФ|НК РФ",
             text,
             re.IGNORECASE,
         ):
-            score += 1.5
+            score += 2.0
 
         return score
 

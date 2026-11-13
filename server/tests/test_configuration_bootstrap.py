@@ -19,6 +19,7 @@ from application.runtime.config import ConfigParameter, ConfigParameterChanged, 
 from application.runtime.enums import AppStage, HealthStatus, LLMProvider
 from composition.cli.commands import config, ingest, worker
 from config import Settings, settings
+from domain.ingestion.profiles.contract import ContractDomainProfile
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
@@ -424,7 +425,12 @@ def test_missing_snapshot_key_after_bootstrap_does_not_silently_keep_stale_value
 
     pairs = {(item.key, item.domain_key) for item in complete}
 
-    for profile in (LegalDomainProfile(), DecreeDomainProfile(), GeneralDomainProfile()):
+    for profile in (
+        LegalDomainProfile(),
+        DecreeDomainProfile(),
+        GeneralDomainProfile(),
+        ContractDomainProfile(),
+    ):
         for default in profile.config_defaults():
             if (default.key, profile.key) not in pairs:
                 complete.append(

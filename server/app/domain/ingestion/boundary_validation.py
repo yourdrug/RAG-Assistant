@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from domain.ingestion.profiles.types import BoundaryLevel
 
 
-NUMERIC_KINDS = frozenset({"point", "subpoint_num", "subpoint"})
+NUMERIC_KINDS = frozenset({"point", "subpoint_num", "subpoint", "clause", "subclause"})
 HEADING_KINDS = frozenset({"article", "chapter", "section"})
 REFERENCE_WORDS = frozenset({"настоящего", "настоящей", "указанного", "указанной", "кодекса", "закона"})
 RUSSIAN_ALPHABET = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
@@ -39,10 +39,12 @@ class BoundaryCandidate:
     line_start: bool
     prev_char: str
     next_text: str
-    format_confirmed: bool = False  # Reserved for format signals from the future PDF/DOCX node parser.
+    format_confirmed: bool = False
 
 
-def boundary_candidates(text: str, level: BoundaryLevel) -> list[BoundaryCandidate]:
+def boundary_candidates(
+    text: str, level: BoundaryLevel, confirmed_starts: frozenset[int] = frozenset()
+) -> list[BoundaryCandidate]:
     result = []
 
     for match in level.pattern.finditer(text):
@@ -58,6 +60,7 @@ def boundary_candidates(text: str, level: BoundaryLevel) -> list[BoundaryCandida
                 not line_prefix.strip(),
                 before.rstrip()[-1:] if before.strip() else "",
                 text[match.end() :].split("\n", 1)[0].strip(),
+                format_confirmed=start in confirmed_starts,
             )
         )
 
@@ -302,7 +305,7 @@ def numbering_rejection(
     kind = candidate.level
     number = candidate_number(candidate)
 
-    if kind == "subpoint_num" and number and number[:-1] not in opened:
+    if kind in {"subpoint_num", "clause", "subclause"} and number and number[:-1] not in opened:
         return "orphan_subpoint"
 
     if previous and number:

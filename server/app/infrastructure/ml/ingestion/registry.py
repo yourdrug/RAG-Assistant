@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.docx import read_docx
 from infrastructure.ml.ingestion.markdown import extract_doc_title, parse_markdown_sections
 from infrastructure.ml.ingestion.pdf import parse_pdf
@@ -57,9 +58,20 @@ def markdown_sections(path: Path, context: FormatContext) -> ParsedFormat:
 
 def pdf_sections(path: Path, context: FormatContext) -> ParsedFormat:
     del context
+    pages = parse_pdf(path)
     return ParsedFormat(
-        [Section(None, doc.page_content, metadata=dict(doc.metadata)) for doc in parse_pdf(path)],
-        structured=False,
+        [
+            Section(
+                doc.metadata.get("section"),
+                doc.page_content,
+                PageContentType.TABLE
+                if doc.metadata.get("content_type") == PageContentType.TABLE.value
+                else PageContentType.TEXT,
+                metadata=dict(doc.metadata),
+            )
+            for doc in pages
+        ],
+        structured=any(doc.metadata.get("section") for doc in pages),
     )
 
 

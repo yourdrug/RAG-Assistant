@@ -81,6 +81,8 @@ def test_domain_parameters_keep_scope_and_stay_out_of_global_map() -> None:
         "legal_chunk_target_tokens": DocDomain.LEGAL,
         "decree_chunk_max_tokens": DocDomain.DECREE,
         "decree_chunk_target_tokens": DocDomain.DECREE,
+        "contract_chunk_max_tokens": DocDomain.CONTRACT,
+        "contract_chunk_target_tokens": DocDomain.CONTRACT,
     }
     scoped = {p.key: p.domain_key for p in application.runtime.dynamic_params.DYNAMIC_PARAMS if p.domain_key}
     assert scoped == expected
