@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
-MIN_CLASSIFICATION_CONFIDENCE = 0.5
 
 
 def classify_document_text(
@@ -29,7 +28,7 @@ def classify_document_text(
 
     result = domain_registry.classify(text, settings=domain_settings)
 
-    if not (result.is_ambiguous or result.confidence < MIN_CLASSIFICATION_CONFIDENCE):
+    if result.is_confident:
         return DomainClassification(
             domain_key=result.domain_key,
             confidence=result.confidence,

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 MIN_CLASSIFIABLE_CHARS = 120
 MARGIN_RATIO = 1.3
 STICKY_BONUS_RATIO = 0.5
+MIN_CLASSIFICATION_CONFIDENCE = 0.5
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,10 @@ class ClassificationResult:
     is_ambiguous: bool
     is_low_signal: bool
     candidate_scores: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def is_confident(self) -> bool:
+        return not self.is_ambiguous and self.confidence >= MIN_CLASSIFICATION_CONFIDENCE
 
 
 class DomainProfileRegistry:

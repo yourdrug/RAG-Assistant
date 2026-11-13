@@ -35,11 +35,27 @@ from infrastructure.ml.rag.retrieval_pipeline import (
     run_retrieval,
 )
 from infrastructure.ml.rag.retrieval_work import RetrievalWork
-from infrastructure.repositories.chunk.chunk_context import SQLAlchemyChunkContextRepository
+from infrastructure.repositories.chunk.chunk_context import (
+    MAX_PARENT_CHUNKS,
+    SQLAlchemyChunkContextRepository,
+)
 from infrastructure.repositories.vector.acl import (
     build_qdrant_filter,
     with_domain_filter,
     with_temporal_filter,
+)
+from tests.document_node_sql import (
+    ACT_VERSION_ID,
+    ARTICLE,
+    CHAPTER,
+    CHUNKS,
+    DOCUMENT_ID,
+    FOREIGN_DOCUMENT_ID,
+    NODES,
+    OWNER_ID,
+    POINT,
+    SIBLING_ARTICLE,
+    parent_scope_repository,
 )
 
 
@@ -648,3 +664,173 @@ async def test_neighbor_sql_applies_search_acl_and_document_scope(
         assert len(results) == expected
         assert all(row.document_id == 7 for row in results)
     engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Parent-child expansion (6.4): a new read path over document_nodes + chunks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "visibility, role, viewer, allowed",
+    [
+        ("internal_private", UserRole.USER, OWNER_ID, True),
+        ("internal_private", UserRole.USER, 99, False),
+        # Listing may show CLIENT_PRIVATE to ADMIN; RAG search scope must not.
+        ("client_private", UserRole.ADMIN, 99, False),
+        ("internal_public", UserRole.USER, 99, True),
+    ],
+)
+async def test_parent_scope_sql_applies_search_acl(
+    visibility: str, role: UserRole, viewer: int, allowed: bool
+) -> None:
+    user = UserContext(user_id=viewer, user_kind=UserKind.INTERNAL, user_role=role)
+
+    with parent_scope_repository(visibility) as repository:
+        results = await repository.get_parent_context(
+            DOCUMENT_ID, POINT, user=user, act_version_id=ACT_VERSION_ID, max_chars=70
+        )
+
+    if allowed:
+        assert [row.chunk_index for row in results] == [0, 1, 2]
+        assert all(row.document_id == DOCUMENT_ID for row in results)
+    else:
+        assert results == []
+
+
+@pytest.mark.asyncio
+async def test_parent_scope_sql_climbs_while_the_ancestor_fits() -> None:
+    user = UserContext(user_id=OWNER_ID, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+
+    with parent_scope_repository("internal_private") as repository:
+
+        async def indexes(node_id: str, max_chars: int) -> list[int]:
+            rows = await repository.get_parent_context(
+                DOCUMENT_ID, node_id, user=user, act_version_id=ACT_VERSION_ID, max_chars=max_chars
+            )
+            return [row.chunk_index for row in rows]
+
+        # Real body sizes: point 26, article 61, chapter 84 characters.
+        assert await indexes(POINT, 30) == [2]
+        assert await indexes(POINT, 70) == [0, 1, 2]
+        assert await indexes(POINT, 100) == [0, 1, 2, 3]
+        # The nearest parent does not fit: callers keep the bounded neighbour heuristics.
+        assert await indexes(POINT, 20) == []
+        assert await indexes(SIBLING_ARTICLE, 30) == [3]
+
+
+@pytest.mark.asyncio
+async def test_parent_scope_sql_measures_current_bodies_not_stored_size() -> None:
+    # Manual edits change bodies without touching document_nodes.char_count.
+    user = UserContext(user_id=OWNER_ID, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    stale = {ARTICLE: 10_000, CHAPTER: 1}
+    nodes = tuple((*node[:6], stale.get(node[0], node[6])) for node in NODES)
+
+    with parent_scope_repository("internal_private", nodes=nodes) as repository:
+        results = await repository.get_parent_context(
+            DOCUMENT_ID, POINT, user=user, act_version_id=ACT_VERSION_ID, max_chars=70
+        )
+
+    assert [row.chunk_index for row in results] == [0, 1, 2]
+
+
+@pytest.mark.asyncio
+async def test_parent_scope_sql_never_returns_a_truncated_parent() -> None:
+    # An article spanning more chunks than one read allows is skipped, not cut to its start.
+    user = UserContext(user_id=OWNER_ID, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    nodes = tuple(
+        (*node[:5], MAX_PARENT_CHUNKS + 11, node[6]) if node[0] in {ARTICLE, CHAPTER} else node
+        for node in NODES
+    )
+
+    with parent_scope_repository("internal_private", nodes=nodes) as repository:
+        nearest = await repository.get_parent_context(
+            DOCUMENT_ID, POINT, user=user, act_version_id=ACT_VERSION_ID, max_chars=1000
+        )
+        oversized = await repository.get_parent_context(
+            DOCUMENT_ID, ARTICLE, user=user, act_version_id=ACT_VERSION_ID, max_chars=1000
+        )
+
+    assert [row.chunk_index for row in nearest] == [2]
+    assert oversized == []
+
+
+@pytest.mark.asyncio
+async def test_parent_scope_sql_stays_in_document_and_edition() -> None:
+    user = UserContext(user_id=OWNER_ID, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+
+    with parent_scope_repository("internal_private") as repository:
+        other_edition = await repository.get_parent_context(
+            DOCUMENT_ID, ARTICLE, user=user, act_version_id=ACT_VERSION_ID + 1, max_chars=1000
+        )
+        foreign = await repository.get_parent_context(
+            FOREIGN_DOCUMENT_ID, ARTICLE, user=user, act_version_id=None, max_chars=1000
+        )
+
+    assert other_edition == []
+    assert [row.document_id for row in foreign] == [FOREIGN_DOCUMENT_ID]
+
+
+@pytest.mark.asyncio
+async def test_parent_scope_sql_stops_at_a_missing_ancestor() -> None:
+    user = UserContext(user_id=OWNER_ID, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    nodes = tuple(node for node in NODES if node[0] != ARTICLE)
+
+    with parent_scope_repository("internal_private", nodes=nodes) as repository:
+        results = await repository.get_parent_context(
+            DOCUMENT_ID, POINT, user=user, act_version_id=ACT_VERSION_ID, max_chars=1000
+        )
+
+    assert [row.chunk_index for row in results] == [2]
+
+
+@pytest.mark.asyncio
+async def test_parent_expansion_passes_request_user_and_keeps_order_near_anchor() -> None:
+    user = UserContext(user_id=OWNER_ID, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    anchor = Document(
+        page_content="а) подпункт второго пункта",
+        metadata={
+            "document_id": DOCUMENT_ID,
+            "chunk_index": 2,
+            "act_version_id": ACT_VERSION_ID,
+            "section": "Статья 1 > 2.",
+            "parent_node_id": POINT,
+        },
+    )
+    records = [
+        ChunkRecord(index + 1, DOCUMENT_ID, "law.docx", content, index, act_version_id=ACT_VERSION_ID)
+        for index, _, content in CHUNKS[:4]
+    ]
+    search = SimpleNamespace(
+        get_parent_context=AsyncMock(return_value=records),
+        get_neighbors=AsyncMock(return_value=[]),
+    )
+
+    result = await enrich_with_neighbors(
+        [(anchor, 0.9)], enumerate_cases=False, chunk_search=search, user=user, max_context_tokens=6000
+    )
+
+    kwargs = search.get_parent_context.call_args.kwargs
+    assert kwargs["user"] is user
+    assert kwargs["act_version_id"] == ACT_VERSION_ID
+    assert kwargs["max_chars"] == 4500
+    search.get_neighbors.assert_not_called()
+    assert [doc.metadata["chunk_index"] for doc, _ in result] == [2, 1, 3, 0]
+
+
+@pytest.mark.asyncio
+async def test_parent_expansion_falls_back_to_neighbors_without_a_fitting_parent() -> None:
+    user = UserContext(user_id=OWNER_ID, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    anchor = Document(
+        page_content="body",
+        metadata={"document_id": DOCUMENT_ID, "chunk_index": 2, "section": "S", "parent_node_id": POINT},
+    )
+    search = SimpleNamespace(
+        get_parent_context=AsyncMock(return_value=[]),
+        get_neighbors=AsyncMock(return_value=[]),
+    )
+
+    await enrich_with_neighbors([(anchor, 0.9)], enumerate_cases=False, chunk_search=search, user=user)
+
+    assert search.get_neighbors.call_args.kwargs["user"] is user

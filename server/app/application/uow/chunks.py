@@ -6,6 +6,7 @@ from domain.knowledge.repositories.chunk import (
     ChunkCorpusRepository,
     ChunkCrudRepository,
     ChunkVersioningRepository,
+    DocumentNodeRepository,
 )
 from domain.rag.ports import ChunkRetrievalRepository, ChunkSearchPageRepository
 
@@ -17,6 +18,7 @@ class ChunkRepository(
     ChunkRetrievalRepository,
     ChunkSearchPageRepository,
     ChunkVersioningRepository,
+    DocumentNodeRepository,
     Protocol,
 ):
     """The UoW exposes all chunk ports over the same session."""

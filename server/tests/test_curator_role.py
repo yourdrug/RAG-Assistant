@@ -29,6 +29,7 @@ from domain.identity.user import User
 from domain.identity.user_context import CuratorScope, UserContext
 from domain.knowledge.document import Document
 from domain.rag.context import RagContext
+from tests.document_node_sql import ACT_VERSION_ID, DOCUMENT_ID, POINT, parent_scope_repository
 from tests.fakes import FakeMLClientRegistry, require_present
 
 
@@ -157,6 +158,36 @@ class TestCuratorAssignedClients:
         assert can_view_document(cast("Document", doc_100), ctx) is True
         assert can_view_document(cast("Document", doc_200), ctx) is True
         assert can_view_document(cast("Document", doc_300), ctx) is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "owner_id, managed, role",
+        [
+            (100, [100], UserRole.CURATOR),
+            (200, [100], UserRole.CURATOR),
+            (100, [], UserRole.CURATOR),
+            (100, [], UserRole.ADMIN),
+        ],
+    )
+    async def test_parent_scope_matches_search_scope(
+        self, owner_id: int, managed: list[int], role: UserRole
+    ) -> None:
+        """Parent-child expansion reads exactly what RAG search may read (6.4)."""
+        ctx = UserContext(
+            user_id=1,
+            user_kind=UserKind.INTERNAL,
+            user_role=role,
+            managed_client_ids=tuple(managed),
+        )
+        doc = SimpleNamespace(visibility="client_private", owner_id=owner_id, group_id=None)
+
+        with parent_scope_repository("client_private", owner_id=owner_id) as repository:
+            rows = await repository.get_parent_context(
+                DOCUMENT_ID, POINT, user=ctx, act_version_id=ACT_VERSION_ID, max_chars=70
+            )
+
+        assert bool(rows) is is_in_search_scope(cast("Document", doc), ctx)
+        assert bool(rows) is (role == UserRole.CURATOR and owner_id in managed)
 
 
 # ===========================================================================

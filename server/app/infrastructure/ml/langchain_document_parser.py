@@ -17,6 +17,7 @@ from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.ml.ingestion.act_identity import act_heading_title
 from infrastructure.ml.ingestion.amendment_context import attach_table_replacement_scope
 from infrastructure.ml.ingestion.format_tree import (
+    content_blocks,
     sections_from_tree,
     tree_from_sections,
     tree_heading_context,
@@ -221,12 +222,14 @@ class LangchainDocumentParser:
         page_meta: dict[str, Any] | None = None,
     ) -> list[RawDocument]:
         sections = table_context_sections(sections_from_tree(tree))
+        # Unjoined heading labels: parent node identities must not reparse « > ».
+        paths = [node.hints.get("heading_path", ()) for node in content_blocks(tree)]
         ctx = tree_heading_context(tree)
         total = sum(bool(section.content.strip()) for section in sections)
         docs: list[RawDocument] = []
         chunk_index = 0
 
-        for section in sections:
+        for section, heading_path in zip(sections, paths, strict=True):
             heading, content = section.heading, section.content
 
             if not content.strip():
@@ -245,6 +248,7 @@ class LangchainDocumentParser:
                 is_table=is_table,
             )
             metadata.update(section.metadata)
+            metadata["heading_path"] = list(heading_path)
             docs.append(RawDocument(page_content=content, metadata=metadata))
 
         if not docs:
@@ -297,6 +301,7 @@ class LangchainDocumentSplitter:
                 token_counter=self.token_counter,
                 profile=profile,
                 settings=domain_settings if domain_settings is not None else self._domain_settings,
+                registry=self._domain_registry,
             )
         )
 

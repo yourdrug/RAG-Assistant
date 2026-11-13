@@ -10,6 +10,12 @@ from typing import TYPE_CHECKING, Any
 from langchain.schema import Document
 
 from config import ChunkingSection, process_section
+from domain.ingestion.appendix import (
+    appendix_cuts,
+    appendix_policy,
+    classify_appendix,
+    is_attribution_block,
+)
 from domain.ingestion.document_tree import DocNode, NodeKind
 from domain.ingestion.embed_text import EMBED_PREFIX_KEY, MAX_EMBED_TOKENS, build_embed_text, context_prefix
 from domain.ingestion.profiles.contract import ContractDomainProfile
@@ -18,6 +24,7 @@ from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.tree_packer import ChunkDraft, pack_tree
 from domain.ingestion.unit_packing import PackedUnit
+from domain.knowledge.document_nodes import APPENDIX_NODE_KIND, NodeSegment, assign_chunk_nodes
 from domain.knowledge.enums import DocDomain, PageContentType
 from infrastructure.metrics.ingestion import (
     BOUNDARY_CANDIDATES_REJECTED_TOTAL,
@@ -38,11 +45,13 @@ from infrastructure.ml.tokenization import build_token_counter
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
+    from domain.ingestion.chunking_policy import ChunkingPolicy
     from domain.ingestion.content_splitter import SplitUnit
     from domain.ingestion.ports import DomainSettingsPort, TokenCounter
     from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.rag.ranking import RetrievalDocument
 
 log = logging.getLogger("detailed")
@@ -261,6 +270,7 @@ def split_documents(
     settings: DomainSettingsPort | None = None,
     *,
     token_counter: TokenCounter | None = None,
+    registry: DomainProfileRegistry | None = None,
 ) -> list[Document]:
     """Split documents into chunks.
 
@@ -272,10 +282,199 @@ def split_documents(
     Unstructured domains pack complete instruction steps, then use paragraph/
     sentence splitting for oversized blocks. Table row batches retain their
     original position and repeat headers in every domain.
+
+    With a registry, each appendix (see ``domain.ingestion.appendix``) is classified on
+    its own with the document domain as prior and split by that profile; its chunks get
+    ``unit_domain`` when it differs. ``doc_domain`` of the document is not changed.
     """
-    chunker = TreeChunkingAdapter(domain, profile, settings, token_counter)
+    counter = token_counter or build_token_counter(process_section(ChunkingSection).embed_tokenizer_path)
+    chunker = TreeChunkingAdapter(domain, profile, settings, counter)
+    chunkers = {domain: chunker}
     chunks: list[Document] = []
+    appendix_roots: list[NodeSegment | None] = []
     table_counts: dict[str, int] = {}
+
+    for index, segment in enumerate(appendix_segments(drop_headings_before_tables(docs))):
+        unit_domain = domain
+
+        if index and registry is not None and settings is not None:
+            text = "\n".join(
+                doc.page_content
+                for doc in segment
+                if doc.metadata.get("content_type") != PageContentType.TABLE.value
+            )
+            unit_domain = classify_appendix(registry, text, document_domain=domain, settings=settings)
+
+        if unit_domain not in chunkers:
+            log.info("Appendix %d split as domain=%s (doc_domain=%s)", index, unit_domain, domain)
+            chunkers[unit_domain] = TreeChunkingAdapter(
+                unit_domain,
+                registry_profile(registry, unit_domain),
+                settings,
+                counter,
+                document_policy=chunker.policy,
+            )
+
+        segment_chunks = split_segment(
+            attach_attribution_to_table(segment) if index else segment, chunkers[unit_domain], table_counts
+        )
+
+        if unit_domain != domain:
+            for chunk in segment_chunks:
+                chunk.metadata["unit_domain"] = unit_domain
+
+        chunks.extend(segment_chunks)
+        appendix_roots.extend([appendix_root(segment, index)] * len(segment_chunks))
+
+    # Filter out empty/whitespace-only chunks that cause TEI errors
+    before = len(chunks)
+    kept = [(c, root) for c, root in zip(chunks, appendix_roots, strict=True) if c.page_content.strip()]
+    chunks = [c for c, _ in kept]
+
+    if len(chunks) < before:
+        log.warning("Filtered %d empty chunks during split", before - len(chunks))
+
+    separate_dense_text(chunks, chunker.measure)
+    # After the dense text: parent identities do not change what is embedded.
+    nodes = assign_chunk_nodes([(chunk.metadata, root) for chunk, root in kept])
+
+    for chunk, node in zip(chunks, nodes, strict=True):
+        chunk.metadata.pop("heading_path", None)
+        chunk.metadata.update(node)
+
+    _enrich_final_chunks(chunks)
+
+    log.info(
+        "Split %d documents into %d chunks (domain=%s, structured=%s)",
+        len(docs),
+        len(chunks),
+        domain,
+        profile is not None and bool(profile.content_boundaries()),
+    )
+    return chunks
+
+
+def separate_dense_text(chunks: list[Document], measure: Callable[[str], int]) -> None:
+    """Strip the context prefix from content and keep it only in the dense text."""
+    for chunk in chunks:
+        chunk.metadata.pop("line_hints", None)
+        chunk.metadata.pop("inferred_heading", None)
+        dense_text = chunk.page_content
+        prefix = chunk.metadata.pop("context_prefix", "")
+        chunk.page_content = dense_text.removeprefix(prefix)
+        # Persisted with the chunk context so manual edits rebuild the same dense formula.
+        chunk.metadata[EMBED_PREFIX_KEY] = prefix
+        chunk.metadata["embed_text"] = build_embed_text(
+            chunk.metadata,
+            chunk.page_content,
+            max_tokens=MAX_EMBED_TOKENS,
+            measure=measure,
+        )
+
+
+def appendix_root(segment: list[Document], index: int) -> NodeSegment | None:
+    """An appendix is a top-level scope: parent expansion never crosses into the body."""
+    if not index:
+        return None
+
+    label = next((line.strip() for line in segment[0].page_content.splitlines() if line.strip()), "")
+    return NodeSegment(APPENDIX_NODE_KIND, label, str(index))
+
+
+def drop_headings_before_tables(docs: list[Document]) -> list[Document]:
+    """Skip a block that is only its heading when the next table carries that heading.
+
+    The table keeps the heading in ``section`` and its ``table_context`` parent unit, so the
+    bare heading would only become a body-less chunk or stick to an unrelated neighbour (1.3).
+    """
+    result = []
+
+    for index, doc in enumerate(docs):
+        following = docs[index + 1] if index + 1 < len(docs) else None
+        heading = doc.metadata.get("heading")
+
+        if (
+            following is not None
+            and heading
+            and doc.metadata.get("content_type") != PageContentType.TABLE.value
+            and doc.page_content.strip() == heading.strip()
+            and following.metadata.get("content_type") == PageContentType.TABLE.value
+            and following.metadata.get("section") == doc.metadata.get("section")
+        ):
+            continue
+
+        result.append(doc)
+
+    return result
+
+
+def attach_attribution_to_table(segment: list[Document]) -> list[Document]:
+    """Carry a bare appendix attribution as context of the table that follows it.
+
+    Alone it is a body-less chunk («Приложение № 1 к договору …»); the table, whose own
+    heading is the appendix title, otherwise never learns which appendix it belongs to.
+    """
+    table_kind = PageContentType.TABLE.value
+
+    match segment:
+        case [attribution, table, *rest] if (
+            attribution.metadata.get("content_type") != table_kind
+            and table.metadata.get("content_type") == table_kind
+            and is_attribution_block(attribution.page_content)
+        ):
+            pass
+        case _:
+            return segment
+
+    parents = [
+        {
+            "heading": table.metadata.get("heading") or "",
+            "unit_kind": "table_context",
+            "boundary_value": None,
+            "content": attribution.page_content.strip(),
+        },
+        *table.metadata.get("parent_units", []),
+    ]
+    return [
+        Document(page_content=table.page_content, metadata={**table.metadata, "parent_units": parents}),
+        *rest,
+    ]
+
+
+def appendix_segments(docs: list[Document]) -> list[list[Document]]:
+    """Body first, then one segment per appendix root, in source order."""
+    segments: list[list[Document]] = [[]]
+    cuts = dict(appendix_cuts([doc.page_content for doc in docs]))
+
+    for index, doc in enumerate(docs):
+        offset = cuts.get(index)
+
+        if offset is None:
+            segments[-1].append(doc)
+        elif offset == 0:
+            segments.append([doc])
+        else:
+            head = doc.page_content[:offset].rstrip()
+            segments[-1].append(document_slice(doc, head))
+            segments.append([document_slice(doc, doc.page_content[offset:], offset)])
+
+    return [segment for segment in segments if segment]
+
+
+def registry_profile(registry: DomainProfileRegistry | None, domain: str) -> DocumentProfile | None:
+    if registry is None:
+        return None
+
+    try:
+        return registry.get(domain)
+    except KeyError:
+        return None
+
+
+def split_segment(
+    docs: list[Document], chunker: TreeChunkingAdapter, table_counts: dict[str, int]
+) -> list[Document]:
+    chunks: list[Document] = []
 
     for original_doc in merge_pdf_pages(merge_inferred_sections(docs, chunker)):
         doc = original_doc
@@ -308,37 +507,6 @@ def split_documents(
         else:
             chunks.extend(chunker.split(doc))
 
-    # Filter out empty/whitespace-only chunks that cause TEI errors
-    before = len(chunks)
-    chunks = [c for c in chunks if c.page_content.strip()]
-
-    if len(chunks) < before:
-        log.warning("Filtered %d empty chunks during split", before - len(chunks))
-
-    for chunk in chunks:
-        chunk.metadata.pop("line_hints", None)
-        chunk.metadata.pop("inferred_heading", None)
-        dense_text = chunk.page_content
-        prefix = chunk.metadata.pop("context_prefix", "")
-        chunk.page_content = dense_text.removeprefix(prefix)
-        # Persisted with the chunk context so manual edits rebuild the same dense formula.
-        chunk.metadata[EMBED_PREFIX_KEY] = prefix
-        chunk.metadata["embed_text"] = build_embed_text(
-            chunk.metadata,
-            chunk.page_content,
-            max_tokens=MAX_EMBED_TOKENS,
-            measure=chunker.measure,
-        )
-
-    _enrich_final_chunks(chunks)
-
-    log.info(
-        "Split %d documents into %d chunks (domain=%s, structured=%s)",
-        len(docs),
-        len(chunks),
-        domain,
-        profile is not None and bool(profile.content_boundaries()),
-    )
     return chunks
 
 
@@ -417,6 +585,7 @@ def pack_inferred_run(docs: list[Document], chunker: TreeChunkingAdapter) -> lis
 
     for key in (
         "section",
+        "heading_path",
         "heading",
         "heading_level",
         "parent_section",
@@ -457,6 +626,7 @@ class TreeChunkingAdapter:
         profile: DocumentProfile | None = None,
         domain_settings: DomainSettingsPort | None = None,
         token_counter: TokenCounter | None = None,
+        document_policy: ChunkingPolicy | None = None,
     ) -> None:
         config = process_section(ChunkingSection)
         counter = token_counter or build_token_counter(config.embed_tokenizer_path)
@@ -479,6 +649,9 @@ class TreeChunkingAdapter:
         self.domain_settings = domain_settings
         policy_profile = self.profile or profile or GeneralDomainProfile()
         self.policy = policy_profile.chunking_policy(PolicySettings(domain_settings, config))
+
+        if document_policy is not None:
+            self.policy = appendix_policy(self.policy, document_policy)
 
         self.target_tokens = self.policy.target_tokens
         self.chunk_size = self.policy.max_tokens

@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from datetime import date, datetime
 
     from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
+    from domain.knowledge.document_nodes import DocumentNode
     from domain.shared.pagination import CursorPage
 
 
@@ -137,3 +138,12 @@ class ChunkVersioningRepository(Protocol):
     async def update_temporal_by_act_version_id(
         self, act_version_id: int, effective_from: date | None, effective_to: date | None
     ) -> int: ...
+
+
+@runtime_checkable
+class DocumentNodeRepository(Protocol):
+    """Parent scopes of a document's chunks, replaced together with the chunks."""
+
+    async def replace_document_nodes(
+        self, document_id: int, act_version_id: int | None, nodes: list[DocumentNode]
+    ) -> None: ...

@@ -21,6 +21,7 @@ from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.profiles.types import refs_to_metadata
+from domain.ingestion.raw_document import RawDocument
 from domain.ingestion.tree_packer import select_structural_units
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.enums import DocDomain, DocumentVisibility
@@ -72,7 +73,8 @@ def test_contract_classification_and_law_are_unambiguous(
 def test_contract_boundaries_preserve_parents_and_appendix() -> None:
     text = Path("tests/fixtures/chunking/contract.txt").read_text()
     profile = ContractDomainProfile()
-    units = select_structural_units(text, profile.content_boundaries(), 600, unit_label=profile.unit_label)
+    # Clause 2.1 exceeds this budget; subclauses are no longer split unconditionally.
+    units = select_structural_units(text, profile.content_boundaries(), 200, unit_label=profile.unit_label)
     assert any(unit.boundary_value == "2.1.1" for unit in units)
     child = next(unit for unit in units if unit.boundary_value == "2.1.1")
     assert any(parent.boundary_value == "2.1" for parent in child.parents)
@@ -83,6 +85,23 @@ def test_contract_boundaries_preserve_parents_and_appendix() -> None:
     assert any(
         unit.unit_kind == "appendix" or any(p.unit_kind == "appendix" for p in unit.parents) for unit in units
     )
+
+
+def test_contract_short_clauses_pack_with_sibling_subclauses() -> None:
+    text = (
+        "ДОГОВОР № 1\n4. ПРИЁМКА ТОВАРА\n"
+        "4.1. Приёмка по количеству производится в момент получения товара.\n"
+        "4.2. Приёмка по качеству:\n"
+        "4.2.1. Покупатель осматривает товар в течение 3 рабочих дней;\n"
+        "4.2.2. при обнаружении недостатков составляется акт.\n"
+        "4.3. Скрытые недостатки могут быть заявлены в течение 6 месяцев.\n"
+    )
+
+    chunks = LangchainDocumentSplitter().split(
+        [RawDocument(text, {"source": "contract.txt"})], DocDomain.CONTRACT.value
+    )
+
+    assert any("4.1." in c.page_content and "4.3." in c.page_content for c in chunks)
 
 
 def test_contract_references_do_not_extract_party_names() -> None:

@@ -5,6 +5,7 @@ Extracted from RagService to isolate post-processing logic from pipeline orchest
 
 from collections import deque
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from datetime import date as _date
 import logging
 import re
@@ -17,6 +18,7 @@ from application.ports.ml_clients import MLClientPort
 from application.rag.stream_events import SourcesEvent, StreamEvent, TextChunk
 from domain.identity.user_context import UserContext
 from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS, ChunkRecord
+from domain.knowledge.document_nodes import PARENT_NODE_ID_KEY
 from domain.knowledge.enums import PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.evidence.table_context import requests_table_overview
@@ -40,6 +42,9 @@ from infrastructure.resilience import circuit_breaker
 
 
 log = logging.getLogger("default")
+
+# estimate_text_tokens counts UTF-8 bytes / 3: one Cyrillic character ≈ 2/3 token.
+PARENT_CHARS_PER_TOKEN = 1.5
 
 
 async def handle_relevance_gate(
@@ -168,7 +173,15 @@ def apply_citation_filter(
     return filtered
 
 
-async def fetch_context_neighbors(
+@dataclass
+class ParentScopes:
+    """Parent scopes already expanded in one request and the size one may have."""
+
+    max_chars: int
+    seen: set[tuple[int, int | None, int, int]] = field(default_factory=set)
+
+
+async def fetch_context_neighbors(  # noqa: PLR0913 - one request scope per expansion kind
     doc: Document,
     chunk_search: ChunkRetrievalRepository,
     user: UserContext | None,
@@ -177,8 +190,9 @@ async def fetch_context_neighbors(
     enumerate_cases: bool,
     hashes: set[str],
     scopes: set[tuple[int, str, int | None, int | None]],
+    parents: ParentScopes | None = None,
 ) -> list[ChunkRecord]:
-    """Resolve one authorized table/row scope or a bounded text neighborhood."""
+    """Resolve one authorized table/row scope, a parent scope or a bounded text neighborhood."""
     document_id = doc.metadata.get("document_id")
     chunk_index = doc.metadata.get("chunk_index")
 
@@ -186,6 +200,11 @@ async def fetch_context_neighbors(
         return []
 
     if doc.metadata.get("content_type") != PageContentType.TABLE.value:
+        parent = await fetch_parent_scope(doc, chunk_search, user, parents)
+
+        if parent is not None:
+            return parent
+
         plain_text = not (doc.metadata.get("section") or doc.metadata.get("heading"))
         neighbors = await chunk_search.get_neighbors(
             document_id,
@@ -207,6 +226,43 @@ async def fetch_context_neighbors(
         )
 
     return await fetch_table_context(doc, chunk_search, user, hashes, scopes, full_table=full_table)
+
+
+async def fetch_parent_scope(
+    doc: Document,
+    chunk_search: ChunkRetrievalRepository,
+    user: UserContext,
+    parents: ParentScopes | None,
+) -> list[ChunkRecord] | None:
+    """Chunks of the largest fitting parent, nearest to the anchor first.
+
+    ``None`` keeps the legacy neighbour heuristics (chunks indexed before parent nodes, or no
+    parent fits). Children of one parent fetch it once; the renderer joins them in one block.
+    """
+    node_id = doc.metadata.get(PARENT_NODE_ID_KEY)
+
+    if parents is None or not node_id or parents.max_chars <= 0:
+        return None
+
+    document_id = doc.metadata["document_id"]
+    act_version_id = doc.metadata.get("act_version_id")
+    chunk_index = doc.metadata["chunk_index"]
+    records = await chunk_search.get_parent_context(
+        document_id, node_id, user=user, act_version_id=act_version_id, max_chars=parents.max_chars
+    )
+
+    if not records:
+        return None
+
+    # Records are ordered by chunk_index; their range identifies the selected ancestor.
+    scope = (document_id, act_version_id, records[0].chunk_index, records[-1].chunk_index)
+
+    if scope in parents.seen:
+        return []
+
+    parents.seen.add(scope)
+    siblings = [record for record in records if record.chunk_index != chunk_index]
+    return sorted(siblings, key=lambda record: (abs(record.chunk_index - chunk_index), record.chunk_index))
 
 
 async def enrich_with_neighbors(
@@ -238,6 +294,8 @@ async def enrich_with_neighbors(
     anchors = select_neighbor_anchors(docs, max_context_tokens, query)
     existing = {evidence_identity(doc) for doc, _ in docs}
     scopes: set[tuple[int, str, int | None, int | None]] = set()
+    # A parent must fit the expansion half of the context; packing below shares it fairly.
+    parents = ParentScopes(int(max_context_tokens // 2 * PARENT_CHARS_PER_TOKEN))
     queues: list[tuple[float, deque[ChunkRecord]]] = []
 
     for doc, score in anchors:
@@ -252,6 +310,7 @@ async def enrich_with_neighbors(
                 # document; deduplicate complete evidence after fetching it.
                 hashes=set(),
                 scopes=scopes,
+                parents=parents,
             )
         except Exception:
             log.warning(

@@ -484,6 +484,33 @@ class ChunkModel(BaseModel):
     doc_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
+class DocumentNodeModel(BaseModel):
+    """Parent scope of chunks (article, point, section) for parent-child retrieval.
+
+    Holds no text: content is read from ``chunks`` under the chunk ACL. Never query it
+    without proving access to a chunk of the same document.
+    """
+
+    __tablename__ = "document_nodes"
+    __table_args__ = (UniqueConstraint("document_id", "node_id", name="ux_document_nodes_document_node"),)
+
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    act_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("act_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    node_id: Mapped[str] = mapped_column(Text, nullable=False)
+    parent_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    label: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    depth: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    pages: Mapped[list[int]] = mapped_column(JSONB, nullable=False, default=list)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    text_hash: Mapped[str] = mapped_column(String(16), nullable=False)
+
+
 class ChatLogModel(BaseModel):
     """Persistent Q&A log for quality tracking."""
 

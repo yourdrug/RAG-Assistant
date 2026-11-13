@@ -79,7 +79,9 @@ class ContractDomainProfile(SettingsBackedProfile):
             BoundaryLevel("appendix", APPENDIX_RE, always_split=True, packing_barrier=True),
             BoundaryLevel("section", SECTION_RE, always_split=True, packing_barrier=True),
             BoundaryLevel("clause", CLAUSE_RE, always_split=True),
-            BoundaryLevel("subclause", SUBCLAUSE_RE, always_split=True),
+            # Subclauses split only over budget: forcing them detached short sibling clauses
+            # (4.1 | 4.2.1-4.2.2 | 4.3) because packing joins units of one parent only.
+            BoundaryLevel("subclause", SUBCLAUSE_RE),
             BoundaryLevel("subpoint", SUBPOINT_LETTER_RE),
             BoundaryLevel("paragraph", PARAGRAPH_RE),
             BoundaryLevel("sentence", SENTENCE_RE),

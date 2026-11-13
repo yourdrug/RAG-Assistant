@@ -91,3 +91,17 @@ class ChunkSearchAdapter:
                 row_start=row_start,
                 row_end=row_end,
             )
+
+    async def get_parent_context(
+        self,
+        document_id: int,
+        node_id: str,
+        *,
+        user: UserContext,
+        act_version_id: int | None,
+        max_chars: int,
+    ) -> list[ChunkRecord]:
+        async with self._uow_factory.create() as uow:
+            return await uow.chunks.get_parent_context(
+                document_id, node_id, user=user, act_version_id=act_version_id, max_chars=max_chars
+            )

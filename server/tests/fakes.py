@@ -80,6 +80,7 @@ if TYPE_CHECKING:
         ChunkInsert,
     )
     from domain.knowledge.document import Document
+    from domain.knowledge.document_nodes import DocumentNode
     from domain.knowledge.index_sync import VectorOutboxEntry
     from domain.knowledge.repositories.chunk import (
         ChunkInsertOptions,
@@ -232,6 +233,12 @@ class FakeChunkRepository:
     def __init__(self) -> None:
         self._chunks: list[dict[str, Any]] = []
         self._next_id = 1
+        self.document_nodes: dict[int, tuple[int | None, list[DocumentNode]]] = {}
+
+    async def replace_document_nodes(
+        self, document_id: int, act_version_id: int | None, nodes: list[DocumentNode]
+    ) -> None:
+        self.document_nodes[document_id] = (act_version_id, list(nodes))
 
     async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
         del for_update
@@ -554,6 +561,18 @@ class FakeChunkRepository:
         row_end: int | None = None,
     ) -> list[ChunkRecord]:
         msg = "Table retrieval requires a dedicated ACL-aware test repository"
+        raise NotImplementedError(msg)
+
+    async def get_parent_context(
+        self,
+        document_id: int,
+        node_id: str,
+        *,
+        user: UserContext,
+        act_version_id: int | None,
+        max_chars: int,
+    ) -> list[ChunkRecord]:
+        msg = "Parent retrieval requires a dedicated ACL-aware test repository"
         raise NotImplementedError(msg)
 
 

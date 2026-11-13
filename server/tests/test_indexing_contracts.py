@@ -79,7 +79,11 @@ async def test_existing_uow_keeps_transaction_ownership_and_projection_order(set
     async def update(*args: object, **kwargs: object) -> None:
         events.append("status")
 
+    async def replace_nodes(*args: object) -> None:
+        events.append("nodes")
+
     uow.chunks.bulk_insert = AsyncMock(side_effect=insert)
+    uow.chunks.replace_document_nodes = AsyncMock(side_effect=replace_nodes)
     uow.vector_outbox.enqueue = AsyncMock(side_effect=enqueue)
     uow.documents.update_status = AsyncMock(side_effect=update)
     factory = Mock()
@@ -100,7 +104,7 @@ async def test_existing_uow_keeps_transaction_ownership_and_projection_order(set
     factory.create.assert_not_called()
     uow.commit.assert_not_called()
     uow.rollback.assert_not_called()
-    assert events == ["insert", "delete_chunks", "upsert_chunks", "status"]
+    assert events == ["insert", "nodes", "delete_chunks", "upsert_chunks", "status"]
     uow.chunks.get_ids_by_document_id.assert_awaited_once_with(9, for_update=True)
     points = uow.vector_outbox.enqueue.await_args_list[1].args[0].payload["points"]
     assert points[0]["metadata"] == {

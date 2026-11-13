@@ -76,6 +76,18 @@ class ChunkContextRepository(Protocol):
         row_end: int | None = None,
     ) -> list[ChunkRecord]: ...
 
+    async def get_parent_context(
+        self,
+        document_id: int,
+        node_id: str,
+        *,
+        user: UserContext,
+        act_version_id: int | None,
+        max_chars: int,
+    ) -> list[ChunkRecord]:
+        """Chunks of the largest ancestor of ``node_id`` within ``max_chars``, under search ACL."""
+        ...
+
 
 @runtime_checkable
 class ChunkRetrievalRepository(ChunkSearchRepository, ChunkContextRepository, Protocol):

@@ -17,6 +17,7 @@ from infrastructure.repositories.chunk.chunk_corpus import SQLAlchemyChunkCorpus
 from infrastructure.repositories.chunk.chunk_crud import SQLAlchemyChunkCrudRepository
 from infrastructure.repositories.chunk.chunk_search import SQLAlchemyChunkSearchRepository
 from infrastructure.repositories.chunk.chunk_versioning import SQLAlchemyChunkVersioningRepository
+from infrastructure.repositories.chunk.document_nodes import SQLAlchemyDocumentNodeRepository
 
 
 if TYPE_CHECKING:
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
 
     from domain.identity.user_context import UserContext
     from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
+    from domain.knowledge.document_nodes import DocumentNode
     from domain.shared.pagination import CursorPage
 
 
@@ -37,6 +39,25 @@ class SQLAlchemyChunkRepository:
         self._context = SQLAlchemyChunkContextRepository(session)
         self._versioning = SQLAlchemyChunkVersioningRepository(session)
         self._search = SQLAlchemyChunkSearchRepository(session)
+        self._nodes = SQLAlchemyDocumentNodeRepository(session)
+
+    async def replace_document_nodes(
+        self, document_id: int, act_version_id: int | None, nodes: list[DocumentNode]
+    ) -> None:
+        await self._nodes.replace_document_nodes(document_id, act_version_id, nodes)
+
+    async def get_parent_context(
+        self,
+        document_id: int,
+        node_id: str,
+        *,
+        user: UserContext,
+        act_version_id: int | None,
+        max_chars: int,
+    ) -> list[ChunkRecord]:
+        return await self._context.get_parent_context(
+            document_id, node_id, user=user, act_version_id=act_version_id, max_chars=max_chars
+        )
 
     async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
         return await self._crud.get_ids_by_document_id(document_id, for_update=for_update)
@@ -146,6 +167,7 @@ class SQLAlchemyChunkRepository:
         return await self._crud.delete_one(chunk_id=chunk_id)
 
     async def delete_by_document_id(self, document_id: int) -> None:
+        await self._nodes.replace_document_nodes(document_id, None, [])
         return await self._crud.delete_by_document_id(document_id=document_id)
 
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:

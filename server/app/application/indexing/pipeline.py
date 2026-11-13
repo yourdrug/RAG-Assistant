@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Unpack
 
 from application.indexing.classification import classify_document_text
 from domain.knowledge.chunk import ChunkInsert, extract_chunk_context
+from domain.knowledge.document_nodes import NODE_PATH_KEY, build_document_nodes
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
@@ -264,10 +265,18 @@ async def process_chunks_in_uow(
         ),
     )
 
+    # Parent scopes are replaced with the chunks: their ranges are these chunk indexes.
+    await uow.chunks.replace_document_nodes(
+        document_id,
+        first_meta.get("act_version_id"),
+        build_document_nodes([(rc.page_content, rc.metadata) for rc in chunks]),
+    )
+
     # 2. Enrich metadata with chunk_ids и chunk_index
     for i, (chunk_id, rc) in enumerate(zip(chunk_ids, chunks, strict=True)):
         rc.metadata["chunk_id"] = chunk_id
         rc.metadata["chunk_index"] = i
+        rc.metadata.pop(NODE_PATH_KEY, None)
 
     # 3. Enqueue outbox for Qdrant
     if replaced_ids:
