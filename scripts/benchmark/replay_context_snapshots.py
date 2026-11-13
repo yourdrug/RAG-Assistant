@@ -8,8 +8,6 @@ rejected neighbors; exact legacy context matches are reported explicitly.
 
 from __future__ import annotations
 
-from infrastructure.domain_profile.answer_policy import classify_query_domain
-from domain.identity.user_context import UserContext
 import argparse
 import json
 from pathlib import Path
@@ -21,11 +19,13 @@ from langchain_core.documents import Document
 from application.rag.dto import PreparedQuery, RagRequest, RetrievalResult
 from domain.benchmark.evaluation import evaluate_evidence
 from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.shared.hashing import content_hash
-from infrastructure.ml.evidence_profiles.profiles import EVIDENCE_PROFILES, evidence_profile_scope
+from infrastructure.domain_profile.answer_policy import classify_query_domain
+from infrastructure.ml.evidence_profiles.profiles import evidence_profile_scope
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence, active_evidence, snapshot_documents
 from infrastructure.ml.rag.document_sources import group_by_document
 from infrastructure.ml.rag.langchain_mapping import lc_documents, scored_values
@@ -35,6 +35,7 @@ from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, render_selecte
 from infrastructure.ml.rag.rag_prompts import build_prompt, domain_prompt_addendum
 from infrastructure.ml.rag.rag_reranking import group_by_section
 from infrastructure.ml.rag.rag_steps import RagOperations
+from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile
 
 
 if TYPE_CHECKING:
@@ -228,9 +229,9 @@ def replay_question(
 
 def replay(snapshot: dict[str, Any]) -> dict[str, Any]:
     rag = build_rag_settings(SimpleNamespace(**snapshot["runtime"]))
-    domain_keys = (DocDomain.LEGAL.value, DocDomain.GENERAL.value)
+    domain_keys = ("legal", DocDomain.GENERAL.value)
     # Snapshots come from the legal benchmark, so the legal evidence rules are selected explicitly.
-    with evidence_profile_scope(EVIDENCE_PROFILES["belarus"]):
+    with evidence_profile_scope(BelarusEvidenceProfile()):
         questions = [replay_question(question, rag, domain_keys) for question in snapshot["questions"]]
     return {
         "sweep_id": snapshot["sweep_id"],

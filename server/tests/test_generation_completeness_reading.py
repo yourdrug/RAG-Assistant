@@ -8,10 +8,10 @@ from typing import Any
 
 import pytest
 
-from infrastructure.ml.evidence_profiles.belarus.focus import enumeration_anchors, table_lookup_anchors
-from infrastructure.ml.evidence_profiles.belarus.reading import evidence_reading_reminder
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.rag_prompts import build_prompt
+from packs.belarus_law.infrastructure.evidence.focus import enumeration_anchors, table_lookup_anchors
+from packs.belarus_law.infrastructure.evidence.reading import evidence_reading_reminder
 
 
 SNAPSHOT = json.loads(

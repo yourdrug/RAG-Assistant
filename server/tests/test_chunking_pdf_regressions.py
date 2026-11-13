@@ -10,8 +10,6 @@ from langchain.schema import Document
 import pytest
 
 from domain.ingestion.profiles.contract import ContractDomainProfile
-from domain.ingestion.profiles.decree import DecreeDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.tree_packer import select_structural_units
 from infrastructure.ml.ingestion.splitting import (
     TreeChunkingAdapter,
@@ -19,6 +17,8 @@ from infrastructure.ml.ingestion.splitting import (
     split_documents,
 )
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 if TYPE_CHECKING:

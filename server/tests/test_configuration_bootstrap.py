@@ -20,9 +20,7 @@ from application.runtime.enums import AppStage, HealthStatus, LLMProvider
 from composition.cli.commands import config, ingest, worker
 from config import Settings, settings
 from domain.ingestion.profiles.contract import ContractDomainProfile
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.runtime.cost import BudgetError
 from domain.shared.exceptions import ValidationError
@@ -30,13 +28,16 @@ from infrastructure import initialization
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport
 from infrastructure.database.database import database
-from infrastructure.domain_profile import register_all_profiles
+from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 from infrastructure.ml.clients import managed_http
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.redis.redis_client import redis_client
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
+from packs.belarus_law.pack import BELARUS_LAW_PACK
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.dependencies import create_config_service
 from presentation.api.routes.admin_config import router
@@ -67,7 +68,7 @@ def configuration() -> SettingsProviderConfiguration:
     )
     adapter = DomainSettingsAdapter()
     registry = DomainProfileRegistry()
-    register_all_profiles(registry, adapter)
+    register_pack_profiles(registry, BELARUS_LAW_PACK, adapter)
     bus = InProcessEventBus()
     return SettingsProviderConfiguration(model, adapter, registry, bus)
 
@@ -86,7 +87,7 @@ async def test_seed_and_load_errors_are_fatal() -> None:
     with pytest.raises(RuntimeError, match="database unavailable"):
         await initialization.seed_config_defaults(factory)
     with pytest.raises(RuntimeError, match="database unavailable"):
-        await initialization.load_config_from_db(factory)
+        await initialization.load_config_from_db(factory, MagicMock())
 
 
 def test_production_provider_validation_uses_deployment_provider(

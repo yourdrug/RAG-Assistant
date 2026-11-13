@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from domain.ingestion.chunking_policy import profile_policy
 from domain.ingestion.profiles.base import (
     EFFECTIVE_DATE_TRUST_THRESHOLD_DEFAULT,
+    VERSIONED_AS_OF_NOTE,
     SettingsBackedProfile,
     extract_effective_date_generic,
 )
@@ -82,6 +83,7 @@ class LegalDomainProfile(SettingsBackedProfile):
         "«Согласно ст. 15 ФЗ-XXX» или «п. 3.2 Договора»).\n- Не перефразируй формулировки "
         "нормативных актов — цитируй максимально близко к тексту.\n",
         fallback_to_full_corpus=True,
+        as_of_note=VERSIONED_AS_OF_NOTE,
     )
     query_patterns: tuple[str, ...] = (
         "вправе\\s+ли",

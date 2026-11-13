@@ -15,6 +15,7 @@ All tests are pure unit tests with no infrastructure dependencies.
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
 
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
@@ -32,6 +33,10 @@ from infrastructure.domain_profile.answer_policy import classify_query_domain
 from infrastructure.ml.rag.prompts import (
     build_system_prompt,
 )
+
+
+if TYPE_CHECKING:
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 
 # ===========================================================================
@@ -245,14 +250,14 @@ class TestIsOutOfDomain:
 class TestClassifyQueryDomain:
     """Business rule: classify query as legal or general."""
 
-    def test_legal_question_with_article(self) -> None:
-        assert classify_query_domain("Статья 15 ФЗ-XXX говорит о") == DocDomain.LEGAL
+    def test_legal_question_with_article(self, law_registry: DomainProfileRegistry) -> None:
+        assert classify_query_domain("Статья 15 ФЗ-XXX говорит о", law_registry) == "legal"
 
-    def test_contract_question_with_clause(self) -> None:
-        assert classify_query_domain("Пункт 3.2 договора") == DocDomain.CONTRACT
+    def test_contract_question_with_clause(self, law_registry: DomainProfileRegistry) -> None:
+        assert classify_query_domain("Пункт 3.2 договора", law_registry) == "contract"
 
-    def test_legal_question_with_accordance(self) -> None:
-        assert classify_query_domain("В соответствии с законом") == DocDomain.LEGAL
+    def test_legal_question_with_accordance(self, law_registry: DomainProfileRegistry) -> None:
+        assert classify_query_domain("В соответствии с законом", law_registry) == "legal"
 
     def test_general_question(self) -> None:
         assert classify_query_domain("Какой статус заявки?") == DocDomain.GENERAL

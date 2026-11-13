@@ -18,7 +18,6 @@ from application.admin import ConfigService
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
 from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
 from config import Settings, settings
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.rag.breadth import Breadth
 from domain.shared.exceptions import ValidationError
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
@@ -31,7 +30,10 @@ from infrastructure.ml.config.provider_configuration import SettingsProviderConf
 from infrastructure.ml.rag import rag_retrieval
 from infrastructure.ml.rag.rag_prompts import condense_question
 from infrastructure.repositories.vector import qdrant_ops
+from packs.belarus_law.domain.legal import LegalDomainProfile
+from packs.belarus_law.pack import BELARUS_LAW_PACK
 from tests.fakes import FakeUnitOfWorkFactory
+from tests.law_pack import law_registry
 
 
 if TYPE_CHECKING:
@@ -104,6 +106,14 @@ def test_factories_use_independent_effective_pool_limits(
     asyncio.run(adapter.close())
 
 
+def law_profile_defaults() -> dict[tuple[str, str], str]:
+    return {
+        (default.key, profile.key): default.value
+        for profile in BELARUS_LAW_PACK.build_profiles(None)
+        for default in profile.config_defaults()
+    }
+
+
 def test_domain_token_target_without_max_uses_profile_limit(model: Settings) -> None:
     with pytest.raises(ValidationError, match="legal_chunk_target_tokens"):
         validate_chunking(
@@ -113,6 +123,7 @@ def test_domain_token_target_without_max_uses_profile_limit(model: Settings) -> 
                     LegalDomainProfile().chunking_policy().max_tokens + 1
                 )
             },
+            law_profile_defaults(),
         )
 
 
@@ -120,6 +131,7 @@ def test_domain_token_target_below_profile_max_is_accepted(model: Settings) -> N
     validate_chunking(
         model,
         {("legal_chunk_target_tokens", "legal"): str(LegalDomainProfile().chunking_policy().max_tokens - 1)},
+        law_profile_defaults(),
     )
 
 
@@ -869,7 +881,7 @@ def test_domain_token_target_must_stay_within_max(model: Settings) -> None:
     domain_settings.replace_snapshot(
         {("legal_chunk_max_tokens", "legal"): "500", ("legal_chunk_target_tokens", "legal"): "50"}
     )
-    config = SettingsProviderConfiguration(model, domain_settings, bus=InProcessEventBus())
+    config = SettingsProviderConfiguration(model, domain_settings, law_registry(), bus=InProcessEventBus())
 
     with pytest.raises(
         ValidationError, match="legal_chunk_target_tokens must be positive and <= legal_chunk_max_tokens"

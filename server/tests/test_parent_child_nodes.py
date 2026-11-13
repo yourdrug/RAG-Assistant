@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from application import indexing
-from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import extract_chunk_context
@@ -26,10 +25,11 @@ from domain.knowledge.document_nodes import (
     select_parent,
     within_chunk_limit,
 )
-from domain.knowledge.enums import DocDomain, DocumentVisibility
-from infrastructure.domain_profile import register_all_profiles
+from domain.knowledge.enums import DocumentVisibility
+from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+from packs.belarus_law.pack import BELARUS_LAW_PACK
 from tests.chunking_fixtures import FIXTURES_DIR
 from tests.test_chunking_appendices import BODY, INSTRUCTION
 
@@ -131,13 +131,13 @@ def ingestion() -> tuple[LangchainDocumentParser, LangchainDocumentSplitter]:
     settings = DomainSettingsAdapter()
     settings.replace_snapshot(
         {
-            (item.key, cls.key): item.value
-            for cls in SETTINGS_PROFILE_TYPES
-            for item in cls().config_defaults()
+            (item.key, profile.key): item.value
+            for profile in BELARUS_LAW_PACK.build_profiles(None)
+            for item in profile.config_defaults()
         }
     )
     registry = DomainProfileRegistry()
-    register_all_profiles(registry, settings)
+    register_pack_profiles(registry, BELARUS_LAW_PACK, settings)
     return LangchainDocumentParser(registry, settings), LangchainDocumentSplitter(registry, settings)
 
 
@@ -154,8 +154,8 @@ def test_resplitting_the_same_file_yields_the_same_node_ids(
     path = tmp_path / "law.txt"
     path.write_text((FIXTURES_DIR / "law.txt").read_text(encoding="utf-8"), encoding="utf-8")
 
-    first = split_text(ingestion, path, DocDomain.LEGAL.value)
-    second = split_text(ingestion, path, DocDomain.LEGAL.value)
+    first = split_text(ingestion, path, "legal")
+    second = split_text(ingestion, path, "legal")
     ids = [chunk.metadata[PARENT_NODE_ID_KEY] for chunk in first]
 
     assert ids == [chunk.metadata[PARENT_NODE_ID_KEY] for chunk in second]
@@ -184,7 +184,7 @@ def test_node_ids_do_not_depend_on_text_offsets(
     shifted_path.write_text(shifted, encoding="utf-8")
 
     def ids_by_body(path: Path) -> dict[str, Any]:
-        chunks = split_text(ingestion, path, DocDomain.LEGAL.value)
+        chunks = split_text(ingestion, path, "legal")
         return {chunk.page_content: chunk.metadata[PARENT_NODE_ID_KEY] for chunk in chunks}
 
     original, moved = ids_by_body(original_path), ids_by_body(shifted_path)
@@ -198,19 +198,19 @@ def test_appendix_root_is_a_separate_top_level_scope() -> None:
     settings = DomainSettingsAdapter()
     settings.replace_snapshot(
         {
-            (item.key, cls.key): item.value
-            for cls in SETTINGS_PROFILE_TYPES
-            for item in cls().config_defaults()
+            (item.key, profile.key): item.value
+            for profile in BELARUS_LAW_PACK.build_profiles(None)
+            for item in profile.config_defaults()
         }
     )
     registry = DomainProfileRegistry()
-    register_all_profiles(registry, settings)
+    register_pack_profiles(registry, BELARUS_LAW_PACK, settings)
     docs = [
         RawDocument(BODY, {"source": "resolution.docx", "heading_path": ["ПОСТАНОВЛЕНИЕ"]}),
         RawDocument(INSTRUCTION, {"source": "resolution.docx", "heading_path": ["ИНСТРУКЦИЯ"]}),
     ]
 
-    chunks = LangchainDocumentSplitter(registry, settings).split(docs, DocDomain.DECREE.value)
+    chunks = LangchainDocumentSplitter(registry, settings).split(docs, "decree")
     ids = [chunk.metadata[PARENT_NODE_ID_KEY] or "" for chunk in chunks]
     instruction = [i for i, chunk in enumerate(chunks) if "до 8 числа" in chunk.page_content]
 

@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from composition.infrastructure import InfrastructureContainer
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.rag.ports import ChunkRetrievalRepository
+    from infrastructure.ml.evidence_profiles.profiles import EvidenceProfile
 
 log = logging.getLogger("default")
 
@@ -245,6 +246,7 @@ def create_rag_service(
     *,
     document_access: DocumentAccessPort,
     domain_registry: DomainProfileRegistry | None = None,
+    evidence_profile: EvidenceProfile | None = None,
 ) -> ApplicationRagService:
     operations = RagOperations(
         ml_clients,
@@ -253,6 +255,7 @@ def create_rag_service(
         pii_redactor,
         document_access=document_access,
         domain_registry=domain_registry,
+        evidence_profile=evidence_profile,
     )
     return ApplicationRagService(
         preparation=operations,

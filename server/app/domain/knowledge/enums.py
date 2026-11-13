@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 import re
-from typing import Literal, Self
+from typing import Self
 
 from domain.shared.enums import LifecycleStatus, ValidatedStrEnum
 from domain.shared.exceptions import ValidationError
@@ -24,10 +24,9 @@ class DomainKey(str):
 
 
 class DocDomain(StrEnum):
+    """Profiles known to the core; a domain pack adds its own profile keys."""
+
     GENERAL = "general"
-    LEGAL = "legal"
-    DECREE = "decree"
-    CONTRACT = "contract"
 
 
 GENERAL_DOMAIN_KEY = DomainKey(DocDomain.GENERAL)
@@ -35,11 +34,6 @@ GENERAL_DOMAIN_KEY = DomainKey(DocDomain.GENERAL)
 
 class DomainDetectionMode(StrEnum):
     AUTO = "auto"
-
-
-DocDomainSelection = Literal[
-    DocDomain.GENERAL, DocDomain.LEGAL, DocDomain.DECREE, DocDomain.CONTRACT, DomainDetectionMode.AUTO
-]
 
 
 class DocumentStatus(

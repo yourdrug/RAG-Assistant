@@ -12,9 +12,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from application.act_versioning import VersioningResult
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.knowledge.enums import DocumentVisibility
+from packs.belarus_law.domain.decree import DecreeDomainProfile
 from tests.fakes import require_present
 
 

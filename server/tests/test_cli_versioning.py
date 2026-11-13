@@ -26,8 +26,8 @@ from application.ingestion import (
     S3UploadService,
     SingleFileIngestionWorkflow,
 )
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.raw_document import RawDocument as Document
+from packs.belarus_law.domain.decree import DecreeDomainProfile
 from tests.fakes import FakeUnitOfWorkFactory
 
 

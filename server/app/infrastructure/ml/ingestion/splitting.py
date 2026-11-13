@@ -18,10 +18,7 @@ from domain.ingestion.appendix import (
 )
 from domain.ingestion.document_tree import DocNode, NodeKind
 from domain.ingestion.embed_text import EMBED_PREFIX_KEY, MAX_EMBED_TOKENS, build_embed_text, context_prefix
-from domain.ingestion.profiles.contract import ContractDomainProfile
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.tree_packer import ChunkDraft, pack_tree
 from domain.ingestion.unit_packing import PackedUnit
 from domain.knowledge.document_nodes import APPENDIX_NODE_KIND, NodeSegment, assign_chunk_nodes
@@ -634,14 +631,6 @@ class TreeChunkingAdapter:
         self.measure = lru_cache(maxsize=4096)(counter.count)
         self.domain = domain
         self.profile = profile
-
-        if self.profile is None:
-            if domain == DocDomain.LEGAL.value:
-                self.profile = LegalDomainProfile(domain_settings)
-            elif domain == DocDomain.CONTRACT.value:
-                self.profile = ContractDomainProfile(domain_settings)
-            elif domain == DocDomain.DECREE.value:
-                self.profile = DecreeDomainProfile(domain_settings)
 
         if self.profile and not self.profile.content_boundaries():
             self.profile = None

@@ -13,15 +13,15 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocumentVisibility, PageContentType
-from infrastructure.domain_profile import register_all_profiles
+from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.splitting import TreeChunkingAdapter
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.tokenization import build_token_counter
+from packs.belarus_law.pack import BELARUS_LAW_PACK
 from tests.chunking_fixtures import CHUNKING_FIXTURES, source_text
 
 
@@ -61,15 +61,13 @@ def ingestion() -> tuple[LangchainDocumentParser, LangchainDocumentSplitter, Dom
     settings = DomainSettingsAdapter()
     values: dict[tuple[str, str], str] = {}
 
-    for profile_type in SETTINGS_PROFILE_TYPES:
-        profile = profile_type(settings=settings)
-
+    for profile in BELARUS_LAW_PACK.build_profiles(settings):
         for default in profile.config_defaults():
             values[default.key, profile.key] = default.value
 
     settings.replace_snapshot(values)
     registry = DomainProfileRegistry()
-    register_all_profiles(registry, settings)
+    register_pack_profiles(registry, BELARUS_LAW_PACK, settings)
     return (
         LangchainDocumentParser(registry, settings),
         LangchainDocumentSplitter(registry, settings),

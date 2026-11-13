@@ -12,14 +12,15 @@ from typing import TYPE_CHECKING, cast
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.protocol import (
     DocumentProfile,
 )
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.rag.rag_prompts import domain_prompt_addendum
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
+from tests.law_pack import law_registry
 
 
 if TYPE_CHECKING:
@@ -169,12 +170,12 @@ class TestLegalProfile:
         assert len(article_refs) >= 1
 
     def test_prompt_addendum_contains_rules(self) -> None:
-        addendum = policy_for("legal").prompt_addendum()
+        addendum = policy_for("legal", law_registry()).prompt_addendum()
         assert addendum is not None
         assert "статьи" in addendum.lower() or "пункта" in addendum.lower()
 
     def test_prompt_addendum_with_as_of_date(self) -> None:
-        addendum = policy_for("legal").prompt_addendum(as_of_date=date(2026, 1, 1))
+        addendum = policy_for("legal", law_registry()).prompt_addendum(as_of_date=date(2026, 1, 1))
         assert addendum is not None
         assert "01.01.2026" in addendum
 
@@ -292,7 +293,7 @@ class TestAnswerPolicies:
         )
 
         for domain, rules in expected.items():
-            policy = policy_for(domain)
+            policy = policy_for(domain, law_registry())
             assert policy.retrieval_fallback_to_full_corpus() is True
 
             assert policy.prompt_addendum() == rules
@@ -300,7 +301,7 @@ class TestAnswerPolicies:
 
     def test_general_and_unknown_domains_have_no_addendum_or_fallback(self) -> None:
         for domain in ("general", "unknown", ""):
-            policy = policy_for(domain)
+            policy = policy_for(domain, law_registry())
             assert policy.prompt_addendum() is None
             assert policy.retrieval_fallback_to_full_corpus() is False
 
@@ -315,6 +316,8 @@ class TestAnswerPolicies:
         assert domain_prompt_addendum("legal", cast("RagContext", ctx), None) is None
         assert domain_prompt_addendum("legal", cast("RagContext", ctx), ("general",)) is None
         assert domain_prompt_addendum("unknown", cast("RagContext", ctx), ("unknown",)) is None
-        assert domain_prompt_addendum("legal", cast("RagContext", ctx), ("legal",)) == (
-            policy_for("legal").prompt_addendum()
+        registry = law_registry()
+        assert domain_prompt_addendum("legal", cast("RagContext", ctx), ("legal",)) is None
+        assert domain_prompt_addendum("legal", cast("RagContext", ctx), ("legal",), registry) == (
+            policy_for("legal", registry).prompt_addendum()
         )

@@ -9,16 +9,14 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from application.uow.factory import UnitOfWorkFactory
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 
 from application.runtime.config import ConfigParameter
-from application.runtime.dynamic_params import DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
+from application.runtime.dynamic_params import DYNAMIC_PARAMS, profile_param_category
 from config import Settings, settings
 from domain.identity.roles import UserKind, UserRole
-from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
-from infrastructure.domain_profile import register_all_profiles
-from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 
 
 logger = logging.getLogger("default")
@@ -28,25 +26,12 @@ def build_defaults() -> list[ConfigParameter]:
     result = []
 
     for declaration in DYNAMIC_PARAMS:
-        scoped_default = (
-            PROFILE_CONFIG_DEFAULTS.get((declaration.key, declaration.domain_key))
-            if declaration.domain_key is not None
-            else None
-        )
-        raw = (
-            scoped_default.value
-            if scoped_default is not None
-            else Settings.model_fields[declaration.key].get_default(call_default_factory=True)
-        )
+        raw = Settings.model_fields[declaration.key].get_default(call_default_factory=True)
 
         if raw is None:
             raw = declaration.min_val if declaration.min_val is not None else 0.0
 
-        value = (
-            scoped_default.value
-            if scoped_default is not None
-            else (json.dumps(raw) if declaration.type in (bool, list) else str(raw))
-        )
+        value = json.dumps(raw) if declaration.type in (bool, list) else str(raw)
         result.append(
             ConfigParameter(
                 declaration.key,
@@ -118,7 +103,7 @@ async def seed_domain_config_defaults(
                         default.key,
                         default.value,
                         default.value_type,
-                        f"domain:{profile.key}",
+                        profile_param_category(default.key, profile.key),
                         description=default.description,
                         min_value=default.min_value,
                         max_value=default.max_value,
@@ -129,18 +114,12 @@ async def seed_domain_config_defaults(
 
 async def load_config_from_db(
     uow_factory: UnitOfWorkFactory,
-    configuration: SettingsProviderConfiguration | None = None,
+    configuration: SettingsProviderConfiguration,
     *,
     require_complete: bool = True,
 ) -> None:
     async with uow_factory.create(master=True) as uow:
         rows = await uow.config_parameters.get_all()
-
-    if configuration is None:
-        domain_settings = DomainSettingsAdapter()
-        registry = DomainProfileRegistry()
-        register_all_profiles(registry, domain_settings)
-        configuration = SettingsProviderConfiguration(domain_settings=domain_settings, registry=registry)
 
     version = configuration.snapshot_version(rows)
 

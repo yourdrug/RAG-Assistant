@@ -4,7 +4,6 @@ Input is an exported benchmark run. Historical results and database baselines ar
 never overwritten. Run from server with PYTHONPATH=app inside the service container.
 """
 
-from domain.identity.user_context import UserContext
 import argparse
 import asyncio
 from collections.abc import Awaitable, Iterable
@@ -18,12 +17,12 @@ from typing import Any
 
 import httpx
 
-from composition.container import Container
-from config import settings_overrides, settings
-from domain.identity.roles import UserKind, UserRole
-from domain.rag.context import RagContext
-from infrastructure.ml.evidence_profiles.belarus.focus import EVIDENCE_POLICY_VERSION
 from application.runtime.config import ConfigParameterChanged
+from composition.container import Container
+from config import settings, settings_overrides
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
+from domain.rag.context import RagContext
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.judging.token_usage import judge_usage
@@ -33,6 +32,7 @@ from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from infrastructure.ml.usage_capture import active_llm_usage, summarize_usage
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.resilience.circuit_breaker import init_breakers
+from packs.belarus_law.infrastructure.evidence.focus import EVIDENCE_POLICY_VERSION
 
 
 log = logging.getLogger("default")

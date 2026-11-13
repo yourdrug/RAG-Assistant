@@ -16,10 +16,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from domain.ingestion.profiles.protocol import OperativePartProfile
 from domain.knowledge.enums import DocDomain
 
 
 if TYPE_CHECKING:
+    from domain.ingestion.doc_type import DocTypeKeywords
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.protocol import DocumentProfile
 
@@ -44,8 +46,11 @@ class ClassificationResult:
 
 
 class DomainProfileRegistry:
+    """Document rules of the active domain pack: its profiles and document-type keywords."""
+
     def __init__(self) -> None:
         self._profiles: dict[str, DocumentProfile] = {}
+        self.doc_type_keywords: DocTypeKeywords = ()
 
     def register(self, profile: DocumentProfile) -> None:
         self._profiles[profile.key] = profile
@@ -55,6 +60,17 @@ class DomainProfileRegistry:
 
     def all(self) -> list[DocumentProfile]:
         return list(self._profiles.values())
+
+    def operative_part_profile(self) -> OperativePartProfile | None:
+        """The structured profile of acts with an operative part, if the pack defines one."""
+        return next(
+            (
+                profile
+                for profile in self._profiles.values()
+                if isinstance(profile, OperativePartProfile) and profile.content_boundaries()
+            ),
+            None,
+        )
 
     def classify(
         self,

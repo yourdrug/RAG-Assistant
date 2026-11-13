@@ -15,18 +15,15 @@ import pytest
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 from domain.ingestion.profiles.contract import ContractDomainProfile
-from domain.ingestion.profiles.decree import DecreeDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.profiles.types import refs_to_metadata
 from domain.ingestion.raw_document import RawDocument
 from domain.ingestion.tree_packer import select_structural_units
 from domain.knowledge.access_control import get_visibility_conditions
-from domain.knowledge.enums import DocDomain, DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.domain_profile import register_all_profiles
+from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.answer_policy import classify_query_domain, policy_for
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.docx import parse_docx_sections
@@ -35,7 +32,11 @@ from infrastructure.ml.ingestion.registry import FormatContext, pdf_sections
 from infrastructure.ml.ingestion.splitting import classify_content_shape
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.repositories.vector.acl import build_qdrant_filter, with_domain_filter
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
+from packs.belarus_law.pack import BELARUS_LAW_PACK
 from tests.chunking_fixtures import ChunkingFixture
+from tests.law_pack import law_registry
 
 
 if TYPE_CHECKING:
@@ -46,12 +47,14 @@ if TYPE_CHECKING:
 @pytest.fixture
 def profiles() -> tuple[DomainProfileRegistry, DomainSettingsAdapter]:
     values = {
-        (item.key, cls.key): item.value for cls in SETTINGS_PROFILE_TYPES for item in cls().config_defaults()
+        (item.key, profile.key): item.value
+        for profile in BELARUS_LAW_PACK.build_profiles(None)
+        for item in profile.config_defaults()
     }
     settings = DomainSettingsAdapter()
     settings.replace_snapshot(values)
     registry = DomainProfileRegistry()
-    register_all_profiles(registry, settings)
+    register_pack_profiles(registry, BELARUS_LAW_PACK, settings)
     return registry, settings
 
 
@@ -61,13 +64,13 @@ def test_contract_classification_and_law_are_unambiguous(
     registry, settings = profiles
     text = Path("tests/fixtures/chunking/contract.txt").read_text()
     result = registry.classify(text, settings=settings)
-    assert result.domain_key == DocDomain.CONTRACT
+    assert result.domain_key == "contract"
     assert not result.is_ambiguous
     law = "Закон Республики Беларусь от 28.12.2009 № 113-З\n" + "Закон регулирует отношения. " * 8
     result = registry.classify(law, settings=settings)
-    assert result.domain_key == DocDomain.LEGAL
+    assert result.domain_key == "legal"
     assert not result.is_ambiguous
-    assert registry.get(DocDomain.CONTRACT).resolution_strategy == "replace"
+    assert registry.get("contract").resolution_strategy == "replace"
 
 
 def test_contract_boundaries_preserve_parents_and_appendix() -> None:
@@ -97,9 +100,7 @@ def test_contract_short_clauses_pack_with_sibling_subclauses() -> None:
         "4.3. Скрытые недостатки могут быть заявлены в течение 6 месяцев.\n"
     )
 
-    chunks = LangchainDocumentSplitter().split(
-        [RawDocument(text, {"source": "contract.txt"})], DocDomain.CONTRACT.value
-    )
+    chunks = LangchainDocumentSplitter().split([RawDocument(text, {"source": "contract.txt"})], "contract")
 
     assert any("4.1." in c.page_content and "4.3." in c.page_content for c in chunks)
 
@@ -402,7 +403,7 @@ def test_contract_acl_is_preserved_in_bm25_and_qdrant() -> None:
         Document(
             page_content=f"Условия договора {owner}",
             metadata={
-                "doc_domain": DocDomain.CONTRACT.value,
+                "doc_domain": "contract",
                 "owner_id": owner,
                 "visibility": DocumentVisibility.INTERNAL_PRIVATE.value,
             },
@@ -417,7 +418,7 @@ def test_contract_acl_is_preserved_in_bm25_and_qdrant() -> None:
     )
     assert len(result) == 1
     acl = build_qdrant_filter(user, [])
-    combined = with_domain_filter(acl, DocDomain.CONTRACT.value)
+    combined = with_domain_filter(acl, "contract")
     assert isinstance(combined.must, list)
     assert combined.must[0] == acl
     assert '"value":"contract"' in combined.model_dump_json()
@@ -434,7 +435,7 @@ def test_belarus_presidential_acts_stay_in_decree(
         + "Настоящий акт действует со дня опубликования. " * 4
     )
     result = registry.classify(text, settings=settings)
-    assert result.domain_key == DocDomain.DECREE
+    assert result.domain_key == "decree"
     assert not result.is_ambiguous
 
 
@@ -444,8 +445,11 @@ def test_decree_reference_line_is_not_a_title() -> None:
 
 
 def test_contract_question_uses_contract_citation_policy() -> None:
-    assert classify_query_domain("Обязан ли исполнитель по договору вернуть оплату?") == DocDomain.CONTRACT
-    policy = policy_for(DocDomain.CONTRACT)
+    assert (
+        classify_query_domain("Обязан ли исполнитель по договору вернуть оплату?", law_registry())
+        == "contract"
+    )
+    policy = policy_for("contract", law_registry())
     assert policy.rules is not None
     assert "пункт" in policy.rules
     # Contract questions often need the governing law: retrieval stays on the full ACL scope.

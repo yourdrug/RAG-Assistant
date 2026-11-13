@@ -11,8 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from config import settings
-from config.sections import RetrievalSection
+from config.sections import AppSection
 from domain.benchmark.evaluation import evaluate_evidence, summarize_evidence
 from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus
 from domain.identity import CuratorScope, UserContext, UserKind, UserRole
@@ -24,22 +23,30 @@ from domain.rag import RagContext
 from domain.rag.guardrails.injection import has_blocking_injection, has_flagged_injection
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 from domain.shared.profile_policy import AnswerPolicy
+from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.answer_policy import classify_query_domain, policy_for
+from infrastructure.domain_profile.packs import NEUTRAL_PACK
+from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.evidence_profiles.profiles import (
-    EVIDENCE_PROFILES,
     EvidenceProfileNotSelectedError,
+    GenericEvidenceProfile,
     active_evidence_profile,
     current_evidence_profile,
     evidence_profile_scope,
 )
 from infrastructure.ml.rag.prompts import build_system_prompt
 from infrastructure.ml.rag.rag_steps import RagOperations
+from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile
+from packs.belarus_law.pack import BELARUS_LAW_PACK
 
 
+@pytest.mark.belarus
 @pytest.mark.asyncio
 async def test_evidence_profiles_are_task_local_and_generic_has_no_transport_rules() -> None:
     async def selected(key: str) -> tuple[str, list[str], str]:
-        with evidence_profile_scope(EVIDENCE_PROFILES[key]):
+        profiles = {"generic": GenericEvidenceProfile(), "belarus": BelarusEvidenceProfile()}
+
+        with evidence_profile_scope(profiles[key]):
             await asyncio.sleep(0)
             profile = active_evidence_profile.get()
             return (
@@ -58,24 +65,26 @@ async def test_evidence_profiles_are_task_local_and_generic_has_no_transport_rul
     assert active_evidence_profile.get() is outer
 
 
-def test_evidence_profile_defaults_to_neutral_rules() -> None:
-    assert RetrievalSection().evidence_profile == "generic"
+def test_domain_pack_defaults_to_neutral_rules() -> None:
+    assert AppSection().domain_pack == NEUTRAL_PACK.key
+    assert isinstance(
+        RagOperations(MagicMock(), document_access=MagicMock()).evidence_profile, GenericEvidenceProfile
+    )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("key", ["generic", "belarus"])
-async def test_live_request_selects_configured_evidence_profile(
-    monkeypatch: pytest.MonkeyPatch, key: str
-) -> None:
-    monkeypatch.setattr(settings, "evidence_profile", key)
-    operations = RagOperations(MagicMock(), document_access=MagicMock())
+@pytest.mark.parametrize(
+    "profile", [GenericEvidenceProfile(), BelarusEvidenceProfile()], ids=["generic", "belarus"]
+)
+async def test_live_request_uses_domain_pack_evidence_profile(profile: GenericEvidenceProfile) -> None:
+    operations = RagOperations(MagicMock(), document_access=MagicMock(), evidence_profile=profile)
 
-    async def request_profile() -> str:
+    async def request_profile() -> object:
         async with operations.corpus():
-            return current_evidence_profile().key
+            return current_evidence_profile()
 
     # A fresh context has no inherited profile, exactly like a new request task.
-    assert await asyncio.create_task(request_profile(), context=contextvars.Context()) == key
+    assert await asyncio.create_task(request_profile(), context=contextvars.Context()) is profile
 
 
 def test_standalone_call_without_evidence_profile_fails_explicitly() -> None:
@@ -84,6 +93,12 @@ def test_standalone_call_without_evidence_profile_fails_explicitly() -> None:
 
     with pytest.raises(EvidenceProfileNotSelectedError):
         contextvars.Context().run(build_system_prompt, question="Кто получил право?")
+
+
+def law_registry() -> DomainProfileRegistry:
+    registry = DomainProfileRegistry()
+    register_pack_profiles(registry, BELARUS_LAW_PACK, DomainSettingsAdapter())
+    return registry
 
 
 def test_custom_document_profile_controls_query_classification_and_answer_policy() -> None:
@@ -97,7 +112,8 @@ def test_custom_document_profile_controls_query_classification_and_answer_policy
     registry.register(CustomProfile())
     assert classify_query_domain("custom topic", registry) == "custom"
     assert policy_for("custom", registry).rules == "Custom rule"
-    assert classify_query_domain("Пункт указа №5") == "decree"
+    assert classify_query_domain("Пункт указа №5") == "general"
+    assert classify_query_domain("Пункт указа №5", law_registry()) == "decree"
 
 
 @pytest.mark.parametrize(

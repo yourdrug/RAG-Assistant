@@ -21,11 +21,14 @@ from sqlalchemy.orm import Session
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
+from domain.ingestion.profiles.general import GeneralDomainProfile
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.chunk import ChunkRecord
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.rag.ranking import same_text_run
+from domain.shared.profile_policy import AnswerPolicy
 from infrastructure.database.models import ChunkModel
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors
 from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search, resolve_hashes_batch
@@ -66,6 +69,18 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+class FallbackProfile(GeneralDomainProfile):
+    """A pack profile whose answer policy falls back to the full corpus, like ``legal``."""
+
+    key = "legal"
+    answer_policy = AnswerPolicy("Cite the provision.", fallback_to_full_corpus=True)
+
+
+LAW_REGISTRY = DomainProfileRegistry()
+LAW_REGISTRY.register(GeneralDomainProfile())
+LAW_REGISTRY.register(FallbackProfile())
 
 
 def _user(kind: str = "internal", uid: int = 5) -> dict[str, str | int]:
@@ -218,6 +233,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(
                 rag=rag,
                 breadth=Breadth.NARROW,
                 query_domain="legal",
+                domain_registry=LAW_REGISTRY,
                 effective_dense_weight=1.0,
                 effective_sparse_weight=1.0,
                 visibility_conditions=conditions,
@@ -282,6 +298,7 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter() -> None
                 rag=rag,
                 breadth=Breadth.NARROW,
                 query_domain="legal",
+                domain_registry=LAW_REGISTRY,
                 rerank_top_n=5,
                 retrieval_filter=af,
                 ctx=ctx,
@@ -338,6 +355,7 @@ async def test_retrieval_domain_fallback_only_on_empty_legal_search(
         access_filter=af,
         retrieval_filter=af,
         query_domain=domain,
+        domain_registry=LAW_REGISTRY,
         fetch_k=10,
         effective_dense_weight=0.7,
         effective_sparse_weight=0.3,
@@ -384,6 +402,7 @@ def _fallback_work(af: object, **overrides: object) -> RetrievalWork:
         rag=MagicMock(),
         breadth=Breadth.NARROW,
         query_domain="legal",
+        domain_registry=LAW_REGISTRY,
         rerank_top_n=5,
         retrieval_filter=af,
         ctx=ctx,

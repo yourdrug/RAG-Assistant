@@ -136,6 +136,7 @@ class ApplicationContainer:
             pii_redactor=pii_redactor,
             document_access=DocumentAccessService(uow),
             domain_registry=infra.domain_registry,
+            evidence_profile=infra.domain_pack.evidence_profile,
         )
 
         self.ingestion_service = require(

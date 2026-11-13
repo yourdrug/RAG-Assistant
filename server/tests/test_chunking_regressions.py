@@ -16,8 +16,6 @@ import pytest
 
 from application.documents.content import DocumentContentProcessor
 from application.ingestion import FileMeta, S3DocumentLoader, SplitContext
-from domain.ingestion.profiles.decree import DecreeDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocDomain, PageContentType
@@ -30,6 +28,8 @@ from infrastructure.ml.ingestion.format_tree import DocumentTreeBuilder
 from infrastructure.ml.ingestion.markdown import extract_date_from_filename
 from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 if TYPE_CHECKING:
@@ -110,7 +110,7 @@ def test_subpoints_keep_parent_condition_and_distinct_numbers(
     _, splitter = pipeline
     condition = "21. Только для электронных заявлений действуют следующие правила:"
     text = condition + "\n21.1. Срок подачи — пять дней.\n21.2. Подавать через личный кабинет."
-    chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], DocDomain.DECREE.value)
+    chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], "decree")
     subpoints = [c for c in chunks if c.metadata.get("unit_kind") == "subpoint_num"]
     # Fitting siblings now share a body, preserving both identities in metadata.
     assert len(subpoints) == 1
@@ -127,7 +127,7 @@ def test_overflow_keeps_article_marker_and_bounded_final_context(
     _, splitter = pipeline
     text = "Статья 15. Порядок подачи\nПорядок применяется к заявлениям. "
     text += "Заявитель представляет необходимые документы в установленном порядке " * 35 + "."
-    chunks = splitter.split([RawDocument(text, {"source": "law.txt"})], DocDomain.LEGAL.value)
+    chunks = splitter.split([RawDocument(text, {"source": "law.txt"})], "legal")
     assert len(chunks) > 1
     assert all(len(c.page_content) <= 1200 for c in chunks)
     assert any("Статья 15." in c.page_content for c in chunks)
@@ -273,7 +273,7 @@ def test_api_cli_same_chunks_and_structural_metadata(
     assert all(d.metadata["filename"] == filename for d in api_docs)
     assert all(d.metadata["extension"] == extension for d in api_docs)
     assert all(d.metadata["size_bytes"] == path.stat().st_size for d in api_docs)
-    domain = DocDomain.DECREE.value if extension == ".rtf" else DocDomain.GENERAL.value
+    domain = "decree" if extension == ".rtf" else DocDomain.GENERAL.value
     api_chunks = processor.attach_metadata_and_split(api_docs, filename, domain)
     meta = FileMeta("s3://bucket/" + filename, filename, extension, path.stat().st_size)
     cli_docs = IngestionDocumentParser(parser).parse(path, meta)
@@ -302,13 +302,13 @@ def test_batch_loader_uses_each_source_domain_before_splitting(
         RawDocument("1. Первое правило.\n2. Второе правило.", {"source": "law.txt"}),
     ]
     chunks = loader.split_docs(
-        docs, source_domains={"plain.txt": DocDomain.GENERAL.value, "law.txt": DocDomain.DECREE.value}
+        docs, source_domains={"plain.txt": DocDomain.GENERAL.value, "law.txt": "decree"}
     )
     legal = [c for c in chunks if c.metadata["source"] == "law.txt"]
     assert len(legal) == 1
     assert legal[0].metadata["point_numbers"] == ["1", "2"]
     assert all(c.metadata["unit_kind"] == "point" for c in legal)
-    assert all(c.metadata["doc_domain"] == DocDomain.DECREE.value for c in legal)
+    assert all(c.metadata["doc_domain"] == "decree" for c in legal)
 
 
 def test_empty_table_with_section_does_not_become_a_prefix_only_chunk() -> None:
@@ -326,7 +326,7 @@ def test_chapterless_article_keeps_identity_on_overflow_chunks(
     _, splitter = pipeline
     text = "Статья 15. Порядок подачи\n" + "Заявитель передаёт документы в установленном порядке. " * 25
     assert len(text) < 1500
-    chunks = splitter.split([RawDocument(text, {"source": "law.txt"})], DocDomain.LEGAL.value)
+    chunks = splitter.split([RawDocument(text, {"source": "law.txt"})], "legal")
     assert len(chunks) > 1
     assert all(c.metadata["article_number"] == "15" for c in chunks)
     assert all("Статья 15. Порядок подачи" in c.metadata["section"] for c in chunks)

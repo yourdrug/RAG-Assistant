@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING
 
 from domain.ingestion.chunking_policy import profile_policy
-from domain.ingestion.profiles.base import SettingsBackedProfile
+from domain.ingestion.profiles.base import VERSIONED_AS_OF_NOTE, SettingsBackedProfile
 from domain.ingestion.profiles.patterns import PARAGRAPH_RE, SENTENCE_RE, SUBPOINT_LETTER_RE
 from domain.ingestion.profiles.types import (
     BoundaryLevel,
@@ -51,6 +51,7 @@ class ContractDomainProfile(SettingsBackedProfile):
         "- Ссылайся на конкретный пункт или раздел договора, если он есть в контексте.\n"
         "- Нормы закона цитируй с указанием статьи и акта.\n",
         fallback_to_full_corpus=False,
+        as_of_note=VERSIONED_AS_OF_NOTE,
     )
 
     def refine(self, tree: DocNode, on_boundary_event: BoundaryEventSink | None = None) -> DocNode:

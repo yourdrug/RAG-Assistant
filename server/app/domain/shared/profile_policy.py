@@ -10,21 +10,12 @@ if TYPE_CHECKING:
     from datetime import date
 
 
-def versioned_prompt_date_stamp(as_of_date: date | None) -> str:
-    """Generate the shared date-stamp bullet for versioned domain prompt addenda."""
-    if as_of_date is None:
-        return ""
-
-    return (
-        f"- Ответ дан по состоянию на {as_of_date.strftime('%d.%m.%Y')}. "
-        "Если подходят разные редакции — укажи, какая редакция использована.\n"
-    )
-
-
 @dataclass(frozen=True)
 class AnswerPolicy:
     rules: str | None = None
     fallback_to_full_corpus: bool = False
+    # Profile-language bullet appended for an "as of" question; ``{date}`` is the requested date.
+    as_of_note: str | None = None
 
     def prompt_addendum(
         self,
@@ -33,7 +24,10 @@ class AnswerPolicy:
         if self.rules is None:
             return None
 
-        return self.rules + versioned_prompt_date_stamp(as_of_date)
+        if as_of_date is None or self.as_of_note is None:
+            return self.rules
+
+        return self.rules + self.as_of_note.format(date=as_of_date)
 
     def retrieval_fallback_to_full_corpus(self) -> bool:
         return self.fallback_to_full_corpus

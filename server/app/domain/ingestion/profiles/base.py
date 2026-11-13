@@ -1,8 +1,6 @@
-"""Base classes and shared utilities for domain profiles.
+"""Shared library of document profiles: settings access, effective dates, common config.
 
-Reduces duplication between LegalDomainProfile and DecreeDomainProfile
-by extracting common settings access, effective date extraction, and
-shared config defaults.
+Domain packs build their profiles on these helpers; a pack never imports another pack.
 """
 
 from __future__ import annotations
@@ -18,6 +16,12 @@ if TYPE_CHECKING:
 
     from domain.ingestion.ports import DomainSettingsPort
 
+
+# Russian answer-policy bullet for versioned sources; see AnswerPolicy.as_of_note.
+VERSIONED_AS_OF_NOTE = (
+    "- Ответ дан по состоянию на {date:%d.%m.%Y}. "
+    "Если подходят разные редакции — укажи, какая редакция использована.\n"
+)
 
 EFFECTIVE_DATE_TRUST_THRESHOLD_DEFAULT = ConfigDefault(
     "effective_date_auto_trust_threshold",
@@ -46,7 +50,7 @@ class SettingsBackedProfile:
         if self._settings is None:
             msg = (
                 f"{type(self).__name__} requires a DomainSettingsPort "
-                f"(register via register_all_profiles); missing param: {key}"
+                f"(register it through its domain pack); missing param: {key}"
             )
             raise RuntimeError(msg)
 

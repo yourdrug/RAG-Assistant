@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from domain.ingestion.profiles.catalog import PROFILE_TYPES
+from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.rag.classification import classify_query_domain as classify_with_patterns
 from domain.shared.profile_policy import AnswerPolicy
 
@@ -13,9 +13,9 @@ if TYPE_CHECKING:
     from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.profiles.registry import DomainProfileRegistry
 
-DEFAULT_PROFILES: dict[str, DocumentProfile] = {
-    profile.key: profile for cls in PROFILE_TYPES for profile in (cls(),)
-}
+
+# Without a registry only the neutral profile applies; pack policies come from the registry.
+DEFAULT_PROFILES: dict[str, DocumentProfile] = {GeneralDomainProfile.key: GeneralDomainProfile()}
 
 
 def policy_for(domain_key: str, registry: DomainProfileRegistry | None = None) -> AnswerPolicy:

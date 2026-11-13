@@ -19,7 +19,6 @@ from typer.testing import CliRunner
 from application.runtime.config import ConfigParameter, ConfigValueType
 from application.runtime.setting_keys import TARGET_DYNAMIC_SETTING_KEYS
 from composition.cli.commands import config as config_command
-from domain.knowledge.enums import DocDomain
 from infrastructure import config_migration
 from infrastructure.config_migration import LEGACY_POOL_SETTING_KEYS
 from infrastructure.database.database import database
@@ -71,7 +70,7 @@ def migration_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
 
     path = tmp_path / ".env"
     path.write_text(
-        '# preserved comment\nOPENROUTER_MODEL="legacy model"\nLEGAL_CHUNK_MAX_TOKENS=1600\n'
+        '# preserved comment\nOPENROUTER_MODEL="legacy model"\n'
         "ML_PROVIDER=tei\nRATE_LIMIT_ENABLED=false\nHTTP_POOL_MAX_CONNECTIONS=42\n"
         "HTTP_POOL_MAX_KEEPALIVE=18\nS3_ACCESS_KEY=private-access\nS3_SECRET_KEY=private-secret\n"
     )
@@ -267,8 +266,6 @@ async def test_apply_preserves_database_values_scopes_and_pending_env(
     await config_migration.migrate_env_configuration(factory, path, apply=True)
     rows = {(r.key, r.domain_key): r.value for r in await factory.repository.get_all()}
     assert rows[("openrouter_model", None)] == "db model"
-    assert rows[("legal_chunk_max_tokens", DocDomain.LEGAL.value)] == "1600"
-    assert ("legal_chunk_max_tokens", None) not in rows
     assert rows[("embedding_http_max_connections", None)] == "42"
     assert rows[("rerank_http_max_connections", None)] == "21"
     assert rows[("rerank_http_max_keepalive_connections", None)] == "9"
@@ -296,7 +293,7 @@ async def test_agreed_s3_rows_removed_including_scoped_rows(
 ) -> None:
     path, factory = migration_env
     await add_row(factory, "s3_secret_key", "private-secret")
-    await add_row(factory, "s3_bucket", "rag-documents", DocDomain.LEGAL.value)
+    await add_row(factory, "s3_bucket", "rag-documents", "legal")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
     assert not any(r.key.startswith("s3_") for r in await factory.repository.get_all())
 
@@ -626,7 +623,6 @@ async def test_final_trim_preserves_static_overrides_and_db_values(
     assert (
         not {
             "OPENROUTER_MODEL",
-            "LEGAL_CHUNK_MAX_TOKENS",
             "RATE_LIMIT_ENABLED",
             "HTTP_POOL_MAX_CONNECTIONS",
             "HTTP_POOL_MAX_KEEPALIVE",

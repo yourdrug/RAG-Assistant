@@ -8,8 +8,9 @@ from application.indexing.classification import classify_document_text
 from application.indexing.pipeline import classify_domain
 from domain.ingestion.doc_type import classify_doc_type
 from domain.ingestion.profiles.general import GeneralDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
+from packs.belarus_law.domain.doc_types import DOC_TYPE_KEYWORDS
+from packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 class ClassificationSettings:
@@ -67,4 +68,5 @@ def test_api_and_cli_classify_through_registry(text: str, expected: str) -> None
     [("ПРИКАЗ о приёме", "order"), ("Договор поставки", "contract"), ("", None)],
 )
 def test_document_type_classification_is_preserved(text: str, expected: str | None) -> None:
-    assert classify_doc_type(text) == expected
+    assert classify_doc_type(text, DOC_TYPE_KEYWORDS) == expected
+    assert classify_doc_type(text, ()) is None

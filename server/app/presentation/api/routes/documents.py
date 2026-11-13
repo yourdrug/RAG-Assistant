@@ -15,11 +15,13 @@ from application.documents import (
     DocumentQueryService,
 )
 from application.documents.dto import ClientInfo
+from application.ingestion.profiles import known_domains
 from application.ports.action_logger import ActionLoggerPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import UploadConfig
 from domain.identity.capabilities import Capability
-from domain.knowledge.enums import DocDomain, DocumentVisibility
+from domain.ingestion.profiles.registry import DomainProfileRegistry
+from domain.knowledge.enums import DocumentVisibility
 from domain.runtime.jobs import BackgroundJobStatus
 from presentation.api.auth_dependencies import get_current_user, require_capability
 from presentation.api.dependencies import (
@@ -29,6 +31,7 @@ from presentation.api.dependencies import (
     create_document_command_service,
     create_document_deletion_jobs,
     create_document_query_service,
+    create_domain_registry,
     create_idempotency_context,
     create_job_submission,
     create_upload_config,
@@ -73,9 +76,20 @@ async def list_uploadable_clients(
     return await query.list_uploadable_clients(current_user.id, current_user.kind, current_user.role)
 
 
+def validate_upload_domain(
+    options: Annotated[DocumentUploadForm, Depends()],
+    registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
+) -> None:
+    """Accept only a document profile of the active domain pack."""
+    known = known_domains(registry)
+
+    if options.doc_domain is not None and options.doc_domain not in known:
+        raise HTTPException(status_code=400, detail=f"doc_domain must be one of: {', '.join(known)}")
+
+
 @router.post(
     "/documents",
-    dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD)), Depends(validate_upload_domain)],
 )
 async def upload_document(
     *,
@@ -88,9 +102,6 @@ async def upload_document(
     idempotency: Annotated[IdempotencyContext, Depends(create_idempotency_context)],
 ) -> UploadStatusResponse:
     filename = options.file.filename or "unnamed"
-
-    if options.doc_domain is not None and options.doc_domain not in [d.value for d in DocDomain]:
-        raise HTTPException(status_code=400, detail="doc_domain must be 'legal' or 'general'")
 
     max_bytes = upload_cfg.max_upload_size_mb * 1024 * 1024
     data = await read_upload_with_limit(options.file, max_bytes)

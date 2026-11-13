@@ -13,9 +13,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.ingestion.content_splitter import SplitUnit
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.types import BoundaryLevel
 from domain.ingestion.tree_packer import select_structural_units
+from packs.belarus_law.domain.decree import DecreeDomainProfile
 
 
 _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)

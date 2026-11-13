@@ -24,7 +24,7 @@ from pyrate_limiter.utils import validate_rate_list
 
 from application.admin import ConfigurationStatus, EffectiveParameter
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType, parse_bool
-from application.runtime.dynamic_params import DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
+from application.runtime.dynamic_params import DYNAMIC_PARAMS, profile_param_category
 from application.runtime.enums import LLMProvider, MLProvider
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from config import settings
@@ -109,7 +109,7 @@ class SettingsProviderConfiguration:
                         default.key,
                         default.value,
                         default.value_type,
-                        f"domain:{profile.key}",
+                        profile_param_category(default.key, profile.key),
                         min_value=default.min_value,
                         max_value=default.max_value,
                         domain_key=profile.key,
@@ -316,7 +316,12 @@ class SettingsProviderConfiguration:
         self.validate_corpus_settings(updates)
         candidate = self.settings.model_copy(update=updates)
         current_domain = self.domain_settings.snapshot() if self.domain_settings is not None else {}
-        validate_chunking(candidate, {**current_domain, **domain_updates})
+        profile_defaults = {
+            (key, domain): definition.value
+            for (key, domain), definition in self.definitions.items()
+            if domain is not None
+        }
+        validate_chunking(candidate, {**current_domain, **domain_updates}, profile_defaults)
         validate_retrieval_budgets(candidate)
         self.validate_provider(candidate)
         return updates, domain_updates, events
@@ -475,8 +480,16 @@ def validate_retrieval_budgets(candidate: Settings) -> None:
         raise ValidationError("; ".join(errors))
 
 
-def validate_chunking(candidate: Settings, domain_values: dict[tuple[str, str], str]) -> None:
-    """Reject token targets above the hard limit, including scoped overrides."""
+def validate_chunking(
+    candidate: Settings,
+    domain_values: dict[tuple[str, str], str],
+    profile_defaults: dict[tuple[str, str], str] | None = None,
+) -> None:
+    """Reject token targets above the hard limit, including scoped overrides.
+
+    ``profile_defaults`` are the registered profiles' declared values for unset overrides.
+    """
+    defaults = profile_defaults or {}
     errors = candidate.check_chunking()
     domains = {
         domain
@@ -489,17 +502,13 @@ def validate_chunking(candidate: Settings, domain_values: dict[tuple[str, str], 
         target = int(
             domain_values.get(
                 (target_key, domain),
-                PROFILE_CONFIG_DEFAULTS[(target_key, domain)].value
-                if (target_key, domain) in PROFILE_CONFIG_DEFAULTS
-                else candidate.chunk_target_tokens,
+                defaults.get((target_key, domain), str(candidate.chunk_target_tokens)),
             )
         )
         maximum = int(
             domain_values.get(
                 (max_key, domain),
-                PROFILE_CONFIG_DEFAULTS[(max_key, domain)].value
-                if (max_key, domain) in PROFILE_CONFIG_DEFAULTS
-                else candidate.chunk_max_tokens,
+                defaults.get((max_key, domain), str(candidate.chunk_max_tokens)),
             )
         )
 

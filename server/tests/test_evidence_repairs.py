@@ -19,18 +19,6 @@ from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.enums import DocumentVisibility, PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
-from infrastructure.ml.evidence_profiles.belarus.field_evidence import augment_field_candidates
-from infrastructure.ml.evidence_profiles.belarus.focus import evidence_reading_map
-from infrastructure.ml.evidence_profiles.belarus.grounded_response import (
-    extractive_procedure_response,
-    extractive_table_comparison_response,
-    extractive_timing_response,
-    missing_field_response,
-)
-from infrastructure.ml.evidence_profiles.belarus.linked_context import enrich_linked_context
-from infrastructure.ml.evidence_profiles.belarus.predicates import contradicts_requested_scope
-from infrastructure.ml.evidence_profiles.belarus.queries import evidence_search_queries
-from infrastructure.ml.evidence_profiles.belarus.reading import evidence_reading_rules
 from infrastructure.ml.rag import rag_steps
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
@@ -40,6 +28,18 @@ from infrastructure.ml.rag.rag_prompts import build_prompt
 from infrastructure.ml.rag.rag_reranking import filter_scope_candidates
 from infrastructure.ml.rag.retrieval_pipeline import retrieve_with_decomposition
 from infrastructure.ml.rag.retrieval_work import RetrievalWork
+from packs.belarus_law.infrastructure.evidence.field_evidence import augment_field_candidates
+from packs.belarus_law.infrastructure.evidence.focus import evidence_reading_map
+from packs.belarus_law.infrastructure.evidence.grounded_response import (
+    extractive_procedure_response,
+    extractive_table_comparison_response,
+    extractive_timing_response,
+    missing_field_response,
+)
+from packs.belarus_law.infrastructure.evidence.linked_context import enrich_linked_context
+from packs.belarus_law.infrastructure.evidence.predicates import contradicts_requested_scope
+from packs.belarus_law.infrastructure.evidence.queries import evidence_search_queries
+from packs.belarus_law.infrastructure.evidence.reading import evidence_reading_rules
 from tests.rag_stage_fixtures import check_cache as step_check_cache, generate as step_generate, stage_fixture
 from tests.test_rag_pipeline import make_rag
 
@@ -351,7 +351,7 @@ async def test_missing_row_response_cannot_be_overridden_by_model_and_cache_chan
     await step_check_cache(state)
     original = state.q_hash
     monkeypatch.setattr(
-        "infrastructure.ml.evidence_profiles.belarus.focus.EVIDENCE_POLICY_VERSION", "previous-policy"
+        "packs.belarus_law.infrastructure.evidence.focus.EVIDENCE_POLICY_VERSION", "previous-policy"
     )
     await step_check_cache(state)
     assert state.q_hash != original

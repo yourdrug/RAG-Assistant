@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from domain.benchmark.evaluation import evaluate_evidence, evaluate_stage_evidence
-from domain.benchmark.stage_reporting import compare_stage_runs, summarize_stage_tags, diagnostic_card
+from domain.benchmark.stage_reporting import compare_stage_runs, diagnostic_card, summarize_stage_tags
 
 
 def saved_cases(value: object) -> list[dict]:

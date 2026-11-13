@@ -230,6 +230,7 @@ async def test_ingestion_duplicate_fails_created_job_and_returns_conflict(single
         "request": request,
         "admin": MagicMock(),
         "service": service,
+        "registry": None,
         "submission": JobSubmission(jobs=jobs, enqueuer=enqueuer, log=MagicMock()),
         "idempotency": IdempotencyContext(key=None, store=MagicMock()),
         "options": ingest_routes.IngestOptions(),

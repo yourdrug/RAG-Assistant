@@ -20,6 +20,7 @@ from application.benchmark import BenchmarkService
 from application.budget import BudgetAdminService
 from application.documents import DocumentPreviewStrategy, PreviewCache
 from application.runtime.config import ConfigParameterChanged
+from composition.domain_packs import selected_pack
 from composition.utils import missing_fields, require
 from config import settings
 from domain.ingestion.ports import DomainSettingsPort, TokenCounter
@@ -41,7 +42,8 @@ from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.corpus.control import PostgresCorpusControl
 from infrastructure.corpus.resources import CorpusResources
 from infrastructure.database.database import DatabaseManager
-from infrastructure.domain_profile import register_all_profiles
+from infrastructure.domain_profile import register_pack_profiles
+from infrastructure.domain_profile.packs import NEUTRAL_PACK, DomainPack
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import event_bus
 from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
@@ -364,6 +366,7 @@ class InfrastructureContainer:
     services: ServiceContainer = field(default_factory=ServiceContainer)
     domain_registry: DomainProfileRegistry | None = field(default=None, repr=False)
     domain_settings: DomainSettingsAdapter | None = field(default=None, repr=False)
+    domain_pack: DomainPack = field(default=NEUTRAL_PACK, repr=False)
     rate_limit: DynamicRateLimiter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
     corpus_control: PostgresCorpusControl | None = field(default=None, repr=False)
@@ -379,9 +382,10 @@ class InfrastructureContainer:
         (ML parsing/splitting is domain-aware and consumes the registry).
         """
         # Domain profile registry — created first: ML parsing/splitting is domain-aware
+        self.domain_pack = selected_pack(settings.domain_pack)
         self.domain_settings = DomainSettingsAdapter()
         self.domain_registry = DomainProfileRegistry()
-        register_all_profiles(self.domain_registry, self.domain_settings)
+        register_pack_profiles(self.domain_registry, self.domain_pack, self.domain_settings)
 
         self.db.init(database_manager)
         self.ml.init(

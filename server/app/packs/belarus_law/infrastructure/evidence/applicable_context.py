@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING, TypedDict
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import PageContentType, SearchMode
 from domain.rag.evidence.context import content_with_parent_scope
-from infrastructure.ml.evidence_profiles.belarus.applicability import act_numbers, normalize_act_number
-from infrastructure.ml.evidence_profiles.belarus.focus import matching_field_rows, requested_fields
-from infrastructure.ml.evidence_profiles.belarus.predicates import (
+from packs.belarus_law.infrastructure.evidence.applicability import act_numbers, normalize_act_number
+from packs.belarus_law.infrastructure.evidence.focus import matching_field_rows, requested_fields
+from packs.belarus_law.infrastructure.evidence.predicates import (
     listed_goods_polarities,
     table_scope_confirmed,
 )
-from infrastructure.ml.evidence_profiles.belarus.scope import (
+from packs.belarus_law.infrastructure.evidence.scope import (
     AMENDMENT_ROOT_QUERY,
     TIMING_APPENDICES_QUERY,
     TIMING_CLAUSES_QUERY,

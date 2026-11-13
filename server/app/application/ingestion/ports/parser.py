@@ -33,7 +33,6 @@ class SplitContext:
     domain: str = DocDomain.GENERAL.value
     profile: DocumentProfile | None = None
     settings: DomainSettingsPort | None = None
-    legal_mode: bool = False
 
 
 @runtime_checkable

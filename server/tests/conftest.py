@@ -5,7 +5,9 @@ Provides common fixtures for testing application services without
 Postgres, Qdrant, Redis, or LLM.
 """
 
+import ast
 from collections.abc import Iterator
+from functools import cache
 import os
 from pathlib import Path
 import sys
@@ -53,7 +55,38 @@ for _key, _val in _TEST_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
 
 
+# Modules whose import makes a test module a test of the Belarusian law pack.
+LAW_PACK_MODULES = ("packs", "tests.law_pack")
+
+
+@cache
+def imports_law_pack(path: Path) -> bool:
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        names = (
+            [alias.name for alias in node.names]
+            if isinstance(node, ast.Import)
+            else [node.module or ""]
+            if isinstance(node, ast.ImportFrom)
+            else []
+        )
+
+        if any(
+            name == module or name.startswith(f"{module}.") for name in names for module in LAW_PACK_MODULES
+        ):
+            return True
+
+    return False
+
+
+@pytest.hookimpl(tryfirst=True)  # Before ``-m`` deselection reads the markers.
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    # Law pack tests are marked automatically, so ``-m "not belarus"`` is the core suite.
+    for item in items:
+        uses_fixture = "law_registry" in getattr(item, "fixturenames", ())
+
+        if uses_fixture or imports_law_pack(item.path):
+            item.add_marker(pytest.mark.belarus)
+
     if os.environ.get("RUN_INTEGRATION_TESTS") == "1":
         return
 
@@ -64,10 +97,14 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(skip_integration)
 
 
-# Initialize circuit breakers for all tests (required by step_generate, handle_relevance_gate, etc.)
-import config  # noqa: E402
-from infrastructure.ml.evidence_profiles.profiles import EVIDENCE_PROFILES, evidence_profile_scope  # noqa: E402
+from domain.ingestion.profiles.registry import DomainProfileRegistry  # noqa: E402
+from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile, evidence_profile_scope  # noqa: E402
 from infrastructure.resilience.circuit_breaker import init_breakers  # noqa: E402
+from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile  # noqa: E402
+from tests.law_pack import law_registry as build_law_registry  # noqa: E402
+
+
+# Initialize circuit breakers for all tests (required by step_generate, handle_relevance_gate, etc.)
 
 
 init_breakers(fail_max=5, timeout_duration=300)
@@ -82,19 +119,24 @@ def reset_breakers_between_tests() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
-def selected_evidence_profile(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[None]:
-    """Run like a live request: neutral rules unless the test opts into the legal corpus.
+def selected_evidence_profile(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Run like a live request: neutral rules unless the test opts into the law pack.
 
-    ``@pytest.mark.belarus`` marks tests of Belarusian-law evidence rules; deselect them
-    with ``-m "not belarus"``. The setting is pinned too, so a local ``.env`` cannot leak in.
+    ``@pytest.mark.belarus`` marks tests of the Belarusian law pack; ``-m "not belarus"``
+    runs the core suite without it.
     """
-    key = "belarus" if request.node.get_closest_marker("belarus") else "generic"
-    monkeypatch.setattr(config.settings, "evidence_profile", key)
+    profile = (
+        BelarusEvidenceProfile() if request.node.get_closest_marker("belarus") else GenericEvidenceProfile()
+    )
 
-    with evidence_profile_scope(EVIDENCE_PROFILES[key]):
+    with evidence_profile_scope(profile):
         yield
+
+
+@pytest.fixture
+def law_registry() -> DomainProfileRegistry:
+    """Document profiles of the Belarusian law pack; requesting it marks the test ``belarus``."""
+    return build_law_registry()
 
 
 # Mock surya before any test module imports domain.ingestion

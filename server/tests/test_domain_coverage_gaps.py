@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -32,6 +33,10 @@ from infrastructure.domain_profile.answer_policy import classify_query_domain
 from infrastructure.ml.rag.prompts import (
     build_system_prompt,
 )
+
+
+if TYPE_CHECKING:
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 
 # ===========================================================================
@@ -337,18 +342,18 @@ class TestBuildSystemPrompt:
 
 
 class TestClassifyQueryDomain:
-    def test_legal_patterns(self) -> None:
-        assert classify_query_domain("Вправе ли работник?") == DocDomain.LEGAL
-        assert classify_query_domain("Обязан ли арендатор?") == DocDomain.LEGAL
-        assert classify_query_domain("Подлежит ли регистрации?") == DocDomain.LEGAL
-        assert classify_query_domain("Несёт ли ответственность?") == DocDomain.LEGAL
-        assert classify_query_domain("Статья 15 ФЗ") == DocDomain.LEGAL
-        assert classify_query_domain("В соответствии с законом") == DocDomain.LEGAL
-        assert classify_query_domain("Нарушение условий закона") == DocDomain.LEGAL
+    def test_legal_patterns(self, law_registry: DomainProfileRegistry) -> None:
+        assert classify_query_domain("Вправе ли работник?", law_registry) == "legal"
+        assert classify_query_domain("Обязан ли арендатор?", law_registry) == "legal"
+        assert classify_query_domain("Подлежит ли регистрации?", law_registry) == "legal"
+        assert classify_query_domain("Несёт ли ответственность?", law_registry) == "legal"
+        assert classify_query_domain("Статья 15 ФЗ", law_registry) == "legal"
+        assert classify_query_domain("В соответствии с законом", law_registry) == "legal"
+        assert classify_query_domain("Нарушение условий закона", law_registry) == "legal"
 
-    def test_agreement_questions_use_contract_policy(self) -> None:
+    def test_agreement_questions_use_contract_policy(self, law_registry: DomainProfileRegistry) -> None:
         for question in ["Пункт 3 договора", "Согласно договору", "Нарушение условий договора"]:
-            assert classify_query_domain(question) == DocDomain.CONTRACT
+            assert classify_query_domain(question, law_registry) == "contract"
 
     def test_general_patterns(self) -> None:
         assert classify_query_domain("Какой пароль?") == DocDomain.GENERAL

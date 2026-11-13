@@ -269,6 +269,12 @@
     "metadata": "[]",
     "required": false
   },
+  "domain_pack": {
+    "annotation": "<class 'str'>",
+    "default": "'generic'",
+    "metadata": "[]",
+    "required": false
+  },
   "embed_batch_size": {
     "annotation": "<class 'int'>",
     "default": "32",
@@ -308,12 +314,6 @@
   "embedding_revision": {
     "annotation": "<class 'str'>",
     "default": "'v2'",
-    "metadata": "[]",
-    "required": false
-  },
-  "evidence_profile": {
-    "annotation": "typing.Literal['generic', 'belarus']",
-    "default": "'generic'",
     "metadata": "[]",
     "required": false
   },

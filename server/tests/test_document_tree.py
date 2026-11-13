@@ -9,9 +9,7 @@ import pytest
 
 from domain.ingestion.chunking_policy import ChunkingPolicy
 from domain.ingestion.document_tree import DocNode, NodeKind, tree_text, walk_tree
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.text_budget import split_words
 from domain.ingestion.tree_packer import ChunkDraft, pack_tree
 from domain.knowledge.enums import PageContentType
@@ -24,6 +22,8 @@ from infrastructure.ml.ingestion.format_tree import (
 )
 from infrastructure.ml.ingestion.sections import ParsedFormat, Section
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 def test_format_tree_round_trip_preserves_blocks_and_page_metadata() -> None:

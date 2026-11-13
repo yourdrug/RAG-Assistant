@@ -177,8 +177,7 @@ class LangchainDocumentParser:
 
         return docs
 
-    @staticmethod
-    def _apply_doc_level_fallbacks(docs: list[RawDocument], file_path: Path) -> list[RawDocument]:
+    def _apply_doc_level_fallbacks(self, docs: list[RawDocument], file_path: Path) -> list[RawDocument]:
         r"""Fill in doc_title (filename fallback) and doc_type across every chunk.
 
         Runs after format-specific parsing so a richer title already set by
@@ -197,7 +196,8 @@ class LangchainDocumentParser:
                 doc.metadata["_doc_title_fallback"] = True
 
         sample = f"{doc_title}\n{docs[0].page_content[:DOC_TYPE_SAMPLE_CHARS]}"
-        doc_type = classify_doc_type(sample)
+        keywords = self._domain_registry.doc_type_keywords if self._domain_registry is not None else ()
+        doc_type = classify_doc_type(sample, keywords)
 
         for d in docs:
             d.metadata.setdefault("doc_title", doc_title)

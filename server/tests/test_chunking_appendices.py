@@ -6,14 +6,14 @@ import pytest
 
 from domain.ingestion.appendix import appendix_cuts, appendix_policy, appendix_starts, classify_appendix
 from domain.ingestion.chunking_policy import ChunkingPolicy
-from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import extract_chunk_context
 from domain.knowledge.enums import DocDomain
-from infrastructure.domain_profile import register_all_profiles
+from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.langchain_document_parser import LangchainDocumentSplitter
+from packs.belarus_law.pack import BELARUS_LAW_PACK
 
 
 BODY = (
@@ -36,12 +36,14 @@ INSTRUCTION = "УТВЕРЖДЕНО\nПостановление\nМинисте�
 @pytest.fixture
 def profiles() -> tuple[DomainProfileRegistry, DomainSettingsAdapter]:
     values = {
-        (item.key, cls.key): item.value for cls in SETTINGS_PROFILE_TYPES for item in cls().config_defaults()
+        (item.key, profile.key): item.value
+        for profile in BELARUS_LAW_PACK.build_profiles(None)
+        for item in profile.config_defaults()
     }
     settings = DomainSettingsAdapter()
     settings.replace_snapshot(values)
     registry = DomainProfileRegistry()
-    register_all_profiles(registry, settings)
+    register_pack_profiles(registry, BELARUS_LAW_PACK, settings)
     return registry, settings
 
 
@@ -78,7 +80,7 @@ def test_appendix_inherits_document_domain_on_weak_signal(
     profiles: tuple[DomainProfileRegistry, DomainSettingsAdapter],
 ) -> None:
     registry, settings = profiles
-    decree = DocDomain.DECREE.value
+    decree = "decree"
 
     assert classify_appendix(registry, "Форма", document_domain=decree, settings=settings) == decree
     assert classify_appendix(registry, INSTRUCTION, document_domain=decree, settings=settings) == decree
@@ -113,7 +115,7 @@ def test_appendix_profile_splits_only_its_root(
 ) -> None:
     registry, settings = profiles
 
-    chunks = LangchainDocumentSplitter(registry, settings).split(section_docs(), DocDomain.DECREE.value)
+    chunks = LangchainDocumentSplitter(registry, settings).split(section_docs(), "decree")
 
     form = [c for c in chunks if "УВЕДОМЛЕНИЕ" in c.page_content]
     others = [c for c in chunks if c not in form]
@@ -128,7 +130,7 @@ def test_appendix_profile_splits_only_its_root(
 
 
 def test_without_registry_document_profile_splits_everything() -> None:
-    chunks = LangchainDocumentSplitter().split(section_docs(), DocDomain.DECREE.value)
+    chunks = LangchainDocumentSplitter().split(section_docs(), "decree")
 
     assert chunks
     assert all("unit_domain" not in c.metadata for c in chunks)
@@ -142,7 +144,7 @@ def test_long_appendix_inside_single_block_is_cut(
     text = BODY + "\n" + form
 
     chunks = LangchainDocumentSplitter(registry, settings).split(
-        [RawDocument(text, {"source": "resolution.txt"})], DocDomain.DECREE.value
+        [RawDocument(text, {"source": "resolution.txt"})], "decree"
     )
 
     body = [c for c in chunks if "вступает в силу" in c.page_content]
@@ -167,7 +169,7 @@ def test_bare_heading_before_its_table_is_not_indexed() -> None:
         block("| Итог | 100 |\n|---|---|", "ДРУГОЙ РАЗДЕЛ", table=True),
     ]
 
-    chunks = LangchainDocumentSplitter().split(docs, DocDomain.CONTRACT.value)
+    chunks = LangchainDocumentSplitter().split(docs, "contract")
 
     assert not any(c.page_content.strip() == "ТАРИФЫ" for c in chunks)
     assert any("Подключение" in c.page_content and c.metadata["section"] == "ТАРИФЫ" for c in chunks)
@@ -189,7 +191,7 @@ def test_bare_attribution_becomes_context_of_its_table() -> None:
         ),
     ]
 
-    chunks = LangchainDocumentSplitter().split(docs, DocDomain.CONTRACT.value)
+    chunks = LangchainDocumentSplitter().split(docs, "contract")
 
     assert not any(c.page_content.startswith("Приложение № 1") for c in chunks)
     table = next(c for c in chunks if "Подключение" in c.page_content)

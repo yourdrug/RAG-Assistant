@@ -20,8 +20,6 @@ from application.ingestion import DocumentSyncService
 from application.rag.stream_events import MetaEvent
 from domain.identity.roles import UserKind
 from domain.identity.user_context import UserContext
-from domain.ingestion.profiles.decree import DecreeDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.types import ReferenceMatch
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import ChunkRecord
@@ -35,6 +33,8 @@ from infrastructure.ml.rag.rag_postprocess import resolve_temporal_conflicts
 from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.repositories.vector.acl import with_temporal_filter
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
 from presentation.api.routes.admin_act_versions import list_act_versions
 from presentation.api.routes.chat import format_sse_event
 from presentation.api.schemas.chat import ChatRequest

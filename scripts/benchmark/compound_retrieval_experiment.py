@@ -7,16 +7,18 @@ comparison of automatic decomposition must be a separate experiment.
 
 from __future__ import annotations
 
-from domain.identity.user_context import UserContext
 import argparse
 import asyncio
+from dataclasses import replace
 import json
 import logging
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from langchain_core.documents import Document
+
 from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.rag.context import RagContext
 from domain.shared.hashing import content_hash
@@ -29,7 +31,7 @@ from infrastructure.repositories.vector.acl import (
     build_qdrant_filter,
     with_temporal_filter,
 )
-from langchain_core.documents import Document
+
 
 logger = logging.getLogger("default")
 FINAL_TOP_K = 8

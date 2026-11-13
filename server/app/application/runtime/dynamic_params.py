@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from application.runtime.enums import LLMProvider
-from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 
 
 class DynamicParamCategory(StrEnum):
@@ -50,12 +49,17 @@ class DynamicParam:
 UPLOAD_REQUEST_CEILING_MB = 64
 MAX_UPLOAD_FILE_MB = UPLOAD_REQUEST_CEILING_MB - 1
 
-PROFILE_CONFIG_DEFAULTS = {
-    (default.key, profile.key): default
-    for cls in SETTINGS_PROFILE_TYPES
-    for profile in (cls(),)
-    for default in profile.config_defaults()
-}
+
+def profile_param_category(key: str, domain_key: str) -> str:
+    """Group of a document-profile parameter: chunk budgets sit with ingestion settings.
+
+    Profile parameters come from the active domain pack's registry, not from DYNAMIC_PARAMS.
+    """
+    if key in (f"{domain_key}_chunk_target_tokens", f"{domain_key}_chunk_max_tokens"):
+        return DynamicParamCategory.INGESTION.value
+
+    return f"domain:{domain_key}"
+
 
 DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam(
@@ -322,20 +326,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
 ]
 
 # Derived lookup: key -> (settings_attr, python_type) — global params only
-DYNAMIC_PARAMS.extend(
-    DynamicParam(
-        key,
-        int,
-        DynamicParamCategory.INGESTION,
-        default.description,
-        default.min_value,
-        default.max_value,
-        domain_key=domain,
-    )
-    for (key, domain), default in PROFILE_CONFIG_DEFAULTS.items()
-    if key in (f"{domain}_chunk_target_tokens", f"{domain}_chunk_max_tokens")
-)
-
 DYNAMIC_FIELDS_MAP: dict[str, tuple[str, type]] = {
     p.key: (p.key, p.type) for p in DYNAMIC_PARAMS if not p.domain_key
 }

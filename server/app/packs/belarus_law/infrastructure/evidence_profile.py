@@ -1,0 +1,104 @@
+"""Evidence rules of Belarusian regulatory and electronic transport documents."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, override
+
+from domain.rag.act_references import act_focused_queries, extract_act_numbers
+from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile
+from packs.belarus_law.infrastructure.evidence import (
+    applicable_context,
+    field_evidence,
+    focus,
+    grounded_response,
+    linked_context,
+    predicates,
+    queries,
+    reading,
+)
+
+
+if TYPE_CHECKING:
+    from langchain_core.documents import Document
+
+    from domain.identity.user_context import UserContext
+    from domain.rag.context import RagContext
+    from domain.rag.evidence.assessment import EvidenceAssessment
+    from domain.rag.ports import ChunkRetrievalRepository
+
+
+class BelarusEvidenceProfile(GenericEvidenceProfile):
+    key = "belarus"
+
+    @property
+    def version(self) -> str:
+        return focus.EVIDENCE_POLICY_VERSION
+
+    @property
+    @override
+    def max_focus_chars(self) -> int:
+        return focus.MAX_FOCUS_CHARS
+
+    @override
+    def reading_rules(self, question: str) -> list[str]:
+        return reading.evidence_reading_rules(question)
+
+    @override
+    def reading_reminder(self, question: str) -> str:
+        return reading.evidence_reading_reminder(question)
+
+    @override
+    def search_queries(self, question: str) -> list[str]:
+        return queries.evidence_search_queries(question)
+
+    @override
+    def named_acts(self, question: str) -> tuple[str, ...]:
+        return extract_act_numbers(question)
+
+    @override
+    def act_queries(self, question: str) -> list[str]:
+        return act_focused_queries(question)
+
+    @override
+    def anchors(self, context: str, question: str) -> list[str]:
+        return focus.evidence_reading_map(context, question) + focus.reading_anchors(context, question)
+
+    @override
+    def contradicts_scope(self, question: str, text: str) -> bool:
+        return predicates.contradicts_requested_scope(question, text)
+
+    @override
+    def scoped_response(
+        self, docs: list[tuple[Document, float]], context: str, question: str
+    ) -> tuple[str | None, EvidenceAssessment | None]:
+        return grounded_response.scoped_evidence_response(docs, context, question)
+
+    @override
+    async def augment_fields(
+        self,
+        question: str,
+        candidates: list[Document],
+        chunk_search: ChunkRetrievalRepository | None,
+        ctx: RagContext,
+    ) -> list[Document]:
+        return await field_evidence.augment_field_candidates(question, candidates, chunk_search, ctx)
+
+    @override
+    async def enrich_links(
+        self,
+        docs: list[tuple[Document, float]],
+        question: str,
+        chunk_search: ChunkRetrievalRepository | None,
+        user: UserContext,
+    ) -> list[tuple[Document, float]]:
+        return await linked_context.enrich_linked_context(docs, question, chunk_search, user)
+
+    @override
+    async def enrich_scope(
+        self,
+        docs: list[tuple[Document, float]],
+        question: str,
+        chunk_search: ChunkRetrievalRepository | None,
+        user: UserContext,
+    ) -> list[tuple[Document, float]]:
+        return await applicable_context.enrich_applicable_context(docs, question, chunk_search, user)

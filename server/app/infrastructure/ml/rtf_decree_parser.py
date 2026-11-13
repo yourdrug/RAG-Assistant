@@ -2,8 +2,10 @@
 
 RTF-specific responsibility ends at raw text + document-level header metadata
 (decree number/date). Splitting the postanovlyayushchaya part into points/
-subpoints is fully delegated to the shared content-based splitter with
-DecreeDomainProfile.content_boundaries() — no ad-hoc point-search logic here.
+subpoints is fully delegated to the shared content-based splitter with the
+profile's content_boundaries() — no ad-hoc point-search logic here. The profile
+(an OperativePartProfile from the active domain pack) knows the header requisites
+and the operative-part marker.
 """
 
 from __future__ import annotations
@@ -14,11 +16,6 @@ from striprtf.striprtf import rtf_to_text
 
 from config import ChunkingSection, process_section
 from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, SplitUnit
-from domain.ingestion.profiles.decree import (
-    _DECREE_DATE_RE,
-    _DECREE_NUMBER_RE,
-    _POSTANOVLYAYU_RE,
-)
 from domain.ingestion.tree_packer import select_structural_units
 from infrastructure.ml.tokenization import build_token_counter
 
@@ -27,34 +24,26 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from domain.ingestion.ports import DomainSettingsPort, TokenCounter
-    from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.profiles.protocol import OperativePartProfile
 
 _HEADER_ZONE_CHARS = 1500  # decree requisites are always at the top of the document
 
 
 def parse_decree_rtf(
     file_path: Path,
-    profile: DocumentProfile,
+    profile: OperativePartProfile,
     settings: DomainSettingsPort,
     token_counter: TokenCounter | None = None,
 ) -> tuple[list[SplitUnit], dict[str, Any]]:
     """Parse a decree RTF into split units + document-level header metadata."""
     raw = rtf_to_text(file_path.read_text(encoding="utf-8", errors="replace"))
 
-    header_zone = raw[:_HEADER_ZONE_CHARS]
-    doc_metadata: dict[str, Any] = {}
-
-    if m := _DECREE_NUMBER_RE.search(header_zone):
-        doc_metadata["decree_number"] = m.group(1)
-
-    if m := _DECREE_DATE_RE.search(header_zone):
-        doc_metadata["decree_date"] = m.group(1)
-
-    split_match = _POSTANOVLYAYU_RE.search(raw)
+    doc_metadata: dict[str, Any] = dict(profile.header_requisites(raw[:_HEADER_ZONE_CHARS]))
+    split_span = profile.operative_part_span(raw)
     max_tokens = profile.chunking_policy(settings).max_tokens
     counter = token_counter or build_token_counter(process_section(ChunkingSection).embed_tokenizer_path)
 
-    if split_match is None:
+    if split_span is None:
         # Decree-constatation without a postanovlyayushchaya part — boundaries
         # still apply: the coarsest level finds no matches and hands the text
         # to the next level, down to sentence if needed.
@@ -67,8 +56,8 @@ def parse_decree_rtf(
             measure=counter.count,
         ), doc_metadata
 
-    preamble = raw[: split_match.start()].strip()
-    body = raw[split_match.end() :]
+    preamble = raw[: split_span[0]].strip()
+    body = raw[split_span[1] :]
 
     units: list[SplitUnit] = []
 

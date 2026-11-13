@@ -12,13 +12,13 @@ import application.runtime.setting_keys
 from application.runtime.setting_keys import SECRET_SETTING_KEYS as SENSITIVE_KEYS
 from config import Settings, settings
 from config.ownership import SettingOwnership, field_ownership, keys_owned_by
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
-from domain.knowledge.enums import DocDomain
 from infrastructure import initialization
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
 from tests.fakes import FakeUnitOfWorkFactory
+from tests.law_pack import law_registry
 
 
 def test_every_setting_has_exactly_one_owner() -> None:
@@ -75,18 +75,9 @@ def test_dynamic_registry_keys_match_target_ownership() -> None:
     assert active == application.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
 
 
-def test_domain_parameters_keep_scope_and_stay_out_of_global_map() -> None:
-    expected = {
-        "legal_chunk_max_tokens": DocDomain.LEGAL,
-        "legal_chunk_target_tokens": DocDomain.LEGAL,
-        "decree_chunk_max_tokens": DocDomain.DECREE,
-        "decree_chunk_target_tokens": DocDomain.DECREE,
-        "contract_chunk_max_tokens": DocDomain.CONTRACT,
-        "contract_chunk_target_tokens": DocDomain.CONTRACT,
-    }
-    scoped = {p.key: p.domain_key for p in application.runtime.dynamic_params.DYNAMIC_PARAMS if p.domain_key}
-    assert scoped == expected
-    assert not scoped.keys() & application.runtime.dynamic_params.DYNAMIC_FIELDS_MAP.keys()
+def test_profile_parameters_belong_to_the_pack_registry_not_dynamic_params() -> None:
+    # Profile parameters come from the active domain pack's registry (see seed_domain_config_defaults).
+    assert not [p for p in application.runtime.dynamic_params.DYNAMIC_PARAMS if p.domain_key]
     pairs = [(p.key, p.domain_key) for p in application.runtime.dynamic_params.DYNAMIC_PARAMS]
     assert len(pairs) == len(set(pairs))
 
@@ -107,7 +98,9 @@ async def test_domain_profile_defaults_are_seeded_in_declared_scope() -> None:
     await initialization.seed_domain_config_defaults(factory, registry)
     rows = await factory._uow.fake_config_parameters.get_all()
     assert {(row.key, row.domain_key): (row.value, row.value_type) for row in rows} == defaults
-    assert all(row.category == f"domain:{row.domain_key}" for row in rows)
+    categories = {row.key: row.category for row in rows if row.domain_key == "legal"}
+    assert categories["legal_chunk_max_tokens"] == categories["legal_chunk_target_tokens"] == "ingestion"
+    assert categories["classification_threshold"] == "domain:legal"
 
 
 @pytest.mark.parametrize(
@@ -128,31 +121,37 @@ def test_seed_uses_defaults_and_preserves_domain_scope(monkeypatch: pytest.Monke
     rows = {(p.key, p.domain_key): p for p in initialization.build_defaults()}
     assert rows[("llm_provider", None)].value == LLMProvider.OPENROUTER.value
     assert rows[("openrouter_model", None)].value == "qwen/qwen-2.5-7b-instruct"
-    assert rows[("legal_chunk_max_tokens", DocDomain.LEGAL)].value == str(
-        LegalDomainProfile().chunking_policy().max_tokens
-    )
-    assert ("legal_chunk_max_tokens", None) not in rows
+    assert not [key for key in rows if key[1] is not None or key[0] == "legal_chunk_max_tokens"]
 
 
 @pytest.mark.asyncio
 async def test_seed_keeps_existing_database_values_and_is_repeatable() -> None:
     factory = FakeUnitOfWorkFactory()
+    registry = law_registry()
     existing = initialization.build_defaults()
     model = next(p for p in existing if p.key == "openrouter_model")
     model.value = "preserved-db-model"
-    scoped = next(p for p in existing if p.key == "legal_chunk_max_tokens")
+    await factory._uow.fake_config_parameters.save(model)
+    await initialization.seed_domain_config_defaults(factory, registry)
+    scoped = next(
+        p
+        for p in await factory._uow.fake_config_parameters.get_all()
+        if (p.key, p.domain_key) == ("legal_chunk_max_tokens", "legal")
+    )
+    assert scoped.value == str(LegalDomainProfile().chunking_policy().max_tokens)
     scoped.value = "1777"
+    await factory._uow.fake_config_parameters.save(scoped)
+    seeded = len(await factory._uow.fake_config_parameters.get_all())
 
-    for row in (model, scoped):
-        await factory._uow.fake_config_parameters.save(row)
+    for _ in range(2):
+        await initialization.seed_config_defaults(factory)
+        await initialization.seed_domain_config_defaults(factory, registry)
 
-    await initialization.seed_config_defaults(factory)
-    await initialization.seed_config_defaults(factory)
     rows = await factory._uow.fake_config_parameters.get_all()
-    assert len(rows) == len(existing)
+    assert len(rows) == len(existing) - 1 + seeded
     values = {(p.key, p.domain_key): p.value for p in rows}
     assert values[("openrouter_model", None)] == model.value
-    assert values[("legal_chunk_max_tokens", DocDomain.LEGAL)] == scoped.value
+    assert values[("legal_chunk_max_tokens", "legal")] == scoped.value
 
 
 def test_profile_token_limits_are_not_global_settings_fields() -> None:

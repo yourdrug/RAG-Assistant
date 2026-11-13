@@ -27,7 +27,7 @@ SECRET_SETTING_KEYS: frozenset[str] = frozenset(
 
 STATIC_SETTING_KEYS: frozenset[str] = frozenset(
     {
-        "evidence_profile",
+        "domain_pack",
         "ml_provider",
         "ml_internal_allowed_origins",
         "ocr_vl_url",

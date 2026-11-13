@@ -15,7 +15,6 @@ from application.act_versioning import ActVersioningService
 from application.documents.dto import ProcessDocumentCommand
 from application.indexing import process_chunks
 from application.ingestion import IngestionScope, SingleFileIngestionWorkflow
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.acts.models import ActVersion
@@ -25,6 +24,7 @@ from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOut
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from domain.shared.hashing import content_hash
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+from packs.belarus_law.domain.decree import DecreeDomainProfile
 from tests.fakes import FakeUnitOfWorkFactory
 from tests.test_document_processor_characterization import build_harness, seed_document
 

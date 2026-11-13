@@ -14,10 +14,9 @@ import pytest
 from application.rag.stream_events import StatusEvent
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
-from domain.knowledge.enums import DocDomain, PageContentType
+from domain.knowledge.enums import PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.rag.exceptions import ContextBudgetExceededError
@@ -27,6 +26,7 @@ from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, format_docs, format_docs_with_selection
 from infrastructure.ml.tokenization import build_token_counter
+from packs.belarus_law.domain.decree import DecreeDomainProfile
 from presentation.api.routes.chat import chat_stream
 from presentation.api.schemas import ChatRequest, CurrentUser
 from tests.rag_stage_fixtures import build_context as step_build_context, stage_fixture
@@ -176,7 +176,7 @@ def test_oversized_parent_is_never_truncated_or_allowed_to_exceed_budget(
     text = intro + "\n21.1. Submit the passport.\n21.2. Submit the form."
     child = next(
         c
-        for c in splitter.split([RawDocument(text, {"source": "rules.txt"})], DocDomain.DECREE.value)
+        for c in splitter.split([RawDocument(text, {"source": "rules.txt"})], "decree")
         if "21.2" in c.metadata.get("boundary_values", [])
     )
     context, selected = format_docs_with_selection(

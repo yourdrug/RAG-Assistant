@@ -13,10 +13,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from application.documents import DocumentCommandService, PreviewCache, PreviewStrategyFactoryPort
 from application.documents.diagnostics import PDFDiagnosticService
 from application.documents.quality_service import QualityService
+from application.ingestion.profiles import ensure_known_domain
 from application.ports.rate_limit import RateLimitPolicyName
 from domain.ingestion.ports import DomainSettingsPort
 from domain.ingestion.profiles.registry import DomainProfileRegistry
-from domain.knowledge.enums import DocDomain, DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from domain.shared.exceptions import AppServerError
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import PAGE_IMAGE_DPI
@@ -71,7 +72,8 @@ class PreviewIndexForm:
     visibility: Annotated[str, Form()] = DocumentVisibility.INTERNAL_PUBLIC.value
     group_id: Annotated[int | None, Form()] = None
     client_id: Annotated[int | None, Form()] = None
-    doc_domain: Annotated[DocDomain | None, Form()] = None
+    # Profile key of the active domain pack; validated against its registry.
+    doc_domain: Annotated[str | None, Form()] = None
 
 
 router = APIRouter(tags=["admin-quality"])
@@ -371,6 +373,7 @@ async def index_from_preview(
     preview_cache: Annotated[PreviewCache, Depends(create_preview_cache)],
     cmd: Annotated[DocumentCommandService, Depends(create_document_command_service)],
     submission: Annotated[JobSubmission, Depends(create_job_submission)],
+    domain_registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
 ) -> IndexFromPreviewResponse:
     """Index the cached document through the standard ingestion pipeline.
 
@@ -379,6 +382,9 @@ async def index_from_preview(
     reused — the standard ``DocumentProcessor`` re-processes the file from
     scratch.
     """
+    if options.doc_domain is not None:
+        ensure_known_domain(domain_registry, options.doc_domain, field="doc_domain")
+
     file_data = await preview_cache.get_bytes(preview_id)
 
     if file_data is None:
@@ -396,7 +402,7 @@ async def index_from_preview(
         user_kind=admin.kind,
         user_role=admin.role,
         rename_on_conflict=False,
-        doc_domain=options.doc_domain.value if options.doc_domain is not None else None,
+        doc_domain=options.doc_domain,
         document_service=cmd,
         action_name="document.upload_from_preview",
         log_fn=submission.log,

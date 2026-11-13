@@ -9,16 +9,19 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from application.ingestion import IngestionPort, IngestionService
+from application.ingestion.profiles import ensure_known_domain
 from application.ports.idempotency_store import IdempotencyStorePort
 from application.ports.job_enqueuer import DuplicateJobError
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import UploadConfig
-from domain.knowledge.enums import DocDomainSelection, DocumentVisibility, DomainDetectionMode
+from domain.ingestion.profiles.registry import DomainProfileRegistry
+from domain.knowledge.enums import DocumentVisibility, DomainDetectionMode
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import JobType
 from presentation.api.dependencies import (
     IdempotencyContext,
     JobSubmission,
+    create_domain_registry,
     create_idempotency_context,
     create_idempotency_store,
     create_ingest_service,
@@ -48,7 +51,8 @@ logger = logging.getLogger("default")
 class IngestOptions:
     docs_dir: SafeRelativePath = "docs/"
     reset: bool = False
-    domain: DocDomainSelection = DomainDetectionMode.AUTO
+    # Profile key of the active domain pack or ``auto``; IngestionService validates it.
+    domain: str = DomainDetectionMode.AUTO.value
     visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC
     group_id: int | None = None
     client_id: int | None = None
@@ -58,13 +62,21 @@ class IngestOptions:
 class IngestFileOptions:
     file_path: SafeRelativePath
     force: bool = False
-    domain: DocDomainSelection = DomainDetectionMode.AUTO
+    # Profile key of the active domain pack or ``auto``; IngestionService validates it.
+    domain: str = DomainDetectionMode.AUTO.value
     visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC
     group_id: int | None = None
     client_id: int | None = None
 
 
 router = APIRouter(tags=["ingest"])
+
+
+def validate_ingest_domain(registry: DomainProfileRegistry | None, domain: str) -> None:
+    """Accept auto-detection or a document profile of the active domain pack."""
+    if domain != DomainDetectionMode.AUTO.value:
+        ensure_known_domain(registry, domain)
+
 
 MAX_UPLOAD_FILES = 20
 
@@ -81,9 +93,12 @@ async def ingest_documents(
     options: Annotated[IngestOptions, Depends()],
     admin: Annotated[CurrentUser, Depends(require_admin)],
     service: Annotated[IngestionService, Depends(create_ingest_service)],
+    registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
     submission: Annotated[JobSubmission, Depends(create_job_submission)],
     idempotency: Annotated[IdempotencyContext, Depends(create_idempotency_context)],
 ) -> IngestStatusResponse:
+    validate_ingest_domain(registry, options.domain)
+
     try:
         resolved = service.resolve_docs_dir(options.docs_dir)
     except ValueError as e:
@@ -124,7 +139,7 @@ async def ingest_documents(
         await submission.enqueuer.enqueue_ingest(
             resolved_dir=resolved,
             reset=options.reset,
-            domain=options.domain.value,
+            domain=options.domain,
             job_id=job_id,
             visibility=options.visibility.value,
             group_id=options.group_id,
@@ -156,9 +171,12 @@ async def ingest_single_file(
     options: Annotated[IngestFileOptions, Depends()],
     admin: Annotated[CurrentUser, Depends(require_admin)],
     service: Annotated[IngestionService, Depends(create_ingest_service)],
+    registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
     submission: Annotated[JobSubmission, Depends(create_job_submission)],
     idempotency: Annotated[IdempotencyContext, Depends(create_idempotency_context)],
 ) -> IngestStatusResponse:
+    validate_ingest_domain(registry, options.domain)
+
     try:
         resolved = service.resolve_ingest_target(options.file_path)
     except ValueError as e:
@@ -198,7 +216,7 @@ async def ingest_single_file(
     try:
         await submission.enqueuer.enqueue_ingest_file(
             resolved=resolved,
-            domain=options.domain.value,
+            domain=options.domain,
             job_id=job_id,
             visibility=options.visibility.value,
             group_id=options.group_id,

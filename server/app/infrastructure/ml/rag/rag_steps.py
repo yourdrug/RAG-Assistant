@@ -24,7 +24,7 @@ from application.rag.dto import (
     TerminalResponse,
 )
 from application.rag.stream_events import SourcesEvent, TextChunk, UsageReport
-from config import LLMSection, RetrievalSection, request_section
+from config import LLMSection, request_section
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.rag.breadth import BREADTH_ALIASES, Breadth
@@ -51,7 +51,7 @@ from infrastructure.ml.cache.keys import CacheKeyBuilder, generation_identity
 from infrastructure.ml.cache.pipeline import check_cache, handle_cache_hit, store_answer_cache
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.evidence_profiles.profiles import (
-    EVIDENCE_PROFILES,
+    GenericEvidenceProfile,
     current_evidence_profile,
     evidence_profile_scope,
 )
@@ -147,8 +147,11 @@ class RagOperations:
         *,
         document_access: DocumentAccessPort,
         domain_registry: DomainProfileRegistry | None = None,
+        evidence_profile: EvidenceProfile | None = None,
     ) -> None:
         self.ml = ml_clients
+        # The domain pack's evidence rules; neutral rules when none is supplied.
+        self.evidence_profile = evidence_profile or GenericEvidenceProfile()
         self.chunk_search = chunk_search
         self.domain_keys = domain_keys
         self.domain_registry = domain_registry
@@ -158,9 +161,7 @@ class RagOperations:
     @asynccontextmanager
     async def corpus(self) -> AsyncIterator[None]:
         async with AsyncExitStack() as stack:
-            stack.enter_context(
-                evidence_profile_scope(EVIDENCE_PROFILES[request_section(RetrievalSection).evidence_profile])
-            )
+            stack.enter_context(evidence_profile_scope(self.evidence_profile))
             stack.enter_context(query_vector_scope())
 
             if isinstance(self.ml, MLClientRegistry):

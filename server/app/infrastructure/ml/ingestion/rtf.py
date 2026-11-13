@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from domain.ingestion.document_tree import DocNode
     from domain.ingestion.ports import DomainSettingsPort
-    from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.profiles.protocol import OperativePartProfile
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from infrastructure.ml.ingestion.rtf_walker import Paragraph, Segment, Table
     from infrastructure.ml.ingestion.section_types import Section
@@ -324,15 +324,11 @@ class RtfDocumentParser:
 
         return ParsedFormat(single_block_tree(text), page_meta, structured=False)
 
-    def get_decree_profile(self) -> DocumentProfile | None:
+    def get_decree_profile(self) -> OperativePartProfile | None:
         if self._domain_registry is None or self._domain_settings is None:
             return None
 
-        try:
-            profile = self._domain_registry.get("decree")
-        except KeyError:
-            return None
-        return profile if profile.content_boundaries() else None
+        return self._domain_registry.operative_part_profile()
 
     def try_parse_decree_rtf(self, file_path: Path, text: str) -> ParsedFormat | None:
         """Decree-structured RTF path; None = fall through to flat RTF parsing.

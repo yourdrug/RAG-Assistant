@@ -9,8 +9,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from application.ingestion import S3DocumentLoader
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocDomain
+from infrastructure.domain_profile import register_pack_profiles
+from infrastructure.domain_profile.packs import NEUTRAL_PACK
+from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 
 
 class PassthroughSplitter:
@@ -21,7 +25,12 @@ class PassthroughSplitter:
 
 @pytest.fixture
 def loader() -> S3DocumentLoader:
-    return S3DocumentLoader(MagicMock(), MagicMock(), PassthroughSplitter(), SimpleNamespace())
+    # Neutral domain pack: only the core ``general`` profile is known.
+    registry = DomainProfileRegistry()
+    register_pack_profiles(registry, NEUTRAL_PACK, DomainSettingsAdapter())
+    return S3DocumentLoader(
+        MagicMock(), MagicMock(), PassthroughSplitter(), SimpleNamespace(), domain_registry=registry
+    )
 
 
 def test_unknown_explicit_domain_is_rejected_by_loader(loader: S3DocumentLoader) -> None:
@@ -39,3 +48,8 @@ def test_known_domain_is_preserved_in_chunks(loader: S3DocumentLoader, domain: D
     resolved = loader.classify_text_domain("document text", domain.value)
     chunks = loader.index_docs([RawDocument("document text", {})], domain=resolved)
     assert chunks[0].metadata["doc_domain"] == domain.value
+
+
+def test_law_pack_profile_is_rejected_by_neutral_pack(loader: S3DocumentLoader) -> None:
+    with pytest.raises(ValueError, match="legal"):
+        loader.classify_text_domain("document text", "legal")

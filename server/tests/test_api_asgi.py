@@ -16,6 +16,7 @@ from application.documents import DocumentDeletionJobs, DocumentDTO, DocumentQue
 from domain.benchmark.question import DEFAULT_DATASET
 from domain.chat.message import Message, MessageRole
 from domain.identity.roles import UserRole
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocDomain, DocumentVisibility, SourceType
@@ -34,6 +35,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from pathlib import Path
 
+    from domain.ingestion.profiles.protocol import DocumentProfile
+
 
 def mock_dependency() -> MagicMock:
     """Expose a zero-argument signature for FastAPI dependency inspection."""
@@ -50,6 +53,8 @@ async def asgi_client() -> AsyncIterator[httpx.AsyncClient]:
     app.dependency_overrides[deps.create_auth_service] = mock_dependency
     app.dependency_overrides[deps.create_api_key_service] = mock_dependency
     app.dependency_overrides[deps.create_api_key_provider] = mock_dependency
+    # Neutral pack: only the ``general`` document profile is known.
+    app.dependency_overrides[deps.create_domain_registry] = lambda: None
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)  # type: ignore[arg-type]  # Starlette and HTTPX disagree on the ASGI send annotation.
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -58,6 +63,16 @@ async def asgi_client() -> AsyncIterator[httpx.AsyncClient]:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old_overrides)
         app.state.container = old_container
+
+
+def law_registry() -> DomainProfileRegistry:
+    """Stand-in for a pack registry with the law pack's profile keys."""
+    registry = DomainProfileRegistry()
+
+    for key in ("general", "legal", "decree", "contract"):
+        registry.register(cast("DocumentProfile", SimpleNamespace(key=key)))
+
+    return registry
 
 
 def sign_in(role: str = "user", user_id: int = 1) -> None:
@@ -107,6 +122,31 @@ async def test_ingestion_accepts_supported_and_automatic_domains(
     response = await asgi_client.post(path, params={"domain": domain, "file_path": "docs/test.pdf"})
     assert response.status_code == 200
     assert response.json()["status"] == "started"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/ingest", "/ingest/file"])
+@pytest.mark.parametrize(
+    "pack_registry, domain, status",
+    [(None, "legal", 422), (True, "legal", 200), (True, "decree", 200), (True, "contract", 200)],
+)
+async def test_ingestion_domains_come_from_the_active_pack(
+    asgi_client: httpx.AsyncClient, path: str, pack_registry: bool | None, domain: str, status: int
+) -> None:
+    sign_in(UserRole.ADMIN.value)
+    jobs = SimpleNamespace(create_job=AsyncMock(return_value=8))
+    app.dependency_overrides[deps.create_job_service] = lambda: jobs
+    app.dependency_overrides[deps.create_job_enqueuer] = lambda: SimpleNamespace(
+        enqueue_ingest=AsyncMock(), enqueue_ingest_file=AsyncMock()
+    )
+    app.dependency_overrides[deps.create_ingest_service] = lambda: SimpleNamespace(
+        resolve_docs_dir=lambda value: value, resolve_ingest_target=lambda value: value
+    )
+    app.dependency_overrides[deps.create_idempotency_store] = lambda: None
+    registry = law_registry() if pack_registry else None
+    app.dependency_overrides[deps.create_domain_registry] = lambda: registry
+    response = await asgi_client.post(path, params={"domain": domain, "file_path": "docs/test.pdf"})
+    assert response.status_code == status
 
 
 @pytest.mark.asyncio
@@ -451,6 +491,8 @@ async def test_multipart_upload_preserves_metadata_and_job_principal(asgi_client
     app.dependency_overrides[deps.create_job_enqueuer] = lambda: enqueuer
     app.dependency_overrides[deps.create_upload_config] = lambda: SimpleNamespace(max_upload_size_mb=1)
     app.dependency_overrides[deps.create_idempotency_store] = lambda: None
+    registry = law_registry()
+    app.dependency_overrides[deps.create_domain_registry] = lambda: registry
 
     response = await asgi_client.post(
         "/documents",
@@ -460,7 +502,7 @@ async def test_multipart_upload_preserves_metadata_and_job_principal(asgi_client
             "group_id": "5",
             "client_id": "21",
             "rename_on_conflict": "true",
-            "doc_domain": DocDomain.LEGAL.value,
+            "doc_domain": "legal",
             "replaces_document_id": "7",
         },
     )
@@ -476,7 +518,7 @@ async def test_multipart_upload_preserves_metadata_and_job_principal(asgi_client
         user_kind="internal",
         user_role=UserRole.ADMIN.value,
         rename_on_conflict=True,
-        doc_domain=DocDomain.LEGAL.value,
+        doc_domain="legal",
         replaces_document_id=7,
     )
     # Upload owns the durable job; the HTTP path never publishes to Redis.

@@ -39,11 +39,8 @@ class RtfPreviewStrategy:
         if self._domain_registry is None or self._domain_settings is None:
             return False
 
-        try:
-            profile = self._domain_registry.get("decree")
-        except KeyError:
-            return False
-        return profile.structural_fingerprint(text[:_DECREE_FINGERPRINT_PREFIX_CHARS])
+        profile = self._domain_registry.operative_part_profile()
+        return profile is not None and profile.structural_fingerprint(text[:_DECREE_FINGERPRINT_PREFIX_CHARS])
 
     def analyze(self, path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         raw_text, _meta = parse_rtf(path)
@@ -77,10 +74,11 @@ class RtfPreviewStrategy:
         self, path: Path, raw_text: str
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         """Decree-structured preview: one unit per structural SplitUnit."""
-        if self._domain_registry is None or self._domain_settings is None:
+        profile = self._domain_registry.operative_part_profile() if self._domain_registry else None
+
+        if profile is None or self._domain_settings is None:
             return self._analyze_flat(raw_text)
 
-        profile = self._domain_registry.get("decree")
         try:
             split_units, _doc_metadata = parse_decree_rtf(path, profile, self._domain_settings)
         except Exception:

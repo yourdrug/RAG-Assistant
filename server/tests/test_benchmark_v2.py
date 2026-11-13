@@ -5,7 +5,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import copy
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
@@ -26,6 +25,7 @@ from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
+from packs.belarus_law.pack import BENCHMARKS_DIR
 from presentation.api.helpers import question_create_to_dto, question_to_response
 from presentation.api.routes.benchmark_admin import export_questions
 from presentation.api.schemas.benchmark import BenchmarkQuestionsImportRequest
@@ -40,9 +40,10 @@ if TYPE_CHECKING:
     from tests.fakes import FakeUnitOfWorkFactory
 
 
-DATASET = Path(__file__).resolve().parents[2] / "benchmarks" / "benchmark-questions-v2.json"
+DATASET = BENCHMARKS_DIR / "benchmark-questions-v2.json"
 
 
+@pytest.mark.belarus
 @pytest.mark.asyncio
 async def test_full_v2_import_roundtrip_and_active_loading(
     fake_uow_factory: FakeUnitOfWorkFactory, monkeypatch: pytest.MonkeyPatch
@@ -90,6 +91,7 @@ async def test_full_v2_import_roundtrip_and_active_loading(
         assert mapped.question_style == entity.question_style
 
 
+@pytest.mark.belarus
 @pytest.mark.asyncio
 async def test_v2_identity_reaches_sql_storage(fake_uow_factory: FakeUnitOfWorkFactory) -> None:
     rows = json.loads(DATASET.read_text())

@@ -7,7 +7,6 @@ from langchain.schema import Document
 import pytest
 
 from domain.ingestion.content_splitter import BoundaryContext, SplitUnit
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.patterns import SENTENCE_RE
 from domain.ingestion.profiles.types import BoundaryLevel
 from domain.ingestion.tree_packer import select_structural_units
@@ -16,6 +15,7 @@ from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.ingestion.structural_metadata import unit_metadata
 from infrastructure.ml.ingestion.text_chunks import text_tree_chunks
+from packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 RANK = {"article": 0, "point": 1, "sentence": 2}

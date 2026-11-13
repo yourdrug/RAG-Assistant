@@ -1,33 +1,25 @@
-"""Document-type classification by keyword heuristics."""
+"""Document-type classification by keyword heuristics supplied by a domain pack."""
 
 from __future__ import annotations
 
 
-DOC_TYPE_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("order", ["приказ", "распоряжение", "постановление"]),
-    ("contract", ["договор", "контракт", "соглашение"]),
-    ("protocol", ["протокол"]),
-    ("instruction", ["инструкция", "регламент", "порядок действий"]),
-    ("policy", ["положение о"]),
-    ("letter", ["письмо", "уведомление"]),
-    ("report", ["отчёт", "отчет"]),
-]
+# (doc_type, keywords) in priority order; the first category with a match wins.
+type DocTypeKeywords = tuple[tuple[str, tuple[str, ...]], ...]
 
 DOC_TYPE_SAMPLE_CHARS = 1500
 
 
-def classify_doc_type(text_sample: str) -> str | None:
+def classify_doc_type(text_sample: str, keywords: DocTypeKeywords) -> str | None:
     """Classify document type by keyword heuristics.
 
-    Checks the first ~1500 chars (title + opening lines) against a list of
-    Russian legal-document keywords. The first category with a match wins.
-    This is deliberately coarse — a cheap signal for filtering/ranking, not
-    a legal classification.
+    Checks the first ~1500 chars (title + opening lines) against the pack's
+    keyword list. This is deliberately coarse — a cheap signal for
+    filtering/ranking, not a legal classification.
     """
     lowered = text_sample.lower()
 
-    for doc_type, keywords in DOC_TYPE_KEYWORDS:
-        if any(kw in lowered for kw in keywords):
+    for doc_type, words in keywords:
+        if any(word in lowered for word in words):
             return doc_type
 
     return None

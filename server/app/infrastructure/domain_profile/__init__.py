@@ -1,7 +1,7 @@
-"""Domain profile infrastructure: registry + settings adapter + profile registration.
+"""Domain profile infrastructure: registry population, settings adapter, answer policies.
 
-Adding a new domain = new profile file in domain/ingestion/profiles/ +
-one register call in register_all_profiles() below.
+Adding a domain = a new pack under ``packs/<name>/`` + one entry in the Composition
+pack registry (``composition/domain_packs.py``); the core does not change.
 """
 
 from __future__ import annotations
@@ -9,33 +9,37 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from domain.ingestion.profiles.catalog import PROFILE_TYPES, SETTINGS_PROFILE_TYPES
+from domain.ingestion.profiles.base import SettingsBackedProfile
 
 
 if TYPE_CHECKING:
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from infrastructure.domain_profile.packs import DomainPack
 
 
 log = logging.getLogger("default")
 
 
-def register_all_profiles(registry: DomainProfileRegistry, settings: DomainSettingsPort) -> None:
-    """Register all known domain profiles into the registry.
+def register_pack_profiles(
+    registry: DomainProfileRegistry, pack: DomainPack, settings: DomainSettingsPort
+) -> None:
+    """Register the document profiles and document-type keywords of one domain pack.
 
     Validates that DomainSettingsPort is functional before registering
     settings-backed profiles so configuration errors are caught at startup,
     not on the first document processing request.
     """
-    registry.register(PROFILE_TYPES[0]())
+    registry.doc_type_keywords = pack.doc_type_keywords
 
-    for cls in SETTINGS_PROFILE_TYPES:
-        profile = cls(settings=settings)
-        try:
-            profile.get_setting(f"{profile.key}_chunk_max_tokens")
-        except (KeyError, RuntimeError):
-            log.warning(
-                "DomainSettingsPort validation failed for %s -- config parameters may not be seeded yet",
-                cls.__name__,
-            )
+    for profile in pack.build_profiles(settings):
+        if isinstance(profile, SettingsBackedProfile):
+            try:
+                profile.get_setting(f"{profile.key}_chunk_max_tokens")
+            except (KeyError, RuntimeError):
+                log.warning(
+                    "DomainSettingsPort validation failed for %s -- config parameters may not be seeded yet",
+                    type(profile).__name__,
+                )
+
         registry.register(profile)

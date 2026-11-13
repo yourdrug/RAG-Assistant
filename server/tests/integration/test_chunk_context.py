@@ -131,7 +131,7 @@ async def test_context_round_trip_and_unauthorized_search(pg_engine: AsyncEngine
             filename="rules.pdf",
             visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
             owner_id=users[0].id,
-            doc_domain=DocDomain.DECREE.value,
+            doc_domain="decree",
         )
         session.add(doc)
         await session.flush()
@@ -146,7 +146,7 @@ async def test_context_round_trip_and_unauthorized_search(pg_engine: AsyncEngine
                     context_metadata=context,
                 )
             ],
-            options=ChunkInsertOptions(owner_id=users[0].id, doc_domain=DocDomain.DECREE.value),
+            options=ChunkInsertOptions(owner_id=users[0].id, doc_domain="decree"),
         )
     allowed = UserContext(users[0].id, UserKind.INTERNAL, UserRole.USER)
     denied = UserContext(users[1].id, UserKind.INTERNAL, UserRole.USER)

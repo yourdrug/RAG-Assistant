@@ -7,15 +7,16 @@ Successful requests are checkpointed individually; resume never repeats them.
 
 import argparse
 import asyncio
+from collections import Counter
+from datetime import UTC, datetime
 import hashlib
 import json
 import logging
-import time
-from collections import Counter
-from datetime import UTC, datetime
 from pathlib import Path
+import time
 
 import httpx
+
 
 BASELINE_MODEL = "qwen/qwen-2.5-7b-instruct"
 CANDIDATE_MODEL = "qwen/qwen-2.5-72b-instruct"
@@ -41,9 +42,10 @@ def save_json(path: Path, value):
 
 def prepare_snapshot(runs, dataset, run_id, ids, diagnostic_ids, git_commit=None):
     from domain.rag.breadth import Breadth
-    from infrastructure.ml.evidence_profiles.profiles import EVIDENCE_PROFILES, evidence_profile_scope
+    from infrastructure.ml.evidence_profiles.profiles import evidence_profile_scope
     from infrastructure.ml.rag.evidence_focus import format_generation_messages
     from infrastructure.ml.rag.rag_prompts import build_prompt
+    from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile
 
     run = next((run for run in runs if run["id"] == run_id), None)
     if run is None:
@@ -62,7 +64,7 @@ def prepare_snapshot(runs, dataset, run_id, ids, diagnostic_ids, git_commit=None
         breadth = budget.get("effective_breadth", case["breadth"])
         enumerate_cases = budget.get("enumerate_cases", breadth == Breadth.BROAD.value)
         # Runs come from the legal benchmark, so the legal evidence rules are selected explicitly.
-        with evidence_profile_scope(EVIDENCE_PROFILES["belarus"]):
+        with evidence_profile_scope(BelarusEvidenceProfile()):
             prompt = build_prompt(breadth, enumerate_cases=enumerate_cases, question=case["question"])
             messages = format_generation_messages(
                 prompt, context=context, history=[], question=case["question"]

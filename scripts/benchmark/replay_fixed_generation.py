@@ -16,9 +16,10 @@ from langchain_openai import ChatOpenAI
 
 from config import settings
 from domain.rag.breadth import Breadth
-from infrastructure.ml.evidence_profiles.profiles import EVIDENCE_PROFILES, evidence_profile_scope
-from infrastructure.ml.rag.rag_prompts import build_prompt
+from infrastructure.ml.evidence_profiles.profiles import evidence_profile_scope
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
+from infrastructure.ml.rag.rag_prompts import build_prompt
+from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile
 
 
 async def replay(snapshot: dict) -> dict:
@@ -35,7 +36,7 @@ async def replay(snapshot: dict) -> dict:
     results = []
     for case in snapshot["cases"]:
         # Frozen cases come from the legal benchmark, so the legal evidence rules are selected explicitly.
-        with evidence_profile_scope(EVIDENCE_PROFILES["belarus"]):
+        with evidence_profile_scope(BelarusEvidenceProfile()):
             prompt = build_prompt(
                 case.get("breadth", Breadth.NARROW.value),
                 enumerate_cases=case.get("enumerate_cases", True),

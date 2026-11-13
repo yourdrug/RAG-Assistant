@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from domain.ingestion.chunking_policy import profile_policy
 from domain.ingestion.profiles.base import (
     EFFECTIVE_DATE_TRUST_THRESHOLD_DEFAULT,
+    VERSIONED_AS_OF_NOTE,
     SettingsBackedProfile,
     extract_effective_date_generic,
 )
@@ -68,6 +69,7 @@ class DecreeDomainProfile(SettingsBackedProfile):
         "- Каждый указ идентифицируй по номеру и дате.\n- Ссылайся на конкретный пункт "
         "постановляющей части, не пересказывай указ целиком.\n",
         fallback_to_full_corpus=True,
+        as_of_note=VERSIONED_AS_OF_NOTE,
     )
     query_patterns: tuple[str, ...] = ("\\bуказ\\w*\\b", "\\bпостановлен\\w*\\b", "\\bдекрет\\w*\\b")
     query_priority = 2
@@ -146,6 +148,21 @@ class DecreeDomainProfile(SettingsBackedProfile):
 
         refs += [ReferenceMatch("point", m) for m in POINT_RE.findall(text)]
         return refs
+
+    def header_requisites(self, header: str) -> dict[str, str]:
+        requisites = {}
+
+        if m := _DECREE_NUMBER_RE.search(header):
+            requisites["decree_number"] = m.group(1)
+
+        if m := _DECREE_DATE_RE.search(header):
+            requisites["decree_date"] = m.group(1)
+
+        return requisites
+
+    def operative_part_span(self, text: str) -> tuple[int, int] | None:
+        match = _POSTANOVLYAYU_RE.search(text)
+        return match.span() if match else None
 
     def extract_effective_date(self, text: str) -> EffectiveDateCandidate | None:
         return extract_effective_date_generic(

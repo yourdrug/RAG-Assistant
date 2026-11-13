@@ -79,3 +79,20 @@ class DocumentProfile(Protocol):
     def extract_effective_date(self, text: str) -> EffectiveDateCandidate | None:
         """Extract effective date with context-bound confidence scoring."""
         ...
+
+
+@runtime_checkable
+class OperativePartProfile(DocumentProfile, Protocol):
+    """Profile of acts with header requisites and a separately split operative part.
+
+    Example: a decree whose points follow the "ПОСТАНОВЛЯЮ" marker. Format parsers
+    use it without knowing the pack that defines such acts.
+    """
+
+    def header_requisites(self, header: str) -> dict[str, str]:
+        """Document-level requisites (number, date) found in the header zone."""
+        ...
+
+    def operative_part_span(self, text: str) -> tuple[int, int] | None:
+        """Span of the marker that opens the operative part; None when there is none."""
+        ...

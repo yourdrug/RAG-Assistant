@@ -47,17 +47,17 @@ from tokenizers import Tokenizer
 from application.indexing.contextualization import ChunkContextualization
 from domain.benchmark.evaluation import matches_fragment, source_name
 from domain.benchmark.question import evaluation_annotations
-from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.domain_profile import register_all_profiles
+from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.tokenization import build_token_counter
+from packs.belarus_law.pack import BELARUS_LAW_PACK, BENCHMARKS_DIR
 
 
 log = logging.getLogger("chunking_report")
@@ -91,7 +91,13 @@ def parse_args() -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--corpus", type=Path, default=ROOT / "data/chunking_corpus")
-    parser.add_argument("--datasets", type=Path, default=ROOT / "benchmarks/chunking")
+    parser.add_argument(
+        "--datasets",
+        type=Path,
+        action="append",
+        default=None,
+        help="directory of <domain>.json sets; repeatable (default: shared sets + law pack sets)",
+    )
     parser.add_argument(
         "--baseline", type=Path, default=ROOT / "docs/quality/artifacts/chunking-baseline-v1.json"
     )
@@ -110,11 +116,17 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
 
     # `task chunking:report` runs from server/; relative paths always mean the repository root.
-    for name in ("corpus", "datasets", "baseline", "tokenizer", "out", "cache", "chunks_out", "notes_cache"):
+    for name in ("corpus", "baseline", "tokenizer", "out", "cache", "chunks_out", "notes_cache"):
         value = getattr(args, name)
 
         if value is not None and not value.is_absolute():
             setattr(args, name, ROOT / value)
+
+    # The corpus mixes general, contract and legal documents: shared sets plus the law pack's.
+    args.datasets = [
+        path if path.is_absolute() else ROOT / path
+        for path in args.datasets or [ROOT / "benchmarks/chunking", BENCHMARKS_DIR / "chunking"]
+    ]
 
     if not args.baseline.exists():
         message = f"Baseline not found: {args.baseline}"
@@ -130,13 +142,12 @@ def build_pipeline() -> tuple[DomainProfileRegistry, DomainSettingsAdapter, Any,
     settings = DomainSettingsAdapter()
     values = {}
 
-    for profile_type in SETTINGS_PROFILE_TYPES:
-        profile = profile_type(settings=settings)
+    for profile in BELARUS_LAW_PACK.build_profiles(settings):
         values.update({(item.key, profile.key): item.value for item in profile.config_defaults()})
 
     settings.replace_snapshot(values)
     registry = DomainProfileRegistry()
-    register_all_profiles(registry, settings)
+    register_pack_profiles(registry, BELARUS_LAW_PACK, settings)
     return (
         registry,
         settings,
@@ -285,10 +296,10 @@ def size_stats(chunks: list[dict[str, Any]], count: Any) -> dict[str, Any]:
     }
 
 
-def labelled_questions(datasets: Path, domain: str) -> list[dict[str, Any]]:
-    path = datasets / f"{domain}.json"
+def labelled_questions(datasets: list[Path], domain: str) -> list[dict[str, Any]]:
+    path = next((directory / f"{domain}.json" for directory in datasets if (directory / f"{domain}.json").exists()), None)
 
-    if not path.exists():
+    if path is None:
         return []
 
     questions = []

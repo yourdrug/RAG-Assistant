@@ -16,7 +16,7 @@ from domain.identity.user_context import UserContext
 from domain.ingestion.embed_text import build_embed_text
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import ChunkInsert, ChunkRecord, extract_chunk_context
-from domain.knowledge.enums import DocDomain, DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from domain.shared.hashing import content_hash
 from infrastructure.database.models import ChunkModel
@@ -89,7 +89,7 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> No
         DocumentVisibility.INTERNAL_PRIVATE.value,
         owner_id=12,
         group_id=None,
-        doc_domain=DocDomain.DECREE.value,
+        doc_domain="decree",
         _existing_uow=cast("UnitOfWork", uow),
     )
     assert models[0].embed_text == chunk.embed_text

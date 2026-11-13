@@ -16,8 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from langchain.schema import Document
 
 from application.indexing import enrich_chunks_metadata
-from domain.ingestion.profiles.decree import DecreeDomainProfile
 from infrastructure.ml.ingestion import split_documents
+from packs.belarus_law.domain.decree import DecreeDomainProfile
 
 
 if TYPE_CHECKING:

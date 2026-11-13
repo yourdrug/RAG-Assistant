@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from application.indexing import classify_domain, tag_chunks, tag_domain
 from application.ingestion.ports.parser import FileMeta, SplitContext
-from application.ingestion.profiles import get_domain_profile
+from application.ingestion.profiles import ensure_known_domain, get_domain_profile
 from application.ingestion.registry import s3_file_hash
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocDomain, DomainDetectionMode
@@ -91,13 +91,15 @@ class S3DocumentLoader:
 
     def index_docs(self, docs: list[RawDocument], domain: str = DocDomain.GENERAL.value) -> list[RawDocument]:
         """Parse and split documents into chunks. No direct Qdrant upload."""
-        domain = DocDomain(domain).value
         profile = self.get_profile(domain)
+
+        if self._domain_registry is not None:
+            ensure_known_domain(self._domain_registry, domain)
+
         context = SplitContext(
             domain=domain,
             profile=profile,
             settings=self._domain_settings,
-            legal_mode=(domain == DocDomain.LEGAL.value),
         )
         chunks = self._splitter.split(
             [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in docs],
@@ -109,7 +111,11 @@ class S3DocumentLoader:
 
     def classify_text_domain(self, text: str, domain: str) -> str:
         if domain != DomainDetectionMode.AUTO.value:
-            return DocDomain(domain).value
+            # Without a pack registry (standalone splitting) any profile key passes through.
+            if self._domain_registry is not None:
+                ensure_known_domain(self._domain_registry, domain)
+
+            return domain
 
         return classify_domain(
             text,

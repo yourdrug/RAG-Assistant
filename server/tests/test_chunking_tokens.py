@@ -7,8 +7,6 @@ import pytest
 
 from config import ChunkingSection, process_section
 from domain.ingestion.embed_text import MAX_EMBED_TOKENS
-from domain.ingestion.profiles.decree import DecreeDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.raw_document import RawDocument
 from domain.ingestion.text_budget import overlap_tail, sentence_fragments
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
@@ -16,6 +14,9 @@ from infrastructure.ml.ingestion.splitting import TreeChunkingAdapter, split_doc
 from infrastructure.ml.ingestion.text_chunks import text_tree_chunks
 from infrastructure.ml.langchain_document_parser import LangchainDocumentSplitter
 from infrastructure.ml.tokenization import CharEstimateTokenCounter, HfTokenCounter, build_token_counter
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
+from tests.law_pack import law_registry, law_settings
 
 
 TOKENIZER = Path(__file__).resolve().parents[2] / "data/tei_cache/bge-m3/tokenizer.json"
@@ -129,7 +130,10 @@ def test_invalid_token_budget_is_rejected() -> None:
 
 def test_inserted_article_number_survives_final_chunk_metadata(real_counter: HfTokenCounter) -> None:
     text = "Статья 26. Сертификат\nСтатья 26-1. Атрибутный сертификат\nСтатья 27. Следующая статья"
-    chunks = LangchainDocumentSplitter(token_counter=real_counter).split([RawDocument(text)], "legal")
+    settings = law_settings()
+    chunks = LangchainDocumentSplitter(law_registry(settings), settings, token_counter=real_counter).split(
+        [RawDocument(text)], "legal"
+    )
     assert [chunk.metadata["article_number"] for chunk in chunks] == ["26", "26-1", "27"]
     assert "26-1" in chunks[1].metadata["section"]
     assert chunks[1].metadata["domain_metadata"]["article"] == "26-1"

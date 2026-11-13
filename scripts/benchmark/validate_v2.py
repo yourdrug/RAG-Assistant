@@ -13,7 +13,11 @@ BEHAVIORS = {
     "factual": "answer", "negative": "answer", "false_premise": "correct_premise",
     "not_in_corpus": "abstain", "out_of_scope": "abstain", "ambiguous": "clarify_ambiguity",
 }
-DEFAULT_PATH = Path(__file__).resolve().parents[2] / "benchmarks" / "benchmark-questions-v2.json"
+# Legal benchmark set of the Belarusian law pack.
+DEFAULT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "server/app/packs/belarus_law/benchmarks/benchmark-questions-v2.json"
+)
 
 
 def require(condition: bool, message: str) -> None:

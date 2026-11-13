@@ -11,12 +11,10 @@ from langchain.schema import Document
 import pytest
 
 from application.ingestion import FileMeta, SplitContext
-from domain.ingestion.profiles.decree import DecreeDomainProfile
-from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.ingestion.text_budget import split_leaf_text
-from domain.knowledge.enums import DocDomain, PageContentType
+from domain.knowledge.enums import PageContentType
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
@@ -24,6 +22,8 @@ from infrastructure.ingestion.document_parser_adapter import (
 )
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag.rag_formatting import format_docs
+from packs.belarus_law.domain.decree import DecreeDomainProfile
+from packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 if TYPE_CHECKING:
@@ -114,30 +114,30 @@ def test_overflow_bodies_remain_contiguous_source_slices(marker: str, overlap: i
 @pytest.mark.parametrize(
     "domain, heading",
     [
-        (DocDomain.LEGAL, "Статья 15. Порядок подачи документов"),
-        (DocDomain.DECREE, "21. Порядок подачи документов"),
+        ("legal", "Статья 15. Порядок подачи документов"),
+        ("decree", "21. Порядок подачи документов"),
     ],
 )
 def test_real_pdf_overflow_preserves_pages_and_api_cli_parity(
     pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
     tmp_path: Path,
-    domain: DocDomain,
+    domain: str,
     heading: str,
 ) -> None:
     parser, splitter = pipeline
     path = tmp_path / "download.pdf"
     make_pdf(path, [heading + "\n" + "Заявитель передаёт сведения в электронной форме " * 30])
     docs = parser.parse(path, filename="law.pdf")
-    chunks = splitter.split(docs, domain.value)
+    chunks = splitter.split(docs, domain)
     assert len(chunks) > 1
     assert all(c.metadata["pages"] == [1] for c in chunks)
     assert all(c.metadata["page"] == 1 for c in chunks)
     assert all("_page_spans" not in c.metadata for c in chunks)
-    limit = 1000 if domain is DocDomain.LEGAL else 1200
+    limit = 1000 if domain == "legal" else 1200
     assert all(len(c.page_content) <= limit for c in chunks)
     meta = FileMeta("s3://bucket/law.pdf", "law.pdf", ".pdf", path.stat().st_size)
     cli_docs = IngestionDocumentParser(parser).parse(path, meta)
-    cli_chunks = IngestionDocumentSplitter(splitter).split(cli_docs, SplitContext(domain=domain.value))
+    cli_chunks = IngestionDocumentSplitter(splitter).split(cli_docs, SplitContext(domain=domain))
     assert [c.page_content for c in cli_chunks] == [c.page_content for c in chunks]
     assert [c.metadata["pages"] for c in cli_chunks] == [c.metadata["pages"] for c in chunks]
 
@@ -178,7 +178,7 @@ def test_long_parent_exception_survives_in_every_subpoint(
             f"21.{i}. Требуется документ {i}, подтверждающий сведения заявителя." for i in range(1, 9)
         )
     )
-    chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], DocDomain.DECREE.value)
+    chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], "decree")
     children = [c for c in chunks if c.metadata.get("unit_kind") == "subpoint_num"]
     # Adjacent subpoints pack together while retaining every number and the full parent.
     assert 1 <= len(children) < 8
@@ -197,7 +197,7 @@ def test_parent_larger_than_chunk_is_complete_in_prompt_and_sanitized(
     exception = "Указанные правила не применяются к ранее поданным заявлениям."
     intro = "21. " + "Полные условия предоставления услуги. " * 40 + exception
     text = intro + "\n21.1. Требуется заявление.\n21.2. Требуется паспорт."
-    chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], DocDomain.DECREE.value)
+    chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], "decree")
     child = next(c for c in chunks if "21.2" in c.metadata.get("boundary_values", []))
     assert len(child.page_content) <= 1200
     assert child.metadata["parent_units"][0]["content"] == intro
@@ -222,7 +222,7 @@ def test_short_scope_is_not_repeated_again_in_prompt(
     condition = "21. Только для электронных заявлений:"
     chunks = splitter.split(
         [RawDocument(condition + "\n21.1. Требуется заявление.", {"source": "rules.txt"})],
-        DocDomain.DECREE.value,
+        "decree",
     )
     child = next(c for c in chunks if c.metadata.get("subpoint_num_number"))
     assert (
@@ -321,7 +321,7 @@ def test_nested_scopes_exceeding_chunk_budget_are_complete_in_prompt(
     inner = "21.1. " + "Документы представляются лично. " * 23 + "Кроме заявителей старше 80 лет:"
     text = outer + "\n" + inner + "\nа) " + "Подать заявление. " * 15
     text += "\nб) " + "Предъявить паспорт. " * 15
-    chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], DocDomain.DECREE.value)
+    chunks = splitter.split([RawDocument(text, {"source": "rules.txt"})], "decree")
     child = next(c for c in chunks if c.metadata.get("subpoint_number") == "б")
     assert [parent["content"] for parent in child.metadata["parent_units"]] == [outer, inner]
     assert len(child.page_content) <= 1200

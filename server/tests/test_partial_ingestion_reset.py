@@ -380,7 +380,7 @@ async def test_ingestion_source_path_can_be_read_by_storage(ingestion: SimpleNam
 async def test_ingestion_persists_detected_domain_and_updates_it_on_reindex(
     ingestion: SimpleNamespace, mode: str
 ) -> None:
-    for domain in (DocDomain.LEGAL.value, DocDomain.GENERAL.value):
+    for domain in ("legal", DocDomain.GENERAL.value):
         if mode == "batch":
             await ingestion.service.run_full(domain=domain, reset=True)
         else:
