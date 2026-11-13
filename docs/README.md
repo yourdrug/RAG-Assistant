@@ -10,9 +10,9 @@
 | architecture | Слои и потоки: [обзор](architecture/overview.md). Подробно: [модель доступа и ACL](architecture/access-control.md), [конвейер RAG](architecture/rag-pipeline.md). |
 | domain | Термины и предметные правила: [глоссарий](domain/glossary.md). |
 | operations | [Эксплуатация](operations/operations.md), [диагностика инцидентов](operations/troubleshooting.md), [резервное копирование и восстановление](operations/recovery.md), [конфигурация](operations/configuration.md). |
-| adr | Принятые архитектурные решения: [runtime-конфигурация в БД](adr/0001-runtime-config-in-db.md). |
+| adr | Принятые архитектурные решения: [runtime-конфигурация в БД](adr/0001-runtime-config-in-db.md), [пространства знаний и пакеты](adr/0003-knowledge-spaces-and-domain-packs.md). |
 | quality | [Оценка качества RAG](quality/README.md): подготовка benchmark-набора, запуск сравнения и чтение метрик. Сырые выгрузки локальны. |
-| work | [Правила локальных планов](work/README.md); содержимое рабочего каталога игнорируется Git. |
+| work | [Рабочие планы и заметки](work/README.md); синхронизируются через Git, но не являются источником истины. |
 
 Сырые benchmark-выгрузки сохраняйте в `docs/quality/artifacts/`, а устойчивые выводы
 оформляйте отдельно в постоянных документах. CLI не выбирает этот каталог автоматически:

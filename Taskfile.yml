@@ -33,6 +33,20 @@ tasks:
       - 'echo "Готово. Дальше:  task up  →  task pull-model MODEL=qwen2.5:7b  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
       - 'echo "(Для GPU: измените BUILD_TARGET=gpu в server/.env)"'
 
+  setup:
+    desc: Подготовить новое устройство для разработки — env-шаблоны, uv-зависимости, git hooks, graphify
+    cmds:
+      - task: env
+      - task: install
+      - task: hooks:install
+      - |
+        if command -v graphify >/dev/null 2>&1; then
+          graphify hook install
+        else
+          echo "graphify не найден: установите его и выполните graphify hook install && graphify update ."
+        fi
+      - 'echo "Не переносится через git: секреты в server/.env.secrets, данные data/ (Postgres, Qdrant, MinIO), graphify-out/, backups/, .deploy/"'
+
   env:
     desc: Создать env и secret env из шаблонов без перезаписи существующих файлов
     status:

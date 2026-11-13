@@ -15,9 +15,7 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# Локальные планы и сырые результаты бенчмарка
-docs/work/*
-!docs/work/README.md
+# Сырые результаты бенчмарка
 /docs/quality/artifacts/
 
 # IDE / OS
