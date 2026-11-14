@@ -2,6 +2,9 @@ version: "3"
 
 vars:
   COMPOSE: docker compose
+  # Compose project name (named volumes are prefixed with it): COMPOSE_PROJECT_NAME or the directory name.
+  PROJECT:
+    sh: printf '%s' "${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-'
   VERSION:
     sh: cat VERSION
 
@@ -30,7 +33,7 @@ tasks:
       - task: data:create
       - task: data:perms
       - task: build
-      - 'echo "Готово. Дальше:  task up  →  task pull-model MODEL=qwen2.5:7b  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
+      - 'echo "Готово. Дальше:  task up  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
       - 'echo "(Для GPU: измените BUILD_TARGET=gpu в server/.env)"'
 
   setup:
@@ -86,11 +89,47 @@ tasks:
         build server client
 
   up:
-    desc: Поднять стек
+    desc: "Поднять стек; опционально: task up -- vllm | ocr-vl (GPU-профили) | gpu (GPU для TEI/server), можно несколько"
     cmds:
       - task: data:create
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.override.yml up -d"
+      - |
+        FILES="-f docker-compose.yml -f docker-compose.override.yml"
+        # --profile в CLI заменяет COMPOSE_PROFILES, поэтому дополняем переменную (например, tei из server/.env).
+        PROFILES="${COMPOSE_PROFILES:-}"
+        for extra in {{.CLI_ARGS}}; do
+          case "$extra" in
+            vllm|ocr-vl) PROFILES="${PROFILES:+$PROFILES,}$extra" ;;
+            gpu) FILES="$FILES -f docker-compose.gpu.yml" ;;
+            *) echo "Неизвестная опция: $extra (vllm | ocr-vl | gpu)" >&2; exit 1 ;;
+          esac
+        done
+        COMPOSE_PROFILES="$PROFILES" {{.COMPOSE}} $FILES up -d
       - task: ps
+
+  ocr-vl:models:
+    desc: Однократно скачать модели PaddleOCR-VL в volume (сервис работает в сети backend без интернета)
+    cmds:
+      - "{{.COMPOSE}} --profile ocr-vl build ocr-vl"
+      # docker run (не compose run): сеть backend внутренняя, а загрузке нужен интернет.
+      - >
+        docker run --rm -v {{.PROJECT}}_ocr_vl_models:/root/.paddlex --entrypoint python
+        ${OCR_VL_IMAGE:-rag-ocr-vl:latest} -c "from paddlex.inference.utils.official_models import official_models as m;
+        [m.get_model_path(n) for n in ('PP-LCNet_x1_0_doc_ori', 'UVDoc', 'PP-DocLayoutV3', 'PaddleOCR-VL-1.6')]"
+
+  vllm:models:
+    desc: "Однократно скачать модель vLLM в volume (VLLM_MODEL, по умолчанию Qwen/Qwen2.5-3B-Instruct-AWQ)"
+    cmds:
+      - >
+        docker run --rm -e HF_HUB_DISABLE_XET=1 -v {{.PROJECT}}_vllm_models:/root/.cache/huggingface --entrypoint hf
+        vllm/vllm-openai:${VLLM_IMAGE_TAG:-v0.10.1.1} download ${VLLM_MODEL:-Qwen/Qwen2.5-3B-Instruct-AWQ}
+
+  gpu:stop:
+    desc: "Остановить опциональные GPU-сервисы (task gpu:stop -- vllm | ocr-vl), основной стек не трогается"
+    cmds:
+      - |
+        for service in {{.CLI_ARGS | default "ocr-vl vllm"}}; do
+          {{.COMPOSE}} stop "$service"
+        done
 
   down:
     desc: Остановить и удалить контейнеры (данные в data/ сохраняются)

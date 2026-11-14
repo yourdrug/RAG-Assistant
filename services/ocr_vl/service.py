@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 import io
 import logging
+import os
 import threading
 
 from fastapi import FastAPI, HTTPException, Request
@@ -24,13 +25,55 @@ class OCRPrediction(Protocol):
 
 
 class OCRPipeline(Protocol):
-    def predict(self, image: NDArray[np.uint8], **options: bool) -> Iterable[OCRPrediction]: ...
+    def predict(self, image: NDArray[np.uint8], **options: object) -> Iterable[OCRPrediction]: ...
 
 
 log = logging.getLogger("ocr_vl")
 MAX_BYTES = 20 * 1024 * 1024
 Image.MAX_IMAGE_PIXELS = 25_000_000
 inference_lock = threading.Lock()
+# Per-block pixel cap for the VL model; lower it on small GPUs (e.g. 501760 for 6 GB). Empty: library default.
+VL_MAX_PIXELS = int(os.environ["OCR_VL_MAX_PIXELS"]) if os.environ.get("OCR_VL_MAX_PIXELS") else None
+
+
+def enable_fp16_fallback() -> None:
+    """Load the VL model in fp16 on GPUs without bf16 (Turing/Volta) instead of fp32.
+
+    PaddleX picks bf16 when supported and fp32 otherwise, and always keeps the vision encoder in
+    fp32; together with loading-time copies this does not fit a 6 GB card. The whole model is
+    built in fp16 and the checkpoint is read and cast on CPU, so the GPU only ever holds fp16
+    weights. Opt-in, CUDA only: fp32 stays more accurate on large non-bf16 cards.
+    """
+    # Heavy ML dependencies, imported only inside the isolated service at startup.
+    import paddle  # noqa: PLC0415
+    from paddlex.inference.models.common.transformers.transformers import model_utils  # noqa: PLC0415
+    from paddlex.inference.models.doc_vlm import predictor  # noqa: PLC0415
+    from paddlex.inference.models.doc_vlm.modeling.paddleocr_vl import _paddleocr_vl as modeling  # noqa: PLC0415
+
+    # No public dtype or load-device hook in PaddleX 3.6: wrap the private builder and loader.
+    original_build = predictor.DocVLMLocalPredictor._build  # noqa: SLF001
+    original_load = model_utils._load_part_state_dict_from_safetensors  # noqa: SLF001
+
+    def build_fp16(self: Any, **kwargs: Any) -> Any:
+        if self.dtype == "float32":
+            self.dtype = "float16"
+            log.info("Loading PaddleOCR-VL in float16 (bf16 unavailable)")
+        return original_build(self, **kwargs)
+
+    def load_on_cpu(*args: Any, **kwargs: Any) -> Any:
+        # "expected" place follows the current device, so the checkpoint lands in host memory.
+        previous = paddle.device.get_device()
+        paddle.device.set_device("cpu")
+        try:
+            return original_load(*args, **kwargs)
+        finally:
+            paddle.device.set_device(previous)
+
+    # Upstream keeps the vision encoder in fp32 only to dodge a ROCm/MIOpen bf16 conv bug; on CUDA
+    # an fp16 encoder halves its memory (~1.9 GB -> ~0.95 GB), which a 6 GB card needs.
+    modeling.PaddleOCRVLForConditionalGeneration._keep_in_fp32_modules = None  # noqa: SLF001
+    predictor.DocVLMLocalPredictor._build = build_fp16  # noqa: SLF001
+    model_utils._load_part_state_dict_from_safetensors = load_on_cpu  # noqa: SLF001
 
 
 @asynccontextmanager
@@ -38,12 +81,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Heavy ML dependency belongs only to this service, not the RAG server.
     from paddleocr import PaddleOCRVL
 
+    if os.environ.get("OCR_VL_FP16_FALLBACK", "").lower() in {"1", "true", "yes"}:
+        enable_fp16_fallback()
+
     app.state.pipeline = await run_in_threadpool(
         PaddleOCRVL,
         pipeline_version="v1.6",
         use_doc_orientation_classify=True,
         use_doc_unwarping=True,
-        layout_shape_mode="rect",
     )
     yield
     del app.state.pipeline
@@ -59,6 +104,9 @@ def predict_blocks(pipeline: OCRPipeline, image: NDArray[np.uint8], *, preproces
             use_doc_orientation_classify=preprocess,
             use_doc_unwarping=preprocess,
             format_block_content=True,
+            # paddleocr 3.6 accepts the layout shape mode per prediction, not in the constructor.
+            layout_shape_mode="rect",
+            max_pixels=VL_MAX_PIXELS,
         )
     )
     if len(results) != 1:

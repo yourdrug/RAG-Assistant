@@ -36,7 +36,7 @@ class ConfigAdminService:
 
         return ModelsInfo(
             llm_provider=self._settings.llm_provider,
-            llm_model=self._settings.openrouter_model,
+            llm_model=self._settings.llm_model,
             tei_embed_url=self._settings.tei_embed_url,
             tei_rerank_url=self._settings.tei_rerank_url,
             embed_model=embed_model,

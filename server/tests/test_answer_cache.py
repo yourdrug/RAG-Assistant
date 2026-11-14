@@ -6,7 +6,7 @@ closing the demotion cache poisoning vulnerability.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pytest
 
 from config import settings
 from domain.identity.user_context import CuratorScope
@@ -16,10 +16,7 @@ from infrastructure.ml.cache.answers import (
     compute_question_hash,
     compute_visibility_scope_hash,
 )
-
-
-if TYPE_CHECKING:
-    import pytest
+from infrastructure.ml.cache.keys import generation_identity
 
 
 # ---------------------------------------------------------------------------
@@ -201,3 +198,23 @@ def test_cache_key_changes_with_embedding_revision(monkeypatch: pytest.MonkeyPat
     first = cache_key("question", "same-acl")
     monkeypatch.setattr(settings, "embedding_revision", "v2")
     assert cache_key("question", "same-acl") != first
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("llm_provider", "openrouter"),
+        ("openai_compatible_model", "Qwen/Qwen2.5-1.5B-Instruct"),
+        ("openai_compatible_base_url", "http://other-vllm:8000/v1"),
+    ],
+)
+def test_question_hash_identity_changes_with_active_llm(
+    monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    # generation_identity() is hashed into the question key: another model must miss the cache.
+    monkeypatch.setattr(settings, "llm_provider", "openai_compatible")
+    monkeypatch.setattr(settings, "openai_compatible_base_url", "http://vllm:8000/v1")
+    monkeypatch.setattr(settings, "openai_compatible_model", "Qwen/Qwen2.5-3B-Instruct")
+    first = generation_identity()
+    monkeypatch.setattr(settings, key, value)
+    assert generation_identity() != first

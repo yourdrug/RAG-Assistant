@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import httpx
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from pydantic import SecretStr
 import pytest
 from qdrant_client.models import Filter
 
@@ -27,7 +28,11 @@ from infrastructure.health import system_health_probe
 from infrastructure.initialization import build_defaults, load_config_from_db
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.client_registry import MLClientRegistry
-from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration, validate_chunking
+from infrastructure.ml.config.provider_configuration import (
+    SettingsProviderConfiguration,
+    validate_chunking,
+    validate_provider_credentials,
+)
 from infrastructure.ml.rag import rag_retrieval
 from infrastructure.ml.rag.rag_prompts import condense_question
 from infrastructure.repositories.vector import qdrant_ops
@@ -156,6 +161,8 @@ def test_invalid_pool_snapshot_is_rejected_before_mutation(model: Settings, key:
         ("deepinfra_base_url", "https://api.deepinfra.com.evil.example/v1"),
         ("tei_embed_url", "http://169.254.169.254/latest/meta-data"),
         ("tei_rerank_url", "http://unapproved:8080"),
+        ("openai_compatible_base_url", "http://169.254.169.254/v1"),
+        ("openai_compatible_base_url", "https://api.openai.com.evil.example/v1"),
         ("tei_embed_url", "file:///etc/passwd"),
         ("tei_embed_url", "http://user:password@tei-embed:8080"),
         ("tei_embed_url", "http://tei-embed:8080/?token=secret"),
@@ -165,6 +172,38 @@ def test_untrusted_origins_rejected_without_http_request(model: Settings, key: s
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
     with pytest.raises(ValidationError):
         config.validate_change(key, value)
+
+
+@pytest.mark.parametrize(
+    "update,error",
+    [
+        ({}, "OPENAI_COMPATIBLE_BASE_URL required"),
+        ({"openai_compatible_base_url": "http://vllm:8000/v1"}, "OPENAI_COMPATIBLE_MODEL required"),
+    ],
+)
+def test_openai_compatible_requires_endpoint_and_model(
+    model: Settings, update: dict[str, str], error: str
+) -> None:
+    candidate = model.model_copy(
+        update={"llm_provider": "openai_compatible", "openrouter_api_key": SecretStr(""), **update}
+    )
+    with pytest.raises(ValidationError, match=error):
+        validate_provider_credentials(candidate)
+
+
+def test_openai_compatible_needs_no_openrouter_key(model: Settings) -> None:
+    candidate = model.model_copy(
+        update={
+            "llm_provider": "openai_compatible",
+            "openrouter_api_key": SecretStr(""),
+            "openai_compatible_base_url": "http://vllm:8000/v1",
+            "openai_compatible_model": "local",
+        }
+    )
+    validate_provider_credentials(candidate)
+
+    with pytest.raises(ValidationError, match="OPENROUTER_API_KEY required"):
+        validate_provider_credentials(candidate.model_copy(update={"llm_provider": "openrouter"}))
 
 
 def use_factory_settings(monkeypatch: pytest.MonkeyPatch, model: Settings) -> None:

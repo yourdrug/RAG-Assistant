@@ -272,7 +272,7 @@ class BenchmarkCaseEvaluator:
         retriever_metrics.setdefault("retrieved_sources", [])
         diagnostics["judge"] = judge_metrics["details"]
         cost = metrics.estimate_cost_usd(
-            process_section(LLMSection).openrouter_model,
+            process_section(LLMSection).active_llm_model,
             generated.input_tokens or 0,
             generated.output_tokens or 0,
         )

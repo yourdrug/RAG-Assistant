@@ -11,6 +11,7 @@ ENDPOINT_KEYS = frozenset(
         "tei_embed_url",
         "tei_rerank_url",
         "openrouter_base_url",
+        "openai_compatible_base_url",
         "deepinfra_base_url",
     }
 )

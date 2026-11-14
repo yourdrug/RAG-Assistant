@@ -191,7 +191,7 @@ class LiveConfigAdminSettings:
 
     @property
     def llm_model(self) -> str:
-        return process_section(LLMSection).openrouter_model
+        return process_section(LLMSection).active_llm_model
 
     @property
     def tei_embed_url(self) -> str:

@@ -33,6 +33,7 @@ def test_registry_and_seed_preserve_category_strings() -> None:
         "llm",
         "ml",
         "ocr",
+        "openai_compatible",
         "openrouter",
         "rag",
         "rate_limit",

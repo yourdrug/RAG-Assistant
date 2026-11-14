@@ -342,6 +342,11 @@ disallow_any_decorated = false
 module = ["tokenizers", "tokenizers.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# Isolated ocr-vl service only (its own image); not installed in the server venv.
+module = ["paddle", "paddle.*", "paddlex", "paddlex.*"]
+ignore_missing_imports = true
+
 # Библиотеки без типов добавляйте сюда:
 # [[tool.mypy.overrides]]
 # module = ["some_lib.*"]

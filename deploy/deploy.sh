@@ -14,8 +14,10 @@ source "$DEPLOY_DIR/scripts/operations/compose.sh"
 mkdir -p .deploy
 exec 9>.deploy/operations.lock
 flock -n 9 || { echo "Another deploy/backup is running" >&2; exit 1; }
-export SERVER_IMAGE="ghcr.io/yourdrug/rag-assistant:production-${BUILD_TARGET}-${VERSION}"
-export CLIENT_IMAGE="ghcr.io/yourdrug/rag-assistant/client:${VERSION}"
+# Must match the lowercase ghcr.io/<owner>/<repo> that the Build workflow pushes to.
+IMAGE_REPO="${IMAGE_REPO:-ghcr.io/yourdrug/rag-assistant}"
+export SERVER_IMAGE="${IMAGE_REPO}:production-${BUILD_TARGET}-${VERSION}"
+export CLIENT_IMAGE="${IMAGE_REPO}/client:${VERSION}"
 compose config --quiet
 old_server=$(compose ps -q server)
 old_client=$(compose ps -q client)
@@ -54,10 +56,15 @@ rollback() {
 }
 trap rollback ERR
 # Download every enabled image before touching the application. Preserve old image IDs.
-compose pull
+# Locally built services (ocr-vl profile) have no registry image.
+compose pull --ignore-buildable
 infra=(postgres redis qdrant minio)
 enabled_services=$(compose config --services)
 if grep -qx tei-embed <<<"$enabled_services"; then infra+=(tei-embed tei-rerank); fi
+# Opt-in GPU services enabled through COMPOSE_PROFILES (vllm, ocr-vl).
+for optional in vllm ocr-vl; do
+  if grep -qx "$optional" <<<"$enabled_services"; then infra+=("$optional"); fi
+done
 # Infrastructure upgrades are a separate maintenance operation.
 compose up -d --no-recreate --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" "${infra[@]}"
 if [[ -n "$old_server" ]]; then before_schema=$(schema_revision); fi

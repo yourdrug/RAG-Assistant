@@ -48,7 +48,7 @@ async def test_models_info_preserves_provider_selection(ml_provider: str) -> Non
     settings = SimpleNamespace(
         ml_provider=ml_provider,
         llm_provider="openrouter",
-        llm_model="llm",
+        llm_model="router-model",
         tei_embed_url="http://embed",
         tei_rerank_url="http://rerank",
         deepinfra_embed_model="embed-model",

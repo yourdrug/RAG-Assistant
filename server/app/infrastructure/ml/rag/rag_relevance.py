@@ -51,7 +51,7 @@ async def check_relevance(
     prompt_text = f"Вопрос: {question}\n\nКонтекст из документов:\n{context}"
 
     client = ml_clients.instructor_client
-    model = llm_settings.openrouter_model
+    model = llm_settings.active_auxiliary_model
 
     async with client_operation(client):
         try:
@@ -131,7 +131,7 @@ async def assess_sufficiency(
     if llm_client is None:
         llm_client = ml_clients.instructor_client
 
-        model = llm_settings.openrouter_model
+        model = llm_settings.active_auxiliary_model
 
     if context is None:
         context = format_docs(docs)

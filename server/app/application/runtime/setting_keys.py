@@ -16,6 +16,7 @@ SECRET_SETTING_KEYS: frozenset[str] = frozenset(
         "db_password",
         "qdrant_api_key",
         "openrouter_api_key",
+        "openai_compatible_api_key",
         "deepinfra_api_key",
         "redis_password",
         "s3_access_key",

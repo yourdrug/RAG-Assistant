@@ -494,6 +494,8 @@ class InfrastructureContainer:
             "llm_num_ctx_broad",
             "llm_num_predict_broad",
             "openrouter_model",
+            "openai_compatible_model",
+            "openai_compatible_auxiliary_model",
         }:
             ml.invalidate_llm()
 

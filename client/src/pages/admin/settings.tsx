@@ -138,6 +138,13 @@ const SETTINGS_SECTIONS = [
         categories: ["openrouter"],
       },
       {
+        id: "openai_compatible",
+        label: "OpenAI-compatible connection",
+        description:
+          "Self-hosted or third-party OpenAI-compatible API (vLLM, Ollama, LM Studio). Used when the answer provider is openai_compatible.",
+        categories: ["openai_compatible"],
+      },
+      {
         id: "embeddings",
         label: "Embedding service",
         description: "Convert document chunks and questions into vectors for semantic search.",
@@ -216,6 +223,9 @@ const SETTINGS_SECTIONS = [
 const PARAMETER_LABELS: Record<string, string> = {
   llm_provider: "Answer provider",
   openrouter_model: "Answer model",
+  openai_compatible_base_url: "Endpoint URL",
+  openai_compatible_model: "Answer model",
+  openai_compatible_auxiliary_model: "Auxiliary model",
   llm_temperature: "Creativity (temperature)",
   llm_top_p: "Token diversity (top-p)",
   llm_num_ctx_narrow: "Context tokens · focused questions",

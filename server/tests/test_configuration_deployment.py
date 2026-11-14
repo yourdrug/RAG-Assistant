@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -12,6 +13,7 @@ from dotenv import dotenv_values
 import pytest
 
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, TARGET_DYNAMIC_SETTING_KEYS
+from domain.rag.settings import DEFAULT_NUM_CTX_BROAD
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -112,5 +114,40 @@ def test_compose_config_with_disposable_credentials(
     assert result.returncode == 0, result.stderr
     result = run_tool("docker", [*args, "config", "--services"], directory, env)
     assert result.returncode == 0, result.stderr
-    assert "ollama" not in result.stdout.splitlines()
-    assert ("tei-embed" in result.stdout.splitlines()) == (profiles == "tei")
+    services = result.stdout.splitlines()
+    assert "ollama" not in services
+    assert ("tei-embed" in services) == (profiles == "tei")
+    # Opt-in GPU services are profiles of the main file, never started by default.
+    assert not {"vllm", "ocr-vl"} & set(services)
+
+
+def test_gpu_profiles_live_in_main_compose_file(deployment_templates: Any) -> None:
+    directory = deployment_templates
+    shutil.copy(ROOT / "docker-compose.yml", directory)
+    shutil.copy(directory / "server/.env.example", directory / "server/.env")
+    (directory / "server/.env.secrets").write_text(
+        "\n".join(f"{key.upper()}=disposable-test-credential" for key in SECRET_SETTING_KEYS) + "\n"
+    )
+    env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "VERSION": "0.0.0"}
+    args = [
+        "compose",
+        "--env-file",
+        "server/.env",
+        "--env-file",
+        "server/.env.secrets",
+        "-f",
+        "docker-compose.yml",
+    ]
+    result = run_tool(
+        "docker",
+        [*args, "--profile", "vllm", "--profile", "ocr-vl", "config", "--format", "json"],
+        directory,
+        env,
+    )
+    assert result.returncode == 0, result.stderr
+    config = json.loads(result.stdout)
+    vllm = config["services"]["vllm"]
+    assert vllm["networks"].keys() == {"backend"}
+    # The context window must cover the default broad RAG budget, otherwise long queries are rejected.
+    assert f"--max-model-len={DEFAULT_NUM_CTX_BROAD}" in vllm["command"]
+    assert config["services"]["ocr-vl"]["networks"].keys() == {"backend"}

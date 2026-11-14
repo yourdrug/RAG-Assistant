@@ -208,7 +208,7 @@ class RagOperations:
             build_rag_settings(),
             time.monotonic(),
             req_id,
-            request_section(LLMSection).openrouter_model,
+            request_section(LLMSection).active_llm_model,
             generation_config=generation_identity(),
         )
 

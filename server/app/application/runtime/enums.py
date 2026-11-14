@@ -9,6 +9,7 @@ class LLMProvider(StrEnum):
     """Supported LLM providers."""
 
     OPENROUTER = "openrouter"
+    OPENAI_COMPATIBLE = "openai_compatible"
 
 
 class MLProvider(StrEnum):

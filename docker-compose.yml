@@ -465,6 +465,84 @@ services:
           memory: 64M
     restart: unless-stopped
 
+  # ── Opt-in GPU services (profiles; `task up -- vllm` / `task up -- ocr-vl`) ──────────────
+  # The backend network has no internet egress: download weights once with
+  # `task vllm:models` / `task ocr-vl:models`. On a 6 GB GPU run only one of them at a time.
+
+  # Local LLM via vLLM (OpenAI-compatible API). Then in Admin → Settings:
+  #   Answer provider = openai_compatible, Endpoint URL = http://vllm:8000/v1, model = $VLLM_MODEL
+  # and add "http://vllm:8000" to ML_INTERNAL_ALLOWED_ORIGINS in server/.env.
+  # Defaults fit a 6 GB Turing GPU (RTX 2060): 4-bit AWQ 3B, fp16 activations (no bf16 on Turing).
+  # VLLM_MAX_MODEL_LEN must cover the RAG budget max(llm_num_ctx_narrow, llm_num_ctx_broad);
+  # switching the provider fails validation otherwise.
+  vllm:
+    image: vllm/vllm-openai:${VLLM_IMAGE_TAG:-v0.10.1.1}
+    logging: *bounded-logging
+    profiles: [ "vllm" ]
+    hostname: vllm
+    container_name: rag-vllm
+    gpus: all
+    ipc: host
+    command:
+      - --model=${VLLM_MODEL:-Qwen/Qwen2.5-3B-Instruct-AWQ}
+      - --served-model-name=${VLLM_MODEL:-Qwen/Qwen2.5-3B-Instruct-AWQ}
+      - --dtype=${VLLM_DTYPE:-half}
+      - --max-model-len=${VLLM_MAX_MODEL_LEN:-16384}
+      - --gpu-memory-utilization=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
+      - --max-num-seqs=${VLLM_MAX_NUM_SEQS:-8}
+      - --enforce-eager
+      - --host=0.0.0.0
+      - --port=8000
+    environment:
+      # Optional: VLLM_API_KEY enables auth; then set OPENAI_COMPATIBLE_API_KEY in server/.env.secrets.
+      VLLM_API_KEY: ${VLLM_API_KEY:-}
+      HF_HUB_OFFLINE: "1"
+    expose:
+      - "8000/tcp"
+    volumes:
+      - vllm_models:/root/.cache/huggingface
+    healthcheck:
+      test: [ "CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15m
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # PaddleOCR-VL trial; select paddleocr_vl in Admin → Settings after the service is healthy.
+  ocr-vl:
+    build: ./services/ocr_vl
+    image: ${OCR_VL_IMAGE:-rag-ocr-vl:latest}
+    logging: *bounded-logging
+    profiles: [ "ocr-vl" ]
+    hostname: ocr-vl
+    container_name: rag-ocr-vl
+    gpus: all
+    environment:
+      # GPUs without bf16 (Turing, e.g. RTX 2060 6 GB): load the VL model in fp16 instead of fp32.
+      OCR_VL_FP16_FALLBACK: ${OCR_VL_FP16_FALLBACK:-0}
+      # Per-block pixel cap for the VL model; 501760 keeps 300 DPI pages within 6 GB. Empty = library default.
+      OCR_VL_MAX_PIXELS: ${OCR_VL_MAX_PIXELS:-}
+    expose:
+      - "8080/tcp"
+    volumes:
+      - ocr_vl_models:/root/.paddlex
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10m
+    restart: unless-stopped
+    networks:
+      - backend
+
+volumes:
+  vllm_models:
+  ocr_vl_models:
+
 networks:
   default:
     name: rag-network

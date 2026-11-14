@@ -11,5 +11,4 @@ class PaddleOCRVL:
         pipeline_version: str,
         use_doc_orientation_classify: bool,
         use_doc_unwarping: bool,
-        layout_shape_mode: str,
     ) -> None: ...

@@ -510,19 +510,35 @@ def validate_chunking(candidate: Settings, domain_values: dict[tuple[str, str], 
         raise ValidationError("; ".join(errors))
 
 
+def llm_provider_errors(candidate: Settings) -> list[str]:
+    # Hot-reload candidates bypass Literal validation, so membership is checked explicitly.
+    if candidate.llm_provider not in {provider.value for provider in LLMProvider}:
+        return ["Unknown LLM provider"]
+
+    if candidate.llm_provider == LLMProvider.OPENAI_COMPATIBLE.value:
+        required = {
+            "OPENAI_COMPATIBLE_BASE_URL": candidate.openai_compatible_base_url,
+            "OPENAI_COMPATIBLE_MODEL": candidate.openai_compatible_model,
+        }
+        return [
+            f"{key} required when LLM_PROVIDER=openai_compatible"
+            for key, value in required.items()
+            if not value
+        ]
+
+    if candidate.openrouter_api_key.get_secret_value():
+        return []
+
+    return ["OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter"]
+
+
 def validate_provider_credentials(candidate: Settings) -> None:
     for key in ("cost_hourly_limit", "cost_daily_limit"):
         if usd_units(str(getattr(candidate, key))) <= 0:
             message = "USD budgets must be positive"
             raise ValidationError(message)
 
-    errors = candidate.check_ml_provider()
-
-    if not candidate.openrouter_api_key.get_secret_value():
-        errors.append("OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter")
-
-    if candidate.llm_provider not in {provider.value for provider in LLMProvider}:
-        errors.append("Unknown LLM provider")
+    errors = [*candidate.check_ml_provider(), *llm_provider_errors(candidate)]
 
     if errors:
         raise ValidationError("; ".join(errors))

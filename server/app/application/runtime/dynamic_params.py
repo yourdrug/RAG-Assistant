@@ -22,6 +22,7 @@ class DynamicParamCategory(StrEnum):
     LLM = "llm"
     ML = "ml"
     OCR = "ocr"
+    OPENAI_COMPATIBLE = "openai_compatible"
     OPENROUTER = "openrouter"
     RAG = "rag"
     RATE_LIMIT = "rate_limit"
@@ -226,6 +227,22 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     ),
     # ── OpenRouter ──────────────────────────────────────────────
     DynamicParam("openrouter_model", str, DynamicParamCategory.OPENROUTER, "OpenRouter model name"),
+    # ── OpenAI-compatible (vLLM, Ollama, LM Studio, ...) ────────
+    DynamicParam(
+        "openai_compatible_base_url",
+        str,
+        DynamicParamCategory.OPENAI_COMPATIBLE,
+        "OpenAI-compatible endpoint, e.g. http://vllm:8000/v1 (deployment-approved origin)",
+    ),
+    DynamicParam(
+        "openai_compatible_model", str, DynamicParamCategory.OPENAI_COMPATIBLE, "Served answer model name"
+    ),
+    DynamicParam(
+        "openai_compatible_auxiliary_model",
+        str,
+        DynamicParamCategory.OPENAI_COMPATIBLE,
+        "Auxiliary model for condense/relevance/decomposition; empty reuses the answer model",
+    ),
     # ── ML Provider ─────────────────────────────────────────────
     DynamicParam("deepinfra_embed_model", str, DynamicParamCategory.ML, "DeepInfra embedding model"),
     DynamicParam("deepinfra_rerank_model", str, DynamicParamCategory.ML, "DeepInfra reranker model"),

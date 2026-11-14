@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 import httpx
 
 from application.budget import billing_principal
-from application.runtime.enums import MLProvider
+from application.runtime.enums import LLMProvider, MLProvider
 from domain.shared.exceptions import ValidationError
 from infrastructure.ml.clients import factories
-from infrastructure.ml.clients.instructor_client import create_async_instructor_client
+from infrastructure.ml.clients.instructor_client import create_async_instructor_client, llm_auth_headers
 from infrastructure.ml.clients.managed_llm import ManagedInstructor, ManagedLLM
 from infrastructure.utils.async_tasks import finish_owned_task
 
@@ -55,6 +55,9 @@ LLM_CLIENT_KEYS = frozenset(
         "openrouter_base_url",
         "llm_provider",
         "openrouter_model",
+        "openai_compatible_base_url",
+        "openai_compatible_model",
+        "openai_compatible_auxiliary_model",
         "llm_temperature",
         "llm_top_p",
         "llm_num_ctx_narrow",
@@ -150,19 +153,65 @@ def prepare_llm_clients(registry: MLClientRegistry, candidate: Settings, prepare
     if registry.cached_instructor is not None:
         prepared["cached_instructor"] = ManagedInstructor(
             create_async_instructor_client(
-                candidate.openrouter_base_url,
-                candidate.openrouter_api_key.get_secret_value(),
+                candidate.active_llm_base_url,
+                candidate.active_llm_api_key.get_secret_value(),
                 runtime=registry.budget_runtime,
             )
         )
 
 
+LLM_ENDPOINT_KEYS = frozenset({"openrouter_base_url", "openai_compatible_base_url", "llm_provider"})
+# Self-hosted servers serve a fixed model list and context window: re-check them on these changes too.
+LOCAL_LLM_CAPACITY_KEYS = frozenset(
+    {
+        "openai_compatible_model",
+        "openai_compatible_auxiliary_model",
+        "llm_num_ctx_narrow",
+        "llm_num_ctx_broad",
+    }
+)
+
+
+def local_llm_capacity_errors(candidate: Settings, payload: object) -> list[str]:
+    """Check served models and context window reported by an OpenAI-compatible ``/models``.
+
+    vLLM reports ``max_model_len`` per model; servers that omit it (Ollama, LM Studio) are only
+    checked for the model id. RAG packs context up to ``llm_num_ctx_*``, so a smaller server window
+    would reject long broad queries at request time instead of at configuration time.
+    """
+    data = payload.get("data") if isinstance(payload, dict) else None
+
+    if not isinstance(data, list):
+        return []
+
+    served = {item["id"]: item for item in data if isinstance(item, dict) and isinstance(item.get("id"), str)}
+    errors: list[str] = []
+    budget = max(candidate.llm_num_ctx_narrow, candidate.llm_num_ctx_broad)
+
+    for model in dict.fromkeys((candidate.openai_compatible_model, candidate.active_auxiliary_model)):
+        if model not in served:
+            errors.append(f"OpenAI-compatible server does not serve model {model!r}")
+            continue
+
+        window = served[model].get("max_model_len")
+
+        if isinstance(window, int) and window < budget:
+            errors.append(
+                f"Model {model!r} context window {window} is smaller than the RAG context budget "
+                f"{budget} (llm_num_ctx_narrow/llm_num_ctx_broad); lower the budget or raise "
+                "VLLM_MAX_MODEL_LEN"
+            )
+
+    return errors
+
+
 async def probe_llm_endpoint(
     registry: MLClientRegistry, candidate: Settings, keys: set[str], prepared: dict[str, object]
 ) -> None:
-    endpoint = "openrouter_base_url"
+    local = candidate.llm_provider == LLMProvider.OPENAI_COMPATIBLE.value
+    trigger = LLM_ENDPOINT_KEYS | LOCAL_LLM_CAPACITY_KEYS if local else LLM_ENDPOINT_KEYS
 
-    if endpoint not in keys:
+    if not keys & trigger:
         return
 
     if prepared["cached_llm"] is None:
@@ -172,10 +221,16 @@ async def probe_llm_endpoint(
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         response = await client.get(
-            f"{candidate.openrouter_base_url.rstrip('/')}/models",
-            headers={"Authorization": f"Bearer {candidate.openrouter_api_key.get_secret_value()}"},
+            f"{candidate.active_llm_base_url.rstrip('/')}/models",
+            headers=llm_auth_headers(candidate.active_llm_api_key),
         )
         response.raise_for_status()
+
+    if local:
+        errors = local_llm_capacity_errors(candidate, response.json())
+
+        if errors:
+            raise ValidationError("; ".join(errors))
 
 
 async def probe_embedding_endpoint(

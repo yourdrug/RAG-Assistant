@@ -4,13 +4,14 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import httpx
+import instructor
 from pydantic import SecretStr
 import pytest
 
 from application.runtime.enums import LLMProvider
 from config import Settings, settings
 from infrastructure.benchmark.judging import clients as judge_clients
-from infrastructure.ml.clients import factories
+from infrastructure.ml.clients import factories, instructor_client
 
 
 @pytest.fixture
@@ -71,6 +72,54 @@ def test_openrouter_roles_preserve_options(
     constructors.async_http_client.assert_called_once_with(follow_redirects=False, transport="paid-async")
 
 
+@pytest.mark.parametrize("role", list(factories.ChatModelRole))
+@pytest.mark.parametrize("auxiliary_model", ["", "small-local"])
+def test_openai_compatible_uses_its_own_endpoint_and_models(
+    constructors: SimpleNamespace,
+    model_settings: Settings,
+    role: factories.ChatModelRole,
+    auxiliary_model: str,
+) -> None:
+    model = model_settings.model_copy(
+        update={
+            "llm_provider": LLMProvider.OPENAI_COMPATIBLE.value,
+            "openai_compatible_base_url": "http://vllm:8000/v1",
+            "openai_compatible_model": "Qwen/Qwen2.5-3B-Instruct",
+            "openai_compatible_auxiliary_model": auxiliary_model,
+        }
+    )
+    factories.build_chat_model(LLMProvider.OPENAI_COMPATIBLE, role, model=model)
+    options = constructors.openrouter.call_args.kwargs
+    auxiliary = role == factories.ChatModelRole.AUXILIARY
+    assert options["openai_api_base"] == "http://vllm:8000/v1"
+    assert options["model_name"] == (
+        (auxiliary_model or "Qwen/Qwen2.5-3B-Instruct") if auxiliary else "Qwen/Qwen2.5-3B-Instruct"
+    )
+    # The OpenRouter key must never be forwarded to another provider's endpoint.
+    assert options["openai_api_key"].get_secret_value() == instructor_client.NO_API_KEY
+    assert model.active_llm_base_url == "http://vllm:8000/v1"
+    assert model.active_llm_model == "Qwen/Qwen2.5-3B-Instruct"
+    # Self-hosted endpoints are not billed: no paid transport, so budget admission cannot reject them.
+    constructors.http_client.assert_called_once_with(follow_redirects=False, transport=None)
+    constructors.async_http_client.assert_called_once_with(follow_redirects=False, transport=None)
+
+
+def test_openai_compatible_forwards_only_its_own_key(
+    constructors: SimpleNamespace, model_settings: Settings
+) -> None:
+    model = model_settings.model_copy(
+        update={
+            "llm_provider": LLMProvider.OPENAI_COMPATIBLE.value,
+            "openai_compatible_base_url": "http://vllm:8000/v1",
+            "openai_compatible_model": "local",
+            "openai_compatible_api_key": SecretStr("local-key"),
+        }
+    )
+    factories.build_chat_model(LLMProvider.OPENAI_COMPATIBLE, factories.ChatModelRole.DEFAULT, model=model)
+    assert constructors.openrouter.call_args.kwargs["openai_api_key"].get_secret_value() == "local-key"
+    assert model.active_llm_api_key.get_secret_value() == "local-key"
+
+
 def test_retired_provider_is_rejected(constructors: SimpleNamespace) -> None:
     with pytest.raises(ValueError, match="Unsupported LLM provider"):
         factories.build_chat_model("ollama", factories.ChatModelRole.DEFAULT)
@@ -104,3 +153,10 @@ def test_judge_and_auxiliary_share_default_model(
     monkeypatch.setattr(settings, "benchmark_judge_model", "")
     factories.create_fast_llm_for_auxiliary()
     assert judge_clients.get_judge_model() == constructors.openrouter.call_args.kwargs["model_name"]
+
+
+@pytest.mark.parametrize("base_url", ["https://openrouter.ai/api/v1", "http://vllm:8000/v1"])
+def test_structured_output_uses_json_mode_for_every_provider(base_url: str) -> None:
+    runtime = Mock()
+    client = instructor_client.create_async_instructor_client(base_url, "", runtime=runtime)
+    assert client.mode == instructor.Mode.JSON  # type: ignore[attr-defined]  # runtime attribute

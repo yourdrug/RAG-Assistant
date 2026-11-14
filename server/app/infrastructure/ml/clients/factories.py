@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 import httpx
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from application.runtime.enums import LLMProvider, MLProvider
 from config import LLMSection, VectorStoreSection, ml_client_settings, process_section
@@ -24,13 +25,12 @@ from infrastructure.corpus.locks import corpus_write_guard
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.database.database import database
 from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient, DeepInfraRerankerClient
+from infrastructure.ml.clients.instructor_client import NO_API_KEY
 from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient, TEIRerankerClient
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
 
 if TYPE_CHECKING:
-    from pydantic import SecretStr
-
     from config import MLClientSettings
     from infrastructure.budget.runtime import BudgetRuntime
 
@@ -150,6 +150,11 @@ class OpenAIParameters(TypedDict, total=False):
     stream_usage: bool
 
 
+def local_placeholder_key(provider: LLMProvider | str) -> SecretStr | None:
+    """Keyless local servers still need a non-empty key for the OpenAI SDK."""
+    return SecretStr(NO_API_KEY) if provider == LLMProvider.OPENAI_COMPATIBLE else None
+
+
 def build_chat_model(
     provider: LLMProvider | str,
     role: ChatModelRole,
@@ -172,21 +177,35 @@ def build_chat_model(
         0 if role in (ChatModelRole.AUXILIARY, ChatModelRole.BENCHMARK) else model.llm_temperature
     )
 
-    if provider != LLMProvider.OPENROUTER:
+    if provider == LLMProvider.OPENROUTER:
+        default_name = FAST_OPENROUTER_MODEL if role == ChatModelRole.AUXILIARY else model.openrouter_model
+        api_key, base_url = model.openrouter_api_key, model.openrouter_base_url
+    elif provider == LLMProvider.OPENAI_COMPATIBLE:
+        default_name = (
+            model.openai_compatible_auxiliary_model or model.openai_compatible_model
+            if role == ChatModelRole.AUXILIARY
+            else model.openai_compatible_model
+        )
+        api_key, base_url = model.openai_compatible_api_key, model.openai_compatible_base_url
+    else:
         message = f"Unsupported LLM provider: {provider}"
         raise ValueError(message)
 
-    default_name = FAST_OPENROUTER_MODEL if role == ChatModelRole.AUXILIARY else model.openrouter_model
+    metered = provider == LLMProvider.OPENROUTER
     parameters: OpenAIParameters = {
         "model_name": model_name if model_name is not None else default_name,
-        "openai_api_key": model.openrouter_api_key if model.openrouter_api_key.get_secret_value() else None,
-        "openai_api_base": model.openrouter_base_url,
+        "openai_api_key": api_key if api_key.get_secret_value() else local_placeholder_key(provider),
+        "openai_api_base": base_url,
         "temperature": temperature if temperature is not None else role_temperature,
         "max_tokens": num_predict if num_predict is not None else output_limits[role],
         "max_retries": 0,
-        "http_client": httpx.Client(follow_redirects=False, transport=PaidSyncTransport(runtime=runtime)),
+        # Only cloud billing endpoints go through budget accounting; self-hosted servers are unmetered
+        # and their origin is restricted to ML_INTERNAL_ALLOWED_ORIGINS by endpoint_policy.
+        "http_client": httpx.Client(
+            follow_redirects=False, transport=PaidSyncTransport(runtime=runtime) if metered else None
+        ),
         "http_async_client": httpx.AsyncClient(
-            follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime)
+            follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime) if metered else None
         ),
     }
 

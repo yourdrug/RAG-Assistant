@@ -544,6 +544,8 @@ class TestCheckRelevance:
                 llm_provider=provider.value,
                 llm_model="test-model",
                 openrouter_model="test-model",
+                active_llm_model="test-model",
+                active_auxiliary_model="test-model",
                 llm_auxiliary_timeout=30,
                 llm_num_predict_narrow=400,
             ),
@@ -704,6 +706,8 @@ class TestAssessSufficiency:
         with patch("config.settings") as mock_settings:
             mock_settings.llm_provider = LLMProvider.OPENROUTER
             mock_settings.openrouter_model = "qwen2.5"
+            mock_settings.active_llm_model = "qwen2.5"
+            mock_settings.active_auxiliary_model = "qwen2.5"
             mock_settings.llm_auxiliary_timeout = 30
 
             result = asyncio.run(assess_sufficiency("question", [doc], mock_ml))
@@ -734,6 +738,8 @@ class TestAssessSufficiency:
         with patch("config.settings") as mock_settings:
             mock_settings.llm_provider = LLMProvider.OPENROUTER
             mock_settings.openrouter_model = "qwen/qwen-2.5-7b-instruct"
+            mock_settings.active_llm_model = "qwen/qwen-2.5-7b-instruct"
+            mock_settings.active_auxiliary_model = "qwen/qwen-2.5-7b-instruct"
             mock_settings.llm_auxiliary_timeout = 30
 
             result = asyncio.run(assess_sufficiency("question", [doc], mock_ml))

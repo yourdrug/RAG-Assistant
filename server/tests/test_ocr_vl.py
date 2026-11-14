@@ -256,6 +256,8 @@ def test_model_result_contract_and_preprocessing() -> None:
         "use_doc_orientation_classify": True,
         "use_doc_unwarping": True,
         "format_block_content": True,
+        "layout_shape_mode": "rect",
+        "max_pixels": vl_service.VL_MAX_PIXELS,
     }
 
 
@@ -313,3 +315,15 @@ def test_docx_uses_selected_local_engine(
 
 if TYPE_CHECKING:
     from httpx._transports.asgi import _ASGIApp
+
+
+def test_service_passes_layout_mode_and_pixel_cap_per_prediction(monkeypatch: pytest.MonkeyPatch) -> None:
+    # paddleocr 3.6 rejects layout_shape_mode in the constructor; it belongs to predict().
+    prediction = Mock(json={"res": {"parsing_res_list": [{"block_label": "text", "block_content": "x"}]}})
+    pipeline = Mock()
+    pipeline.predict.return_value = [prediction]
+    monkeypatch.setattr(vl_service, "VL_MAX_PIXELS", 501760)
+    vl_service.predict_blocks(pipeline, np.zeros((20, 20, 3), dtype=np.uint8))
+    options = pipeline.predict.call_args.kwargs
+    assert options["layout_shape_mode"] == "rect"
+    assert options["max_pixels"] == 501760

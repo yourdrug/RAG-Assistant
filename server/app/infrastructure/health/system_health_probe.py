@@ -20,6 +20,7 @@ from application.health.ports import HealthCheckResult
 from application.runtime.enums import HealthStatus
 from config import LLMSection, MLProviderSection, VectorStoreSection, process_section
 from infrastructure.database.database import database
+from infrastructure.ml.clients.instructor_client import llm_auth_headers
 from infrastructure.redis.redis_client import redis_client
 
 
@@ -70,22 +71,22 @@ class SystemHealthProbe:
 
         try:
             response, latency_ms = await self.http.get(
-                f"{llm_settings.openrouter_base_url}/models",
+                f"{llm_settings.active_llm_base_url.rstrip('/')}/models",
                 request_timeout=5,
-                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key.get_secret_value()}"},
+                headers=llm_auth_headers(llm_settings.active_llm_api_key),
             )
 
             if response.status_code < HTTPStatus.BAD_REQUEST:
                 return HealthCheckResult(
                     status=HealthStatus.OK.value,
                     latency_ms=latency_ms,
-                    models=[llm_settings.openrouter_model],
+                    models=[llm_settings.active_llm_model],
                 )
 
-            logger.warning("OpenRouter health probe returned HTTP %s", response.status_code)
+            logger.warning("LLM health probe returned HTTP %s", response.status_code)
             return HealthCheckResult(status=f"error: HTTP {response.status_code}")
         except (httpx.HTTPError, ValueError) as e:
-            logger.warning("Openrouter health probe failed (%s)", type(e).__name__)
+            logger.warning("LLM health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
     async def check_qdrant(self) -> HealthCheckResult:

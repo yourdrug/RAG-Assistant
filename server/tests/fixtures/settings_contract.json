@@ -432,7 +432,7 @@
     "required": false
   },
   "llm_provider": {
-    "annotation": "typing.Literal['openrouter']",
+    "annotation": "typing.Literal['openrouter', 'openai_compatible']",
     "default": "'openrouter'",
     "metadata": "[]",
     "required": false
@@ -524,6 +524,30 @@
   "ocr_vl_url": {
     "annotation": "<class 'str'>",
     "default": "'http://ocr-vl:8080'",
+    "metadata": "[]",
+    "required": false
+  },
+  "openai_compatible_api_key": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
+    "metadata": "[]",
+    "required": false
+  },
+  "openai_compatible_auxiliary_model": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "openai_compatible_base_url": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "openai_compatible_model": {
+    "annotation": "<class 'str'>",
+    "default": "''",
     "metadata": "[]",
     "required": false
   },
