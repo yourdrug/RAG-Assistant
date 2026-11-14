@@ -22,7 +22,8 @@ args = sys.argv[1:]
 root = Path(os.environ["DEPLOY_DIR"])
 with (root / "commands.jsonl").open("a") as log:
     log.write(json.dumps({"args": args, "image": os.environ.get("SERVER_IMAGE"),
-                          "profiles": os.environ.get("COMPOSE_PROFILES", "")}) + "\n")
+                          "profiles": os.environ.get("COMPOSE_PROFILES", ""),
+                          "gateway_port": os.environ.get("GATEWAY_HOST_PORT")}) + "\n")
 roles = ["server", "worker", "worker-batch", "maintenance", "client"]
 state_file = root / "docker-state.json"
 state = json.loads(state_file.read_text()) if state_file.exists() else {
@@ -177,9 +178,13 @@ def test_legacy_frontend_keeps_its_port_until_the_replacement_is_healthy(deploym
         for i, command in enumerate(commands)
         if "--force-recreate" in command["args"] and command["args"][-1] == "gateway"
     )
-    assert handoff > stopped
-    assert "deploy/gateway-bootstrap.compose.yml" not in commands[handoff]["args"]
-    assert any("deploy/gateway-bootstrap.compose.yml" in command["args"] for command in commands[:stopped])
+    bootstrap = next(
+        i
+        for i, command in enumerate(commands)
+        if "up" in command["args"] and command["args"][-1] == "gateway" and command["gateway_port"] == "0"
+    )
+    assert bootstrap < stopped < handoff
+    assert commands[handoff]["gateway_port"] is None
 
 
 def test_migration_failure_leaves_application_containers_running(deployment: Any) -> None:

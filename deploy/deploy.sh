@@ -113,7 +113,7 @@ done < <(compose ps -q client)
 if [[ "$legacy_frontend" == true ]]; then
   # Bring the stable proxy up on a temporary local port so new frontend
   # replicas can already resolve and trust it before the public-port handoff.
-  compose_args+=(-f deploy/gateway-bootstrap.compose.yml)
+  export GATEWAY_HOST_PORT=0
 fi
 compose up -d --no-deps --no-recreate --pull never --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" gateway
 # Migrations must be backward-compatible with the running release (expand/contract).
@@ -125,7 +125,7 @@ rolling_replace worker-batch 120
 rolling_replace maintenance 120
 rolling_replace client 60
 if [[ "$legacy_frontend" == true ]]; then
-  compose_args=("${compose_args[@]:0:${#compose_args[@]}-2}")
+  unset GATEWAY_HOST_PORT
   compose up -d --no-deps --force-recreate --pull never --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" gateway
   while IFS= read -r frontend_id; do
     # set_real_ip_from resolves the stable proxy's address when nginx loads its config.

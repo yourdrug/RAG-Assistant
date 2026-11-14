@@ -20,7 +20,8 @@ services:
     logging: *bounded-logging
     stop_grace_period: 60s
     ports:
-      - "127.0.0.1:3001:80"
+      # deploy.sh sets 0 (ephemeral port) during the one-time legacy frontend handoff.
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-3001}:80"
     environment:
       TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1}
       NGINX_ENVSUBST_FILTER: TRUSTED_PROXY_CIDR
