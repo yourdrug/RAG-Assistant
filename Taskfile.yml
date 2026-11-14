@@ -203,9 +203,9 @@ tasks:
   # -------------------------------------------------------------------------
 
   bench:
-    desc: Запустить оценку качества (retriever + LLM-судья) по data/test_questions.json
+    desc: "Оценка качества (retriever + LLM-судья) через worker по датасетам из БД; task bench -- -d quick-30 --no-wait"
     cmds:
-      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli benchmark run'"
+      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli benchmark run {{.CLI_ARGS}}'"
 
   bench:regression:
     desc: Benchmark + regression check vs baseline (exit code 1 при regressions)
