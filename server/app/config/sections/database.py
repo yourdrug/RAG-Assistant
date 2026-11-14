@@ -16,10 +16,13 @@ class DatabaseSection(BaseModel):
     db_user: Static[str]
     db_password: Secret
     db_name: Static[str]
+    db_use_pgbouncer: Static[bool] = False
+    db_direct_host: Static[str] = ""
+    db_direct_port: Static[str] = ""
     db_slave_hosts: Static[str] = ""
     db_slave_ports: Static[str] = ""
-    db_pool_size: Static[PositiveInt] = 40
-    db_max_overflow: Static[NonNegativeInt] = 20
+    db_pool_size: Static[PositiveInt] = 5
+    db_max_overflow: Static[NonNegativeInt] = 0
     # pool hardening (defaults generous enough for OCR/ingest queries)
     db_pool_recycle_sec: Static[PositiveInt] = 1800
     # Positive only: Postgres treats 0 as "no timeout".
@@ -50,6 +53,12 @@ class DatabaseSection(BaseModel):
                 "DB_SLAVE_HOSTS and DB_SLAVE_PORTS must list the same number of entries "
                 f"({len(self.db_slave_hosts_list)} hosts, {len(self.db_slave_ports_list)} ports)"
             )
+
+        if self.db_direct_port and not is_tcp_port(self.db_direct_port):
+            errors.append("DB_DIRECT_PORT must be a TCP port number")
+
+        if self.db_use_pgbouncer and (not self.db_direct_host or not self.db_direct_port):
+            errors.append("PgBouncer requires DB_DIRECT_HOST and DB_DIRECT_PORT for session features")
 
         return errors
 

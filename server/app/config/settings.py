@@ -26,7 +26,6 @@ from config.sections import (
     ChatSection,
     ChunkingSection,
     ConcurrencySection,
-    CostLimitSection,
     DatabaseSection,
     HttpSection,
     HybridSearchSection,
@@ -130,7 +129,6 @@ class Settings(
     HttpSection,
     AuthSection,
     RateLimitSection,
-    CostLimitSection,
     BenchmarkSection,
 ):
     @classmethod

@@ -34,7 +34,7 @@ from presentation.api.dependencies import (
     create_upload_config,
 )
 from presentation.api.helpers import read_upload_with_limit, upload_and_enqueue
-from presentation.api.idempotency import complete_idempotency, reserve_idempotency
+from presentation.api.idempotency import complete_idempotency, release_on_admission_error, reserve_idempotency
 from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import (
     CurrentUser,
@@ -117,22 +117,23 @@ async def upload_document(
     if cached is not None:
         return UploadStatusResponse(**cached)
 
-    result = await upload_and_enqueue(
-        file_data=data,
-        filename=filename,
-        visibility=options.visibility.value,
-        group_id=options.group_id,
-        client_id=options.client_id,
-        user_id=current_user.id,
-        user_kind=current_user.kind,
-        user_role=current_user.role,
-        rename_on_conflict=options.rename_on_conflict,
-        doc_domain=options.doc_domain,
-        replaces_document_id=options.replaces_document_id,
-        document_service=cmd,
-        action_name="document.upload",
-        log_fn=submission.log,
-    )
+    async with release_on_admission_error(idempotency.store, reservation):
+        result = await upload_and_enqueue(
+            file_data=data,
+            filename=filename,
+            visibility=options.visibility.value,
+            group_id=options.group_id,
+            client_id=options.client_id,
+            user_id=current_user.id,
+            user_kind=current_user.kind,
+            user_role=current_user.role,
+            rename_on_conflict=options.rename_on_conflict,
+            doc_domain=options.doc_domain,
+            replaces_document_id=options.replaces_document_id,
+            document_service=cmd,
+            action_name="document.upload",
+            log_fn=submission.log,
+        )
 
     response = UploadStatusResponse(
         status=result["status"], document_id=result["document_id"], filename=filename

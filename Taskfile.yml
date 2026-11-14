@@ -67,6 +67,7 @@ tasks:
   data:create:
     desc: Создать все data-директории, необходимые для Docker-сервисов
     cmds:
+      - python3 deploy/metrics-token.py
       - mkdir -p data/qdrant_storage data/postgres data/minio data/paddleocr_cache data/db/postgres data/redis
       - test -f data/redis/redis.conf || echo '# See data/redis/redis.conf in repo' > data/redis/redis.conf
       - 'echo "Data-директории созданы"'

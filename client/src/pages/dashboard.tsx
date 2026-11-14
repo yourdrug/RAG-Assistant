@@ -9,7 +9,6 @@ import {
   Database,
   FileText,
   HardDrive,
-  Search,
   Server,
   TrendingUp,
   XCircle,
@@ -258,12 +257,6 @@ export function DashboardPage() {
             value={Number(metrics.qdrant?.points || 0).toLocaleString()}
             icon={BarChart3}
             color="bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
-          />
-          <StatCard
-            label="BM25 Index"
-            value={Number(metrics.bm25?.index_size || 0).toLocaleString()}
-            icon={Search}
-            color="bg-purple-500/10 text-purple-600 dark:text-purple-400"
           />
           <StatCard
             label="Total Chunks"

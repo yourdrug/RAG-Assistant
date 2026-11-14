@@ -12,6 +12,7 @@ import asyncio
 from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, Any, Self, cast
+from unittest.mock import AsyncMock
 
 from arq import Retry
 import pytest
@@ -44,11 +45,36 @@ if TYPE_CHECKING:
 
 class _StatefulJobRepo:
     def __init__(self) -> None:
+        self.attempt = 1
         self.status: str | None = None
         self.started = False
         self.finished = False
         self.error: str | None = None
         self.heartbeat_touches = 0
+
+    async def claim(self, job_id: int, attempt_id: str, *, lease_seconds: int, limit: object = None) -> int:
+        del attempt_id, lease_seconds, limit
+        await self.mark_running(job_id)
+        return self.attempt
+
+    async def renew_lease(self, job_id: int, attempt_id: str, *, lease_seconds: int) -> bool:
+        del attempt_id, lease_seconds
+        await self.touch_heartbeat(job_id)
+        return True
+
+    async def finish_attempt(
+        self, job_id: int, attempt_id: str, *, error: str | None = None, retry_seconds: float | None = None
+    ) -> bool:
+        del attempt_id
+
+        if retry_seconds is not None:
+            self.status = "pending"
+        elif error:
+            await self.mark_failed(job_id, error)
+        else:
+            await self.mark_done(job_id)
+
+        return True
 
     async def mark_running(self, job_id: int) -> None:
         _ = job_id
@@ -97,6 +123,7 @@ class _Factory:
 
 
 def _run_tracked(repo: Any, body: Any, **kwargs: Any) -> None:
+    repo.attempt = kwargs.get("job_try", 1)
     asyncio.run(
         worker_tasks.run_tracked_job(
             cast("UnitOfWorkFactory", _Factory(repo)), 1, body, description="test", **kwargs
@@ -121,13 +148,14 @@ class TestRunTrackedJob:
 
         async def body() -> None:
             msg = "boom"
-            raise RuntimeError(msg)
+            raise ConnectionError(msg)
 
         with pytest.raises(Retry) as raised:
             _run_tracked(repo, body)
 
-        assert raised.value.defer_score == 5000
-        assert repo.status == "running"
+        assert raised.value.defer_score is not None
+        assert 5000 <= raised.value.defer_score <= 6000
+        assert repo.status == "pending"
         assert repo.started
         assert not repo.finished
 
@@ -136,13 +164,13 @@ class TestRunTrackedJob:
 
         async def body() -> None:
             msg = "boom"
-            raise RuntimeError(msg)
+            raise ConnectionError(msg)
 
         _run_tracked(repo, body, job_try=3, max_tries=3)
         assert repo.status == "failed"
         assert repo.error == "boom"
 
-    def test_cancellation_marks_failed_and_reraises(self) -> None:
+    def test_cancellation_releases_attempt_for_redelivery(self) -> None:
         repo = _StatefulJobRepo()
 
         async def body() -> None:
@@ -150,6 +178,17 @@ class TestRunTrackedJob:
 
         with pytest.raises(asyncio.CancelledError):
             _run_tracked(repo, body)
+        assert repo.status == "pending", "worker shutdown must not permanently fail the job"
+        assert not repo.finished
+
+    def test_cancellation_on_last_attempt_marks_failed_and_reraises(self) -> None:
+        repo = _StatefulJobRepo()
+
+        async def body() -> None:
+            raise asyncio.CancelledError
+
+        with pytest.raises(asyncio.CancelledError):
+            _run_tracked(repo, body, job_try=3, max_tries=3)
         assert repo.status == "failed"
         assert repo.error is not None
         assert "cancel" in repo.error.lower()
@@ -174,6 +213,40 @@ class TestRunTrackedJob:
 
         _run_tracked(repo, body)
         assert repo.heartbeat_touches >= 1, "heartbeat must refresh while the body runs"
+
+    def test_heartbeat_tolerates_transient_renewal_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(worker_tasks, "HEARTBEAT_INTERVAL_SEC", 0.01)
+        repo = _StatefulJobRepo()
+        failures = iter([True])
+
+        async def flaky_renew(job_id: int, attempt_id: str, *, lease_seconds: int) -> bool:
+            if next(failures, False):
+                msg = "database blip"
+                raise ConnectionError(msg)
+
+            del attempt_id, lease_seconds
+            await repo.touch_heartbeat(job_id)
+            return True
+
+        repo.renew_lease = flaky_renew  # type: ignore[method-assign]
+
+        async def body() -> None:
+            await asyncio.sleep(0.08)
+
+        _run_tracked(repo, body)
+        assert repo.status == "done", "one failed renewal within the lease must not cancel the job"
+        assert repo.heartbeat_touches >= 1
+
+    def test_heartbeat_stops_body_when_lease_lost(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(worker_tasks, "HEARTBEAT_INTERVAL_SEC", 0.01)
+        repo = _StatefulJobRepo()
+        repo.renew_lease = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+        async def body() -> None:
+            await asyncio.sleep(5)
+
+        with pytest.raises(asyncio.CancelledError):
+            _run_tracked(repo, body)
 
     def test_heartbeat_cancelled_after_body(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(worker_tasks, "HEARTBEAT_INTERVAL_SEC", 3600)

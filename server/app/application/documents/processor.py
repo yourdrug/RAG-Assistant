@@ -111,10 +111,16 @@ class DocumentProcessor:
         if ctx.raw_chunks:
             self._metrics.inc_chunks(len(ctx.raw_chunks))
 
-    async def start_processing(self, document_id: int) -> bool:
+    async def start_processing(self, document_id: int, *, skip_persisted: bool = False) -> bool:
         async with self._uow_factory.create(master=True) as uow:
-            if await uow.documents.get_by_id(document_id) is None:
+            document = await uow.documents.get_by_id(document_id, for_update=True)
+
+            if document is None:
                 log.info("Document %d already deleted; skipping processing", document_id)
+                return False
+
+            if skip_persisted and document.status in {DocumentStatus.INDEXING, DocumentStatus.DONE}:
+                log.info("Document %d already persisted; skipping processing", document_id)
                 return False
 
             await uow.documents.update_status(document_id, status=DocumentStatus.PROCESSING.value)
@@ -129,7 +135,7 @@ class DocumentProcessor:
         )
         t_start = time.monotonic()
         try:
-            if not await self.start_processing(document_id):
+            if not await self.start_processing(document_id, skip_persisted=command.skip_persisted):
                 return
 
             ctx.temp_path = await self._file_storage.download_to_temp(command.storage_key)

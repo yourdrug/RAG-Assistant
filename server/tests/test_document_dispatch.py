@@ -65,7 +65,7 @@ async def test_dispatch_retries_after_redis_failure_with_stable_identity(
     payload = publish.await_args.kwargs
     assert payload["document_id"] == dto.id
     assert payload["cost_principal"] == "user:1"
-    assert payload["cost_operation_id"] == "document_processing:1"
+    assert "cost_operation_id" not in payload
     assert payload["arq_job_id"] == f"process_doc:{dto.id}:1"
     job = h.uow.background_jobs.jobs[1]
     job.status = BackgroundJobStatus.RUNNING

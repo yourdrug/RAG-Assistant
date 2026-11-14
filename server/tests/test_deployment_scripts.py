@@ -23,31 +23,69 @@ root = Path(os.environ["DEPLOY_DIR"])
 with (root / "commands.jsonl").open("a") as log:
     log.write(json.dumps({"args": args, "image": os.environ.get("SERVER_IMAGE"),
                           "profiles": os.environ.get("COMPOSE_PROFILES", "")}) + "\n")
+roles = ["server", "worker", "worker-batch", "maintenance", "client"]
+state_file = root / "docker-state.json"
+state = json.loads(state_file.read_text()) if state_file.exists() else {
+    "old-" + role: {"service": role,
+                   "image": "sha256:old-client" if role == "client" else "sha256:old-server"}
+    for role in roles
+}
 if args[0] == "network":
     print("172.18.0.1")
+elif args[0] == "image":
+    print(args[-1])
 elif args[0] == "inspect":
-    print("sha256:old-client" if args[-1] == "old-client" else "sha256:old-server")
+    for name in args[3:]:
+        if "PortBindings" in args[2]:
+            print("legacy" if name == "old-client" and os.environ.get("LEGACY_FRONTEND") else "")
+        else:
+            print(state.get(name, {}).get("image", "sha256:old-server"))
+elif args[0] == "stop":
+    pass
+elif args[0] == "rm":
+    state.pop(args[-1], None)
+elif args[0] == "exec":
+    if os.environ.get("FAIL_STAGE") == "readiness":
+        sys.exit(1)
 elif "config" in args and "--services" in args:
     print("server\nworker")
     if "tei" in os.environ.get("COMPOSE_PROFILES", "").split(","):
         print("tei-embed\ntei-rerank")
 elif "config" in args and "--format" in args:
-    print(json.dumps({"services": {"server": {"environment": {"ML_PROVIDER": "tei"}}}}))
+    print(json.dumps({"services": {role: {"environment": {"ML_PROVIDER": "tei"}} for role in roles}}))
 elif "ps" in args:
-    print("old-" + args[-1])
+    print("\n".join(name for name, value in state.items() if value["service"] == args[-1]))
 elif "pull" in args and os.environ.get("FAIL_STAGE") == "pull":
     sys.exit(1)
 elif "exec" in args:
-    print("new-schema" if os.environ.get("SCHEMA_CHANGED") and (root / "migrated").exists() else "old-schema")
+    if "SHOW max_connections" in args[-1]:
+        print("300")
+    else:
+        changed = os.environ.get("SCHEMA_CHANGED") and (root / "migrated").exists()
+        print("new-schema" if changed else "old-schema")
 elif "run" in args:
     (root / "migrated").touch()
     if os.environ.get("FAIL_STAGE") == "migrate":
         sys.exit(1)
-elif (
-    "up" in args and "server" in args and os.environ.get("FAIL_STAGE") == "up"
-    and not os.environ.get("SERVER_IMAGE", "").startswith("sha256:")
-):
-    sys.exit(1)
+elif "up" in args:
+    if ("server" in args and os.environ.get("FAIL_STAGE") == "up"
+        and not os.environ.get("SERVER_IMAGE", "").startswith("sha256:")):
+        sys.exit(1)
+    for role in roles:
+        if role not in args:
+            continue
+        members = [name for name, value in state.items() if value["service"] == role]
+        desired = (int(args[args.index("--scale") + 1].split("=")[1])
+                   if "--scale" in args else len(members) or 1)
+        if "--force-recreate" in args:
+            for name in members:
+                state.pop(name)
+            members = []
+        for number in range(len(members), desired):
+            name = "new-" + role + "-" + str(len(state))
+            image = os.environ.get("CLIENT_IMAGE") if role == "client" else os.environ.get("SERVER_IMAGE")
+            state[name] = {"service": role, "image": image}
+state_file.write_text(json.dumps(state))
 """
 
 
@@ -71,6 +109,7 @@ def deployment(tmp_path: Path) -> Any:
         "DEPLOY_DIR": str(tmp_path),
         "PATH": f"{binaries}:{os.environ['PATH']}",
         "COMPOSE_PROFILES": "tei",
+        "DEPLOY_DNS_SETTLE_SECONDS": "0",
     }
 
     def run(**updates: Any) -> Any:
@@ -99,7 +138,59 @@ def test_success_preserves_infrastructure_and_enables_tei(deployment: Any) -> No
     assert "production-gpu-0.6.0" in (directory / ".deploy/current.env").read_text()
 
 
-@pytest.mark.parametrize("stage", ["up", "smoke", "migrate"])
+def test_api_rollout_starts_a_healthy_replacement_before_stopping_old_replica(deployment: Any) -> None:
+    _, run = deployment
+    result, commands = run()
+    assert result.returncode == 0, result.stderr
+    assert not any(
+        "up" in command["args"] and "server" in command["args"] and "--force-recreate" in command["args"]
+        for command in commands
+    )
+    replacement = next(
+        i
+        for i, command in enumerate(commands)
+        if "--scale" in command["args"] and "server=2" in command["args"]
+    )
+    stopped = next(
+        i
+        for i, command in enumerate(commands)
+        if command["args"][:1] == ["stop"] and "old-server" in command["args"]
+    )
+    assert replacement < stopped
+    assert any(
+        command["args"][:1] == ["exec"] and "http://localhost:8001/ready" in command["args"]
+        for command in commands[replacement:stopped]
+    )
+
+
+def test_legacy_frontend_keeps_its_port_until_the_replacement_is_healthy(deployment: Any) -> None:
+    _, run = deployment
+    result, commands = run(LEGACY_FRONTEND="1")
+    assert result.returncode == 0, result.stderr
+    stopped = next(
+        i
+        for i, command in enumerate(commands)
+        if command["args"][:1] == ["stop"] and "old-client" in command["args"]
+    )
+    handoff = next(
+        i
+        for i, command in enumerate(commands)
+        if "--force-recreate" in command["args"] and command["args"][-1] == "gateway"
+    )
+    assert handoff > stopped
+    assert "deploy/gateway-bootstrap.compose.yml" not in commands[handoff]["args"]
+    assert any("deploy/gateway-bootstrap.compose.yml" in command["args"] for command in commands[:stopped])
+
+
+def test_migration_failure_leaves_application_containers_running(deployment: Any) -> None:
+    _, run = deployment
+    result, commands = run(FAIL_STAGE="migrate")
+    assert result.returncode != 0
+    assert not any("up" in command["args"] and "server" in command["args"] for command in commands)
+    assert not any(command["args"][:1] == ["stop"] for command in commands)
+
+
+@pytest.mark.parametrize("stage", ["up", "smoke"])
 def test_failure_restores_previous_images_if_schema_unchanged(deployment: Any, stage: str) -> None:
     directory, run = deployment
     result, commands = run(FAIL_STAGE=stage)
@@ -141,4 +232,3 @@ def test_cloud_deployment_does_not_start_tei_from_legacy_provider(deployment: An
     result, commands = run(COMPOSE_PROFILES="", ML_PROVIDER="tei")
     assert result.returncode == 0, result.stderr
     assert not any("tei-embed" in command["args"] for command in commands)
-    assert not any("config" in command["args"] and "--format" in command["args"] for command in commands)

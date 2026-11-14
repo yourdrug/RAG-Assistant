@@ -252,7 +252,7 @@ async def create_sweep(
     _admin: Annotated[CurrentUser, Depends(require_admin)],
     launcher: Annotated[BenchmarkSweepLauncher, Depends(create_benchmark_sweep_launcher)],
 ) -> SweepResponse:
-    sweep, job_id = await launcher.start(sweep_create_to_dto(body))
+    sweep, job_id = await launcher.start(sweep_create_to_dto(body), cost_principal=f"user:{_admin.id}")
     return sweep_to_response(sweep, job_id=job_id)
 
 
@@ -266,7 +266,7 @@ async def resume_sweep(
     _admin: Annotated[CurrentUser, Depends(require_admin)],
     launcher: Annotated[BenchmarkSweepLauncher, Depends(create_benchmark_sweep_launcher)],
 ) -> SweepResponse:
-    sweep, job_id = await launcher.resume(sweep_id)
+    sweep, job_id = await launcher.resume(sweep_id, cost_principal=f"user:{_admin.id}")
     return sweep_to_response(sweep, job_id=job_id)
 
 

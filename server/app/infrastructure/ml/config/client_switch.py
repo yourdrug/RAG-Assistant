@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 import httpx
 
-from application.budget import billing_principal
 from application.runtime.enums import LLMProvider, MLProvider
 from domain.shared.exceptions import ValidationError
 from infrastructure.ml.clients import factories
@@ -136,18 +135,14 @@ def prepare_llm_clients(registry: MLClientRegistry, candidate: Settings, prepare
     )
 
     if registry.cached_llm is not None:
-        prepared["cached_llm"] = ManagedLLM(
-            factories.create_llm(model=candidate, runtime=registry.budget_runtime)
-        )
+        prepared["cached_llm"] = ManagedLLM(factories.create_llm(model=candidate))
 
     if registry.cached_fast_llm is not None:
-        prepared["cached_fast_llm"] = ManagedLLM(
-            factories.create_fast_llm_for_auxiliary(model=candidate, runtime=registry.budget_runtime)
-        )
+        prepared["cached_fast_llm"] = ManagedLLM(factories.create_fast_llm_for_auxiliary(model=candidate))
 
     for breadth in registry.cached_llm_breadth_cache:
         cast("dict[str, ManagedLLM]", prepared["cached_llm_breadth_cache"])[breadth] = ManagedLLM(
-            factories.create_llm_for_breadth(breadth, model=candidate, runtime=registry.budget_runtime)
+            factories.create_llm_for_breadth(breadth, model=candidate)
         )
 
     if registry.cached_instructor is not None:
@@ -155,7 +150,6 @@ def prepare_llm_clients(registry: MLClientRegistry, candidate: Settings, prepare
             create_async_instructor_client(
                 candidate.active_llm_base_url,
                 candidate.active_llm_api_key.get_secret_value(),
-                runtime=registry.budget_runtime,
             )
         )
 
@@ -205,9 +199,7 @@ def local_llm_capacity_errors(candidate: Settings, payload: object) -> list[str]
     return errors
 
 
-async def probe_llm_endpoint(
-    registry: MLClientRegistry, candidate: Settings, keys: set[str], prepared: dict[str, object]
-) -> None:
+async def probe_llm_endpoint(candidate: Settings, keys: set[str], prepared: dict[str, object]) -> None:
     local = candidate.llm_provider == LLMProvider.OPENAI_COMPATIBLE.value
     trigger = LLM_ENDPOINT_KEYS | LOCAL_LLM_CAPACITY_KEYS if local else LLM_ENDPOINT_KEYS
 
@@ -215,9 +207,7 @@ async def probe_llm_endpoint(
         return
 
     if prepared["cached_llm"] is None:
-        prepared["cached_llm"] = ManagedLLM(
-            factories.create_llm(model=candidate, runtime=registry.budget_runtime)
-        )
+        prepared["cached_llm"] = ManagedLLM(factories.create_llm(model=candidate))
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         response = await client.get(
@@ -289,24 +279,19 @@ async def prepare_clients(
     allow_unavailable: bool = False,
 ) -> dict[str, Any]:
     prepared: dict[str, object] = {}
-    billing_token = billing_principal.set(billing_principal.get() or "system:configuration-probe")
     try:
         if keys & LLM_CLIENT_KEYS:
             prepare_llm_clients(registry, candidate, prepared)
             with endpoint_availability(component="LLM", allow_unavailable=allow_unavailable):
-                await probe_llm_endpoint(registry, candidate, keys, prepared)
+                await probe_llm_endpoint(candidate, keys, prepared)
 
         if keys & EMBEDDING_CLIENT_KEYS:
-            prepared["cached_embeddings"] = factories.create_embeddings(
-                candidate, runtime=registry.budget_runtime
-            )
+            prepared["cached_embeddings"] = factories.create_embeddings(candidate)
             with endpoint_availability(component="Embedding", allow_unavailable=allow_unavailable):
                 await probe_embedding_endpoint(registry, current, candidate, keys, prepared, applied=applied)
 
         if keys & RERANK_CLIENT_KEYS:
-            prepared["cached_reranker"] = factories.create_reranker(
-                candidate, runtime=registry.budget_runtime
-            )
+            prepared["cached_reranker"] = factories.create_reranker(candidate)
 
             if ("tei_rerank_url" in keys and candidate.ml_provider == MLProvider.TEI.value) or (
                 "deepinfra_base_url" in keys and candidate.ml_provider == MLProvider.DEEPINFRA.value
@@ -321,5 +306,3 @@ async def prepare_clients(
         raise
     else:
         return prepared
-    finally:
-        billing_principal.reset(billing_token)

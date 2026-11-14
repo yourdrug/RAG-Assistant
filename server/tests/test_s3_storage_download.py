@@ -10,8 +10,6 @@ from typing import Any
 
 import pytest
 
-from infrastructure.bm25 import persistence
-from infrastructure.bm25.snapshots import LocalBM25Snapshots
 from infrastructure.storage import file_storage
 from tests.s3_fakes import Body
 from tests.test_s3_storage_async import client_harness
@@ -238,21 +236,15 @@ class CleanupFailure:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["read", "creation"])
 @pytest.mark.parametrize("failure", ["close", "unlink"])
-@pytest.mark.parametrize("consumer", ["storage", "loader"])
 async def test_download_cancellation_survives_cleanup_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, phase: str, failure: str, consumer: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, phase: str, failure: str
 ) -> None:
     storage, client, _, _ = client_harness(monkeypatch)
     body = Body([])
     body.release = asyncio.Event()
     client.get_object.return_value = {"Body": body}
     faults = CleanupFailure(monkeypatch, tmp_path, phase, failure)
-    registry = LocalBM25Snapshots(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
-    operation = {
-        "storage": lambda: storage.download_to_temp("report.pdf"),
-        "loader": registry.ensure_bm25_loaded,
-    }[consumer]()
-    pending = asyncio.create_task(operation)
+    pending = asyncio.create_task(storage.download_to_temp("report.pdf"))
     try:
         if phase == "creation":
             assert await asyncio.to_thread(faults.started.wait, 5)
@@ -268,14 +260,10 @@ async def test_download_cancellation_survives_cleanup_failure(
         assert faults.handles[0].closed
         assert body.closed
         assert storage._active == 0
-        with pytest.raises(persistence.BM25SnapshotNotReadyError):
-            registry.bm25_index()
     finally:
         faults.release.set()
 
         faults.remove_files()
-
-        await registry.close()
         await storage.aclose()
 
 

@@ -15,7 +15,6 @@ from application.runtime.enums import LLMProvider
 from config import settings
 from infrastructure.benchmark.judging import clients as judge_clients, judge
 from infrastructure.benchmark.judging.token_usage import judge_usage
-from infrastructure.budget.runtime import BudgetRuntime
 
 
 if TYPE_CHECKING:
@@ -57,7 +56,6 @@ def test_judge_client_provider_compatibility(
     monkeypatch.setattr(settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
     monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("test-key"))
     monkeypatch.setattr(judge_clients, "_judge_client_cache", {})
-    runtime = BudgetRuntime()
     records: list[dict[str, Any]] = []
     token = judge_usage.set(records)
     with OpenAI(
@@ -74,9 +72,9 @@ def test_judge_client_provider_compatibility(
 
         monkeypatch.setattr(judge_clients, "OpenAI", create_raw)
         try:
-            client = judge_clients.get_judge_client("judge-model", runtime=runtime)
+            client = judge_clients.get_judge_client("judge-model")
             assert client.mode == mode
-            assert judge_clients.get_judge_client("judge-model", runtime=runtime) is client
+            assert judge_clients.get_judge_client("judge-model") is client
             score = judge.judge_with_structured_output(client, "Evaluate the answer", "judge-model")
         finally:
             judge_usage.reset(token)

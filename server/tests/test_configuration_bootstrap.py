@@ -24,17 +24,13 @@ from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
-from domain.runtime.cost import BudgetError
 from domain.shared.exceptions import ValidationError
 from infrastructure import initialization
-from infrastructure.budget.runtime import BudgetRuntime
-from infrastructure.budget.transport import PaidAsyncTransport
 from infrastructure.database.database import database
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
-from infrastructure.ml.clients import managed_http
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.redis.redis_client import redis_client
 from presentation.api.auth_dependencies import require_admin
@@ -47,7 +43,6 @@ from tests.test_cli_domain_bootstrap import build_infrastructure
 
 if TYPE_CHECKING:
     from application.admin.ports import ProviderConfigurationPort
-    from application.budget.ports import CostBudgetPort
 
 
 def row(
@@ -522,49 +517,3 @@ async def test_config_service_rejects_chat_quota_against_saved_snapshot(
     async with factory.create() as uow:
         saved = await uow.config_parameters.get_by_key("rate_limit_chat_per_day")
         assert require_present(saved).value == "100"
-
-
-@pytest.mark.asyncio
-async def test_budget_policy_is_durable_before_bootstrap_probes(monkeypatch: pytest.MonkeyPatch) -> None:
-    infra, _ = build_infrastructure(monkeypatch)
-    runtime = BudgetRuntime()
-    session = AsyncMock()
-    session.execute.return_value = MagicMock()
-    session.execute.return_value.all.return_value = [
-        ("cost_rate_limit_enabled", "true"),
-        ("cost_hourly_limit", "1"),
-        ("cost_daily_limit", "5"),
-    ]
-    factory = MagicMock()
-    factory.return_value.__aenter__ = AsyncMock(return_value=session)
-    ledger = object()
-    catalog = SimpleNamespace(contract=AsyncMock(side_effect=BudgetError("Unknown price; paid call blocked")))
-    runtime.configure(cast("CostBudgetPort", ledger), factory, catalog)
-    monkeypatch.setattr(infra, "budget_admin", SimpleNamespace(repository=ledger))
-    infra.budget_runtime = runtime
-    monkeypatch.setattr(settings, "cost_rate_limit_enabled", False)
-
-    post = AsyncMock()
-    monkeypatch.setattr(
-        managed_http,
-        "PaidAsyncTransport",
-        lambda **_kwargs: PaidAsyncTransport(runtime=runtime, transport=httpx.MockTransport(post)),
-    )
-
-    class BillablePool(managed_http.ManagedHTTPPool):
-        billable_provider = "deepinfra"
-
-    pool = BillablePool(10, httpx.Limits())
-
-    async def prepare(**kwargs: Any) -> None:
-        await pool.post("https://api.deepinfra.com/v1/inference/model", json={"queries": ["probe"]})
-
-    monkeypatch.setattr(require_present(infra.events.config_listener), "synchronize", prepare)
-    try:
-        with pytest.raises(BudgetError, match="paid call blocked"):
-            await infra.bootstrap_configuration()
-        post.assert_not_awaited()
-        catalog.contract.assert_awaited_once_with("deepinfra", "model")
-        cast("AsyncMock", require_present(require_present(infra.corpus_control).start)).assert_not_awaited()
-    finally:
-        await pool.close()

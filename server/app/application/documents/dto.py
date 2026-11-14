@@ -122,6 +122,7 @@ class ProcessDocumentCommand:
     # Re-chunking a stored document: its state before the run. A failure before the
     # new chunks are committed restores it, and manual chunk edits abort the commit.
     reindex_snapshot: Document | None = None
+    skip_persisted: bool = False
 
 
 @dataclass(frozen=True)

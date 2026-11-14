@@ -22,8 +22,6 @@ def constructors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     async_http_client = Mock(return_value="async")
     monkeypatch.setattr(httpx, "Client", http_client)
     monkeypatch.setattr(httpx, "AsyncClient", async_http_client)
-    monkeypatch.setattr(factories, "PaidSyncTransport", Mock(return_value="paid-sync"))
-    monkeypatch.setattr(factories, "PaidAsyncTransport", Mock(return_value="paid-async"))
     return SimpleNamespace(
         openrouter=openrouter, http_client=http_client, async_http_client=async_http_client
     )
@@ -68,8 +66,8 @@ def test_openrouter_roles_preserve_options(
         assert "request_timeout" not in options
 
     assert options.get("stream_usage", False) == (not auxiliary and not benchmark)
-    constructors.http_client.assert_called_once_with(follow_redirects=False, transport="paid-sync")
-    constructors.async_http_client.assert_called_once_with(follow_redirects=False, transport="paid-async")
+    constructors.http_client.assert_called_once_with(follow_redirects=False)
+    constructors.async_http_client.assert_called_once_with(follow_redirects=False)
 
 
 @pytest.mark.parametrize("role", list(factories.ChatModelRole))
@@ -99,9 +97,8 @@ def test_openai_compatible_uses_its_own_endpoint_and_models(
     assert options["openai_api_key"].get_secret_value() == instructor_client.NO_API_KEY
     assert model.active_llm_base_url == "http://vllm:8000/v1"
     assert model.active_llm_model == "Qwen/Qwen2.5-3B-Instruct"
-    # Self-hosted endpoints are not billed: no paid transport, so budget admission cannot reject them.
-    constructors.http_client.assert_called_once_with(follow_redirects=False, transport=None)
-    constructors.async_http_client.assert_called_once_with(follow_redirects=False, transport=None)
+    constructors.http_client.assert_called_once_with(follow_redirects=False)
+    constructors.async_http_client.assert_called_once_with(follow_redirects=False)
 
 
 def test_openai_compatible_forwards_only_its_own_key(
@@ -157,6 +154,5 @@ def test_judge_and_auxiliary_share_default_model(
 
 @pytest.mark.parametrize("base_url", ["https://openrouter.ai/api/v1", "http://vllm:8000/v1"])
 def test_structured_output_uses_json_mode_for_every_provider(base_url: str) -> None:
-    runtime = Mock()
-    client = instructor_client.create_async_instructor_client(base_url, "", runtime=runtime)
+    client = instructor_client.create_async_instructor_client(base_url, "")
     assert client.mode == instructor.Mode.JSON  # type: ignore[attr-defined]  # runtime attribute

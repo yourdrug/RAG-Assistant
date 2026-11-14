@@ -51,7 +51,10 @@ async def test_full_ingestion_resolves_default_and_preserves_scope(
         reset=reset, domain="legal", visibility=DocumentVisibility.INTERNAL_GROUP, group_id=7
     )
     collaborators.batch.run.assert_awaited_once_with(
-        "docs/", reset=reset, scope=IngestionScope("legal", DocumentVisibility.INTERNAL_GROUP, 7, None)
+        "docs/",
+        reset=reset,
+        scope=IngestionScope("legal", DocumentVisibility.INTERNAL_GROUP, 7, None),
+        job_id=None,
     )
     assert result.status == "started"
     assert result.docs_dir == "docs/"
@@ -256,4 +259,5 @@ async def test_worker_uses_injected_service_and_forwards_scope(
             visibility=DocumentVisibility.INTERNAL_GROUP,
             group_id=7,
             client_id=None,
+            job_id=42,
         )

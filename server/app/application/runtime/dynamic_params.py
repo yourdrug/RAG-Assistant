@@ -15,7 +15,6 @@ from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 
 class DynamicParamCategory(StrEnum):
     CORPUS = "corpus"
-    COST = "cost"
     HYBRID = "hybrid"
     INGESTION = "ingestion"
     JOBS = "jobs"
@@ -67,26 +66,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         str,
         DynamicParamCategory.CORPUS,
         "Alias/physical collection; coordinated corpus switch only",
-    ),
-    DynamicParam(
-        "cost_rate_limit_enabled",
-        bool,
-        DynamicParamCategory.COST,
-        "USD per principal; unsupported paid calls blocked",
-    ),
-    DynamicParam(
-        "cost_hourly_limit",
-        float,
-        DynamicParamCategory.COST,
-        "Rolling hour USD; includes pending reservations",
-        0.000000001,
-    ),
-    DynamicParam(
-        "cost_daily_limit",
-        float,
-        DynamicParamCategory.COST,
-        "Rolling day USD; includes pending reservations",
-        0.000000001,
     ),
     DynamicParam(
         "max_upload_size_mb",

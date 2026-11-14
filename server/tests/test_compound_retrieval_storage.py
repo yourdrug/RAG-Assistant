@@ -18,8 +18,6 @@ if TYPE_CHECKING:
 
     from langchain_core.documents import Document
 
-    from infrastructure.budget.runtime import BudgetRuntime
-
 
 @pytest.fixture
 def experiment() -> ModuleType:
@@ -42,8 +40,7 @@ async def test_live_experiment_uses_runtime_sparse_search_without_local_storage(
     storage = SimpleNamespace(download_to_temp=AsyncMock(return_value=path), aclose=AsyncMock())
     monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda *_: storage)
 
-    def create_reranker(*, runtime: BudgetRuntime | None = None) -> SimpleNamespace:
-        assert runtime is None
+    def create_reranker() -> SimpleNamespace:
         return SimpleNamespace(close=AsyncMock())
 
     monkeypatch.setattr(factories, "create_reranker", create_reranker)

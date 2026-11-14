@@ -41,7 +41,8 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
         await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})
     try:
-        async with engine.begin() as conn:
+        # Alembic owns transaction boundaries, including CREATE INDEX CONCURRENTLY.
+        async with engine.connect() as conn:
             await conn.run_sync(upgrade_schema)
         yield engine
     finally:

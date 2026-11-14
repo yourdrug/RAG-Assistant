@@ -192,7 +192,8 @@ class DocumentUploadCommand:
 
             # This job row is also the task outbox: commit it with the document.
             # Redis delivery happens later, without depending on the HTTP process.
-            await uow.background_jobs.create(
+            await self.record_processing_job(
+                uow,
                 BackgroundJob(
                     job_type=JobType.DOCUMENT_PROCESSING,
                     related_id=saved_id,
@@ -208,9 +209,20 @@ class DocumentUploadCommand:
                         "principal_id": user_id,
                         "cost_principal": f"user:{user_id}",
                     },
-                )
+                ),
+                key=key,
             )
             return DocumentDTO.from_entity(final_doc, storage_key=key, replace_id=pending_replace_id)
+
+    async def record_processing_job(self, uow: UnitOfWork, job: BackgroundJob, *, key: str) -> None:
+        try:
+            await uow.background_jobs.create(job)
+        except BaseException:
+            try:
+                await self._file_storage.delete_file(key)
+            except Exception:
+                log.exception("Failed to compensate a rejected upload")
+            raise
 
     async def prepare_upload_target(
         self,

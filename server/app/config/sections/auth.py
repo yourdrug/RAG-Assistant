@@ -24,6 +24,7 @@ class AuthSection(BaseModel):
     jwt_expire_minutes: Static[PositiveInt] = 1440
     admin_email: Static[str] = ""
     admin_password: Secret = SecretStr("")
+    metrics_scrape_token: Secret = SecretStr("")
 
     def check_auth_security(self) -> list[str]:
         errors: list[str] = []

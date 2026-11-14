@@ -26,6 +26,7 @@ class IngestionPort(Protocol):
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
+        job_id: int | None = None,
     ) -> IngestStatusResult: ...
     def resolve_ingest_target(self, file_path: str) -> str: ...
     async def run_single(

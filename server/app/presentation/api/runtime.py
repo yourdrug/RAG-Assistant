@@ -21,7 +21,6 @@ from application.benchmark import (
     BenchmarkSweepLauncher,
     BenchmarkSweepService,
 )
-from application.budget import BudgetAdminService
 from application.chat import ChatLogService, ChatService, ConversationService
 from application.chunks import ChunkMutationService, ChunkQueryService
 from application.documents import (
@@ -202,9 +201,6 @@ class InfrastructureServices(Protocol):
 
     @property
     def domain_settings(self) -> DomainSettingsPort | None: ...
-
-    @property
-    def budget_admin(self) -> BudgetAdminService | None: ...
 
     @property
     def corpus_control(self) -> CorpusControlPort | None: ...

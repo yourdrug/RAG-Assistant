@@ -41,7 +41,6 @@ if TYPE_CHECKING:
     )
     from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswerGenerator
     from infrastructure.benchmark.judging.callbacks import SaveStage
-    from infrastructure.budget.runtime import BudgetRuntime
 
 
 @dataclass(frozen=True)
@@ -66,13 +65,11 @@ class BenchmarkCaseEvaluator:
         judge_model: str,
         checkpoints: BenchmarkCheckpoints | None = None,
         *,
-        budget_runtime: BudgetRuntime | None = None,
         annotation_validator: AnnotationValidator | None = None,
         run_manifest: dict[str, Any] | None = None,
     ) -> None:
         self.run_manifest = run_manifest
         self.annotation_validator = annotation_validator
-        self.budget_runtime = budget_runtime
         self._generator = generator
         self._judge_model = judge_model
         self._checkpoints = checkpoints
@@ -182,7 +179,6 @@ class BenchmarkCaseEvaluator:
             save_stage,
             policy={
                 "judge_model": self._judge_model,
-                "runtime": self.budget_runtime,
                 "annotation_status": validation["status"],
             },
         )
@@ -362,5 +358,4 @@ async def judge_validated(
         stages,
         save_stage,
         judge_model=policy["judge_model"],
-        runtime=policy["runtime"],
     )

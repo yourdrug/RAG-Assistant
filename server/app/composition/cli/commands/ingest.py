@@ -11,9 +11,9 @@ from typing import Annotated
 
 import typer
 
-from application.budget import billing_principal
 from application.ingestion import IngestionService
 from application.ingestion.dto import IngestRegistryResult
+from application.jobs.principal import job_principal
 from composition.infrastructure import InfrastructureContainer
 from composition.service_providers import create_ingestion_service
 from config import settings
@@ -43,7 +43,7 @@ async def run_with_infrastructure[T](action: Callable[[InfrastructureContainer],
         await database.connect()
         database_started = True
         infra.init(database)
-        billing_principal.set("system:ingest-cli")
+        job_principal.set("system:ingest-cli")
         await infra.bootstrap_configuration()
         return await action(infra)
     finally:

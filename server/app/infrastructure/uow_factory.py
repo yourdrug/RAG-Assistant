@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
+from application.jobs.execution import current_execution
 from application.runtime.config import ConfigParameterChanged
 from application.uow import UnitOfWork, UnitOfWorkRepositories
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
@@ -149,4 +150,12 @@ class UnitOfWorkFactory:
             uow.on_event(publish_to_broadcaster)
 
         async with uow:
+            execution = current_execution.get() if master else None
+
+            if execution is not None:
+                await uow.background_jobs.lock_execution(execution.job_id, execution.attempt_id)
+
             yield uow
+
+            if execution is not None:
+                await uow.background_jobs.lock_execution(execution.job_id, execution.attempt_id)

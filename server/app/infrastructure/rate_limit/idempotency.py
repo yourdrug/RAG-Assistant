@@ -130,3 +130,35 @@ class IdempotencyStore:
 
         msg = "Idempotency reservation changed repeatedly before completion"
         raise RuntimeError(msg)
+
+    async def release(self, reservation: dict[str, Any]) -> None:
+        """Release only unaccepted work still owned by this request."""
+        redis_key = reservation["redis_key"]
+
+        for _ in range(_MAX_WATCH_RETRIES):
+            try:
+                async with self._redis.pipeline(transaction=True) as pipe:
+                    await pipe.watch(redis_key)
+                    raw = await pipe.get(redis_key)
+
+                    if raw is None:
+                        return
+
+                    entry = json.loads(raw)
+
+                    if (
+                        entry.get("token") != reservation["token"]
+                        or entry.get("state") != IdempotencyClaimStatus.IN_PROGRESS.value
+                    ):
+                        return
+
+                    cast("Callable[[], None]", pipe.multi)()
+                    pipe.delete(redis_key)
+                    await pipe.execute()
+            except WatchError:
+                continue
+            else:
+                return
+
+        message = "Idempotency reservation changed repeatedly before release"
+        raise RuntimeError(message)

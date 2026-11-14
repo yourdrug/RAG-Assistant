@@ -51,7 +51,6 @@ dependencies = [
     "pyjwt==2.10.1",
     # --- Storage (S3 / MinIO) ---
     "aiobotocore==3.9.2",
-    "aiohttp==3.14.1",
     "botocore>=1.43.101,<1.43.107",
     # --- Queue / Redis ---
     "arq>=0.26.0",
@@ -476,25 +475,11 @@ source_modules = ["application.uow"]
 allow_indirect_imports = true
 # Allowed features: none.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.act_versioning", "application.identity", "application.chat",
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.ports",
-]
-
-[[tool.importlinter.contracts]]
-name = "Budget: declared application dependencies"
-type = "forbidden"
-source_modules = ["application.budget"]
-allow_indirect_imports = true
-# Allowed features: uow.
-forbidden_modules = [
-    "application.admin", "application.benchmark", "application.act_versioning",
-    "application.identity", "application.chat", "application.search",
-    "application.indexing", "application.documents", "application.chunks",
-    "application.ingestion", "application.health", "application.jobs",
-    "application.ports",
 ]
 
 [[tool.importlinter.contracts]]
@@ -504,7 +489,7 @@ source_modules = ["application.admin"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
-    "application.budget", "application.benchmark", "application.act_versioning",
+    "application.benchmark", "application.act_versioning",
     "application.identity", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
@@ -522,7 +507,7 @@ source_modules = ["application.benchmark"]
 allow_indirect_imports = true
 # Allowed features: admin, chat, uow.
 forbidden_modules = [
-    "application.budget", "application.act_versioning", "application.identity",
+    "application.act_versioning", "application.identity",
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.ports",
@@ -540,7 +525,7 @@ source_modules = ["application.act_versioning"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.identity", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
@@ -559,7 +544,7 @@ source_modules = ["application.identity"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.act_versioning", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
@@ -573,7 +558,7 @@ source_modules = ["application.chat"]
 allow_indirect_imports = true
 # Allowed features: identity, uow.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.act_versioning", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
     "application.health", "application.jobs", "application.ports",
@@ -586,7 +571,7 @@ source_modules = ["application.search"]
 allow_indirect_imports = true
 # Allowed features: identity, uow.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.act_versioning", "application.chat", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
     "application.health", "application.jobs", "application.ports",
@@ -599,7 +584,7 @@ source_modules = ["application.indexing"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.act_versioning", "application.identity", "application.chat",
     "application.search", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
@@ -613,7 +598,7 @@ source_modules = ["application.documents"]
 allow_indirect_imports = true
 # Allowed features: act_versioning, identity, indexing, ingestion, uow.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.chat", "application.search", "application.chunks",
     "application.health", "application.jobs", "application.ports",
 ]
@@ -636,7 +621,7 @@ source_modules = ["application.chunks"]
 allow_indirect_imports = true
 # Allowed features: documents, identity, indexing, uow.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.act_versioning", "application.chat", "application.search",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
@@ -653,7 +638,7 @@ source_modules = ["application.ingestion"]
 allow_indirect_imports = true
 # Allowed features: act_versioning, indexing, uow.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.identity", "application.chat", "application.search",
     "application.documents", "application.chunks", "application.health",
     "application.jobs", "application.ports",
@@ -674,7 +659,7 @@ source_modules = ["application.health"]
 allow_indirect_imports = true
 # Allowed features: admin, uow.
 forbidden_modules = [
-    "application.budget", "application.benchmark", "application.act_versioning",
+    "application.benchmark", "application.act_versioning",
     "application.identity", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.jobs", "application.ports",
@@ -687,7 +672,7 @@ source_modules = ["application.jobs"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark",
     "application.act_versioning", "application.identity", "application.chat",
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
@@ -701,7 +686,7 @@ source_modules = ["application.ports"]
 allow_indirect_imports = true
 # Allowed features: none.
 forbidden_modules = [
-    "application.uow", "application.budget", "application.admin",
+    "application.uow", "application.admin",
     "application.benchmark", "application.act_versioning", "application.identity",
     "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
@@ -793,7 +778,7 @@ type = "forbidden"
 source_modules = ["application.rag"]
 allow_indirect_imports = true
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark", "application.act_versioning",
+    "application.admin", "application.benchmark", "application.act_versioning",
     "application.identity", "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.uow", "application.ports",
@@ -807,7 +792,7 @@ type = "forbidden"
 source_modules = ["application.runtime"]
 allow_indirect_imports = true
 forbidden_modules = [
-    "application.budget", "application.admin", "application.benchmark", "application.act_versioning",
+    "application.admin", "application.benchmark", "application.act_versioning",
     "application.identity", "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.uow", "application.ports", "application.rag",

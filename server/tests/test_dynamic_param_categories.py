@@ -26,7 +26,6 @@ def test_category_rejects_unknown_values(value: Any) -> None:
 def test_registry_and_seed_preserve_category_strings() -> None:
     expected = {
         "corpus",
-        "cost",
         "hybrid",
         "ingestion",
         "jobs",

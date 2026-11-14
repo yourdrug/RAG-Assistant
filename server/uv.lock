@@ -2430,7 +2430,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiobotocore" },
-    { name = "aiohttp" },
     { name = "alembic" },
     { name = "apscheduler" },
     { name = "arq" },
@@ -2506,7 +2505,6 @@ testing = [
 [package.metadata]
 requires-dist = [
     { name = "aiobotocore", specifier = "==3.9.2" },
-    { name = "aiohttp", specifier = "==3.14.1" },
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "apscheduler", specifier = ">=3.10.0" },
     { name = "arq", specifier = ">=0.26.0" },

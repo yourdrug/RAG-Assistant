@@ -16,8 +16,8 @@ from fastapi import Depends
 from fastapi.security import APIKeyHeader
 import jwt as _jwt
 
-from application.budget import billing_principal
 from application.identity import ApiKeyProviderPort, ApiKeyService, AuthService
+from application.jobs.principal import job_principal
 from domain.identity.capabilities import Capability, get_role_capabilities
 from domain.identity.roles import UserRole
 from domain.shared.exceptions import AuthenticationError, PermissionDeniedError
@@ -119,12 +119,12 @@ async def get_current_user(
 
     if scheme.lower() == AUTH_SCHEME_BEARER:
         user = await authenticate_via_jwt(credentials, auth_service)
-        billing_principal.set(f"user:{user.id}")
+        job_principal.set(f"user:{user.id}")
         return user
 
     if scheme.lower() == AUTH_SCHEME_API_KEY:
         user = await authenticate_via_api_key(credentials, api_key_service, api_key_provider)
-        billing_principal.set(f"user:{user.id}")
+        job_principal.set(f"user:{user.id}")
         return user
 
     message = "Unsupported authorization scheme"

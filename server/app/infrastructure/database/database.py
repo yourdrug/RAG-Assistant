@@ -21,7 +21,7 @@ from logging import (
 )
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Connection, create_engine
+from sqlalchemy import Connection, create_engine, event
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
@@ -47,7 +47,10 @@ if TYPE_CHECKING:
 logger: Logger = getLogger("default")
 
 
-def connection_arguments(database_settings: DatabaseSection) -> dict[str, object]:
+def connection_arguments(database_settings: DatabaseSection, *, pooled: bool = False) -> dict[str, object]:
+
+    if pooled and database_settings.db_use_pgbouncer:
+        return {"connect_timeout": 5, "prepare_threshold": None}
 
     return {
         "connect_timeout": 5,
@@ -60,13 +63,17 @@ def connection_arguments(database_settings: DatabaseSection) -> dict[str, object
     }
 
 
-def configured_database_url(database_settings: DatabaseSection) -> DatabaseURL:
+def configured_database_url(database_settings: DatabaseSection, *, direct: bool = False) -> DatabaseURL:
 
     return DatabaseURL(
         database_settings.db_user,
         database_settings.db_password.get_secret_value(),
-        database_settings.db_host,
-        database_settings.db_port,
+        (database_settings.db_direct_host or database_settings.db_host)
+        if direct
+        else database_settings.db_host,
+        (database_settings.db_direct_port or database_settings.db_port)
+        if direct
+        else database_settings.db_port,
         database_settings.db_name,
     )
 
@@ -118,8 +125,24 @@ class DatabaseNode:
             max_overflow=database_settings.db_max_overflow,
             pool_pre_ping=True,
             pool_recycle=database_settings.db_pool_recycle_sec,
-            connect_args=connection_arguments(database_settings),
+            connect_args=connection_arguments(database_settings, pooled=True),
         )
+
+        if database_settings.db_use_pgbouncer:
+            # SET LOCAL preserves timeouts without leaking session settings to
+            # another client when the transaction returns its backend to the pool.
+            @event.listens_for(self.async_engine.sync_engine, "begin")
+            def configure_transaction(connection: Connection) -> None:
+                connection.exec_driver_sql(
+                    "SELECT set_config('timezone', %s, true), "
+                    "set_config('statement_timeout', %s, true), "
+                    "set_config('idle_in_transaction_session_timeout', %s, true)",
+                    (
+                        process_section(AppSection).timezone,
+                        str(database_settings.db_statement_timeout_ms),
+                        str(database_settings.db_idle_in_transaction_timeout_ms),
+                    ),
+                )
 
     async def _create_async_session_factory(
         self,
@@ -325,7 +348,8 @@ class DatabaseManager:
 
         if self.master_node is not None and self.master_node.async_engine is not None:
             self.create_master_connection_engines(
-                self.master_node.async_engine.url, connection_arguments(self.database_settings)
+                configured_database_url(self.database_settings, direct=True).url,
+                connection_arguments(self.database_settings),
             )
 
         slaves_to_connect: list[DatabaseNode] = [
@@ -404,7 +428,7 @@ class DatabaseManager:
 
             return self.master_node.node_url.url
 
-        return configured_database_url(self.database_settings).url
+        return configured_database_url(self.database_settings, direct=True).url
 
     @contextmanager
     def master_connection(self, *, connect_args: dict[str, object] | None = None) -> Iterator[Connection]:

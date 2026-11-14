@@ -11,7 +11,6 @@ from typing import Unpack
 from instructor import Instructor
 from pydantic import BaseModel
 
-from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.ml.clients.client_lease import active_client_leases
 from infrastructure.ml.clients.request_types import CompletionRequest
 from infrastructure.utils.async_tasks import finish_owned_task
@@ -21,8 +20,7 @@ log = logging.getLogger("default")
 
 
 class ManagedSyncInstructor:
-    def __init__(self, client: Instructor, *, budget_runtime: BudgetRuntime | None = None) -> None:
-        self.budget_runtime = budget_runtime
+    def __init__(self, client: Instructor) -> None:
         self.client = client
         self._lock = threading.Lock()
         self._close_lock = threading.Lock()

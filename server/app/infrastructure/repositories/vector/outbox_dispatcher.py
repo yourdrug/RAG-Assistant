@@ -1,4 +1,4 @@
-"""Outbox dispatcher — applies committed operations to Qdrant and BM25.
+"""Outbox dispatcher — applies committed operations to Qdrant (dense and sparse).
 
 Reads entries from the vector_store_outbox table and applies them to Qdrant.
 Idempotent: upsert overwrites by deterministic chunk_id, delete on missing is no-op.

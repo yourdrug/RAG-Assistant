@@ -4,7 +4,84 @@ x-logging: &bounded-logging
     max-size: "10m"
     max-file: "5"
 
+x-app-database: &pooled-database
+  PYTHONPATH: /code/project/app
+  DB_HOST: pgbouncer
+  DB_PORT: "5432"
+  DB_USE_PGBOUNCER: "true"
+  DB_DIRECT_HOST: ${DB_HOST:-postgres}
+  DB_DIRECT_PORT: ${DB_PORT:-5432}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-0}
+
 services:
+  gateway:
+    image: nginx:1.27.5-alpine
+    logging: *bounded-logging
+    stop_grace_period: 60s
+    ports:
+      - "127.0.0.1:3001:80"
+    environment:
+      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1}
+      NGINX_ENVSUBST_FILTER: TRUSTED_PROXY_CIDR
+      NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE: "1"
+    volumes:
+      - ./deploy/gateway.conf.template:/etc/nginx/templates/default.conf.template:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/gateway-live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ["monitoring"]
+    logging: *bounded-logging
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+      - ./.deploy/metrics.token:/run/secrets/metrics.token:ro
+    restart: unless-stopped
+    networks:
+      - backend
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.2-p0
+    logging: *bounded-logging
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-raguser}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:-ragdb}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_POOL_SIZE:-40}
+      RESERVE_POOL_SIZE: ${PGBOUNCER_RESERVE_POOL_SIZE:-10}
+      MAX_DB_CONNECTIONS: ${PGBOUNCER_MAX_DB_CONNECTIONS:-60}
+      MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-1000}
+      QUERY_WAIT_TIMEOUT: "30"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U \"$$DB_USER\" -d \"$$DB_NAME\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - backend
+
   qdrant:
     image: qdrant/qdrant:v1.12.1
     logging: *bounded-logging
@@ -132,6 +209,10 @@ services:
       [
         "redis-server",
         "/etc/redis/redis.conf",
+        "--maxmemory-policy noeviction",
+        "--appendonly yes",
+        "--appendfsync everysec",
+        "--dir /data",
         "--user redis on >${REDIS_PASSWORD:?REDIS_PASSWORD is required} ~* &* +@all",
         "--user default off nopass -@all",
         "--requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
@@ -211,18 +292,18 @@ services:
   server:
     image: ${SERVER_IMAGE:-rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}}
     logging: *bounded-logging
-    hostname: rag-server
-    container_name: rag-server
+    # Stateless and horizontally scalable (SERVER_REPLICAS): no fixed container
+    # name or host port; nginx resolves the service name to every replica.
     stop_grace_period: 60s
-    # Host access for local tools only; external API clients use HTTPS /api/ via nginx.
-    ports:
-      - "127.0.0.1:8001:8001"
     env_file:
       - path: server/.env
         required: true
       - path: server/.env.secrets
         required: false
+      - path: .deploy/metrics.env
+        required: false
     environment:
+      <<: *pooled-database
       STAGE: ${APP_STAGE:-${STAGE:-development}}
     volumes:
       - type: bind
@@ -248,7 +329,10 @@ services:
         reservations:
           cpus: "0.5"
           memory: 2G
+      replicas: ${SERVER_REPLICAS:-1}
     depends_on:
+      pgbouncer:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       qdrant:
@@ -265,16 +349,24 @@ services:
   worker:
     image: ${SERVER_IMAGE:-rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}}
     logging: *bounded-logging
-    hostname: rag-worker
-    container_name: rag-worker
+    # Documents queue (process/delete); scale with WORKER_REPLICAS.
     stop_grace_period: 120s
     env_file:
       - path: server/.env
         required: true
       - path: server/.env.secrets
         required: false
+      - path: .deploy/metrics.env
+        required: false
     environment:
+      <<: *pooled-database
       STAGE: ${APP_STAGE:-${STAGE:-development}}
+    healthcheck:
+      test: ["CMD", "python", "-m", "infrastructure.worker_health", "background_tasks"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     volumes:
       - type: bind
         source: ./data/paddleocr_cache
@@ -284,6 +376,8 @@ services:
           create_host_path: true
           selinux: Z
     depends_on:
+      pgbouncer:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       postgres:
@@ -300,11 +394,124 @@ services:
         reservations:
           cpus: "1"
           memory: 1G
+      replicas: ${WORKER_REPLICAS:-1}
     restart: unless-stopped
     networks:
       - default
       - backend
-    command: [ "python", "main.py", "worker" ]
+    command: [ "python", "main.py", "worker", "--role", "documents" ]
+
+  worker-batch:
+    image: ${SERVER_IMAGE:-rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}}
+    logging: *bounded-logging
+    # Batch queue (ingest, benchmark, sweep); scale with WORKER_BATCH_REPLICAS.
+    # Cluster-wide caps per job type are enforced at claim, not per replica.
+    stop_grace_period: 120s
+    env_file:
+      - path: server/.env
+        required: true
+      - path: server/.env.secrets
+        required: false
+      - path: .deploy/metrics.env
+        required: false
+    environment:
+      <<: *pooled-database
+      STAGE: ${APP_STAGE:-${STAGE:-development}}
+    healthcheck:
+      test: ["CMD", "python", "-m", "infrastructure.worker_health", "batch_tasks"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - type: bind
+        source: ./data/paddleocr_cache
+        target: /home/raguser/.paddleocr
+        bind:
+          propagation: rprivate
+          create_host_path: true
+          selinux: Z
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+        reservations:
+          cpus: "1"
+          memory: 1G
+      replicas: ${WORKER_BATCH_REPLICAS:-1}
+    restart: unless-stopped
+    networks:
+      - default
+      - backend
+    command: [ "python", "main.py", "worker", "--role", "batch" ]
+
+  maintenance:
+    image: ${SERVER_IMAGE:-rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}}
+    logging: *bounded-logging
+    # Cron, durable job relay and vector outbox. Replicas are safe: cron runs are
+    # deduplicated by fixed Arq job IDs and relays/outbox claim rows with SKIP LOCKED.
+    stop_grace_period: 120s
+    env_file:
+      - path: server/.env
+        required: true
+      - path: server/.env.secrets
+        required: false
+      - path: .deploy/metrics.env
+        required: false
+    environment:
+      <<: *pooled-database
+      STAGE: ${APP_STAGE:-${STAGE:-development}}
+    healthcheck:
+      test: ["CMD", "python", "-m", "infrastructure.worker_health", "maintenance_tasks"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - type: bind
+        source: ./data/paddleocr_cache
+        target: /home/raguser/.paddleocr
+        bind:
+          propagation: rprivate
+          create_host_path: true
+          selinux: Z
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "1"
+          memory: 256M
+      replicas: ${MAINTENANCE_REPLICAS:-1}
+    restart: unless-stopped
+    networks:
+      - default
+      - backend
+    command: [ "python", "main.py", "worker", "--role", "maintenance" ]
 
   tei-embed:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
@@ -434,20 +641,15 @@ services:
   client:
     image: ${CLIENT_IMAGE:-rag-client:${VERSION}}
     logging: *bounded-logging
-    hostname: rag-client
-    container_name: rag-client
-    ports:
-      - name: rag-client
-        target: 80
-        published: 3001
-        host_ip: 127.0.0.1
-        protocol: tcp
-        mode: host
+    stop_grace_period: 60s
     environment:
       VITE_API_URL: ${VITE_API_URL:-/api}
-      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1}
-      NGINX_ENVSUBST_FILTER: "UPSTREAM_SERVER|TRUSTED_PROXY_CIDR"
+      TRUSTED_PROXY_CIDR: gateway
+      NGINX_ENVSUBST_FILTER: "UPSTREAM_SERVER|TRUSTED_PROXY_CIDR|NGINX_RESOLVER"
+      NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE: "1"
     depends_on:
+      gateway:
+        condition: service_healthy
       server:
         condition: service_healthy
     healthcheck:
@@ -540,6 +742,7 @@ services:
       - backend
 
 volumes:
+  prometheus_data:
   vllm_models:
   ocr_vl_models:
 

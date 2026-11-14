@@ -1,0 +1,5 @@
+# Rollback to a release before the documents/batch queue split: one worker
+# consumed every task type and accepted no --role flag.
+services:
+  worker:
+    command: [ "python", "main.py", "worker" ]

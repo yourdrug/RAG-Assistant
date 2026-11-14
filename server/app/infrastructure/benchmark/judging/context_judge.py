@@ -8,7 +8,6 @@ from langchain.schema import Document
 from infrastructure.benchmark.judging import judge
 from infrastructure.benchmark.judging.callbacks import SyncMetricOptions
 from infrastructure.benchmark.judging.prompts import CONTEXT_PRECISION_PROMPT, CONTEXT_RECALL_PROMPT
-from infrastructure.budget.runtime import BudgetRuntime
 
 
 logger = logging.getLogger("default")
@@ -21,7 +20,6 @@ def compute_context_precision_recall(
     context_override: str | None = None,
     *,
     judge_model: str | None = None,
-    runtime: BudgetRuntime | None = None,
     **options: Unpack[SyncMetricOptions],
 ) -> dict[str, Any]:
     """Compute context_precision and context_recall via LLM judge.
@@ -33,7 +31,6 @@ def compute_context_precision_recall(
         context_override: If provided, use this as the context string directly
             instead of extracting from docs_with_scores.
         judge_model: Explicit judge model; falls back to the configured model when omitted.
-        runtime: Billing resources owned by the calling container.
         saved_metrics: Successful scores reused on resume.
         metric_callback: Persist each metric after its judge call.
 
@@ -70,7 +67,7 @@ def compute_context_precision_recall(
             continue
 
         try:
-            client = judge.get_judge_client(model, runtime=runtime)
+            client = judge.get_judge_client(model)
             score = judge.judge_with_structured_output(
                 client, template.format(question=question, answer=answer, context=context), model
             )

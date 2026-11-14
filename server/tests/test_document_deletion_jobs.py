@@ -43,6 +43,7 @@ async def harness() -> Any:
         "create",
         AsyncMock(return_value=BackgroundJob(id=42, job_type=JobType.DOCUMENT_DELETION, related_id=doc.id)),
     )
+    uow.fake_background_jobs.jobs[42] = BackgroundJob(id=42, job_type=JobType.DOCUMENT_DELETION)
     monkeypatch.setattr(uow.fake_background_jobs, "mark_failed", AsyncMock())
     monkeypatch.setattr(uow.fake_background_jobs, "mark_done", AsyncMock())
     enqueuer = SimpleNamespace(enqueue_document_deletion=AsyncMock())
@@ -67,12 +68,14 @@ async def test_unowned_document_is_rejected_before_creating_or_queuing_job() -> 
 
 
 @pytest.mark.asyncio
-async def test_enqueue_failure_marks_job_failed_and_preserves_document() -> None:
+async def test_enqueue_failure_keeps_durable_job_and_preserves_document() -> None:
     _factory, uow, doc, enqueuer, service = await harness()
     enqueuer.enqueue_document_deletion.side_effect = ConnectionError("Redis down")
-    with pytest.raises(ConnectionError):
-        await service.enqueue(doc.id, 1, UserKind.INTERNAL, UserRole.USER)
-    uow.fake_background_jobs.mark_failed.assert_awaited_once()
+    assert await service.enqueue(doc.id, 1, UserKind.INTERNAL, UserRole.USER) == 42
+    uow.fake_background_jobs.mark_failed.assert_not_awaited()
+    payload = uow.fake_background_jobs.create.await_args.args[0].dispatch_payload
+    assert payload["document_id"] == doc.id
+    assert payload["user_id"] == 1
     assert await uow.fake_documents.get_by_id(doc.id) is doc
 
 

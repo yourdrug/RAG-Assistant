@@ -58,9 +58,16 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U test -d rag_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATA_DIR: /tmp/rag_test
       TEST_POSTGRES_URL: postgresql+asyncpg://test:test@localhost:5432/rag_test
+      TEST_WORKER_REDIS_URL: redis://localhost:6379/15
       RUN_INTEGRATION_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
@@ -79,11 +86,26 @@ jobs:
         working-directory: server
         run: uv run pytest tests/integration/test_migration_schema.py -q
 
+      - name: Check worker reliability (PostgreSQL and Arq)
+        working-directory: server
+        env:
+          # Enables the real Redis restart test (docker restart of the service container).
+          TEST_REDIS_URL: redis://localhost:6379/14
+          TEST_REDIS_CONTAINER: ${{ job.services.redis.id }}
+        run: >-
+          uv run pytest -v
+          tests/integration/test_postgres_transactions.py
+          tests/integration/test_worker_queues.py
+          tests/integration/test_configuration_corpus_postgres.py
+
       - name: Run tests
         working-directory: server
         run: >-
           uv run pytest -v
           --ignore=tests/integration/test_migration_schema.py
+          --ignore=tests/integration/test_worker_queues.py
+          --ignore=tests/integration/test_postgres_transactions.py
+          --ignore=tests/integration/test_configuration_corpus_postgres.py
           --cov=domain.knowledge.access_control
           --cov=infrastructure.ml.answer_cache
           --cov-report=term-missing --cov-fail-under=85

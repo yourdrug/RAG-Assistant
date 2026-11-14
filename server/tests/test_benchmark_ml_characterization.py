@@ -52,7 +52,6 @@ def judge_http(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[list[Any], lis
         kwargs["http_client"] = pool
         return OpenAI(**kwargs)
 
-    monkeypatch.setattr(judge_clients, "PaidSyncTransport", lambda **_kwargs: httpx.MockTransport(respond))
     monkeypatch.setattr(judge_clients, "OpenAI", create)
     monkeypatch.setattr(judge_clients, "_judge_client_cache", {})
     yield requests, pools
@@ -119,18 +118,12 @@ async def test_queued_judge_preserves_client_until_worker_admission(
 
 
 @pytest.mark.asyncio
-async def test_container_shutdown_waits_for_owned_benchmark_pool_cleanup(
+async def test_container_shutdown_closes_benchmark_judge_pool(
     judge_http: tuple[list[Any], list[Any]],
 ) -> None:
-
     container = Container()
-    judge_clients.get_judge_client("test-model", runtime=container.infrastructure.budget_runtime)
-    other = Container()
-    judge_clients.get_judge_client("test-model", runtime=other.infrastructure.budget_runtime)
-    assert len(judge_http[1]) == 2
-    await other.infrastructure.dispose()
-    assert judge_http[1][1].is_closed
-    assert not judge_http[1][0].is_closed
+    judge_clients.get_judge_client("test-model")
+    assert len(judge_http[1]) == 1
     await container.infrastructure.dispose()
     assert judge_http[1][0].is_closed
 

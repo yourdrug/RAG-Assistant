@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 class MetricsResult:
     db_pool: dict[str, float] = field(default_factory=dict)
     qdrant: dict[str, float] = field(default_factory=dict)
-    bm25: dict[str, float] = field(default_factory=dict)
     rag: dict[str, object] = field(default_factory=dict)
     ingestion: dict[str, object] = field(default_factory=dict)
     http_requests: dict[str, object] = field(default_factory=dict)
@@ -37,10 +36,6 @@ class MetricsService:
         # Qdrant
         qdrant_vals = reg.collect_gauge("qdrant_collection_points")
         qdrant = {"points": sum(qdrant_vals.values()) if qdrant_vals else 0.0}
-
-        # BM25
-        bm25_vals = reg.collect_gauge("bm25_index_size")
-        bm25 = {"index_size": sum(bm25_vals.values()) if bm25_vals else 0.0}
 
         rag = self.collect_rag()
 
@@ -82,7 +77,6 @@ class MetricsService:
         return MetricsResult(
             db_pool=db_pool,
             qdrant=qdrant,
-            bm25=bm25,
             rag=rag,
             ingestion=ingestion,
             http_requests=http_requests,

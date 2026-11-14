@@ -66,3 +66,19 @@ async def test_complete_rejects_a_reservation_owned_by_another_request() -> None
             await store.complete(reservation, {"document_id": 42})
     finally:
         await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rejected_work_can_release_its_key_and_retry() -> None:
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    store = IdempotencyStore(redis)
+    try:
+        reservation = await store.claim("key", "user:1", "upload", "fingerprint")
+        await store.release(reservation)
+        retry = await store.claim("key", "user:1", "upload", "fingerprint")
+        assert retry["status"] == "acquired"
+        # An old request must not delete the replacement reservation.
+        await store.release(reservation)
+        assert (await store.claim("key", "user:1", "upload", "fingerprint"))["status"] == "in_progress"
+    finally:
+        await redis.aclose()

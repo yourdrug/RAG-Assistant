@@ -1,11 +1,16 @@
 """Authorize and track queued deletion without keeping an HTTP request open."""
 
+import logging
+
 from application.identity import UserContextFactory
 from application.ports.job_enqueuer import JobEnqueuerPort
 from application.uow import UnitOfWork, UnitOfWorkFactory
 from domain.knowledge.access_control import check_ownership
 from domain.runtime.jobs import BackgroundJob, JobType
 from domain.shared.exceptions import EntityNotFoundError
+
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentDeletionJobs:
@@ -30,7 +35,15 @@ class DocumentDeletionJobs:
         async with self._uow_factory.create(master=True) as uow:
             await self.authorize(uow, document_id, user_id, user_kind, user_role)
             job = await uow.background_jobs.create(
-                BackgroundJob(job_type=JobType.DOCUMENT_DELETION, related_id=document_id)
+                BackgroundJob(
+                    job_type=JobType.DOCUMENT_DELETION,
+                    related_id=document_id,
+                    dispatch_payload={
+                        "document_id": document_id,
+                        "user_id": user_id,
+                        "cost_principal": f"user:{user_id}",
+                    },
+                )
             )
 
             if job.id is None:
@@ -42,10 +55,8 @@ class DocumentDeletionJobs:
             await self._enqueuer.enqueue_document_deletion(
                 document_id=document_id, user_id=user_id, job_id=job_id
             )
-        except Exception:
-            async with self._uow_factory.create(master=True) as uow:
-                await uow.background_jobs.mark_failed(job_id, "Failed to enqueue document deletion")
-            raise
+        except Exception:  # noqa: BLE001 — committed work remains available to the relay
+            logger.warning("Deletion delivery deferred: job_id=%d", job_id)
         return job_id
 
     async def get(

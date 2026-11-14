@@ -28,7 +28,6 @@ from application.runtime.dynamic_params import DYNAMIC_PARAMS, PROFILE_CONFIG_DE
 from application.runtime.enums import LLMProvider, MLProvider
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from config import settings
-from domain.runtime.cost import usd_units
 from domain.shared.exceptions import ValidationError
 from infrastructure.benchmark.judging.clients import retire_judge_clients
 from infrastructure.events.in_process_event_bus import event_bus
@@ -459,7 +458,7 @@ class SettingsProviderConfiguration:
             self.ml_clients.install_clients(prepared if prepared is not None else {})
 
             if any(event.key in LLM_CLIENT_KEYS for event in events):
-                retire_judge_clients(runtime=self.ml_clients.budget_runtime)
+                retire_judge_clients()
 
     def failed(self) -> None:
         self._status = replace(
@@ -533,11 +532,6 @@ def llm_provider_errors(candidate: Settings) -> list[str]:
 
 
 def validate_provider_credentials(candidate: Settings) -> None:
-    for key in ("cost_hourly_limit", "cost_daily_limit"):
-        if usd_units(str(getattr(candidate, key))) <= 0:
-            message = "USD budgets must be positive"
-            raise ValidationError(message)
-
     errors = [*candidate.check_ml_provider(), *llm_provider_errors(candidate)]
 
     if errors:

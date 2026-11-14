@@ -3,32 +3,30 @@
 Redis is a mandatory component.  All background tasks are enqueued via Arq
 and processed by a separate worker process.  No in-memory fallback.
 
-H-7/H-8 hardening:
-- A single shared arq pool is reused across enqueues (no per-call pool churn).
-- Deterministic ``_job_id`` values make arq deduplicate concurrent duplicate
-  enqueues (double-click / retry): the second enqueue is refused while the
-  first job is still queued or running.  Jobs that were refused never run —
-  the stale-pending sweeper (cron_recover_orphaned_jobs) fails such rows so
-  they are visible instead of staying 'pending' forever.
+Committed BackgroundJob payloads are relayed independently of Redis availability.
+Redis IDs identify deliveries; active-operation deduplication and execution
+ownership are enforced in PostgreSQL.
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, replace
-import hashlib
+from dataclasses import dataclass
 import logging
 from typing import TYPE_CHECKING, Any, Unpack, cast
-from urllib.parse import unquote
-from uuid import uuid4
 
 from arq import create_pool
-from arq.connections import RedisSettings
 
-from application.budget import billing_principal
+from application.jobs.principal import job_principal
 from application.ports.job_enqueuer import DuplicateJobError
 from config import RedisSection, process_section
 from domain.knowledge.enums import DocumentVisibility
+from domain.runtime.jobs import JobType
+from infrastructure.redis.arq_settings import arq_redis_settings
+from infrastructure.worker.registry import TASKS
+
+
+__all__ = ["arq_redis_settings"]
 
 
 if TYPE_CHECKING:
@@ -40,8 +38,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("default")
 
-QUEUE_NAME = "background_tasks"
-
 
 @dataclass
 class PoolState:
@@ -50,16 +46,6 @@ class PoolState:
 
 pool_state = PoolState()
 pool_lock = asyncio.Lock()
-
-
-def arq_redis_settings(dsn: str) -> RedisSettings:
-    """Build arq settings from a DSN, decoding percent-encoded credentials like redis-py does."""
-    parsed = RedisSettings.from_dsn(dsn)
-    return replace(
-        parsed,
-        username=unquote(parsed.username) if parsed.username else parsed.username,
-        password=unquote(parsed.password) if parsed.password else parsed.password,
-    )
 
 
 async def get_pool() -> ArqRedis:
@@ -83,12 +69,6 @@ async def close_arq_pool() -> None:
             await pool.close()
 
 
-def deterministic_id(prefix: str, *parts: object) -> str:
-    raw = "|".join(str(p) for p in parts)
-    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]  # noqa: S324
-    return f"{prefix}:{digest}"
-
-
 async def enqueue_arq(
     queue_name: str, func_name: str, arq_job_id: str | None = None, **kwargs: object
 ) -> Job | None:
@@ -97,17 +77,18 @@ async def enqueue_arq(
     Returns None when arq refused the enqueue because a job with the same
     ``_job_id`` is already queued or running (duplicate suppression).
     """
-    if billing_principal.get() is not None:
-        kwargs["cost_principal"] = billing_principal.get()
+    if job_principal.get() is not None and "cost_principal" not in kwargs:
+        kwargs["cost_principal"] = job_principal.get()
 
-    kwargs.setdefault("cost_operation_id", str(uuid4()))
-    pool = await get_pool()
-    job = await pool.enqueue_job(
-        func_name, _queue_name=queue_name, _job_id=arq_job_id, **cast("dict[str, Any]", kwargs)
-    )
+    async with asyncio.timeout(5):
+        pool = await get_pool()
+        job = await pool.enqueue_job(
+            func_name, _queue_name=queue_name, _job_id=arq_job_id, **cast("dict[str, Any]", kwargs)
+        )
 
     if job is None:
-        logger.warning(
+        # Expected for relay re-publication: delivery IDs are per durable job.
+        logger.debug(
             "Duplicate enqueue suppressed: %s (job_id=%s already queued/running)",
             func_name,
             arq_job_id,
@@ -126,10 +107,14 @@ async def enqueue_arq(
 async def enqueue_document_processing(**request: Unpack[DocumentProcessingRequest]) -> None:
     """Enqueue document processing via Arq."""
     await enqueue_arq(
-        QUEUE_NAME,
-        "process_document",
+        TASKS[JobType.DOCUMENT_PROCESSING].queue,
+        TASKS[JobType.DOCUMENT_PROCESSING].name,
         arq_job_id=f"process_doc:{request['document_id']}:{request['job_id']}",
-        **{**request, "doc_domain": request.get("doc_domain"), "principal_id": request.get("principal_id")},
+        **{
+            **request,
+            "doc_domain": request.get("doc_domain"),
+            "principal_id": request.get("principal_id"),
+        },
     )
 
 
@@ -145,11 +130,9 @@ async def enqueue_ingest(
 ) -> None:
     """Enqueue full ingestion via Arq (deduplicated per parameters)."""
     job = await enqueue_arq(
-        QUEUE_NAME,
-        "run_full_ingest",
-        arq_job_id=deterministic_id(
-            "ingest_full", resolved_dir, reset, domain, visibility, group_id, client_id
-        ),
+        TASKS[JobType.INGEST].queue,
+        TASKS[JobType.INGEST].name,
+        arq_job_id=f"job:{job_id}",
         resolved_dir=resolved_dir,
         reset=reset,
         domain=domain,
@@ -176,9 +159,9 @@ async def enqueue_ingest_file(
 ) -> None:
     """Enqueue single-file ingestion via Arq (deduplicated per parameters)."""
     job = await enqueue_arq(
-        QUEUE_NAME,
-        "run_single_ingest",
-        arq_job_id=deterministic_id("ingest_file", resolved, domain, visibility, group_id, client_id, force),
+        TASKS[JobType.INGEST_FILE].queue,
+        TASKS[JobType.INGEST_FILE].name,
+        arq_job_id=f"job:{job_id}",
         resolved=resolved,
         domain=domain,
         job_id=job_id,
@@ -202,9 +185,9 @@ async def enqueue_benchmark(
 ) -> None:
     """Enqueue benchmark run via Arq (deduplicated per parameters)."""
     await enqueue_arq(
-        QUEUE_NAME,
-        "run_benchmark",
-        arq_job_id=deterministic_id("benchmark", job_id),
+        TASKS[JobType.BENCHMARK].queue,
+        TASKS[JobType.BENCHMARK].name,
+        arq_job_id=f"job:{job_id}",
         dataset=dataset,
         top_k=top_k,
         judge_model=judge_model,
@@ -219,9 +202,9 @@ async def enqueue_sweep(
 ) -> None:
     """Enqueue parameter sweep via Arq (deduplicated per sweep)."""
     await enqueue_arq(
-        QUEUE_NAME,
-        "run_sweep",
-        arq_job_id=f"sweep:{sweep_id}",
+        TASKS[JobType.SWEEP].queue,
+        TASKS[JobType.SWEEP].name,
+        arq_job_id=f"job:{job_id}",
         sweep_id=sweep_id,
         job_id=job_id,
     )
@@ -229,8 +212,8 @@ async def enqueue_sweep(
 
 async def enqueue_document_deletion(*, document_id: int, user_id: int, job_id: int) -> None:
     job = await enqueue_arq(
-        QUEUE_NAME,
-        "delete_document",
+        TASKS[JobType.DOCUMENT_DELETION].queue,
+        TASKS[JobType.DOCUMENT_DELETION].name,
         arq_job_id=f"delete_doc:{document_id}:{job_id}",
         document_id=document_id,
         user_id=user_id,

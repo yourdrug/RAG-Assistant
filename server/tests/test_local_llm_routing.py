@@ -48,8 +48,6 @@ def capture_openai(monkeypatch: pytest.MonkeyPatch, name: str) -> list[dict[str,
 @pytest.mark.usefixtures("local_llm")
 def test_sync_judge_uses_local_endpoint_without_openrouter_key(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = capture_openai(monkeypatch, "OpenAI")
-    paid = []
-    monkeypatch.setattr(judge_clients, "PaidSyncTransport", lambda **kwargs: paid.append(kwargs))
 
     client = judge_clients.get_judge_client(judge_clients.get_judge_model())
 
@@ -57,7 +55,6 @@ def test_sync_judge_uses_local_endpoint_without_openrouter_key(monkeypatch: pyte
         assert calls[0]["base_url"] == "http://vllm:8000/v1"
         # Question, answer and context must never leave for OpenRouter on a local setup.
         assert calls[0]["api_key"] == "EMPTY"
-        assert paid == []
     finally:
         client.retire()
 
@@ -76,11 +73,10 @@ async def test_async_judge_uses_local_endpoint(monkeypatch: pytest.MonkeyPatch) 
     assert isinstance(calls[0]["http_client"], httpx.AsyncClient)
 
 
-def test_openrouter_judge_stays_metered(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openrouter_judge_uses_openrouter_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "llm_provider", LLMProvider.OPENROUTER.value)
     monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("openrouter-secret"))
-    base_url, api_key, metered = judge_clients.judge_endpoint(settings)
-    assert (base_url, api_key, metered) == (settings.openrouter_base_url, "openrouter-secret", True)
+    assert judge_clients.judge_endpoint(settings) == (settings.openrouter_base_url, "openrouter-secret")
 
 
 @pytest.mark.parametrize("auxiliary, expected", [("", "big-local"), ("small-local", "small-local")])

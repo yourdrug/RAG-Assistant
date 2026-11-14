@@ -17,6 +17,12 @@ class JobResponse(BaseModel):
     finished_at: datetime | None = None
     error_message: str | None = None
     creation_date: datetime | None = None
+    attempt: int = 0
+    retryable: bool = False
+
+
+class JobRetryResponse(BaseModel):
+    job_id: int
 
 
 class JobsListResponse(BaseModel):

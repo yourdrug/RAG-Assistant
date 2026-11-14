@@ -12,7 +12,6 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { ConfigurationDiagnostics, type EffectiveParameter } from "./configuration-diagnostics";
 import { CorpusControl } from "./corpus-control";
-import { CostRates } from "./cost-rates";
 
 interface ConfigParam {
   key: string;
@@ -175,19 +174,6 @@ const SETTINGS_SECTIONS = [
     ],
   },
   {
-    id: "costs",
-    label: "Spending & pricing",
-    description: "Set user spending limits and maintain model prices.",
-    blocks: [
-      {
-        id: "cost",
-        label: "User spending limits",
-        description: "Hourly and daily USD budgets, including pending reservations.",
-        categories: ["cost"],
-      },
-    ],
-  },
-  {
     id: "system",
     label: "System & limits",
     description: "Request limits, background job recovery and retention.",
@@ -246,9 +232,6 @@ const PARAMETER_LABELS: Record<string, string> = {
   chunk_size: "Chunk size (characters)",
   chunk_overlap: "Chunk overlap (characters)",
   source_min_score: "Minimum source relevance",
-  cost_rate_limit_enabled: "Enable spending limits",
-  cost_hourly_limit: "Hourly limit per user (USD)",
-  cost_daily_limit: "Daily limit per user (USD)",
 };
 
 const DOMAIN_LABELS: Record<string, string> = { legal: "Legal", decree: "Decree" };
@@ -313,9 +296,6 @@ export function AdminSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["admin", "config-status"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "models"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "openrouter-models"] });
-      if (variables.key.startsWith("cost_")) {
-        void queryClient.invalidateQueries({ queryKey: ["cost-models"] });
-      }
       setEdits((prev) => {
         const next = { ...prev };
         delete next[variables.domain ? `${variables.domain}:${variables.key}` : variables.key];
@@ -468,10 +448,8 @@ export function AdminSettingsPage() {
     );
   }
 
-  const availableSections = SETTINGS_SECTIONS.filter(
-    (section) =>
-      section.id === "costs" ||
-      section.blocks.some((block) => params?.some((param) => parameterBlock(param) === block.id)),
+  const availableSections = SETTINGS_SECTIONS.filter((section) =>
+    section.blocks.some((block) => params?.some((param) => parameterBlock(param) === block.id)),
   );
 
   const renderParameter = (param: ConfigParam) => {
@@ -637,7 +615,6 @@ export function AdminSettingsPage() {
                   </Card>
                 );
               })}
-              {section.id === "costs" && <CostRates />}
             </TabsContent>
           ))}
           <TabsContent value="corpus">

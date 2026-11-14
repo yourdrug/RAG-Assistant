@@ -31,6 +31,7 @@ class BenchmarkRequest(BaseModel):
 
 
 class BenchmarkResponse(BaseModel):
+    job_id: int | None = None
     status: str
 
 

@@ -246,7 +246,9 @@ class ApplicationContainer:
         self.benchmark_run_service = BenchmarkRunService(uow_factory=uow)
         self.benchmark_export_service = BenchmarkExportService(uow, fs)
         self.benchmark_result_service = BenchmarkResultService(uow_factory=uow)
-        self.job_service = JobService(uow_factory=uow)
+        self.job_service = JobService(
+            uow_factory=uow, aborter=require(infra.services.job_aborter, "job_aborter")
+        )
 
         # Wire rag_service into benchmark_service for full-pipeline benchmarking
         if infra.ml.benchmark_service is not None:

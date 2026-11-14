@@ -13,7 +13,7 @@ from domain.shared.enums import LifecycleStatus
     "status_type, terminal, active",
     [
         (DocumentStatus, {"done", "failed"}, {"pending", "processing", "indexing"}),
-        (BackgroundJobStatus, {"done", "failed"}, {"pending", "running"}),
+        (BackgroundJobStatus, {"done", "failed", "cancelled"}, {"pending", "running"}),
         (BenchmarkSweepStatus, {"done", "failed", "cancelled"}, {"pending", "running"}),
         (OutboxStatus, {"done", "dead_letter"}, {"pending", "in_progress"}),
     ],

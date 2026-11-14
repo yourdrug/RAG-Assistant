@@ -12,7 +12,6 @@ from infrastructure.benchmark.judging.judge_diagnostics import (
 )
 from infrastructure.benchmark.judging.judge_rubric import ANSWER_TYPE_RUBRICS
 from infrastructure.benchmark.judging.requests import judge_group
-from infrastructure.budget.runtime import BudgetRuntime
 
 
 # Semaphores belong to an event loop and cap judge requests across all cases.
@@ -25,7 +24,6 @@ async def judge_case_grouped(
     *,
     evidence_context: str | None,
     model: str,
-    runtime: BudgetRuntime | None = None,
     **options: Unpack[GroupedMetricOptions],
 ) -> dict[str, Any]:
     started = time.monotonic()
@@ -38,7 +36,7 @@ async def judge_case_grouped(
 
     groups = judge_groups(question, answer, context, evidence_context)
 
-    async with create_async_judge_client(runtime=runtime) as client, asyncio.TaskGroup() as tasks:
+    async with create_async_judge_client() as client, asyncio.TaskGroup() as tasks:
         for payload, metrics in groups:
             _ = tasks.create_task(
                 judge_group(client, model, payload, metrics, saved=scores, callback=persist)

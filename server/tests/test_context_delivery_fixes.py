@@ -14,7 +14,6 @@ from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.rag.evidence.table_context import row_matches_query
 from domain.shared.breadcrumb import shorten_breadcrumb
-from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
 from infrastructure.ml.ingestion.text_chunks import text_tree_chunks
@@ -27,6 +26,7 @@ from infrastructure.repositories.chunk.chunk_search import (
     build_exact_search_stmt,
     build_provision_search_stmt,
 )
+from infrastructure.repositories.vector.sparse_vectors import encode_sparse
 from tests.test_rag_pipeline import make_rag
 
 
@@ -142,8 +142,15 @@ def test_user_exact_search_matches_the_literal_phrase(query: str) -> None:
 
 
 def test_sparse_ranks_compound_reference_above_permuted_number() -> None:
-    index = BM25Index(texts=["пункт 2.3 требования заявления", "пункт 3.2 требования заявления"])
-    assert index.search("пункт 3.2")[0][0] == 1
+    query = encode_sparse("пункт 3.2", query=True)
+    weights = dict(zip(query.indices, query.values, strict=True))
+
+    def score(text: str) -> float:
+        vector = encode_sparse(text)
+        pairs = zip(vector.indices, vector.values, strict=True)
+        return sum(weights.get(index, 0.0) * value for index, value in pairs)
+
+    assert score("пункт 3.2 требования заявления") > score("пункт 2.3 требования заявления")
 
 
 @pytest.mark.parametrize("breadth", ["narrow", "broad"])

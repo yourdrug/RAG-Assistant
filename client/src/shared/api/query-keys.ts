@@ -42,7 +42,7 @@ export const queryKeys = {
   },
   jobs: {
     all: ["jobs"] as const,
-    list: (params?: { limit?: number; offset?: number }) =>
+    list: (params?: { limit?: number; offset?: number; status?: string }) =>
       [...queryKeys.jobs.all, "list", params] as const,
     stats: () => [...queryKeys.jobs.all, "stats"] as const,
   },

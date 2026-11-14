@@ -215,10 +215,6 @@ def validated_migration_parameter(
         msg = "Must be positive"
         raise ValueError(msg)
 
-    if key in {"cost_hourly_limit", "cost_daily_limit"} and value <= 0:
-        msg = "Budget must be positive"
-        raise ValueError(msg)
-
     return entity
 
 

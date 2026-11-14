@@ -9,8 +9,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from application.ingestion import IngestionPort, IngestionService
+from application.jobs.service import JobService
 from application.ports.idempotency_store import IdempotencyStorePort
-from application.ports.job_enqueuer import DuplicateJobError
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import UploadConfig
 from domain.knowledge.enums import DocDomainSelection, DocumentVisibility, DomainDetectionMode
@@ -23,12 +23,13 @@ from presentation.api.dependencies import (
     create_idempotency_store,
     create_ingest_service,
     create_ingestion_port,
+    create_job_service,
     create_job_submission,
     create_upload_config,
     get_idempotency_key,
 )
 from presentation.api.helpers import read_upload_with_limit
-from presentation.api.idempotency import complete_idempotency, reserve_idempotency
+from presentation.api.idempotency import complete_idempotency, release_on_admission_error, reserve_idempotency
 from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import (
     CurrentUser,
@@ -107,7 +108,19 @@ async def ingest_documents(
     if cached is not None:
         return IngestStatusResponse(**cached)
 
-    job_id = await submission.jobs.create_job(JobType.INGEST)
+    async with release_on_admission_error(idempotency.store, reservation):
+        job_id = await submission.jobs.create_job(
+            JobType.INGEST,
+            cost_principal=f"user:{admin.id}",
+            dispatch_payload={
+                "resolved_dir": resolved,
+                "reset": options.reset,
+                "domain": options.domain.value,
+                "visibility": options.visibility.value,
+                "group_id": options.group_id,
+                "client_id": options.client_id,
+            },
+        )
 
     submission.log(
         "ingest.full",
@@ -130,18 +143,14 @@ async def ingest_documents(
             group_id=options.group_id,
             client_id=options.client_id,
         )
-    except DuplicateJobError as exc:
-        await submission.jobs.mark_failed(job_id, str(exc))
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception:
-        await submission.jobs.mark_failed(job_id, "Ingestion enqueue failed")
-        raise
+    except Exception:  # noqa: BLE001 — committed work remains available to the relay
+        logger.warning("Ingestion delivery deferred: job_id=%d", job_id)
     mode = (
         "RESET selected prefix (preserve existing assignments)"
         if options.reset
         else "APPEND (new files only)"
     )
-    response = IngestStatusResponse(status="started", mode=mode, docs_dir=resolved)
+    response = IngestStatusResponse(status="started", mode=mode, docs_dir=resolved, job_id=job_id)
     await complete_idempotency(idempotency.store, reservation, response.model_dump(mode="json"))
     return response
 
@@ -182,7 +191,19 @@ async def ingest_single_file(
     if cached is not None:
         return IngestStatusResponse(**cached)
 
-    job_id = await submission.jobs.create_job(JobType.INGEST, related_id=None)
+    async with release_on_admission_error(idempotency.store, reservation):
+        job_id = await submission.jobs.create_job(
+            JobType.INGEST_FILE,
+            cost_principal=f"user:{admin.id}",
+            dispatch_payload={
+                "resolved": resolved,
+                "force": options.force,
+                "domain": options.domain.value,
+                "visibility": options.visibility.value,
+                "group_id": options.group_id,
+                "client_id": options.client_id,
+            },
+        )
 
     submission.log(
         "ingest.file",
@@ -205,13 +226,9 @@ async def ingest_single_file(
             client_id=options.client_id,
             force=options.force,
         )
-    except DuplicateJobError as exc:
-        await submission.jobs.mark_failed(job_id, str(exc))
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception:
-        await submission.jobs.mark_failed(job_id, "Ingestion enqueue failed")
-        raise
-    response = IngestStatusResponse(status="started", file=resolved, force=options.force)
+    except Exception:  # noqa: BLE001 — committed work remains available to the relay
+        logger.warning("Ingestion delivery deferred: job_id=%d", job_id)
+    response = IngestStatusResponse(status="started", file=resolved, force=options.force, job_id=job_id)
     await complete_idempotency(idempotency.store, reservation, response.model_dump(mode="json"))
     return response
 
@@ -244,7 +261,7 @@ async def get_ingest_registry(
     "/upload",
     dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
 )
-async def upload_files(
+async def upload_files(  # noqa: PLR0913 -- explicit HTTP dependencies
     *,
     request: Request,
     files: Annotated[list[UploadFile], File()],
@@ -253,6 +270,7 @@ async def upload_files(
     upload_cfg: Annotated[UploadConfig, Depends(create_upload_config)],
     idempotency_key: Annotated[str | None, Depends(get_idempotency_key)],
     idempotency_store: Annotated[IdempotencyStorePort, Depends(create_idempotency_store)],
+    jobs: Annotated[JobService, Depends(create_job_service)],
 ) -> UploadResponse:
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(
@@ -282,6 +300,9 @@ async def upload_files(
 
     if cached is not None:
         return UploadResponse(**cached)
+
+    async with release_on_admission_error(idempotency_store, reservation):
+        await jobs.check_capacity(f"user:{admin.id}")
 
     uploaded = await ingestion_port.upload_files(file_data)
     response = UploadResponse(files=uploaded)

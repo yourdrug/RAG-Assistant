@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -10,7 +11,7 @@ import typer
 
 from application.benchmark import BenchmarkExportService, BenchmarkImportService, BenchmarkResultService
 from application.benchmark.services import BenchmarkQuestionService
-from application.budget import billing_principal
+from application.jobs.principal import job_principal
 from application.jobs.service import JobService
 from composition.cli.commands.ingest import run_with_infrastructure
 from composition.infrastructure import InfrastructureContainer
@@ -21,6 +22,9 @@ from infrastructure.database.database import database
 from infrastructure.uow_factory import UnitOfWorkFactory
 from infrastructure.utils.async_tasks import run_sync_io
 from infrastructure.worker.queue import close_arq_pool, enqueue_benchmark
+
+
+logger = logging.getLogger(__name__)
 
 
 benchmark_app = typer.Typer(help="Run benchmarks, export database runs or import legacy reports")
@@ -53,8 +57,15 @@ async def enqueue_runs(
 
     try:
         for dataset in selected:
-            job_id = await jobs.create_job(JobType.BENCHMARK)
-            await enqueue_benchmark(dataset=dataset, top_k=k, judge_model=judge, job_id=job_id)
+            job_id = await jobs.create_job(
+                JobType.BENCHMARK,
+                cost_principal=job_principal.get(),
+                dispatch_payload={"dataset": dataset, "top_k": k, "judge_model": judge},
+            )
+            try:
+                await enqueue_benchmark(dataset=dataset, top_k=k, judge_model=judge, job_id=job_id)
+            except Exception:  # noqa: BLE001 — committed work remains available to the relay
+                logger.warning("Benchmark delivery deferred: job_id=%d", job_id)
             job_ids[dataset] = job_id
             typer.echo(f"queued dataset={dataset} job_id={job_id} top_k={k} judge={judge}")
     finally:
@@ -109,7 +120,7 @@ def benchmark_run(
     """Queue benchmark runs for the worker (same path as Admin -> Benchmark)."""
 
     async def run_action(infra: InfrastructureContainer) -> bool:
-        billing_principal.set("system:benchmark-cli")
+        job_principal.set("system:benchmark-cli")
         job_ids = await enqueue_runs(infra, datasets or [], top_k, judge_model)
         return await wait_for_runs(infra, job_ids) if wait else True
 

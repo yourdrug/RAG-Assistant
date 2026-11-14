@@ -17,6 +17,12 @@
     "metadata": "[]",
     "required": true
   },
+  "benchmark_job_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "1",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "benchmark_judge_grouped_enabled": {
     "annotation": "<class 'bool'>",
     "default": "True",
@@ -131,24 +137,6 @@
     "metadata": "[]",
     "required": false
   },
-  "cost_daily_limit": {
-    "annotation": "<class 'float'>",
-    "default": "5.0",
-    "metadata": "[Gt(gt=0), _PydanticGeneralMetadata(allow_inf_nan=False)]",
-    "required": false
-  },
-  "cost_hourly_limit": {
-    "annotation": "<class 'float'>",
-    "default": "1.0",
-    "metadata": "[Gt(gt=0), _PydanticGeneralMetadata(allow_inf_nan=False)]",
-    "required": false
-  },
-  "cost_rate_limit_enabled": {
-    "annotation": "<class 'bool'>",
-    "default": "False",
-    "metadata": "[]",
-    "required": false
-  },
   "curator_scope_max_ids": {
     "annotation": "<class 'int'>",
     "default": "1000",
@@ -158,6 +146,18 @@
   "data_dir": {
     "annotation": "<class 'str'>",
     "default": "'/code/project/data'",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_direct_host": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_direct_port": {
+    "annotation": "<class 'str'>",
+    "default": "''",
     "metadata": "[]",
     "required": false
   },
@@ -175,7 +175,7 @@
   },
   "db_max_overflow": {
     "annotation": "<class 'int'>",
-    "default": "20",
+    "default": "0",
     "metadata": "[Ge(ge=0)]",
     "required": false
   },
@@ -199,7 +199,7 @@
   },
   "db_pool_size": {
     "annotation": "<class 'int'>",
-    "default": "40",
+    "default": "5",
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
@@ -225,6 +225,12 @@
     "annotation": "<class 'int'>",
     "default": "600000",
     "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "db_use_pgbouncer": {
+    "annotation": "<class 'bool'>",
+    "default": "False",
+    "metadata": "[]",
     "required": false
   },
   "db_user": {
@@ -267,6 +273,12 @@
     "annotation": "<class 'float'>",
     "default": "1.5",
     "metadata": "[]",
+    "required": false
+  },
+  "document_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "4",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "embed_batch_size": {
@@ -341,15 +353,39 @@
     "metadata": "[]",
     "required": false
   },
+  "ingest_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "1",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "ingestion_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "8",
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
+  "job_backlog_limit": {
+    "annotation": "<class 'int'>",
+    "default": "5000",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "job_cleanup_days": {
     "annotation": "<class 'int'>",
     "default": "30",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "job_max_per_principal": {
+    "annotation": "<class 'int'>",
+    "default": "2",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "job_principal_backlog_limit": {
+    "annotation": "<class 'int'>",
+    "default": "1000",
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
@@ -455,10 +491,22 @@
     "metadata": "[]",
     "required": false
   },
+  "maintenance_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "2",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "max_upload_size_mb": {
     "annotation": "<class 'int'>",
     "default": "50",
     "metadata": "[Ge(ge=1), Le(le=63)]",
+    "required": false
+  },
+  "metrics_scrape_token": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
+    "metadata": "[]",
     "required": false
   },
   "ml_internal_allowed_origins": {
@@ -893,6 +941,12 @@
     "metadata": "[]",
     "required": false
   },
+  "sweep_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "1",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "tei_embed_model": {
     "annotation": "<class 'str'>",
     "default": "'BAAI/bge-m3'",
@@ -927,6 +981,12 @@
     "annotation": "<class 'str'>",
     "default": "''",
     "metadata": "[]",
+    "required": false
+  },
+  "worker_completion_wait_seconds": {
+    "annotation": "<class 'int'>",
+    "default": "90",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "worker_max_concurrent": {

@@ -7,8 +7,6 @@ from typing import Any, TypedDict, Unpack
 
 import httpx
 
-from infrastructure.budget.runtime import BudgetRuntime
-from infrastructure.budget.transport import PaidAsyncTransport
 from infrastructure.ml.clients.client_lease import active_client_leases
 from infrastructure.utils.async_tasks import finish_owned_task
 
@@ -19,16 +17,8 @@ class HTTPRequestOptions(TypedDict, total=False):
 
 
 class ManagedHTTPPool:
-    def __init__(self, timeout: float, limits: httpx.Limits, *, runtime: BudgetRuntime | None = None) -> None:
-        self.budget_runtime = runtime
-        self._client = httpx.AsyncClient(
-            timeout=timeout,
-            limits=limits,
-            follow_redirects=False,
-            transport=PaidAsyncTransport(runtime=runtime, transport=httpx.AsyncHTTPTransport(limits=limits))
-            if getattr(self, "billable_provider", None)
-            else None,
-        )
+    def __init__(self, timeout: float, limits: httpx.Limits) -> None:
+        self._client = httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=False)
         self._active = 0
         self._retired = False
         self._idle = asyncio.Event()

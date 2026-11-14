@@ -18,10 +18,8 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
-    ForeignKeyConstraint,
     Index,
     Integer,
-    Numeric,
     String,
     Table,
     Text,
@@ -58,50 +56,6 @@ BENCHMARK_ACTIVE_SWEEP_INDEX = "uq_benchmark_sweeps_one_active"
 
 
 # Runtime adapters use raw SQL; these declarations keep Alembic aware of their schema.
-cost_rates = Table(
-    "cost_rates",
-    BaseModel.metadata,
-    Column("provider", Text, primary_key=True),
-    Column("model", Text, primary_key=True),
-    Column("version", Integer, primary_key=True),
-    Column("unit", Text, nullable=False),
-    Column("input_usd_per_million", Numeric(24, 12), nullable=False),
-    Column("output_usd_per_million", Numeric(24, 12), nullable=False),
-    Column("context_tokens", Integer, nullable=False),
-    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
-    CheckConstraint("version > 0 AND context_tokens > 0"),
-    CheckConstraint("input_usd_per_million >= 0 AND output_usd_per_million >= 0"),
-)
-
-cost_usage = Table(
-    "cost_usage",
-    BaseModel.metadata,
-    Column("operation_id", Text, primary_key=True),
-    Column("principal", Text, nullable=False),
-    Column("provider", Text, nullable=False),
-    Column("model", Text, nullable=False),
-    Column("operation", Text, nullable=False),
-    Column("provider_response_id", Text),
-    Column("reconciliation_evidence", Text),
-    Column("rate_version", Integer, nullable=False),
-    Column("reserved_units", BigInteger, nullable=False),
-    Column("actual_units", BigInteger),
-    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
-    Column("settled_at", DateTime(timezone=True)),
-    Column("request_fingerprint", Text),
-    Column("billable_units", JSONB),
-    Column("cost_source", Text),
-    Column("dispatch_state", Text, server_default="reserved", nullable=False),
-    CheckConstraint("reserved_units >= 0 AND (actual_units IS NULL OR actual_units >= 0)"),
-    CheckConstraint("(actual_units IS NULL) = (settled_at IS NULL)"),
-    CheckConstraint("dispatch_state IN ('reserved', 'sending', 'settled')", name="ck_cost_usage_dispatch"),
-    ForeignKeyConstraint(
-        ["provider", "model", "rate_version"],
-        ["cost_rates.provider", "cost_rates.model", "cost_rates.version"],
-    ),
-    Index("ix_cost_usage_principal_window", "principal", "settled_at"),
-)
-
 corpus_control = Table(
     "corpus_control",
     BaseModel.metadata,
@@ -341,15 +295,39 @@ class BackgroundJobModel(BaseModel):
     __tablename__ = "background_jobs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'running', 'done', 'failed')",
+            "status IN ('pending', 'running', 'done', 'failed', 'cancelled')",
             name="background_jobs_status_check",
+        ),
+        Index(
+            "ux_background_jobs_active_dedup",
+            "deduplication_key",
+            unique=True,
+            postgresql_where=text("deduplication_key IS NOT NULL AND status IN ('pending', 'running')"),
+            sqlite_where=text("deduplication_key IS NOT NULL AND status IN ('pending', 'running')"),
         ),
         Index("idx_background_jobs_status", "status"),
         Index("idx_background_jobs_job_type", "job_type"),
         Index("idx_background_jobs_creation_date", "creation_date"),
         Index("idx_background_jobs_heartbeat", "heartbeat_at"),
+        Index(
+            "idx_background_jobs_relay",
+            "heartbeat_at",
+            "id",
+            postgresql_where=text("status = 'pending' AND dispatch_payload IS NOT NULL"),
+            sqlite_where=text("status = 'pending' AND dispatch_payload IS NOT NULL"),
+        ),
     )
 
+    payload_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    deduplication_key: Mapped[str | None] = mapped_column(String(128))
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    attempt_id: Mapped[str | None] = mapped_column(String(36))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatch_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    progress: Mapped[dict[str, str] | None] = mapped_column(
+        jsonb_type(none_as_null=True).with_variant(JSON(none_as_null=True), "sqlite")
+    )
     dispatch_payload: Mapped[dict[str, object] | None] = mapped_column(
         jsonb_type(none_as_null=True).with_variant(JSON(none_as_null=True), "sqlite")
     )

@@ -4,7 +4,7 @@ Splits the benchmark corpus with the current code, then measures:
 
 - chunk sizes in bge-m3 tokens (avg/p50/p95, share < 50 tokens, prefix share);
 - fragment reachability: labelled fragments that lie whole inside one chunk;
-- BM25 recall@5/@10 and MRR with the production tokenizer (free, local);
+- BM25 recall@5/@10 and MRR with the production sparse encoder and Qdrant IDF (free, local);
 - with ``--dense``: bge-m3 recall via DeepInfra (embeddings cached by text hash,
   so only changed chunks are paid for) and an RRF hybrid of BM25 + dense;
 - with ``--contextualize``: plan 4.3 LLM notes (OpenRouter, the production auxiliary
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import defaultdict
 from datetime import date
 import hashlib
 import json
@@ -51,13 +52,13 @@ from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.rag.evidence.context import content_with_parent_scope
-from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.tokenization import build_token_counter
+from infrastructure.repositories.vector.sparse_vectors import encode_sparse
 
 
 log = logging.getLogger("chunking_report")
@@ -361,16 +362,33 @@ def retrieval_metrics(
 
 
 def bm25_rankings(questions: list[dict[str, Any]], chunks: list[dict[str, Any]]) -> dict[str, list[int]]:
-    index = BM25Index.from_documents(
-        [
-            Document(
-                page_content=chunk["content"],
-                metadata={},
-            )
-            for chunk in chunks
-        ]
-    )
-    return {q["case_id"]: [i for i, _score in index.search(q["question"], k=SEARCH_DEPTH)] for q in questions}
+    """Score with the production sparse encoder and Qdrant's IDF modifier."""
+    postings: dict[int, list[tuple[int, float]]] = defaultdict(list)
+
+    for position, chunk in enumerate(chunks):
+        vector = encode_sparse(chunk["content"])
+
+        for term, weight in zip(vector.indices, vector.values, strict=True):
+            postings[term].append((position, weight))
+
+    total = len(chunks)
+    rankings: dict[str, list[int]] = {}
+
+    for question in questions:
+        query = encode_sparse(question["question"], query=True)
+        scores: dict[int, float] = defaultdict(float)
+
+        for term, query_weight in zip(query.indices, query.values, strict=True):
+            matches = postings.get(term, [])
+            idf = math.log(1 + (total - len(matches) + 0.5) / (len(matches) + 0.5))
+
+            for position, weight in matches:
+                scores[position] += query_weight * idf * weight
+
+        ranked = sorted(scores, key=lambda position: (-scores[position], position))
+        rankings[question["case_id"]] = ranked[:SEARCH_DEPTH]
+
+    return rankings
 
 
 def rrf(*rankings: list[int]) -> list[int]:

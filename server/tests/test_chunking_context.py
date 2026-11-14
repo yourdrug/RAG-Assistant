@@ -3,14 +3,10 @@
 from langchain_core.documents import Document
 import pytest
 
-from domain.identity.roles import UserKind, UserRole
 from domain.ingestion.embed_text import context_prefix
-from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.chunk import extract_chunk_context
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.ranking import provision_identity
-from domain.shared.hashing import content_hash
-from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.document_text import bm25_document_text
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
 from infrastructure.repositories.vector.qdrant_ops import build_points
@@ -183,35 +179,6 @@ def test_large_introduction_stays_atomic_in_metadata_without_consuming_body_budg
     assert intro.strip() not in prefix
     assert len(prefix) <= 300
     assert parents[0]["content"] == intro
-
-
-def test_body_only_bm25_preserves_hash_acl_and_snapshot_roundtrip() -> None:
-    docs = [
-        Document(
-            page_content="Подача заявления",
-            metadata={
-                "embed_text": "Префикс\n\nПодача заявления",
-                "visibility": "internal_private",
-                "owner_id": owner,
-            },
-        )
-        for owner in (42, 99)
-    ]
-    # Identical content in two ACL scopes still must be filtered before scoring.
-    conditions = get_visibility_conditions(UserKind.INTERNAL, [], for_list=False, user_role=UserRole.USER)
-    index = BM25Index.from_dict(BM25Index.from_documents(docs).to_dict())
-    assert index.texts == ["Подача заявления"] * 2
-    assert index.hashes == [content_hash(doc.page_content) for doc in docs]
-    assert index.search("Префикс") == []
-    hits = index.search_with_hashes(
-        "заявления", visibility_conditions=conditions, user_id=42, user_group_ids=[]
-    )
-    assert len(hits) == 1
-    assert hits[0][0] == content_hash(docs[0].page_content)
-    assert (
-        index.search_with_hashes("заявления", visibility_conditions=conditions, user_id=7, user_group_ids=[])
-        == []
-    )
 
 
 @pytest.mark.parametrize("manual_edit", [False, True])

@@ -23,6 +23,7 @@ SECRET_SETTING_KEYS: frozenset[str] = frozenset(
         "s3_secret_key",
         "jwt_secret_key",
         "admin_password",
+        "metrics_scrape_token",
     }
 )
 
@@ -37,6 +38,9 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "db_port",
         "db_user",
         "db_name",
+        "db_use_pgbouncer",
+        "db_direct_host",
+        "db_direct_port",
         "db_slave_hosts",
         "db_slave_ports",
         "db_pool_size",
@@ -76,6 +80,15 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "redis_user",
         "redis_db",
         "worker_max_concurrent",
+        "maintenance_max_concurrent",
+        "document_max_concurrent",
+        "job_max_per_principal",
+        "job_backlog_limit",
+        "job_principal_backlog_limit",
+        "worker_completion_wait_seconds",
+        "ingest_max_concurrent",
+        "benchmark_job_max_concurrent",
+        "sweep_max_concurrent",
         "outbox_max_concurrent",
         "redis_socket_timeout",
         "redis_max_connections",

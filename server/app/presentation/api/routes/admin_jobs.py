@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from application.jobs.service import JobService
-from presentation.api.auth_dependencies import require_admin
+from domain.identity.roles import UserRole
+from domain.runtime.jobs import BackgroundJobStatus, JobType
+from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.constants import DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET, MAX_PAGE_LIMIT
 from presentation.api.dependencies import create_job_service
 from presentation.api.helpers import persisted_id
 from presentation.api.schemas import CurrentUser, JobResponse, JobsListResponse, JobsStatsResponse
+from presentation.api.schemas.admin_jobs import JobRetryResponse
 
 
 router = APIRouter(tags=["admin-jobs"])
@@ -22,12 +25,15 @@ async def list_jobs(
     *,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_LIMIT)] = DEFAULT_PAGE_LIMIT,
     offset: Annotated[int, Query(ge=0)] = DEFAULT_PAGE_OFFSET,
+    status: BackgroundJobStatus | None = None,
     _admin: Annotated[CurrentUser, Depends(require_admin)],
     service: Annotated[JobService, Depends(create_job_service)],
 ) -> JobsListResponse:
-    jobs = await service.list_recent(limit=limit, offset=offset)
+    jobs = await service.list_recent(
+        limit=limit, offset=offset, **({"status": status.value} if status else {})
+    )
     stats = await service.count_by_status()
-    total = sum(stats.values())
+    total = stats.get(status.value, 0) if status else sum(stats.values())
     return JobsListResponse(
         total=total,
         jobs=[
@@ -41,6 +47,10 @@ async def list_jobs(
                 finished_at=j.finished_at,
                 error_message=j.error_message,
                 creation_date=j.creation_date,
+                attempt=j.attempt,
+                retryable=j.status in {BackgroundJobStatus.FAILED, BackgroundJobStatus.CANCELLED}
+                and j.dispatch_payload is not None
+                and j.job_type != JobType.SWEEP,
             )
             for j in jobs
         ],
@@ -76,4 +86,26 @@ async def get_job(
         finished_at=job.finished_at,
         error_message=job.error_message,
         creation_date=job.creation_date,
+        attempt=job.attempt,
+        retryable=job.status in {BackgroundJobStatus.FAILED, BackgroundJobStatus.CANCELLED}
+        and job.dispatch_payload is not None
+        and job.job_type != JobType.SWEEP,
     )
+
+
+@router.post("/admin/jobs/{job_id}/retry", status_code=202)
+async def retry_job(
+    job_id: int,
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[JobService, Depends(create_job_service)],
+) -> JobRetryResponse:
+    return JobRetryResponse(job_id=await service.retry(job_id))
+
+
+@router.post("/jobs/{job_id}/cancel", status_code=204, response_class=Response, response_model=None)
+async def cancel_job(
+    job_id: int,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[JobService, Depends(create_job_service)],
+) -> None:
+    await service.cancel(job_id, user_id=user.id, is_admin=user.role == UserRole.ADMIN)

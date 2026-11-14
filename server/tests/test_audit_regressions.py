@@ -8,10 +8,10 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
-from fastapi import HTTPException
 import pytest
 from qdrant_client.local.payload_filters import check_filter
 
+from application.jobs.service import JobService
 from application.ports.job_enqueuer import DuplicateJobError
 from application.ports.ml_clients import MLClientPort
 from application.rag.dto import PreparedQuery
@@ -20,6 +20,7 @@ from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
 from domain.rag.context import RagContext
+from domain.runtime.jobs import JobType
 from infrastructure.benchmark.sweep.data import SweepDataSource
 from infrastructure.ml.cache.keys import CacheKeyBuilder
 from infrastructure.ml.clients.client_registry import MLClientRegistry
@@ -29,6 +30,7 @@ from infrastructure.repositories.vector.acl import build_search_filter
 from infrastructure.worker import queue
 from presentation.api.dependencies import IdempotencyContext, JobSubmission
 from presentation.api.routes import ingest as ingest_routes
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -63,20 +65,32 @@ async def test_ingestion_scope_has_distinct_queue_identity(
 
     await publish(**arguments)
     first_id = enqueue.call_args.kwargs["arq_job_id"]
+    factory = FakeUnitOfWorkFactory()
+    jobs = JobService(factory)
+    kind = JobType.INGEST_FILE if single else JobType.INGEST
+    payload = {key: value for key, value in arguments.items() if key != "job_id"}
+    first = await jobs.create_job(kind, dispatch_payload=payload)
+    same = await jobs.create_job(kind, dispatch_payload=payload)
+    other = await jobs.create_job(kind, dispatch_payload={**payload, **difference})
+    saved = factory._uow.fake_background_jobs.jobs
+    assert saved[first].deduplication_key == saved[same].deduplication_key
+    assert saved[first].deduplication_key != saved[other].deduplication_key
     await publish(**{**arguments, "job_id": 11})
-    assert enqueue.call_args.kwargs["arq_job_id"] == first_id
+    assert enqueue.call_args.kwargs["arq_job_id"] != first_id
     await publish(**{**arguments, **difference, "job_id": 12})
     assert enqueue.call_args.kwargs["arq_job_id"] != first_id
 
 
 @pytest.mark.asyncio
-async def test_force_changes_identity_and_duplicate_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_distinct_jobs_have_distinct_deliveries_and_duplicate_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     enqueue = AsyncMock(return_value=object())
     monkeypatch.setattr(queue, "enqueue_arq", enqueue)
     arguments: dict[str, Any] = {"resolved": "docs/file.txt", "domain": "general", "job_id": 1}
     await queue.enqueue_ingest_file(**arguments)
     first_id = enqueue.call_args.kwargs["arq_job_id"]
-    await queue.enqueue_ingest_file(**arguments, force=True)
+    await queue.enqueue_ingest_file(**{**arguments, "job_id": 2}, force=True)
     assert enqueue.call_args.kwargs["arq_job_id"] != first_id
     enqueue.return_value = None
     with pytest.raises(DuplicateJobError):
@@ -216,7 +230,7 @@ def test_ml_runtime_contract_has_no_local_bm25() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("single", [False, True])
-async def test_ingestion_duplicate_fails_created_job_and_returns_conflict(single: bool) -> None:
+async def test_ingestion_duplicate_delivery_preserves_durable_job(single: bool) -> None:
     request = MagicMock(method="POST")
     request.url.path = "/ingest/file" if single else "/ingest"
     jobs = MagicMock(create_job=AsyncMock(return_value=42), mark_failed=AsyncMock())
@@ -240,7 +254,7 @@ async def test_ingestion_duplicate_fails_created_job_and_returns_conflict(single
         action = ingest_routes.ingest_single_file
         parameters["options"] = ingest_routes.IngestFileOptions(file_path="docs/file.txt")
 
-    with pytest.raises(HTTPException) as error:
-        await action(**parameters)
-    assert error.value.status_code == 409
-    jobs.mark_failed.assert_awaited_once_with(42, "already queued")
+    response = await action(**parameters)
+    assert response.job_id == 42
+    jobs.mark_failed.assert_not_awaited()
+    assert jobs.create_job.await_args.kwargs["dispatch_payload"]

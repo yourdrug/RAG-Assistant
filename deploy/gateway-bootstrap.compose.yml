@@ -1,0 +1,7 @@
+# One-time handoff from the legacy frontend that owns host port 3001.
+services:
+  gateway:
+    ports: !override
+      - target: 80
+        published: "0"
+        host_ip: 127.0.0.1

@@ -33,7 +33,7 @@
   Application, Infrastructure, Presentation, `config` и детали FastAPI, SQLAlchemy или Qdrant.
 - Application: сценарии, DTO, порты, UoW. Зависит от Domain и собственных интерфейсов;
   не привязывай сценарии к конкретным клиентам, ORM, Redis или HTTP.
-- Infrastructure: адаптеры БД, Qdrant, BM25, ML, Redis и хранения. Реализует нужные порты.
+- Infrastructure: адаптеры БД, Qdrant, ML, Redis и хранения. Реализует нужные порты.
 - Presentation: валидация входа, аутентификация, HTTP/SSE и перевод ошибок; маршруты держи тонкими.
 - Composition: сборка зависимостей в `composition/container.py`, `application.py`, `infrastructure.py`
   и `service_providers.py`; не собирай concrete-реализации внутри бизнес-сервисов.
@@ -46,17 +46,17 @@
 
 - Считай идентификаторы и параметры запроса недоверенными. На каждом пути чтения/изменения
   проверяй права на конкретный объект, владельца и группы; аутентификация сама по себе недостаточна.
-- `domain/services/access_control.py::get_visibility_conditions()` — источник условий видимости.
-  Сохраняй соответствие `is_in_search_scope()` ⇔ Qdrant `build_qdrant_filter()` ⇔
-  `BM25Index._doc_matches_acl()` для USER, ADMIN, CURATOR и CLIENT.
+- `domain/knowledge/access_control.py::get_visibility_conditions()` — источник условий видимости.
+  Сохраняй соответствие `is_in_search_scope()` ⇔ Qdrant `build_qdrant_filter()`
+  (`infrastructure/repositories/vector/acl.py`) для USER, ADMIN, CURATOR и CLIENT.
 - Различай режимы listing и search (`for_list`): ADMIN может видеть `CLIENT_PRIVATE` в списке,
   но не получает эти документы в RAG-поиске. Не расширяй scope поиска случайно.
 - Передавай актуальный `UserContext` и группы через поиск, обработку документов и выдачу источников.
   `CuratorScope` формируется из назначений и ограничивается в `ChatService`.
-- Dense Qdrant поиск и разрешение BM25-хешей требуют ACL-фильтр. BM25 фильтрует до скоринга;
-  повторную проверку Qdrant при разрешении sparse-кандидатов сохраняй.
+- BM25 хранится в Qdrant как sparse-вектор `bm25_ru_v2` (IDF считает Qdrant); локального индекса нет.
+  Dense и sparse поиск в Qdrant требуют ACL-фильтр, применяемый до top-k.
 - При индексации и обновлении чанков сохраняй ACL-метаданные владельца, видимости и группы
-  согласованными между хранилищем документов, Qdrant и BM25.
+  согласованными между хранилищем документов и Qdrant.
 - Ключ кэша ответа должен учитывать kind, role, user id, группы и curator scope;
   изменение полномочий должно приводить к cache miss. Не кэшируй ответ вне его scope.
 - Извлечённый текст — недоверенный ввод: не позволяй ему переопределять инструкции или ACL;
@@ -96,7 +96,7 @@
 
 - Для бизнес-инвариантов добавляй содержательные тесты; для ACL — разрешённый и запрещённый
   сценарии, для гонок — конкурентный тест, если практически осуществимо.
-- При изменении ACL/RAG сохраняй тесты `server/tests/test_acl.py`, `test_bm25_acl.py`,
+- При изменении ACL/RAG сохраняй тесты `server/tests/test_acl.py`, `test_qdrant_sparse.py`,
   `test_answer_cache.py`, `test_curator_role.py` и запускай относящиеся к правке сценарии.
 - Для изменения retrieval/ingestion дополнительно смотри `test_retrieval_acl.py`
   и `test_ingestion_acl_consistency.py`.

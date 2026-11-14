@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from application.benchmark.dto import BenchmarkRunnerOptions
     from application.ports.ml_clients import MLClientPort
     from infrastructure.benchmark.evaluation.annotation_validation import AnnotationValidator
-    from infrastructure.budget.runtime import BudgetRuntime
 
 
 async def run_benchmark_async(
@@ -37,7 +36,6 @@ async def run_benchmark_async(
     judge_model: str,
     *,
     corpus_resource: MLClientPort | None = None,
-    budget_runtime: BudgetRuntime | None = None,
     annotation_validator: AnnotationValidator | None = None,
     **options: Unpack[BenchmarkRunnerOptions],
 ) -> list[dict[str, Any]]:
@@ -74,7 +72,6 @@ async def run_benchmark_async(
                     answer_generators.RagBenchmarkGenerator(rag_service, top_k, fetch_k),
                     judge_model,
                     checkpoints=checkpoints,
-                    budget_runtime=budget_runtime,
                     annotation_validator=annotation_validator,
                     run_manifest=manifest,
                 ),

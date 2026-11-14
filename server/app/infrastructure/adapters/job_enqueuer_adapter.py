@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Unpack
 
+from arq.jobs import Job
+from redis.exceptions import RedisError
+
 from domain.knowledge.enums import DocumentVisibility
+from domain.runtime.jobs import JobType
+from infrastructure.worker.document_dispatch import delivery_id
 from infrastructure.worker.queue import (
     enqueue_benchmark as _enqueue_benchmark,
     enqueue_document_deletion,
@@ -12,7 +18,9 @@ from infrastructure.worker.queue import (
     enqueue_ingest as _enqueue_ingest,
     enqueue_ingest_file as _enqueue_ingest_file,
     enqueue_sweep as _enqueue_sweep,
+    get_pool,
 )
+from infrastructure.worker.registry import TASKS
 
 
 if TYPE_CHECKING:
@@ -21,6 +29,24 @@ if TYPE_CHECKING:
 
 class JobEnqueuerAdapter:
     """Thin wrapper making worker queue functions available as an injectable port."""
+
+    async def abort_job(self, job_id: int, job_type: str, related_id: int | None) -> None:
+        try:
+            async with asyncio.timeout(5):
+                pool = await get_pool()
+                job = Job(
+                    delivery_id(job_type, related_id, job_id),
+                    pool,
+                    _queue_name=TASKS[JobType(job_type)].queue,
+                )
+                try:
+                    await job.abort(timeout=1, poll_delay=0.1)
+                except TimeoutError:
+                    # keep_result=0: the request is written without a retained result.
+                    return
+        except RedisError as exc:
+            message = "Broker abort unavailable"
+            raise ConnectionError(message) from exc
 
     async def enqueue_document_deletion(self, *, document_id: int, user_id: int, job_id: int) -> None:
         await enqueue_document_deletion(document_id=document_id, user_id=user_id, job_id=job_id)

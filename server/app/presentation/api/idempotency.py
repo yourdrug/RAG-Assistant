@@ -2,13 +2,39 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import hashlib
 import json
-from typing import Any
+import logging
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
 from application.ports.idempotency_store import IdempotencyClaimStatus, IdempotencyStorePort
+from domain.runtime.jobs import JobAdmissionError
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def release_on_admission_error(
+    store: IdempotencyStorePort,
+    reservation: dict[str, Any] | None,
+) -> AsyncIterator[None]:
+    try:
+        yield
+    except JobAdmissionError:
+        if reservation is not None:
+            try:
+                await store.release(reservation)
+            except Exception:
+                logger.exception("Failed to release rejected job reservation")
+
+        raise
 
 
 def request_fingerprint(payload: object) -> str:

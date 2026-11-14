@@ -42,6 +42,18 @@ class IngestionRegistry:
     def ingestion_lock(self) -> AbstractAsyncContextManager[None]:
         return self._uow_factory.ingestion_lock()
 
+    async def load_progress(self, job_id: int) -> dict[str, str]:
+        async with self._uow_factory.create(master=True) as uow:
+            job = await uow.background_jobs.get_by_id(job_id)
+            return dict(job.progress or {}) if job is not None else {}
+
+    async def checkpoint(self, job_id: int, key: str, file_hash: str) -> None:
+        async with self._uow_factory.create(master=True) as uow:
+            job = await uow.background_jobs.get_by_id(job_id)
+
+            if job is not None:
+                await uow.background_jobs.save_progress(job_id, {**(job.progress or {}), key: file_hash})
+
     async def upsert(
         self,
         filename: str,

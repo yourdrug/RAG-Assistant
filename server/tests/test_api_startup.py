@@ -62,7 +62,7 @@ async def test_api_lifespan_continues_when_corpus_is_not_ready(
         assert app.state.container is startup_components.container
         infrastructure.bootstrap_configuration.assert_awaited_once_with(role="api")
         infrastructure.events.config_listener.start.assert_awaited_once()
-        infrastructure.events.outbox_listener.start.assert_awaited_once()
+        infrastructure.events.outbox_listener.start.assert_not_awaited()
 
         if corpus_ready:
             ensure.assert_awaited_once_with(vector_size=settings.embed_dim, reset=False)

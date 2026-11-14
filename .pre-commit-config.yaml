@@ -14,6 +14,8 @@ repos:
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
+        # Compose merge tags (!override, !reset) are valid; check syntax only.
+        args: [--unsafe]
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: detect-private-key
