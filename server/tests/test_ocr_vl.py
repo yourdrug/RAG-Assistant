@@ -15,7 +15,8 @@ import numpy as np
 from PIL import Image
 import pytest
 
-from config import settings
+from composition.infrastructure import MLContainer
+from config import JobsSection, OCRSection, process_section, settings
 from domain.ingestion.preview import DryRunPageResult
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion import ocr
@@ -33,7 +34,7 @@ from tables import UNREADABLE, table_markdown
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
 
 TABLE = (
@@ -41,6 +42,13 @@ TABLE = (
     "| --- | --- | --- | --- | --- |\n"
     "| Кольцо | 2 | 3,14 | 585 | 6,28 |"
 )
+
+
+@pytest.fixture(autouse=True)
+def ocr_client_lifecycle() -> Iterator[None]:
+    MLContainer().dispose()
+    yield
+    MLContainer().dispose()
 
 
 @pytest.fixture
@@ -62,6 +70,20 @@ def scan_pdf(path: Path) -> Path:
         document.new_page().insert_text((20, 20), "Native text page " * 8)
         document.save(path)
     return path
+
+
+def test_default_engine_uses_service_for_scans(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(settings, "ocr_engine", OCRSection().ocr_engine)
+    monkeypatch.setattr(settings, "ocr_dpi", 72)
+    monkeypatch.setattr(settings, "ocr_enabled", True)
+    monkeypatch.setattr(ocr, "get_paddle_ocr", Mock(side_effect=RuntimeError("In-process OCR loaded")))
+    page = OCRPage.model_validate({"blocks": [{"kind": "table", "text": TABLE}]})
+    monkeypatch.setattr(ocr, "recognize_page", Mock(return_value=page))
+
+    documents = parse_pdf(scan_pdf(tmp_path / "default.pdf"))
+
+    assert documents[0].page_content == TABLE
+    assert documents[0].metadata["ocr_engine"] == "paddleocr_vl"
 
 
 def test_preview_and_index_use_same_blocks_and_page(
@@ -114,7 +136,9 @@ def test_preview_and_index_use_same_blocks_and_page(
 
 
 @pytest.mark.parametrize("failure", ["timeout", "offline", "invalid", "empty", "blank", "http"])
-def test_client_errors_are_explicit_and_close_client(monkeypatch: pytest.MonkeyPatch, failure: str) -> None:
+def test_client_errors_are_explicit_and_pool_closes_on_shutdown(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
     client = Mock()
     client.__enter__ = Mock(return_value=client)
     client.__exit__ = Mock(return_value=False)
@@ -138,8 +162,13 @@ def test_client_errors_are_explicit_and_close_client(monkeypatch: pytest.MonkeyP
 
     with pytest.raises(OCRServiceError, match="Локальный OCR"):
         recognize_page(Image.new("RGB", (10, 10)))
-    client.__exit__.assert_called_once()
+    MLContainer().dispose()
+    client.close.assert_called_once()
     assert factory.call_args.kwargs["trust_env"] is False
+    jobs = process_section(JobsSection)
+    # One in-flight page per job slot; extra pooled connections would only queue on the OCR GPU.
+    expected = max(jobs.document_max_concurrent, jobs.worker_max_concurrent)
+    assert factory.call_args.kwargs["limits"].max_connections == expected
 
 
 def test_client_sends_pixels_and_accepts_structured_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,9 +181,15 @@ def test_client_sends_pixels_and_accepts_structured_result(monkeypatch: pytest.M
         json={"blocks": [{"kind": "table", "text": TABLE}]},
     )
     client.post.return_value = response
-    monkeypatch.setattr(httpx, "Client", Mock(return_value=client))
+    factory = Mock(return_value=client)
+    monkeypatch.setattr(httpx, "Client", factory)
     assert recognize_page(Image.new("RGB", (10, 10))).blocks[0].text == TABLE
+    assert recognize_page(Image.new("RGB", (10, 10))).blocks[0].text == TABLE
+    factory.assert_called_once()
+    client.close.assert_not_called()
     assert client.post.call_args.kwargs["content"].startswith(b"\x89PNG")
+    MLContainer().dispose()
+    client.close.assert_called_once()
 
 
 def test_service_retries_incomplete_table_only_once(monkeypatch: pytest.MonkeyPatch) -> None:

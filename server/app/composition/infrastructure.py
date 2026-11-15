@@ -58,6 +58,7 @@ from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, 
 from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
 from infrastructure.ml.ingestion import get_paddle_ocr, get_surya_predictors
 from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
+from infrastructure.ml.ingestion.ocr_vl import ocr_client_pool
 from infrastructure.ml.langchain_document_parser import (
     LangchainDocumentParser,
     LangchainDocumentSplitter,
@@ -186,6 +187,7 @@ class MLContainer:
 
     def dispose(self) -> None:
         """Clear ML-specific caches and release resources."""
+        ocr_client_pool.close()
         # Clear OCR/lru_cache caches — import may fail if optional deps
         # (paddleocr, surya) are not installed.
         try:

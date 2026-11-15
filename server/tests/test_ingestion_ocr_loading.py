@@ -13,6 +13,7 @@ from infrastructure.ml.ingestion.ocr import (
     get_surya_predictors,
     invalidate_paddle_ocr_cache,
 )
+from infrastructure.ml.ingestion.ocr_vl import OCRServiceError
 
 
 def test_paddle_constructor_is_cached_and_language_change_reloads(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,3 +65,17 @@ def test_surya_loads_each_predictor_once(monkeypatch: pytest.MonkeyPatch) -> Non
             detection.assert_called_once_with()
     finally:
         get_surya_predictors.cache_clear()
+
+
+def test_missing_paddle_extra_is_an_explicit_ocr_error() -> None:
+    # GPU images ship without the paddle extra; selecting the local engine must fail clearly.
+    get_paddle_ocr.cache_clear()
+    try:
+        with patch.dict(sys.modules, {"paddleocr": None}):
+            sys.modules.pop("infrastructure.ml.ingestion.paddle_backend", None)
+            with pytest.raises(OCRServiceError) as error:
+                get_paddle_ocr()
+            assert isinstance(error.value.__cause__, ImportError)
+    finally:
+        get_paddle_ocr.cache_clear()
+        sys.modules.pop("infrastructure.ml.ingestion.paddle_backend", None)

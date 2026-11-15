@@ -267,6 +267,12 @@ tasks:
     cmds:
       - uv sync --frozen --group development --group testing
 
+  install:paddle:
+    desc: Доустановить локальный CPU OCR (PaddleOCR) для ocr_engine=paddleocr без сервиса ocr-vl
+    dir: server
+    cmds:
+      - uv sync --frozen --group development --group testing --extra paddle
+
   install:surya:
     desc: Доустановить опциональный OCR-движок Surya (см. README → «Лицензии»)
     dir: server

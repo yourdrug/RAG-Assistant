@@ -535,7 +535,7 @@
   },
   "ocr_engine": {
     "annotation": "<class 'str'>",
-    "default": "'paddleocr'",
+    "default": "'paddleocr_vl'",
     "metadata": "[]",
     "required": false
   },

@@ -8,7 +8,7 @@ from config.ownership import Static
 
 
 class OCRSection(BaseModel):
-    ocr_engine: str = "paddleocr"
+    ocr_engine: str = "paddleocr_vl"
     # Deployment-only endpoint: never supplied by an uploaded document or dynamic settings.
     ocr_vl_url: Static[str] = "http://ocr-vl:8080"
     ocr_vl_timeout: Static[float] = Field(default=180, gt=0)

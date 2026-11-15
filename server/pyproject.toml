@@ -38,8 +38,6 @@ dependencies = [
     "tokenizers==0.22.2",
     "qdrant-client==1.11.3",
     # --- OCR ---
-    "paddlepaddle==2.6.2",
-    "paddleocr==2.9.1",
     "pillow==10.4.0",
     # --- Document parsers ---
     "pymupdf==1.24.13",
@@ -78,6 +76,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Local CPU OCR: installed only in CPU images; GPU deployments use the ocr-vl service.
+paddle = [
+    "paddlepaddle==2.6.2",
+    "paddleocr==2.9.1",
+]
+
 surya = [
     "surya-ocr==0.9.0",
 ]

@@ -117,8 +117,9 @@ def test_compose_config_with_disposable_credentials(
     services = result.stdout.splitlines()
     assert "ollama" not in services
     assert ("tei-embed" in services) == (profiles == "tei")
-    # Opt-in GPU services are profiles of the main file, never started by default.
-    assert not {"vllm", "ocr-vl"} & set(services)
+    # The template enables the primary OCR service; vLLM stays opt-in.
+    assert ("ocr-vl" in services) == (profiles is None)
+    assert "vllm" not in services
 
 
 def test_gpu_profiles_live_in_main_compose_file(deployment_templates: Any) -> None:

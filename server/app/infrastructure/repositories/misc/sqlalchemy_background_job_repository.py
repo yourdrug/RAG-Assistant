@@ -91,9 +91,11 @@ class SQLAlchemyBackgroundJobRepository:
         return job
 
     async def check_admission(self, principal: object) -> None:
-        # Serialize count + insert across API replicas. The caller owns the transaction.
-        if self._db.get_bind().dialect.name == "postgresql":
-            await self._db.execute(select(func.pg_advisory_xact_lock(724193820147)))
+        # Keep each principal's count + insert exact across API replicas until commit.
+        # The global overload guard is approximate: unrelated uploads must not queue here.
+        if isinstance(principal, str) and self._db.get_bind().dialect.name == "postgresql":
+            key = f"background_job_admission:{principal}"
+            await self._db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(key, 0))))
 
         settings = process_section(JobsSection)
         active = BackgroundJobModel.status.in_(["pending", "running"])

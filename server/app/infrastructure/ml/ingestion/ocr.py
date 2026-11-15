@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 from config import OCRSection, process_section
-from infrastructure.ml.ingestion.ocr_vl import recognize_page
+from infrastructure.ml.ingestion.ocr_vl import OCRServiceError, recognize_page
 
 
 if TYPE_CHECKING:
@@ -46,7 +46,13 @@ def get_paddle_ocr() -> PaddleOCR:
     # Lazy: PaddleOCR imports heavyweight model backends.
     ocr_settings = process_section(OCRSection)
 
-    backend = importlib.import_module("infrastructure.ml.ingestion.paddle_backend")
+    try:
+        backend = importlib.import_module("infrastructure.ml.ingestion.paddle_backend")
+    except ImportError as exc:
+        # GPU images ship without the paddle extra; OCR goes through the ocr-vl service there.
+        log.exception("PaddleOCR is not installed; select paddleocr_vl or build with the paddle extra")
+        raise OCRServiceError from exc
+
     create = cast("Callable[[str], PaddleOCR]", backend.create_paddle_ocr)
 
     log.info("Loading PaddleOCR (lang=%s) ...", ocr_settings.ocr_lang_paddle)
