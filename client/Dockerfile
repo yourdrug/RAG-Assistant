@@ -1,6 +1,7 @@
 # -----------------------------------------------------------------------------------
 # Node-base — shared env vars for all targets
-FROM node:22.14-alpine AS node-base
+# Keep the Node major in sync with .github/workflows/lint.yml (client-test).
+FROM node:24-alpine AS node-base
 
 LABEL author.email="mitkojenia@gmail.com"
 LABEL author.name="Eugene Mitsko"
@@ -17,19 +18,17 @@ ENV                                                                             
 # Set workdir
 WORKDIR $ROOT_DIR
 
-# Install core deps + pnpm
+# Install core deps
 RUN                                                                                 \
     apk add --no-cache                                                              \
     git                                                                             \
-    curl &&                                                                         \
-    corepack enable &&                                                               \
-    corepack prepare pnpm@9.15.9 --activate
+    curl
 
 # Copy package files
-COPY package.json pnpm-lock.yaml .npmrc ./
+COPY package.json package-lock.json ./
 
 # Install dependencies
-RUN npm_config_minimum_release_age=0 pnpm install --frozen-lockfile
+RUN npm ci
 
 # -----------------------------------------------------------------------------------
 # Build stage — compile frontend
@@ -39,7 +38,7 @@ FROM node-base AS build
 COPY . .
 
 # Build the application
-RUN pnpm run build
+RUN npm run build
 
 # -----------------------------------------------------------------------------------
 # Serve stage — nginx for static files + reverse proxy
