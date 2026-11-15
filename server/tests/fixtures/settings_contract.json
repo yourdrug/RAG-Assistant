@@ -407,16 +407,40 @@
     "metadata": "[]",
     "required": true
   },
+  "llm_allowed_origins": {
+    "annotation": "list[str]",
+    "default": "['https://openrouter.ai']",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_api_key": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
+    "metadata": "[]",
+    "required": false
+  },
   "llm_auxiliary_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "4",
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
+  "llm_auxiliary_model": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
   "llm_auxiliary_timeout": {
     "annotation": "<class 'int'>",
     "default": "30",
     "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "llm_base_url": {
+    "annotation": "<class 'str'>",
+    "default": "'https://openrouter.ai/api/v1'",
+    "metadata": "[]",
     "required": false
   },
   "llm_breaker_fail_max": {
@@ -443,6 +467,12 @@
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
+  "llm_model": {
+    "annotation": "<class 'str'>",
+    "default": "'qwen/qwen-2.5-7b-instruct'",
+    "metadata": "[]",
+    "required": false
+  },
   "llm_num_ctx_broad": {
     "annotation": "<class 'int'>",
     "default": "16384",
@@ -464,12 +494,6 @@
   "llm_num_predict_narrow": {
     "annotation": "<class 'int'>",
     "default": "400",
-    "metadata": "[]",
-    "required": false
-  },
-  "llm_provider": {
-    "annotation": "typing.Literal['openrouter', 'openai_compatible']",
-    "default": "'openrouter'",
     "metadata": "[]",
     "required": false
   },
@@ -572,48 +596,6 @@
   "ocr_vl_url": {
     "annotation": "<class 'str'>",
     "default": "'http://ocr-vl:8080'",
-    "metadata": "[]",
-    "required": false
-  },
-  "openai_compatible_api_key": {
-    "annotation": "<class 'pydantic.types.SecretStr'>",
-    "default": "SecretStr('')",
-    "metadata": "[]",
-    "required": false
-  },
-  "openai_compatible_auxiliary_model": {
-    "annotation": "<class 'str'>",
-    "default": "''",
-    "metadata": "[]",
-    "required": false
-  },
-  "openai_compatible_base_url": {
-    "annotation": "<class 'str'>",
-    "default": "''",
-    "metadata": "[]",
-    "required": false
-  },
-  "openai_compatible_model": {
-    "annotation": "<class 'str'>",
-    "default": "''",
-    "metadata": "[]",
-    "required": false
-  },
-  "openrouter_api_key": {
-    "annotation": "<class 'pydantic.types.SecretStr'>",
-    "default": "SecretStr('')",
-    "metadata": "[]",
-    "required": false
-  },
-  "openrouter_base_url": {
-    "annotation": "<class 'str'>",
-    "default": "'https://openrouter.ai/api/v1'",
-    "metadata": "[]",
-    "required": false
-  },
-  "openrouter_model": {
-    "annotation": "<class 'str'>",
-    "default": "'qwen/qwen-2.5-7b-instruct'",
     "metadata": "[]",
     "required": false
   },

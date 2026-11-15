@@ -34,9 +34,9 @@ from presentation.api.schemas import (
     ConfigParamResponse,
     ConfigParamUpdateRequest,
     CurrentUser,
+    LLMModelInfo,
+    LLMModelsResponse,
     ModelsInfoResponse,
-    OpenRouterModelInfo,
-    OpenRouterModelsResponse,
     VectorDBCollectionInfo,
     VectorDBInfoResponse,
 )
@@ -140,28 +140,29 @@ async def models_info(
 ) -> ModelsInfoResponse:
     info = await admin_service.get_models_info()
     return ModelsInfoResponse(
-        llm_provider=info.llm_provider,
+        llm_base_url=info.llm_base_url,
         llm_model=info.llm_model,
+        llm_auxiliary_model=info.llm_auxiliary_model,
+        llm_api_key_configured=info.llm_api_key_configured,
         tei_embed_url=info.tei_embed_url,
         tei_rerank_url=info.tei_rerank_url,
         embed_model=info.embed_model,
         rerank_model=info.rerank_model,
         ocr_engine=info.ocr_engine,
         ocr_enabled=info.ocr_enabled,
-        openrouter_model=info.openrouter_model,
         ml_provider=info.ml_provider,
     )
 
 
-@router.get("/admin/models/openrouter", response_model=OpenRouterModelsResponse)
-async def openrouter_models(
+@router.get("/admin/models/llm", response_model=LLMModelsResponse)
+async def llm_models(
     *,
     _admin: Annotated[CurrentUser, Depends(require_admin)],
     admin_service: Annotated[ConfigAdminService, Depends(create_config_admin_service)],
-) -> OpenRouterModelsResponse:
-    info = await admin_service.get_openrouter_models()
-    return OpenRouterModelsResponse(
-        models=[OpenRouterModelInfo(**m) for m in info.models],
+) -> LLMModelsResponse:
+    info = await admin_service.get_llm_models()
+    return LLMModelsResponse(
+        models=[LLMModelInfo(**m) for m in info.models],
         active_model=info.active_model or "",
     )
 

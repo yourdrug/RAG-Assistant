@@ -175,9 +175,7 @@ def install_family(registry: MLClientRegistry, client: ClientFamily) -> None:
 async def test_request_keeps_settings_cache_model_and_client_family_during_reload(  # noqa: PLR0915 — exercise one full reload lifecycle.
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(settings, "llm_provider", "openrouter")
-    monkeypatch.setattr(settings, "openrouter_model", "local-model")
-    monkeypatch.setattr(settings, "openrouter_model", "remote-model")
+    monkeypatch.setattr(settings, "llm_model", "remote-model")
     monkeypatch.setattr(settings, "rag_retrieval_score_threshold", 0.1)
     old_close, new_close = AsyncMock(), AsyncMock()
     old = ClientFamily(SimpleNamespace(close=old_close))
@@ -195,12 +193,12 @@ async def test_request_keeps_settings_cache_model_and_client_family_during_reloa
             key = CacheKeyBuilder.build(query)
 
             async def reload() -> None:
-                monkeypatch.setattr(settings, "openrouter_model", "new-model")
+                monkeypatch.setattr(settings, "llm_model", "new-model")
                 monkeypatch.setattr(settings, "rag_retrieval_score_threshold", 0.9)
                 install_family(registry, new)
 
             await asyncio.create_task(reload())
-            assert get_request_settings().openrouter_model == "remote-model"
+            assert get_request_settings().llm_model == "remote-model"
             assert get_request_settings().rag_retrieval_score_threshold == 0.1
             assert registry.embeddings() is old
             assert registry.fast_llm() is old

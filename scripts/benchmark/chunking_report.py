@@ -54,7 +54,6 @@ from domain.ingestion.raw_document import RawDocument
 from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.tokenization import build_token_counter
@@ -163,21 +162,31 @@ class SqliteNoteCache:
         self.db.commit()
 
 
+# The report's paid mode always calls OpenRouter with a fixed fast model.
+CONTEXTUALIZATION_MODEL = "meta-llama/llama-3.1-8b-instruct"
+KEY_NAMES = ("LLM_API_KEY",)
+
+
 def openrouter_key() -> str:
     """Read the key from the environment or server/.env.secrets; it is never printed."""
-    if key := os.environ.get("OPENROUTER_API_KEY"):
-        return key
+    for key_name in KEY_NAMES:
+        if key := os.environ.get(key_name):
+            return key
 
     secrets = ROOT / "server/.env.secrets"
 
     if secrets.exists():
+        values = {}
+
         for line in secrets.read_text().splitlines():
             name, _, value = line.partition("=")
+            values[name.strip()] = value.strip().strip("'\"")
 
-            if name.strip() == "OPENROUTER_API_KEY" and value.strip():
-                return value.strip().strip("'\"")
+        for key_name in KEY_NAMES:
+            if values.get(key_name):
+                return values[key_name]
 
-    message = "OPENROUTER_API_KEY is not set (environment or server/.env.secrets)"
+    message = "LLM_API_KEY is not set (environment or server/.env.secrets)"
     raise SystemExit(message)
 
 
@@ -185,7 +194,7 @@ def build_contextualization(notes_cache: Path, tokenizer_path: Path) -> ChunkCon
     from langchain_openai import ChatOpenAI  # noqa: PLC0415 - Optional paid mode of the report only.
 
     llm = ChatOpenAI(
-        model=FAST_OPENROUTER_MODEL,
+        model=CONTEXTUALIZATION_MODEL,
         base_url="https://openrouter.ai/api/v1",
         api_key=openrouter_key(),
         temperature=0,

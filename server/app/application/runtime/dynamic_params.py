@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from application.runtime.enums import LLMProvider
 from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 
 
@@ -19,10 +18,9 @@ class DynamicParamCategory(StrEnum):
     INGESTION = "ingestion"
     JOBS = "jobs"
     LLM = "llm"
+    LLM_CONNECTION = "llm_connection"
     ML = "ml"
     OCR = "ocr"
-    OPENAI_COMPATIBLE = "openai_compatible"
-    OPENROUTER = "openrouter"
     RAG = "rag"
     RATE_LIMIT = "rate_limit"
     RERANKER = "reranker"
@@ -98,10 +96,18 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         1,
     ),
     DynamicParam(
-        "openrouter_base_url",
+        "llm_base_url",
         str,
-        DynamicParamCategory.OPENROUTER,
-        "OpenRouter endpoint (canonical HTTPS origin)",
+        DynamicParamCategory.LLM_CONNECTION,
+        "OpenAI-compatible endpoint, e.g. https://openrouter.ai/api/v1 or http://vllm:8000/v1 "
+        "(origin must be in LLM_ALLOWED_ORIGINS or ML_INTERNAL_ALLOWED_ORIGINS)",
+    ),
+    DynamicParam("llm_model", str, DynamicParamCategory.LLM_CONNECTION, "Answer model name"),
+    DynamicParam(
+        "llm_auxiliary_model",
+        str,
+        DynamicParamCategory.LLM_CONNECTION,
+        "Auxiliary model for condense/relevance/decomposition; empty reuses the answer model",
     ),
     DynamicParam(
         "tei_embed_url", str, DynamicParamCategory.ML, "TEI embedding endpoint (same model identity required)"
@@ -183,13 +189,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("cache_enabled", bool, DynamicParamCategory.TOGGLES, "Enable response cache"),
     DynamicParam("pii_redaction_enabled", bool, DynamicParamCategory.TOGGLES, "Enable PII redaction"),
     # ── LLM ─────────────────────────────────────────────────────
-    DynamicParam(
-        "llm_provider",
-        str,
-        DynamicParamCategory.LLM,
-        "LLM provider",
-        allowed=[provider.value for provider in LLMProvider],
-    ),
     DynamicParam("llm_temperature", float, DynamicParamCategory.LLM, "LLM temperature", 0.0, 2.0),
     DynamicParam("llm_top_p", float, DynamicParamCategory.LLM, "LLM top-p", 0.0, 1.0),
     DynamicParam(
@@ -203,24 +202,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     ),
     DynamicParam(
         "llm_num_predict_broad", int, DynamicParamCategory.LLM, "LLM max tokens predict (broad)", 64, 16384
-    ),
-    # ── OpenRouter ──────────────────────────────────────────────
-    DynamicParam("openrouter_model", str, DynamicParamCategory.OPENROUTER, "OpenRouter model name"),
-    # ── OpenAI-compatible (vLLM, Ollama, LM Studio, ...) ────────
-    DynamicParam(
-        "openai_compatible_base_url",
-        str,
-        DynamicParamCategory.OPENAI_COMPATIBLE,
-        "OpenAI-compatible endpoint, e.g. http://vllm:8000/v1 (deployment-approved origin)",
-    ),
-    DynamicParam(
-        "openai_compatible_model", str, DynamicParamCategory.OPENAI_COMPATIBLE, "Served answer model name"
-    ),
-    DynamicParam(
-        "openai_compatible_auxiliary_model",
-        str,
-        DynamicParamCategory.OPENAI_COMPATIBLE,
-        "Auxiliary model for condense/relevance/decomposition; empty reuses the answer model",
     ),
     # ── ML Provider ─────────────────────────────────────────────
     DynamicParam("deepinfra_embed_model", str, DynamicParamCategory.ML, "DeepInfra embedding model"),

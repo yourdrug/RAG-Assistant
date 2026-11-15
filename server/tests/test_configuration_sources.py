@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 
 import application.runtime.dynamic_params
-from application.runtime.enums import LLMProvider
 import application.runtime.setting_keys
 from application.runtime.setting_keys import SECRET_SETTING_KEYS as SENSITIVE_KEYS
 from config import Settings, settings
@@ -113,8 +112,8 @@ async def test_domain_profile_defaults_are_seeded_in_declared_scope() -> None:
 @pytest.mark.parametrize(
     "key, expected",
     [
-        ("llm_provider", LLMProvider.OPENROUTER.value),
-        ("openrouter_model", "qwen/qwen-2.5-7b-instruct"),
+        ("llm_base_url", "https://openrouter.ai/api/v1"),
+        ("llm_model", "qwen/qwen-2.5-7b-instruct"),
         ("ml_provider", "deepinfra"),
     ],
 )
@@ -123,11 +122,10 @@ def test_provider_defaults(key: str, expected: Any) -> None:
 
 
 def test_seed_uses_defaults_and_preserves_domain_scope(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "llm_provider", LLMProvider.OPENROUTER.value)
-    monkeypatch.setattr(settings, "openrouter_model", "existing-deployment-model")
+    monkeypatch.setattr(settings, "llm_model", "existing-deployment-model")
     rows = {(p.key, p.domain_key): p for p in initialization.build_defaults()}
-    assert rows[("llm_provider", None)].value == LLMProvider.OPENROUTER.value
-    assert rows[("openrouter_model", None)].value == "qwen/qwen-2.5-7b-instruct"
+    assert rows[("llm_base_url", None)].value == "https://openrouter.ai/api/v1"
+    assert rows[("llm_model", None)].value == "qwen/qwen-2.5-7b-instruct"
     assert rows[("legal_chunk_max_tokens", DocDomain.LEGAL)].value == str(
         LegalDomainProfile().chunking_policy().max_tokens
     )
@@ -138,7 +136,7 @@ def test_seed_uses_defaults_and_preserves_domain_scope(monkeypatch: pytest.Monke
 async def test_seed_keeps_existing_database_values_and_is_repeatable() -> None:
     factory = FakeUnitOfWorkFactory()
     existing = initialization.build_defaults()
-    model = next(p for p in existing if p.key == "openrouter_model")
+    model = next(p for p in existing if p.key == "llm_model")
     model.value = "preserved-db-model"
     scoped = next(p for p in existing if p.key == "legal_chunk_max_tokens")
     scoped.value = "1777"
@@ -151,7 +149,7 @@ async def test_seed_keeps_existing_database_values_and_is_repeatable() -> None:
     rows = await factory._uow.fake_config_parameters.get_all()
     assert len(rows) == len(existing)
     values = {(p.key, p.domain_key): p.value for p in rows}
-    assert values[("openrouter_model", None)] == model.value
+    assert values[("llm_model", None)] == model.value
     assert values[("legal_chunk_max_tokens", DocDomain.LEGAL)] == scoped.value
 
 

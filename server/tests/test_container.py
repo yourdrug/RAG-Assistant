@@ -338,7 +338,7 @@ class TestSubscribeConfigEvents:
             handlers = [call[0][1] for call in mock_bus.subscribe.call_args_list]
 
             llm_event = ConfigParameterChanged(
-                key="openrouter_model", old_value="a", new_value="b", value_type="str"
+                key="llm_model", old_value="a", new_value="b", value_type="str"
             )
 
             for h in handlers:

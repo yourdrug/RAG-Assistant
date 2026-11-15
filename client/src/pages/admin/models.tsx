@@ -7,14 +7,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/sha
 import { Skeleton } from "@/shared/ui/skeleton";
 
 interface ModelsInfo {
-  llm_provider: string;
+  llm_base_url: string;
   llm_model: string;
+  llm_auxiliary_model: string;
+  llm_api_key_configured: boolean;
   embed_model: string;
   rerank_model: string;
   ml_provider: string;
   ocr_engine: string;
   ocr_enabled: boolean;
-  openrouter_model: string | null;
 }
 
 export function AdminModelsPage() {
@@ -48,16 +49,16 @@ export function AdminModelsPage() {
 
   const models = [
     {
-      title: "LLM Provider",
-      value: "OpenRouter (Cloud)",
+      title: "LLM Endpoint",
+      value: data?.llm_base_url,
       icon: Cloud,
-      description: "Active LLM provider",
+      description: "OpenAI-compatible API",
     },
     {
       title: "LLM Model",
-      value: data?.openrouter_model,
+      value: data?.llm_model,
       icon: Brain,
-      description: "Cloud model via OpenRouter",
+      description: `Auxiliary: ${data?.llm_auxiliary_model ?? "—"}`,
     },
     {
       title: "Embedding Model",
@@ -96,7 +97,7 @@ export function AdminModelsPage() {
                 <Icon className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-lg font-semibold">{m.value}</div>
+                <div className="break-all text-lg font-semibold">{m.value}</div>
                 <p className="text-xs text-muted-foreground mt-1">{m.description}</p>
               </CardContent>
             </Card>
@@ -104,30 +105,38 @@ export function AdminModelsPage() {
         })}
       </div>
 
-      {data?.llm_provider === "openrouter" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>OpenRouter Configuration</CardTitle>
-            <CardDescription>Cloud LLM API settings</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-sm text-muted-foreground">Active Model</span>
-                <span className="text-sm font-medium">{data?.openrouter_model}</span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-sm text-muted-foreground">API Endpoint</span>
-                <span className="text-sm font-medium">https://openrouter.ai/api/v1</span>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-sm text-muted-foreground">Status</span>
-                <Badge variant="success">Connected</Badge>
-              </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>LLM Endpoint</CardTitle>
+          <CardDescription>
+            Change the URL and models in Settings → Model connections
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="flex justify-between gap-4 border-b pb-2">
+              <span className="text-sm text-muted-foreground">API Endpoint</span>
+              <span className="break-all text-right text-sm font-medium">{data?.llm_base_url}</span>
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <div className="flex justify-between gap-4 border-b pb-2">
+              <span className="text-sm text-muted-foreground">Answer Model</span>
+              <span className="break-all text-right text-sm font-medium">{data?.llm_model}</span>
+            </div>
+            <div className="flex justify-between gap-4 border-b pb-2">
+              <span className="text-sm text-muted-foreground">Auxiliary Model</span>
+              <span className="break-all text-right text-sm font-medium">
+                {data?.llm_auxiliary_model}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4 border-b pb-2">
+              <span className="text-sm text-muted-foreground">API Key (LLM_API_KEY)</span>
+              <Badge variant={data?.llm_api_key_configured ? "success" : "secondary"}>
+                {data?.llm_api_key_configured ? "••••••• set" : "Not set"}
+              </Badge>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

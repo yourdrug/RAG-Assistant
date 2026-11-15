@@ -16,5 +16,4 @@ class HealthResponse(BaseModel):
     version: str
     uptime_seconds: float
     checks: dict[str, HealthCheck]
-    llm_provider: str
     background_jobs: dict[str, int]

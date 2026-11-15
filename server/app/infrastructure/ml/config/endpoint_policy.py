@@ -10,15 +10,16 @@ ENDPOINT_KEYS = frozenset(
     {
         "tei_embed_url",
         "tei_rerank_url",
-        "openrouter_base_url",
-        "openai_compatible_base_url",
+        "llm_base_url",
         "deepinfra_base_url",
     }
 )
 CLOUD_ORIGINS = {
-    "openrouter_base_url": "https://openrouter.ai:443",
     "deepinfra_base_url": "https://api.deepinfra.com:443",
 }
+# The LLM key is forwarded to this endpoint, so it is limited to deployment-approved
+# origins: external ones from LLM_ALLOWED_ORIGINS plus internal ML services.
+LLM_ENDPOINT_KEY = "llm_base_url"
 
 
 FIRST_PRINTABLE_CODEPOINT = 32
@@ -53,6 +54,7 @@ def endpoint_origin(value: str) -> str:
 
 def validate_endpoints(candidate: EndpointSettings) -> None:
     internal = {endpoint_origin(value) for value in candidate.ml_internal_allowed_origins}
+    llm_allowed = internal | {endpoint_origin(value) for value in candidate.llm_allowed_origins}
 
     for key in ENDPOINT_KEYS:
         value = getattr(candidate, key)
@@ -62,7 +64,13 @@ def validate_endpoints(candidate: EndpointSettings) -> None:
             continue
 
         origin = endpoint_origin(value)
-        allowed = {CLOUD_ORIGINS[key]} if key in CLOUD_ORIGINS else internal
+
+        if key in CLOUD_ORIGINS:
+            allowed = {CLOUD_ORIGINS[key]}
+        elif key == LLM_ENDPOINT_KEY:
+            allowed = llm_allowed
+        else:
+            allowed = internal
 
         if origin not in allowed:
             message = f"ML endpoint origin is not deployment-approved: {key}"

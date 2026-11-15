@@ -17,7 +17,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 from openai.types.chat import ChatCompletion
 import pytest
 
-from application.runtime.enums import LLMProvider
 from domain.rag.breadth import Breadth
 from domain.rag.classification import classify_question_breadth, needs_decomposition, should_enumerate_cases
 from infrastructure.ml.ingestion import docx_table_to_markdown, pymupdf_table_to_markdown
@@ -531,20 +530,14 @@ class TestCheckRelevance:
         assert create.await_count == 2
         assert "Field required" in str(create.call_args.kwargs["messages"])
 
-    @pytest.mark.parametrize("provider", list(LLMProvider))
-    def test_timeout_identifies_stage_model_and_limit(
-        self, monkeypatch: pytest.MonkeyPatch, provider: LLMProvider
-    ) -> None:
+    def test_timeout_identifies_stage_model_and_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
 
         client = MagicMock()
         client.chat.completions.create = AsyncMock(side_effect=TimeoutError())
         monkeypatch.setattr(
             "config.settings",
             SimpleNamespace(
-                llm_provider=provider.value,
                 llm_model="test-model",
-                openrouter_model="test-model",
-                active_llm_model="test-model",
                 active_auxiliary_model="test-model",
                 llm_auxiliary_timeout=30,
                 llm_num_predict_narrow=400,
@@ -559,7 +552,7 @@ class TestCheckRelevance:
             )
 
         assert "relevance gate" in str(raised.value)
-        assert f"provider={provider.value}, model=test-model" in str(raised.value)
+        assert "(model=test-model, " in str(raised.value)
         assert "LLM_AUXILIARY_TIMEOUT=30s" in str(raised.value)
         assert isinstance(raised.value.__cause__, TimeoutError)
 
@@ -583,8 +576,7 @@ class TestCheckRelevance:
             patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = MagicMock(value="openrouter")
-            mock_settings.openrouter_model = "test-model"
+            mock_settings.llm_model = "test-model"
             mock_settings.llm_auxiliary_timeout = 30
             result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
             assert result[0] is True
@@ -605,8 +597,7 @@ class TestCheckRelevance:
             patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = MagicMock(value="openrouter")
-            mock_settings.openrouter_model = "test-model"
+            mock_settings.llm_model = "test-model"
             mock_settings.llm_auxiliary_timeout = 30
             result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
             assert result[0] is False
@@ -704,9 +695,7 @@ class TestAssessSufficiency:
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
         with patch("config.settings") as mock_settings:
-            mock_settings.llm_provider = LLMProvider.OPENROUTER
-            mock_settings.openrouter_model = "qwen2.5"
-            mock_settings.active_llm_model = "qwen2.5"
+            mock_settings.llm_model = "qwen2.5"
             mock_settings.active_auxiliary_model = "qwen2.5"
             mock_settings.llm_auxiliary_timeout = 30
 
@@ -715,7 +704,7 @@ class TestAssessSufficiency:
             call_kwargs = mock_client.chat.completions.create.call_args
             assert call_kwargs.kwargs["model"] == "qwen2.5"
 
-    def test_openrouter_provider_uses_openrouter_model(self) -> None:
+    def test_sufficiency_uses_auxiliary_model(self) -> None:
 
         mock_result = MagicMock()
         mock_result.is_sufficient = False
@@ -736,9 +725,7 @@ class TestAssessSufficiency:
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
         with patch("config.settings") as mock_settings:
-            mock_settings.llm_provider = LLMProvider.OPENROUTER
-            mock_settings.openrouter_model = "qwen/qwen-2.5-7b-instruct"
-            mock_settings.active_llm_model = "qwen/qwen-2.5-7b-instruct"
+            mock_settings.llm_model = "qwen/qwen-2.5-7b-instruct"
             mock_settings.active_auxiliary_model = "qwen/qwen-2.5-7b-instruct"
             mock_settings.llm_auxiliary_timeout = 30
 
@@ -1140,8 +1127,7 @@ class TestCircuitBreakerIntegration:
             patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = MagicMock(value="openrouter")
-            mock_settings.openrouter_model = "test"
+            mock_settings.llm_model = "test"
             mock_settings.llm_auxiliary_timeout = 30
             doc = MagicMock()
             doc.page_content = "context"
@@ -1169,8 +1155,7 @@ class TestCircuitBreakerIntegration:
             patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = MagicMock(value="openrouter")
-            mock_settings.openrouter_model = "test"
+            mock_settings.llm_model = "test"
             mock_settings.llm_auxiliary_timeout = 30
             doc = MagicMock()
             doc.page_content = "context"

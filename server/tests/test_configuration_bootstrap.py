@@ -16,7 +16,7 @@ from application.admin import ConfigService
 from application.health.ports import HealthCheckResult
 from application.health.service import HealthService
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
-from application.runtime.enums import AppStage, HealthStatus, LLMProvider
+from application.runtime.enums import AppStage, HealthStatus
 from composition.cli.commands import config, ingest, worker
 from config import Settings, settings
 from domain.ingestion.profiles.contract import ContractDomainProfile
@@ -68,9 +68,9 @@ def configuration() -> SettingsProviderConfiguration:
 
 
 def test_seed_uses_declared_defaults_not_mutated_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "openrouter_model", "already-applied-model")
+    monkeypatch.setattr(settings, "llm_model", "already-applied-model")
     rows = {p.key: p.value for p in initialization.build_defaults()}
-    assert rows["openrouter_model"] == "qwen/qwen-2.5-7b-instruct"
+    assert rows["llm_model"] == "qwen/qwen-2.5-7b-instruct"
     assert "s3_secret_key" not in rows
 
 
@@ -109,11 +109,11 @@ def test_bad_snapshot_keeps_entire_previous_state_and_safe_error(
     configuration: SettingsProviderConfiguration, rows: list[ConfigParameter]
 ) -> None:
     configuration.settings.deepinfra_api_key = SecretStr("")
-    configuration.apply([row("openrouter_model", "previous-model")])
+    configuration.apply([row("llm_model", "previous-model")])
     previous_version = configuration.status().applied_version
     with pytest.raises(ValidationError):
-        configuration.apply([row("openrouter_model", "next-model"), *rows])
-    assert configuration.settings.openrouter_model == "previous-model"
+        configuration.apply([row("llm_model", "next-model"), *rows])
+    assert configuration.settings.llm_model == "previous-model"
     status = configuration.status()
     assert status.applied_version == previous_version
     assert status.saved_version != previous_version
@@ -130,14 +130,14 @@ def test_domain_and_global_snapshot_apply_before_reactions(
         ConfigParameterChanged,
         lambda _event: observed.append(
             (
-                configuration.settings.openrouter_model,
+                configuration.settings.llm_model,
                 require_present(configuration.domain_settings).get("fingerprint_min_articles", "legal"),
             )
         ),
     )
     configuration.apply(
         [
-            row("openrouter_model", "db-model"),
+            row("llm_model", "db-model"),
             row("fingerprint_min_articles", "7", ConfigValueType.INT, "legal"),
         ]
     )
@@ -152,7 +152,7 @@ def test_subscriber_failure_is_not_reported_as_applied(configuration: SettingsPr
 
     configuration.bus.subscribe(ConfigParameterChanged, broken)
     with pytest.raises(RuntimeError):
-        configuration.apply([row("openrouter_model", "db-model")])
+        configuration.apply([row("llm_model", "db-model")])
     status = configuration.status()
     assert not status.ready
     assert status.applied_version is None
@@ -165,28 +165,32 @@ async def test_restart_and_lost_notify_load_latest_writer_snapshot(
 ) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    await factory._uow.fake_config_parameters.save(row("openrouter_model", "first"))
+    await factory._uow.fake_config_parameters.save(row("llm_model", "first"))
     listener = PostgresConfigListener(factory, configuration=configuration, database=MagicMock())
     await listener.resync()
-    assert configuration.settings.openrouter_model == "first"
-    await factory._uow.fake_config_parameters.update_value("openrouter_model", "latest")
+    assert configuration.settings.llm_model == "first"
+    await factory._uow.fake_config_parameters.update_value("llm_model", "latest")
     # Delayed/duplicate old NOTIFY must reread the writer, never replay stale values.
-    listener.on_notify('{"key":"openrouter_model","new_value":"stale","value_type":"str"}')
+    listener.on_notify('{"key":"llm_model","new_value":"stale","value_type":"str"}')
     await asyncio.gather(*listener.transport.background_tasks)
-    assert configuration.settings.openrouter_model == "latest"
-    configuration.settings.openrouter_model = "restarted-process-default"
+    assert configuration.settings.llm_model == "latest"
+    configuration.settings.llm_model = "restarted-process-default"
     await listener.resync(trigger="periodic")
-    assert configuration.settings.openrouter_model == "latest"
+    assert configuration.settings.llm_model == "latest"
     assert configuration.status().ready
     await listener.stop()
 
 
-def test_provider_change_rejected_before_commit_without_required_key(
-    configuration: SettingsProviderConfiguration,
+@pytest.mark.parametrize(
+    "key, value",
+    [("llm_base_url", "https://attacker.example/v1"), ("llm_base_url", ""), ("llm_model", "")],
+)
+def test_llm_endpoint_change_rejected_before_commit(
+    configuration: SettingsProviderConfiguration, key: str, value: str
 ) -> None:
-    configuration.settings.openrouter_api_key = SecretStr("")
+    # The env-owned key is forwarded to llm_base_url: unapproved origins must never apply.
     with pytest.raises(ValidationError):
-        configuration.validate_change("llm_provider", LLMProvider.OPENROUTER.value)
+        configuration.validate_change(key, value)
 
 
 @pytest.mark.asyncio
@@ -195,13 +199,12 @@ async def test_service_validates_provider_before_any_database_write(
 ) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    saved = row("llm_provider", LLMProvider.OPENROUTER.value)
+    saved = row("llm_base_url", "https://openrouter.ai/api/v1")
     await factory._uow.fake_config_parameters.save(saved)
-    configuration.settings.openrouter_api_key = SecretStr("")
     service = ConfigService(factory, configuration.bus, configuration)
     with pytest.raises(ValidationError):
-        await service.update_parameter("llm_provider", LLMProvider.OPENROUTER.value)
-    assert saved.value == LLMProvider.OPENROUTER.value
+        await service.update_parameter("llm_base_url", "https://attacker.example/v1")
+    assert saved.value == "https://openrouter.ai/api/v1"
 
 
 @pytest.mark.asyncio
@@ -210,14 +213,14 @@ async def test_status_reports_database_version_ahead_of_local_applied_snapshot(
 ) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    saved = row("openrouter_model", "first")
+    saved = row("llm_model", "first")
     await factory._uow.fake_config_parameters.save(saved)
     configuration.apply([saved])
-    await factory._uow.fake_config_parameters.update_value("openrouter_model", "remote-update")
+    await factory._uow.fake_config_parameters.update_value("llm_model", "remote-update")
     status = await ConfigService(factory, configuration.bus, configuration).configuration_status()
     assert status.saved_version != status.applied_version
     assert not status.ready
-    assert configuration.settings.openrouter_model == "first"
+    assert configuration.settings.llm_model == "first"
 
 
 @pytest.mark.asyncio
@@ -226,7 +229,7 @@ async def test_concurrent_resync_cannot_replay_an_older_snapshot(
 ) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    await factory._uow.fake_config_parameters.save(row("openrouter_model", "old"))
+    await factory._uow.fake_config_parameters.save(row("llm_model", "old"))
     started, release = asyncio.Event(), asyncio.Event()
     original = factory._uow.fake_config_parameters.get_all
     calls = 0
@@ -238,7 +241,7 @@ async def test_concurrent_resync_cannot_replay_an_older_snapshot(
 
         if calls == 1:
             # Return independent rows to model READ COMMITTED snapshots.
-            result = [row("openrouter_model", "old")]
+            result = [row("llm_model", "old")]
             started.set()
             await release.wait()
 
@@ -248,11 +251,11 @@ async def test_concurrent_resync_cannot_replay_an_older_snapshot(
     listener = PostgresConfigListener(factory, configuration=configuration, database=MagicMock())
     first = asyncio.create_task(listener.synchronize())
     await started.wait()
-    await factory._uow.fake_config_parameters.update_value("openrouter_model", "new")
+    await factory._uow.fake_config_parameters.update_value("llm_model", "new")
     second = asyncio.create_task(listener.synchronize())
     release.set()
     await asyncio.gather(first, second)
-    assert configuration.settings.openrouter_model == "new"
+    assert configuration.settings.llm_model == "new"
 
 
 @pytest.mark.asyncio
@@ -337,7 +340,7 @@ async def test_readiness_rejects_failed_configuration_snapshot(
     probes = SimpleNamespace(
         **{
             name: AsyncMock(return_value=HealthCheckResult(HealthStatus.OK.value))
-            for name in ("check_qdrant", "check_postgres", "check_redis", "check_openrouter")
+            for name in ("check_qdrant", "check_postgres", "check_redis", "check_llm")
         },
         check_tei=AsyncMock(return_value={}),
     )
@@ -345,9 +348,7 @@ async def test_readiness_rejects_failed_configuration_snapshot(
         FakeUnitOfWorkFactory(),
         probes,
         SimpleNamespace(is_connected=True),
-        SimpleNamespace(
-            ml_provider="tei", llm_provider=LLMProvider.OPENROUTER.value, version="test", uptime_seconds=1
-        ),
+        SimpleNamespace(ml_provider="tei", version="test", uptime_seconds=1),
         configuration=configuration,
         corpus_control=SimpleNamespace(is_ready=AsyncMock(return_value=corpus_ready))
         if corpus_ready is not None
@@ -355,7 +356,7 @@ async def test_readiness_rejects_failed_configuration_snapshot(
     )
 
     if corpus_ready is not None:
-        configuration.apply([row("openrouter_model", "ready-model")])
+        configuration.apply([row("llm_model", "ready-model")])
 
     result = await service.check()
 
@@ -379,7 +380,7 @@ async def test_configuration_status_endpoint_is_admin_only_and_contains_no_secre
     app = FastAPI()
     app.include_router(router)
     factory = FakeUnitOfWorkFactory()
-    await factory._uow.fake_config_parameters.save(row("openrouter_model", "saved-model"))
+    await factory._uow.fake_config_parameters.save(row("llm_model", "saved-model"))
 
     async def service_dependency() -> ConfigService:
         return ConfigService(factory, configuration.bus, cast("ProviderConfigurationPort", configuration))
@@ -410,7 +411,7 @@ def test_domain_invalid_value_is_rejected_before_update(configuration: SettingsP
     with pytest.raises(ValidationError):
         configuration.validate_domain_change("fingerprint_min_articles", "-1", "legal")
     with pytest.raises(ValidationError):
-        configuration.validate_domain_change("openrouter_model", "other", "legal")
+        configuration.validate_domain_change("llm_model", "other", "legal")
 
 
 def test_missing_snapshot_key_after_bootstrap_does_not_silently_keep_stale_value(
@@ -440,7 +441,7 @@ def test_missing_snapshot_key_after_bootstrap_does_not_silently_keep_stale_value
 
     configuration.apply(complete, require_complete=True)
     with pytest.raises(ValidationError):
-        configuration.apply([item for item in complete if item.key != "openrouter_model"])
+        configuration.apply([item for item in complete if item.key != "llm_model"])
     assert not configuration.status().ready
 
 
@@ -455,7 +456,7 @@ async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database
     monkeypatch.setattr(infra, "init", lambda _database: setattr(infra, "_initialized", True))
     await require_present(
         cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
-    ).save(row("openrouter_model", "cli-db-model"))
+    ).save(row("llm_model", "cli-db-model"))
     await require_present(
         cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
     ).save(row("retriever_top_k", "garbage" if malformed else "7", ConfigValueType.INT))
@@ -472,15 +473,13 @@ async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database
         with pytest.raises(ValidationError):
             await config.run_config_resync()
         assert (
-            require_present(require_present(infra.configuration).settings).openrouter_model
+            require_present(require_present(infra.configuration).settings).llm_model
             == "qwen/qwen-2.5-7b-instruct"
         )
     else:
         status = await config.run_config_resync()
         assert status.ready
-        assert (
-            require_present(require_present(infra.configuration).settings).openrouter_model == "cli-db-model"
-        )
+        assert require_present(require_present(infra.configuration).settings).llm_model == "cli-db-model"
         assert require_present(infra.domain_settings).get("fingerprint_min_articles", "legal") == "9"
 
     assert not infra._initialized

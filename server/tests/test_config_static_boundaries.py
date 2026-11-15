@@ -70,16 +70,14 @@ def test_ml_provider_comes_from_deployment_and_ignores_legacy_database_row(
 def test_dynamic_environment_and_dotenv_are_ignored_but_constructor_kwargs_work(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("OPENROUTER_MODEL", "legacy-env-model")
+    monkeypatch.setenv("LLM_MODEL", "legacy-env-model")
     monkeypatch.setenv("OCR_LANG_SURYA", "not-json")
     env = tmp_path / ".env"
-    env.write_text(
-        "OPENROUTER_MODEL=legacy-dotenv-model\nOCR_LANG_SURYA=not-json\nCURATOR_SCOPE_MAX_IDS=42\n"
-    )
+    env.write_text("LLM_MODEL=legacy-dotenv-model\nOCR_LANG_SURYA=not-json\nCURATOR_SCOPE_MAX_IDS=42\n")
     model = Settings(_env_file=env)
-    assert model.openrouter_model == "qwen/qwen-2.5-7b-instruct"
+    assert model.llm_model == "qwen/qwen-2.5-7b-instruct"
     assert model.curator_scope_max_ids == 42
-    assert Settings(_env_file=env, openrouter_model="explicit-model").openrouter_model == "explicit-model"
+    assert Settings(_env_file=env, llm_model="explicit-model").llm_model == "explicit-model"
 
 
 def test_removed_classifier_threshold_in_env_and_dotenv_is_ignored(

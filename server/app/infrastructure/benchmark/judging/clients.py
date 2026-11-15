@@ -7,15 +7,13 @@ import httpx
 import instructor
 from openai import AsyncOpenAI, OpenAI
 
-from application.runtime.enums import LLMProvider
 from config import BenchmarkSection, LLMSection, process_section
 from infrastructure.benchmark.judging.token_usage import record_judge_usage
-from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.clients.instructor_client import NO_API_KEY
 from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
 
 
-_judge_client_cache: dict[tuple[str, str, str], ManagedSyncInstructor] = {}
+_judge_client_cache: dict[tuple[str, str], ManagedSyncInstructor] = {}
 
 
 _judge_client_lock = threading.Lock()
@@ -25,28 +23,22 @@ RETIRED_JUDGE_CLIENTS: set[ManagedSyncInstructor] = set()
 
 
 def get_judge_model() -> str:
-    """Resolve the judge model: explicit setting > provider's fast/auxiliary model."""
+    """Resolve the judge model: explicit setting > the endpoint's auxiliary model."""
     benchmark_settings = process_section(BenchmarkSection)
 
     if benchmark_settings.benchmark_judge_model:
         return benchmark_settings.benchmark_judge_model
 
-    llm_settings = process_section(LLMSection)
-
-    if llm_settings.llm_provider == LLMProvider.OPENAI_COMPATIBLE.value:
-        return llm_settings.active_auxiliary_model
-
-    # OpenRouter: use fast/cheap model for judge calls
-    return FAST_OPENROUTER_MODEL
+    return process_section(LLMSection).active_auxiliary_model
 
 
 def judge_endpoint(llm_settings: LLMSection) -> tuple[str, str]:
-    """Judge calls follow the active LLM provider so a local setup never leaks data to OpenRouter.
+    """Judge calls follow the configured LLM endpoint so a local setup never leaks data elsewhere.
 
     Returns ``(base_url, api_key)``.
     """
-    api_key = llm_settings.active_llm_api_key.get_secret_value() or NO_API_KEY
-    return llm_settings.active_llm_base_url, api_key
+    api_key = llm_settings.llm_api_key.get_secret_value() or NO_API_KEY
+    return llm_settings.llm_base_url, api_key
 
 
 def get_judge_client(model: str) -> ManagedSyncInstructor:
@@ -57,7 +49,7 @@ def get_judge_client(model: str) -> ManagedSyncInstructor:
     """
     snapshot = process_section(LLMSection).model_copy()
     base_url, api_key = judge_endpoint(snapshot)
-    key = (snapshot.llm_provider, base_url, model)
+    key = (base_url, model)
     with _judge_client_lock:
         RETIRED_JUDGE_CLIENTS.difference_update(
             [client for client in RETIRED_JUDGE_CLIENTS if client.is_closed]
@@ -67,7 +59,7 @@ def get_judge_client(model: str) -> ManagedSyncInstructor:
         if cached is not None:
             return cached
 
-        stale = [item for item in _judge_client_cache if item[:2] != key[:2]]
+        stale = [item for item in _judge_client_cache if item[0] != base_url]
 
         for item in stale:
             retired = _judge_client_cache.pop(item)

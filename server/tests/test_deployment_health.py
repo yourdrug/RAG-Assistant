@@ -24,7 +24,7 @@ def health_service() -> tuple[HealthService, SimpleNamespace]:
     probe = SimpleNamespace(
         **{
             name: AsyncMock(return_value=HealthCheckResult(status=HealthStatus.OK.value))
-            for name in ("check_qdrant", "check_postgres", "check_redis", "check_openrouter")
+            for name in ("check_qdrant", "check_postgres", "check_redis", "check_llm")
         },
         check_tei=AsyncMock(
             return_value={
@@ -37,7 +37,7 @@ def health_service() -> tuple[HealthService, SimpleNamespace]:
         FakeUnitOfWorkFactory(),
         probe,
         SimpleNamespace(is_connected=True),
-        SimpleNamespace(version="test", uptime_seconds=1, llm_provider="openrouter", ml_provider="tei"),
+        SimpleNamespace(version="test", uptime_seconds=1, ml_provider="tei"),
     )
     return service, probe
 
@@ -45,7 +45,7 @@ def health_service() -> tuple[HealthService, SimpleNamespace]:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failed_check",
-    [None, "check_postgres", "check_qdrant", "check_redis", "check_openrouter", "tei_embed", "tei_rerank"],
+    [None, "check_postgres", "check_qdrant", "check_redis", "check_llm", "tei_embed", "tei_rerank"],
 )
 async def test_readiness_dependency_failure(
     health_service: tuple[HealthService, SimpleNamespace], failed_check: str | None

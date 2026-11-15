@@ -140,7 +140,7 @@ async def test_worker_uses_saved_judge_instead_of_main_model(
     monkeypatch.setattr(factory._uow.fake_benchmark_sweeps, "get_by_id", AsyncMock(return_value=saved))
     engine = SimpleNamespace(run_sweep=AsyncMock(return_value=[]))
     monkeypatch.setattr(worker, "publish_sweep_event", AsyncMock())
-    monkeypatch.setattr(settings, "openrouter_model", "main-model")
+    monkeypatch.setattr(settings, "llm_model", "main-model")
     monkeypatch.setattr(settings, "benchmark_judge_model", configured)
 
     async def run_action(factory: object, job_id: object, action: Any, **kwargs: Any) -> None:

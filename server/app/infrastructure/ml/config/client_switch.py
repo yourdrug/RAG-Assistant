@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 import httpx
 
-from application.runtime.enums import LLMProvider, MLProvider
+from application.runtime.enums import MLProvider
 from domain.shared.exceptions import ValidationError
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client, llm_auth_headers
@@ -51,12 +51,9 @@ def endpoint_availability(*, component: str, allow_unavailable: bool) -> Iterato
 
 LLM_CLIENT_KEYS = frozenset(
     {
-        "openrouter_base_url",
-        "llm_provider",
-        "openrouter_model",
-        "openai_compatible_base_url",
-        "openai_compatible_model",
-        "openai_compatible_auxiliary_model",
+        "llm_base_url",
+        "llm_model",
+        "llm_auxiliary_model",
         "llm_temperature",
         "llm_top_p",
         "llm_num_ctx_narrow",
@@ -148,25 +145,29 @@ def prepare_llm_clients(registry: MLClientRegistry, candidate: Settings, prepare
     if registry.cached_instructor is not None:
         prepared["cached_instructor"] = ManagedInstructor(
             create_async_instructor_client(
-                candidate.active_llm_base_url,
-                candidate.active_llm_api_key.get_secret_value(),
+                candidate.llm_base_url,
+                candidate.llm_api_key.get_secret_value(),
             )
         )
 
 
-LLM_ENDPOINT_KEYS = frozenset({"openrouter_base_url", "openai_compatible_base_url", "llm_provider"})
-# Self-hosted servers serve a fixed model list and context window: re-check them on these changes too.
-LOCAL_LLM_CAPACITY_KEYS = frozenset(
+LLM_ENDPOINT_KEYS = frozenset({"llm_base_url"})
+# Servers that generate but do not implement ``GET /models``; names are then entered manually.
+MODELS_LISTING_UNSUPPORTED = frozenset(
+    {httpx.codes.NOT_FOUND, httpx.codes.METHOD_NOT_ALLOWED, httpx.codes.NOT_IMPLEMENTED}
+)
+# The endpoint serves a fixed model list and context window: re-check them on these changes too.
+LLM_CAPACITY_KEYS = frozenset(
     {
-        "openai_compatible_model",
-        "openai_compatible_auxiliary_model",
+        "llm_model",
+        "llm_auxiliary_model",
         "llm_num_ctx_narrow",
         "llm_num_ctx_broad",
     }
 )
 
 
-def local_llm_capacity_errors(candidate: Settings, payload: object) -> list[str]:
+def llm_capacity_errors(candidate: Settings, payload: object) -> list[str]:
     """Check served models and context window reported by an OpenAI-compatible ``/models``.
 
     vLLM reports ``max_model_len`` per model; servers that omit it (Ollama, LM Studio) are only
@@ -182,9 +183,9 @@ def local_llm_capacity_errors(candidate: Settings, payload: object) -> list[str]
     errors: list[str] = []
     budget = max(candidate.llm_num_ctx_narrow, candidate.llm_num_ctx_broad)
 
-    for model in dict.fromkeys((candidate.openai_compatible_model, candidate.active_auxiliary_model)):
+    for model in dict.fromkeys((candidate.llm_model, candidate.active_auxiliary_model)):
         if model not in served:
-            errors.append(f"OpenAI-compatible server does not serve model {model!r}")
+            errors.append(f"LLM endpoint does not serve model {model!r}")
             continue
 
         window = served[model].get("max_model_len")
@@ -200,27 +201,39 @@ def local_llm_capacity_errors(candidate: Settings, payload: object) -> list[str]
 
 
 async def probe_llm_endpoint(candidate: Settings, keys: set[str], prepared: dict[str, object]) -> None:
-    local = candidate.llm_provider == LLMProvider.OPENAI_COMPATIBLE.value
-    trigger = LLM_ENDPOINT_KEYS | LOCAL_LLM_CAPACITY_KEYS if local else LLM_ENDPOINT_KEYS
-
-    if not keys & trigger:
+    if not keys & (LLM_ENDPOINT_KEYS | LLM_CAPACITY_KEYS):
         return
 
     if prepared["cached_llm"] is None:
         prepared["cached_llm"] = ManagedLLM(factories.create_llm(model=candidate))
 
+    # The origin is already approved by endpoint_policy; this probe only checks reachability,
+    # credentials and the served model list.
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         response = await client.get(
-            f"{candidate.active_llm_base_url.rstrip('/')}/models",
-            headers=llm_auth_headers(candidate.active_llm_api_key),
+            f"{candidate.llm_base_url.rstrip('/')}/models",
+            headers=llm_auth_headers(candidate.llm_api_key),
         )
-        response.raise_for_status()
 
-    if local:
-        errors = local_llm_capacity_errors(candidate, response.json())
+    if response.status_code in MODELS_LISTING_UNSUPPORTED:
+        log.warning(
+            "LLM endpoint does not list models (HTTP %s); model names are not verified",
+            response.status_code,
+        )
+        return
 
-        if errors:
-            raise ValidationError("; ".join(errors))
+    response.raise_for_status()
+
+    try:
+        payload = response.json()
+    except ValueError:
+        log.warning("LLM endpoint returned a non-JSON model list; model names are not verified")
+        return
+
+    errors = llm_capacity_errors(candidate, payload)
+
+    if errors:
+        raise ValidationError("; ".join(errors))
 
 
 async def probe_embedding_endpoint(

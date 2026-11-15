@@ -109,6 +109,62 @@ def test_baseline_round_trip_matches_metadata(migration_connection: Connection) 
     command.check(config)
 
 
+def config_rows(connection: Connection) -> dict[str, str]:
+    rows = connection.execute(text("SELECT key, value FROM config_parameters WHERE domain_key IS NULL"))
+    return {row.key: row.value for row in rows}
+
+
+def insert_config_rows(connection: Connection, values: dict[str, str]) -> None:
+    for key, value in values.items():
+        connection.execute(
+            text("INSERT INTO config_parameters (key, value, category) VALUES (:key, :value, 'legacy')"),
+            {"key": key, "value": value},
+        )
+
+
+@pytest.mark.parametrize(
+    "legacy, expected",
+    [
+        (
+            {
+                "llm_provider": "openai_compatible",
+                "openrouter_model": "cloud-model",
+                "openai_compatible_base_url": "http://vllm:8000/v1",
+                "openai_compatible_model": "local-model",
+                "openai_compatible_auxiliary_model": "small-model",
+            },
+            {
+                "llm_base_url": "http://vllm:8000/v1",
+                "llm_model": "local-model",
+                "llm_auxiliary_model": "small-model",
+            },
+        ),
+        (
+            {
+                "llm_provider": "openrouter",
+                "openrouter_base_url": "https://openrouter.ai/api/v1",
+                "openrouter_model": "cloud-model",
+                "openai_compatible_model": "local-model",
+            },
+            {"llm_base_url": "https://openrouter.ai/api/v1", "llm_model": "cloud-model"},
+        ),
+    ],
+)
+def test_unified_llm_endpoint_migration_keeps_active_provider(
+    migration_connection: Connection, legacy: dict[str, str], expected: dict[str, str]
+) -> None:
+    config = Config("alembic.ini")
+    config.attributes["connection"] = migration_connection
+    command.upgrade(config, "0009")
+    insert_config_rows(migration_connection, legacy)
+    command.upgrade(config, "0010")
+    assert config_rows(migration_connection) == expected
+    command.downgrade(config, "0009")
+    restored = config_rows(migration_connection)
+    assert restored["llm_provider"] == legacy["llm_provider"]
+    assert not set(restored) & {"llm_base_url", "llm_model", "llm_auxiliary_model"}
+
+
 @pytest.mark.asyncio
 async def test_baseline_supports_idempotent_configuration_bootstrap(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)

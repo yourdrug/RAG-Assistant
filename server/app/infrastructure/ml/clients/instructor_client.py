@@ -83,9 +83,9 @@ def create_llm_instructor_client(model: str | None = None) -> tuple[Instructor, 
     llm_settings = process_section(LLMSection)
 
     client = create_instructor_client(
-        base_url=llm_settings.active_llm_base_url,
-        api_key=llm_settings.active_llm_api_key.get_secret_value(),
+        base_url=llm_settings.llm_base_url,
+        api_key=llm_settings.llm_api_key.get_secret_value(),
     )
-    resolved_model = model or llm_settings.active_llm_model
+    resolved_model = model or llm_settings.llm_model
 
     return client, resolved_model

@@ -26,8 +26,8 @@ async def replay(snapshot: dict) -> dict:
         model=runtime["model"],
         temperature=runtime["temperature"],
         max_tokens=runtime["max_tokens"],
-        api_key=settings.openrouter_api_key,
-        base_url=settings.openrouter_base_url,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
         timeout=120,
         max_retries=1,
     )

@@ -21,7 +21,7 @@ def listener() -> PostgresConfigListener:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("payload", ["", "not json", '{"key":"openrouter_model","new_value":"stale"}'])
+@pytest.mark.parametrize("payload", ["", "not json", '{"key":"llm_model","new_value":"stale"}'])
 async def test_notify_reloads_snapshot_regardless_of_payload(
     listener: PostgresConfigListener, monkeypatch: pytest.MonkeyPatch, payload: str
 ) -> None:
@@ -99,7 +99,7 @@ def test_is_connected_false_initially(listener: PostgresConfigListener) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("key,value", [("openrouter_model", "x" * 9000), ("openrouter_api_key", "secret")])
+@pytest.mark.parametrize("key,value", [("llm_model", "x" * 9000), ("llm_api_key", "secret")])
 async def test_broadcast_sends_only_invalidation_in_existing_transaction(key: str, value: str) -> None:
     session = AsyncMock(spec=AsyncSession)
     event = ConfigParameterChanged(key=key, old_value="old", new_value=value, value_type="str")

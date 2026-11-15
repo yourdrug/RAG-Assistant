@@ -1,15 +1,8 @@
-"""Runtime provider, storage, deployment and health constants."""
+"""Runtime ML provider, storage, deployment and health constants."""
 
 from __future__ import annotations
 
 from enum import StrEnum
-
-
-class LLMProvider(StrEnum):
-    """Supported LLM providers."""
-
-    OPENROUTER = "openrouter"
-    OPENAI_COMPATIBLE = "openai_compatible"
 
 
 class MLProvider(StrEnum):

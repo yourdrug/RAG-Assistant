@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 
 
 ENDPOINT_KEYS = (
-    "openrouter_base_url",
+    "llm_base_url",
     "tei_embed_url",
     "tei_rerank_url",
     "deepinfra_base_url",
@@ -156,13 +156,14 @@ def test_invalid_pool_snapshot_is_rejected_before_mutation(model: Settings, key:
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("openrouter_base_url", "https://evil.example/api/v1"),
-        ("openrouter_base_url", "http://openrouter.ai/api/v1"),
+        ("llm_base_url", "https://evil.example/api/v1"),
+        ("llm_base_url", "http://openrouter.ai/api/v1"),
+        ("llm_base_url", "https://openrouter.ai.evil.example/api/v1"),
         ("deepinfra_base_url", "https://api.deepinfra.com.evil.example/v1"),
         ("tei_embed_url", "http://169.254.169.254/latest/meta-data"),
         ("tei_rerank_url", "http://unapproved:8080"),
-        ("openai_compatible_base_url", "http://169.254.169.254/v1"),
-        ("openai_compatible_base_url", "https://api.openai.com.evil.example/v1"),
+        ("llm_base_url", "http://169.254.169.254/v1"),
+        ("llm_base_url", "http://vllm:8000/v1"),
         ("tei_embed_url", "file:///etc/passwd"),
         ("tei_embed_url", "http://user:password@tei-embed:8080"),
         ("tei_embed_url", "http://tei-embed:8080/?token=secret"),
@@ -177,33 +178,33 @@ def test_untrusted_origins_rejected_without_http_request(model: Settings, key: s
 @pytest.mark.parametrize(
     "update,error",
     [
-        ({}, "OPENAI_COMPATIBLE_BASE_URL required"),
-        ({"openai_compatible_base_url": "http://vllm:8000/v1"}, "OPENAI_COMPATIBLE_MODEL required"),
+        ({"llm_base_url": ""}, "LLM_BASE_URL is required"),
+        ({"llm_model": ""}, "LLM_MODEL is required"),
     ],
 )
-def test_openai_compatible_requires_endpoint_and_model(
-    model: Settings, update: dict[str, str], error: str
-) -> None:
-    candidate = model.model_copy(
-        update={"llm_provider": "openai_compatible", "openrouter_api_key": SecretStr(""), **update}
-    )
+def test_llm_endpoint_requires_url_and_model(model: Settings, update: dict[str, str], error: str) -> None:
     with pytest.raises(ValidationError, match=error):
-        validate_provider_credentials(candidate)
+        validate_provider_credentials(model.model_copy(update=update))
 
 
-def test_openai_compatible_needs_no_openrouter_key(model: Settings) -> None:
-    candidate = model.model_copy(
-        update={
-            "llm_provider": "openai_compatible",
-            "openrouter_api_key": SecretStr(""),
-            "openai_compatible_base_url": "http://vllm:8000/v1",
-            "openai_compatible_model": "local",
-        }
-    )
-    validate_provider_credentials(candidate)
+def test_llm_endpoint_needs_no_key(model: Settings) -> None:
+    validate_provider_credentials(model.model_copy(update={"llm_api_key": SecretStr("")}))
 
-    with pytest.raises(ValidationError, match="OPENROUTER_API_KEY required"):
-        validate_provider_credentials(candidate.model_copy(update={"llm_provider": "openrouter"}))
+
+@pytest.mark.parametrize(
+    "allowed, internal, url",
+    [
+        (["https://api.openai.com"], [], "https://api.openai.com/v1"),
+        ([], ["http://vllm:8000"], "http://vllm:8000/v1"),
+    ],
+)
+def test_llm_endpoint_accepts_deployment_approved_origins(
+    model: Settings, allowed: list[str], internal: list[str], url: str
+) -> None:
+    model.llm_allowed_origins = allowed
+    model.ml_internal_allowed_origins = [*model.ml_internal_allowed_origins, *internal]
+    config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
+    config.validate_change("llm_base_url", url)
 
 
 def use_factory_settings(monkeypatch: pytest.MonkeyPatch, model: Settings) -> None:
@@ -601,7 +602,7 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(
     model: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
-    model.openrouter_base_url = "https://openrouter.ai/old/v1"
+    model.llm_base_url = "https://openrouter.ai/old/v1"
     model.ml_internal_allowed_origins += ["https://openrouter.ai/old/v1", "https://openrouter.ai/new/v1"]
     wire_http(monkeypatch, successful_response)
     use_factory_settings(monkeypatch, model)
@@ -616,7 +617,7 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(
     stream = asyncio.create_task(consume())
     await started.wait()
     try:
-        await config.apply_async([row("openrouter_base_url", "https://openrouter.ai/new/v1")])
+        await config.apply_async([row("llm_base_url", "https://openrouter.ai/new/v1")])
         assert (await registry.llm().ainvoke("new")).content == "https://openrouter.ai/new/v1"
         assert (await registry.fast_llm().ainvoke("new")).content == "https://openrouter.ai/new/v1"
         assert (
@@ -831,7 +832,7 @@ def llm_family(
     initial_settings = model
 
     def llm(*_args: object, model: Settings | None = None, **_kwargs: Any) -> LLM:
-        return LLM((model or initial_settings).openrouter_base_url)
+        return LLM((model or initial_settings).llm_base_url)
 
     monkeypatch.setattr(factories, "create_llm", llm)
     monkeypatch.setattr(factories, "create_fast_llm_for_auxiliary", llm)

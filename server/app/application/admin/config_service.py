@@ -170,7 +170,7 @@ class ConfigService:
             ).validate(normalized)
 
         if self._provider_configuration is None and (
-            key in {"ml_provider", "llm_provider", "deepinfra_embed_model", "deepinfra_rerank_model"}
+            key in {"ml_provider", "deepinfra_embed_model", "deepinfra_rerank_model"}
             or key.endswith("_base_url")
             or key in {"tei_embed_url", "tei_rerank_url"}
             or "_http_" in key

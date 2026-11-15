@@ -174,10 +174,6 @@ class LiveHealthSettings:
         return process_section(AppSection).uptime_seconds
 
     @property
-    def llm_provider(self) -> str:
-        return process_section(LLMSection).llm_provider
-
-    @property
     def ml_provider(self) -> str:
         return process_section(MLProviderSection).ml_provider
 
@@ -186,12 +182,20 @@ class LiveConfigAdminSettings:
     """Each property read returns the current value from the global settings singleton."""
 
     @property
-    def llm_provider(self) -> str:
-        return process_section(LLMSection).llm_provider
+    def llm_base_url(self) -> str:
+        return process_section(LLMSection).llm_base_url
 
     @property
     def llm_model(self) -> str:
-        return process_section(LLMSection).active_llm_model
+        return process_section(LLMSection).llm_model
+
+    @property
+    def llm_auxiliary_model(self) -> str:
+        return process_section(LLMSection).active_auxiliary_model
+
+    @property
+    def llm_api_key_configured(self) -> bool:
+        return bool(process_section(LLMSection).llm_api_key.get_secret_value())
 
     @property
     def tei_embed_url(self) -> str:
@@ -220,10 +224,6 @@ class LiveConfigAdminSettings:
     @property
     def ocr_enabled(self) -> bool:
         return process_section(OCRSection).ocr_enabled
-
-    @property
-    def openrouter_model(self) -> str:
-        return process_section(LLMSection).openrouter_model
 
     @property
     def collection_name(self) -> str:

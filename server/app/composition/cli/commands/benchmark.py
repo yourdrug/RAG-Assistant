@@ -51,7 +51,7 @@ async def enqueue_runs(
         raise ValueError(msg)
 
     k = top_k or process_section(RetrievalSection).retriever_top_k
-    judge = judge_model or process_section(LLMSection).active_llm_model
+    judge = judge_model or process_section(LLMSection).llm_model
     jobs = JobService(infra.db.uow)
     job_ids: dict[str, int] = {}
 

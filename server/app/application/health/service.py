@@ -26,7 +26,6 @@ class HealthResponse:
     status: str
     version: str
     uptime_seconds: float
-    llm_provider: str
     checks: dict[str, HealthCheckResult] = field(default_factory=dict)
     background_jobs: dict[str, int] = field(default_factory=dict)
 
@@ -58,9 +57,7 @@ class HealthService:
         )
         active_jobs = await self.count_active_jobs()
 
-        llm_provider = self._settings.llm_provider
-
-        llm_check = await self._probe.check_openrouter()
+        llm_check = await self._probe.check_llm()
 
         config_listener_status = HealthCheckResult(
             status=HealthStatus.OK.value if self._config_listener.is_connected else "error: not connected"
@@ -95,7 +92,6 @@ class HealthService:
             status=overall,
             version=self._settings.version,
             uptime_seconds=self._settings.uptime_seconds,
-            llm_provider=llm_provider,
             checks={
                 **ml_checks,
                 "api": HealthCheckResult(status=HealthStatus.OK.value),

@@ -72,7 +72,7 @@ async def check_relevance(
         except TimeoutError as exc:
             message = (
                 f"RAG relevance gate LLM request timed out "
-                f"(provider={llm_settings.llm_provider}, model={model}, "
+                f"(model={model}, "
                 f"LLM_AUXILIARY_TIMEOUT={llm_settings.llm_auxiliary_timeout}s)"
             )
             raise TimeoutError(message) from exc

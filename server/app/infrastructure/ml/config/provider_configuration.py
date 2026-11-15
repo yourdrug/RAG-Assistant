@@ -25,7 +25,7 @@ from pyrate_limiter.utils import validate_rate_list
 from application.admin import ConfigurationStatus, EffectiveParameter
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType, parse_bool
 from application.runtime.dynamic_params import DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
-from application.runtime.enums import LLMProvider, MLProvider
+from application.runtime.enums import MLProvider
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from config import settings
 from domain.shared.exceptions import ValidationError
@@ -509,30 +509,8 @@ def validate_chunking(candidate: Settings, domain_values: dict[tuple[str, str], 
         raise ValidationError("; ".join(errors))
 
 
-def llm_provider_errors(candidate: Settings) -> list[str]:
-    # Hot-reload candidates bypass Literal validation, so membership is checked explicitly.
-    if candidate.llm_provider not in {provider.value for provider in LLMProvider}:
-        return ["Unknown LLM provider"]
-
-    if candidate.llm_provider == LLMProvider.OPENAI_COMPATIBLE.value:
-        required = {
-            "OPENAI_COMPATIBLE_BASE_URL": candidate.openai_compatible_base_url,
-            "OPENAI_COMPATIBLE_MODEL": candidate.openai_compatible_model,
-        }
-        return [
-            f"{key} required when LLM_PROVIDER=openai_compatible"
-            for key, value in required.items()
-            if not value
-        ]
-
-    if candidate.openrouter_api_key.get_secret_value():
-        return []
-
-    return ["OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter"]
-
-
 def validate_provider_credentials(candidate: Settings) -> None:
-    errors = [*candidate.check_ml_provider(), *llm_provider_errors(candidate)]
+    errors = [*candidate.check_ml_provider(), *candidate.check_llm_endpoint()]
 
     if errors:
         raise ValidationError("; ".join(errors))

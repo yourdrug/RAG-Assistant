@@ -8,7 +8,6 @@ import instructor
 from pydantic import SecretStr
 import pytest
 
-from application.runtime.enums import LLMProvider
 from config import Settings, settings
 from infrastructure.benchmark.judging import clients as judge_clients
 from infrastructure.ml.clients import factories, instructor_client
@@ -16,14 +15,14 @@ from infrastructure.ml.clients import factories, instructor_client
 
 @pytest.fixture
 def constructors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    openrouter = Mock()
-    monkeypatch.setattr(factories, "ChatOpenAI", openrouter)
+    chat_openai = Mock()
+    monkeypatch.setattr(factories, "ChatOpenAI", chat_openai)
     http_client = Mock(return_value="sync")
     async_http_client = Mock(return_value="async")
     monkeypatch.setattr(httpx, "Client", http_client)
     monkeypatch.setattr(httpx, "AsyncClient", async_http_client)
     return SimpleNamespace(
-        openrouter=openrouter, http_client=http_client, async_http_client=async_http_client
+        chat_openai=chat_openai, http_client=http_client, async_http_client=async_http_client
     )
 
 
@@ -31,8 +30,8 @@ def constructors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 def model_settings() -> Settings:
     return settings.model_copy(
         update={
-            "openrouter_model": "remote",
-            "openrouter_api_key": SecretStr("test"),
+            "llm_model": "remote",
+            "llm_api_key": SecretStr("test"),
             "llm_temperature": 0.3,
             "llm_top_p": 0.8,
             "llm_num_predict_narrow": 111,
@@ -45,15 +44,17 @@ def model_settings() -> Settings:
 
 
 @pytest.mark.parametrize("role", list(factories.ChatModelRole))
-def test_openrouter_roles_preserve_options(
+def test_roles_preserve_options(
     constructors: SimpleNamespace, model_settings: Settings, role: factories.ChatModelRole
 ) -> None:
-    factories.build_chat_model(LLMProvider.OPENROUTER, role, model=model_settings)
+    factories.build_chat_model(role, model=model_settings)
     is_broad = role == factories.ChatModelRole.BROAD
     auxiliary = role == factories.ChatModelRole.AUXILIARY
     benchmark = role == factories.ChatModelRole.BENCHMARK
-    options = constructors.openrouter.call_args.kwargs
-    assert options["model_name"] == (factories.FAST_OPENROUTER_MODEL if auxiliary else "remote")
+    options = constructors.chat_openai.call_args.kwargs
+    # An empty auxiliary model reuses the answer model.
+    assert options["model_name"] == "remote"
+    assert options["openai_api_key"].get_secret_value() == "test"
     assert options["max_tokens"] == (200 if auxiliary else 222 if is_broad or benchmark else 111)
     assert options["max_retries"] == 0
     assert options["http_client"] == "sync"
@@ -72,7 +73,7 @@ def test_openrouter_roles_preserve_options(
 
 @pytest.mark.parametrize("role", list(factories.ChatModelRole))
 @pytest.mark.parametrize("auxiliary_model", ["", "small-local"])
-def test_openai_compatible_uses_its_own_endpoint_and_models(
+def test_endpoint_uses_configured_url_and_models(
     constructors: SimpleNamespace,
     model_settings: Settings,
     role: factories.ChatModelRole,
@@ -80,54 +81,35 @@ def test_openai_compatible_uses_its_own_endpoint_and_models(
 ) -> None:
     model = model_settings.model_copy(
         update={
-            "llm_provider": LLMProvider.OPENAI_COMPATIBLE.value,
-            "openai_compatible_base_url": "http://vllm:8000/v1",
-            "openai_compatible_model": "Qwen/Qwen2.5-3B-Instruct",
-            "openai_compatible_auxiliary_model": auxiliary_model,
+            "llm_base_url": "http://vllm:8000/v1",
+            "llm_model": "Qwen/Qwen2.5-3B-Instruct",
+            "llm_auxiliary_model": auxiliary_model,
         }
     )
-    factories.build_chat_model(LLMProvider.OPENAI_COMPATIBLE, role, model=model)
-    options = constructors.openrouter.call_args.kwargs
+    factories.build_chat_model(role, model=model)
+    options = constructors.chat_openai.call_args.kwargs
     auxiliary = role == factories.ChatModelRole.AUXILIARY
     assert options["openai_api_base"] == "http://vllm:8000/v1"
     assert options["model_name"] == (
         (auxiliary_model or "Qwen/Qwen2.5-3B-Instruct") if auxiliary else "Qwen/Qwen2.5-3B-Instruct"
     )
-    # The OpenRouter key must never be forwarded to another provider's endpoint.
-    assert options["openai_api_key"].get_secret_value() == instructor_client.NO_API_KEY
-    assert model.active_llm_base_url == "http://vllm:8000/v1"
-    assert model.active_llm_model == "Qwen/Qwen2.5-3B-Instruct"
     constructors.http_client.assert_called_once_with(follow_redirects=False)
     constructors.async_http_client.assert_called_once_with(follow_redirects=False)
 
 
-def test_openai_compatible_forwards_only_its_own_key(
+def test_keyless_endpoint_gets_placeholder_key(
     constructors: SimpleNamespace, model_settings: Settings
 ) -> None:
-    model = model_settings.model_copy(
-        update={
-            "llm_provider": LLMProvider.OPENAI_COMPATIBLE.value,
-            "openai_compatible_base_url": "http://vllm:8000/v1",
-            "openai_compatible_model": "local",
-            "openai_compatible_api_key": SecretStr("local-key"),
-        }
-    )
-    factories.build_chat_model(LLMProvider.OPENAI_COMPATIBLE, factories.ChatModelRole.DEFAULT, model=model)
-    assert constructors.openrouter.call_args.kwargs["openai_api_key"].get_secret_value() == "local-key"
-    assert model.active_llm_api_key.get_secret_value() == "local-key"
+    model = model_settings.model_copy(update={"llm_api_key": SecretStr("")})
+    factories.build_chat_model(factories.ChatModelRole.DEFAULT, model=model)
+    key = constructors.chat_openai.call_args.kwargs["openai_api_key"]
+    assert key.get_secret_value() == instructor_client.NO_API_KEY
 
 
-def test_retired_provider_is_rejected(constructors: SimpleNamespace) -> None:
-    with pytest.raises(ValueError, match="Unsupported LLM provider"):
-        factories.build_chat_model("ollama", factories.ChatModelRole.DEFAULT)
-    constructors.openrouter.assert_not_called()
-
-
-@pytest.mark.parametrize("provider", list(LLMProvider))
-def test_factory_overrides_and_breadth_fallback(constructors: SimpleNamespace, provider: LLMProvider) -> None:
-    model = settings.model_copy(update={"llm_provider": provider})
+def test_factory_overrides_and_breadth_fallback(constructors: SimpleNamespace) -> None:
+    model = settings.model_copy()
     factories.create_llm(temperature=0, top_p=0, num_ctx=0, num_predict=0, model=model)
-    options = constructors.openrouter.call_args.kwargs
+    options = constructors.chat_openai.call_args.kwargs
     assert options["temperature"] == 0
 
     assert options["max_tokens"] == 0
@@ -138,7 +120,7 @@ def test_factory_overrides_and_breadth_fallback(constructors: SimpleNamespace, p
         num_predict_broad=0,
         model=model,
     )
-    options = constructors.openrouter.call_args.kwargs
+    options = constructors.chat_openai.call_args.kwargs
 
     assert options["max_tokens"] == model.llm_num_predict_broad
 
@@ -146,10 +128,12 @@ def test_factory_overrides_and_breadth_fallback(constructors: SimpleNamespace, p
 def test_judge_and_auxiliary_share_default_model(
     monkeypatch: pytest.MonkeyPatch, constructors: SimpleNamespace
 ) -> None:
-    monkeypatch.setattr(settings, "llm_provider", LLMProvider.OPENROUTER)
+    monkeypatch.setattr(settings, "llm_auxiliary_model", "small")
     monkeypatch.setattr(settings, "benchmark_judge_model", "")
     factories.create_fast_llm_for_auxiliary()
-    assert judge_clients.get_judge_model() == constructors.openrouter.call_args.kwargs["model_name"]
+    assert (
+        judge_clients.get_judge_model() == constructors.chat_openai.call_args.kwargs["model_name"] == "small"
+    )
 
 
 @pytest.mark.parametrize("base_url", ["https://openrouter.ai/api/v1", "http://vllm:8000/v1"])

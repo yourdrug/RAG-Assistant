@@ -35,7 +35,7 @@ S3 или внешнего Qdrant архив из этого скрипта не
 | Что записать | Откуда взять / что сохранить |
 |---|---|
 | Release приложения и образы | Версия приложения, `release.env`, `images.txt`; для точного восстановления — digest образов API/worker и TEI. |
-| Применённая runtime-конфигурация | Значения из admin status/effective, `applied_version`, доменные overrides. Укажите `ml_provider`, `llm_provider`, выбранные модели, `embedding_revision`, `embed_dim` и `collection_name`. |
+| Применённая runtime-конфигурация | Значения из admin status/effective, `applied_version`, доменные overrides. Укажите `ml_provider`, `llm_base_url`, выбранные модели (`llm_model`, `llm_auxiliary_model`), `embedding_revision`, `embed_dim` и `collection_name`. |
 | Локальные TEI-модели | Repo ID и точный Hugging Face commit каждой модели, параметры запуска TEI, отдельная копия каталогов `data/tei_cache/bge-m3` и `data/tei_cache/bge-reranker-v2-m3` с весами, конфигурацией и токенизаторами. |
 | Облачные модели | Provider, точные ID embedding/reranker/LLM и доступная провайдеру версия. Отметьте, если провайдер не гарантирует неизменность модели по ID. |
 | Хранилище весов | Достижимый при потере хоста адрес отдельной копии, её контрольные суммы, дата проверки и порядок получения доступа. Секреты храните отдельно от паспорта. |

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from application.admin.dto import ModelsInfo, OpenRouterModelsInfo, VectorDBCollectionInfo, VectorDBInfo
-from application.runtime.enums import HealthStatus, LLMProvider, MLProvider
+from application.admin.dto import LLMModelsInfo, ModelsInfo, VectorDBCollectionInfo, VectorDBInfo
+from application.runtime.enums import HealthStatus, MLProvider
 
 
 if TYPE_CHECKING:
@@ -20,11 +20,11 @@ class ConfigAdminService:
         self,
         vectordb_info: VectorDBInfoPort,
         admin_settings: ConfigAdminSettingsPort,
-        openrouter_models_fetcher: Callable[[], Awaitable[list[dict[str, Any]]]] | None = None,
+        llm_models_fetcher: Callable[[], Awaitable[list[dict[str, Any]]]] | None = None,
     ) -> None:
         self._vectordb = vectordb_info
         self._settings = admin_settings
-        self._openrouter_fetcher = openrouter_models_fetcher
+        self._llm_models_fetcher = llm_models_fetcher
 
     async def get_models_info(self) -> ModelsInfo:
         if self._settings.ml_provider == MLProvider.DEEPINFRA.value:
@@ -35,17 +35,16 @@ class ConfigAdminService:
             rerank_model = self._settings.tei_rerank_url
 
         return ModelsInfo(
-            llm_provider=self._settings.llm_provider,
+            llm_base_url=self._settings.llm_base_url,
             llm_model=self._settings.llm_model,
+            llm_auxiliary_model=self._settings.llm_auxiliary_model,
+            llm_api_key_configured=self._settings.llm_api_key_configured,
             tei_embed_url=self._settings.tei_embed_url,
             tei_rerank_url=self._settings.tei_rerank_url,
             embed_model=embed_model,
             rerank_model=rerank_model,
             ocr_engine=self._settings.ocr_engine,
             ocr_enabled=self._settings.ocr_enabled,
-            openrouter_model=self._settings.openrouter_model
-            if self._settings.llm_provider == LLMProvider.OPENROUTER.value
-            else None,
             ml_provider=self._settings.ml_provider,
         )
 
@@ -79,9 +78,9 @@ class ConfigAdminService:
             qdrant_status=qdrant_status,
         )
 
-    async def get_openrouter_models(self) -> OpenRouterModelsInfo:
-        if self._openrouter_fetcher is None:
-            return OpenRouterModelsInfo(models=[], active_model=None)
+    async def get_llm_models(self) -> LLMModelsInfo:
+        if self._llm_models_fetcher is None:
+            return LLMModelsInfo(models=[], active_model=None)
 
-        models = await self._openrouter_fetcher()
-        return OpenRouterModelsInfo(models=models, active_model=self._settings.openrouter_model)
+        models = await self._llm_models_fetcher()
+        return LLMModelsInfo(models=models, active_model=self._settings.llm_model)

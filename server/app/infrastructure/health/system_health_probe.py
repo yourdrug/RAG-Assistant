@@ -66,21 +66,21 @@ class SystemHealthProbe:
         )
         return {"tei_embed": embed, "tei_rerank": rerank}
 
-    async def check_openrouter(self) -> HealthCheckResult:
+    async def check_llm(self) -> HealthCheckResult:
         llm_settings = process_section(LLMSection)
 
         try:
             response, latency_ms = await self.http.get(
-                f"{llm_settings.active_llm_base_url.rstrip('/')}/models",
+                f"{llm_settings.llm_base_url.rstrip('/')}/models",
                 request_timeout=5,
-                headers=llm_auth_headers(llm_settings.active_llm_api_key),
+                headers=llm_auth_headers(llm_settings.llm_api_key),
             )
 
             if response.status_code < HTTPStatus.BAD_REQUEST:
                 return HealthCheckResult(
                     status=HealthStatus.OK.value,
                     latency_ms=latency_ms,
-                    models=[llm_settings.active_llm_model],
+                    models=[llm_settings.llm_model],
                 )
 
             logger.warning("LLM health probe returned HTTP %s", response.status_code)

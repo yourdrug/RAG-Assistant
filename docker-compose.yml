@@ -699,7 +699,7 @@ services:
   # `task vllm:models` / `task ocr-vl:models`. On a 6 GB GPU run only one of them at a time.
 
   # Local LLM via vLLM (OpenAI-compatible API). Then in Admin → Settings:
-  #   Answer provider = openai_compatible, Endpoint URL = http://vllm:8000/v1, model = $VLLM_MODEL
+  #   Model connections → LLM endpoint: URL = http://vllm:8000/v1, answer model = $VLLM_MODEL
   # and add "http://vllm:8000" to ML_INTERNAL_ALLOWED_ORIGINS in server/.env.
   # Defaults fit a 6 GB Turing GPU (RTX 2060): 4-bit AWQ 3B, fp16 activations (no bf16 on Turing).
   # VLLM_MAX_MODEL_LEN must cover the RAG budget max(llm_num_ctx_narrow, llm_num_ctx_broad);
@@ -723,7 +723,7 @@ services:
       - --host=0.0.0.0
       - --port=8000
     environment:
-      # Optional: VLLM_API_KEY enables auth; then set OPENAI_COMPATIBLE_API_KEY in server/.env.secrets.
+      # Optional: VLLM_API_KEY enables auth; then set the same LLM_API_KEY in server/.env.secrets.
       VLLM_API_KEY: ${VLLM_API_KEY:-}
       HF_HUB_OFFLINE: "1"
     expose:

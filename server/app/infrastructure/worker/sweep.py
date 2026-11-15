@@ -47,7 +47,7 @@ async def run_cancellable_sweep(
             sweep=sweep,
             judge_model=sweep.judge_model
             or process_section(BenchmarkSection).benchmark_judge_model
-            or process_section(LLMSection).active_llm_model,
+            or process_section(LLMSection).llm_model,
             progress_callback=progress_callback,
             should_cancel=is_cancelled,
         )

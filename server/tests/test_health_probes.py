@@ -36,12 +36,9 @@ def http_probe(monkeypatch: pytest.MonkeyPatch) -> HttpFixture:
     monkeypatch.setattr(
         "config.settings",
         SimpleNamespace(
-            openrouter_base_url="http://openrouter",
-            openrouter_api_key=SecretStr("test-key"),
-            openrouter_model="test-model",
-            active_llm_base_url="http://openrouter",
-            active_llm_api_key=SecretStr("test-key"),
-            active_llm_model="test-model",
+            llm_base_url="http://llm-endpoint",
+            llm_api_key=SecretStr("test-key"),
+            llm_model="test-model",
             tei_embed_url="http://embed/",
             tei_rerank_url="http://rerank/",
         ),
@@ -51,10 +48,10 @@ def http_probe(monkeypatch: pytest.MonkeyPatch) -> HttpFixture:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [200, 302, 401, 503])
-async def test_openrouter_status_and_authentication(http_probe: HttpFixture, status: int) -> None:
+async def test_llm_status_and_authentication(http_probe: HttpFixture, status: int) -> None:
     health, responses, requests = http_probe
     responses["/models"] = httpx.Response(status)
-    result = await health.check_openrouter()
+    result = await health.check_llm()
     assert result.status == ("ok" if status < 400 else f"error: HTTP {status}")
     assert result.models == (["test-model"] if status < 400 else None)
     assert requests[0].headers["Authorization"] == "Bearer test-key"
@@ -154,13 +151,13 @@ async def test_keyless_llm_endpoint_is_probed_without_authorization(
     monkeypatch.setattr(
         "config.settings",
         SimpleNamespace(
-            active_llm_base_url="http://vllm:8000/v1",
-            active_llm_api_key=SecretStr(""),
-            active_llm_model="Qwen/Qwen2.5-3B-Instruct-AWQ",
+            llm_base_url="http://vllm:8000/v1",
+            llm_api_key=SecretStr(""),
+            llm_model="Qwen/Qwen2.5-3B-Instruct-AWQ",
         ),
     )
     responses["/v1/models"] = httpx.Response(200)
-    result = await health.check_openrouter()
+    result = await health.check_llm()
     assert result.status == "ok"
     assert result.models == ["Qwen/Qwen2.5-3B-Instruct-AWQ"]
     assert "Authorization" not in requests[0].headers

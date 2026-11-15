@@ -10,7 +10,7 @@ from application.admin import (
     ConfigAdminService,
     ConfigService,
     ConfigurationStatus,
-    OpenRouterModelsInfo,
+    LLMModelsInfo,
     VectorDBCollectionInfo,
 )
 from domain.shared.exceptions import ValidationError
@@ -23,7 +23,7 @@ from domain.shared.exceptions import ValidationError
         ("application.admin", "application.admin.dto", "ModelsInfo"),
         ("application.admin", "application.admin.dto", "VectorDBInfo"),
         ("application.admin", "application.admin.dto", "VectorDBCollectionInfo"),
-        ("application.admin", "application.admin.dto", "OpenRouterModelsInfo"),
+        ("application.admin", "application.admin.dto", "LLMModelsInfo"),
         ("application.admin", "application.admin.config_service", "ConfigService"),
         ("application.admin", "application.admin.config_service", "validate_corpus_update_key"),
         ("application.admin", "application.admin.ports.log_buffer", "LogBufferPort"),
@@ -47,23 +47,24 @@ def test_public_exports_share_canonical_objects(public: str, implementation: str
 async def test_models_info_preserves_provider_selection(ml_provider: str) -> None:
     settings = SimpleNamespace(
         ml_provider=ml_provider,
-        llm_provider="openrouter",
+        llm_base_url="https://openrouter.ai/api/v1",
         llm_model="router-model",
+        llm_auxiliary_model="router-model",
+        llm_api_key_configured=True,
         tei_embed_url="http://embed",
         tei_rerank_url="http://rerank",
         deepinfra_embed_model="embed-model",
         deepinfra_rerank_model="rerank-model",
         ocr_engine="surya",
         ocr_enabled=True,
-        openrouter_model="router-model",
     )
     info = await ConfigAdminService(AsyncMock(), settings).get_models_info()
-    assert info.llm_provider == "openrouter"
+    assert info.llm_base_url == "https://openrouter.ai/api/v1"
     assert info.llm_model == "router-model"
+    assert info.llm_api_key_configured
     assert info.ml_provider == ml_provider
     assert info.embed_model == ("embed-model" if ml_provider == "deepinfra" else "http://embed")
     assert info.rerank_model == ("rerank-model" if ml_provider == "deepinfra" else "http://rerank")
-    assert info.openrouter_model == "router-model"
     assert info.ocr_enabled
     assert info.ocr_engine == "surya"
 
@@ -96,22 +97,22 @@ async def test_unhealthy_vectordb_skips_collection_fetch() -> None:
 
 
 @pytest.mark.asyncio
-async def test_openrouter_fetcher_is_optional_and_preserves_payload() -> None:
-    settings = SimpleNamespace(openrouter_model="active")
+async def test_llm_models_fetcher_is_optional_and_preserves_payload() -> None:
+    settings = SimpleNamespace(llm_model="active")
     service = ConfigAdminService(AsyncMock(), settings)
-    assert await service.get_openrouter_models() == OpenRouterModelsInfo()
+    assert await service.get_llm_models() == LLMModelsInfo()
     fetcher = AsyncMock(return_value=[{"id": "m", "pricing": {"prompt": 0.5}}])
     service = ConfigAdminService(AsyncMock(), settings, fetcher)
-    assert await service.get_openrouter_models() == OpenRouterModelsInfo(fetcher.return_value, "active")
+    assert await service.get_llm_models() == LLMModelsInfo(fetcher.return_value, "active")
     fetcher.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
-async def test_openrouter_fetch_failure_propagates() -> None:
+async def test_llm_models_fetch_failure_propagates() -> None:
     fetcher = AsyncMock(side_effect=RuntimeError("unavailable"))
     service = ConfigAdminService(AsyncMock(), SimpleNamespace(), fetcher)
     with pytest.raises(RuntimeError, match="unavailable"):
-        await service.get_openrouter_models()
+        await service.get_llm_models()
 
 
 @pytest.mark.asyncio

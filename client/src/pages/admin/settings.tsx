@@ -12,6 +12,7 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { ConfigurationDiagnostics, type EffectiveParameter } from "./configuration-diagnostics";
 import { CorpusControl } from "./corpus-control";
+import { LLM_MODELS_QUERY_KEY, llmModelLabel, useLLMModels } from "./llm-models";
 
 interface ConfigParam {
   key: string;
@@ -31,13 +32,6 @@ interface ConfigurationStatus {
   error: string | null;
 }
 
-interface OpenRouterModel {
-  id: string;
-  name: string;
-  context_length: number;
-  pricing: { prompt: number; completion: number };
-}
-
 interface SettingsBlock {
   id: string;
   label: string;
@@ -45,6 +39,9 @@ interface SettingsBlock {
   categories?: string[];
   keys?: string[];
 }
+
+const LLM_CONNECTION_BLOCK = "llm_connection";
+const MODEL_PICKER_KEYS = new Set(["llm_model", "llm_auxiliary_model"]);
 
 const SETTINGS_SECTIONS = [
   {
@@ -57,7 +54,6 @@ const SETTINGS_SECTIONS = [
         label: "Answer generation",
         description: "Model selection, creativity and response length.",
         categories: ["llm"],
-        keys: ["openrouter_model"],
       },
       {
         id: "conversation",
@@ -131,17 +127,11 @@ const SETTINGS_SECTIONS = [
     description: "Service endpoints and embedding and reranking model connections.",
     blocks: [
       {
-        id: "openrouter",
-        label: "OpenRouter connection",
-        description: "Connection used by the answer model selected in Chat & answers.",
-        categories: ["openrouter"],
-      },
-      {
-        id: "openai_compatible",
-        label: "OpenAI-compatible connection",
+        id: LLM_CONNECTION_BLOCK,
+        label: "LLM endpoint",
         description:
-          "Self-hosted or third-party OpenAI-compatible API (vLLM, Ollama, LM Studio). Used when the answer provider is openai_compatible.",
-        categories: ["openai_compatible"],
+          "Any OpenAI-compatible API: OpenRouter, OpenAI, vLLM, Ollama, LM Studio. The URL origin must be approved by the deployment (LLM_ALLOWED_ORIGINS / ML_INTERNAL_ALLOWED_ORIGINS).",
+        categories: ["llm_connection"],
       },
       {
         id: "embeddings",
@@ -207,11 +197,9 @@ const SETTINGS_SECTIONS = [
 ] satisfies { id: string; label: string; description: string; blocks: SettingsBlock[] }[];
 
 const PARAMETER_LABELS: Record<string, string> = {
-  llm_provider: "Answer provider",
-  openrouter_model: "Answer model",
-  openai_compatible_base_url: "Endpoint URL",
-  openai_compatible_model: "Answer model",
-  openai_compatible_auxiliary_model: "Auxiliary model",
+  llm_base_url: "Endpoint URL",
+  llm_model: "Answer model",
+  llm_auxiliary_model: "Auxiliary model",
   llm_temperature: "Creativity (temperature)",
   llm_top_p: "Token diversity (top-p)",
   llm_num_ctx_narrow: "Context tokens · focused questions",
@@ -280,11 +268,8 @@ export function AdminSettingsPage() {
     queryFn: async () => (await apiClient.get<ConfigParam[]>("/admin/config")).data,
   });
 
-  const { data: openrouterData, isLoading: isLoadingOpenRouter } = useQuery({
-    queryKey: ["admin", "openrouter-models"],
-    queryFn: async () =>
-      (await apiClient.get<{ models: OpenRouterModel[] }>("/admin/models/openrouter")).data,
-  });
+  const { data: llmModels, isLoading: isLoadingModels } = useLLMModels();
+  const llmApiKey = effective?.find((p) => p.key === "llm_api_key" && !p.domain_key);
 
   const updateMutation = useMutation({
     mutationFn: async ({ key, value, domain }: { key: string; value: string; domain?: string }) => {
@@ -295,7 +280,7 @@ export function AdminSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["admin", "config"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "config-status"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "models"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "openrouter-models"] });
+      queryClient.invalidateQueries({ queryKey: LLM_MODELS_QUERY_KEY });
       setEdits((prev) => {
         const next = { ...prev };
         delete next[variables.domain ? `${variables.domain}:${variables.key}` : variables.key];
@@ -351,17 +336,16 @@ export function AdminSettingsPage() {
       );
     }
 
-    if (p.key === "llm_provider") {
-      return <span className="text-sm">OpenRouter (cloud)</span>;
-    }
-
-    // Special handling for openrouter_model - show OpenRouter models dropdown
-    if (p.key === "openrouter_model") {
-      if (isLoadingOpenRouter) {
+    // Models served by the configured endpoint (GET /models); free text when it lists none.
+    if (MODEL_PICKER_KEYS.has(p.key)) {
+      if (isLoadingModels) {
         return <Skeleton className="h-9 w-64" />;
       }
 
-      if (openrouterData?.models && openrouterData.models.length > 0) {
+      const auxiliary = p.key === "llm_auxiliary_model";
+      const models = llmModels?.models ?? [];
+
+      if (models.length > 0) {
         return (
           <div className="space-y-2">
             <select
@@ -370,32 +354,33 @@ export function AdminSettingsPage() {
               onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              {openrouterData.models.map((m) => (
+              {auxiliary && <option value="">Same as answer model</option>}
+              {displayValue && !models.some((m) => m.id === displayValue) && (
+                <option value={displayValue}>{displayValue}</option>
+              )}
+              {models.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.name} ({m.context_length.toLocaleString()} ctx, ${m.pricing.prompt.toFixed(2)}
-                  /M)
+                  {llmModelLabel(m)}
                 </option>
               ))}
             </select>
             <p className="text-xs text-muted-foreground">
-              {openrouterData.models.length} models available. Pricing per 1M tokens.
+              {models.length} models served by the endpoint.
+              {models.some((m) => m.pricing) && " Pricing per 1M tokens."}
             </p>
           </div>
         );
       }
 
-      // Fallback to text input if no models fetched
       return (
-        <div className="space-y-2">
-          <Input
-            aria-label={parameterLabel(p)}
-            type="text"
-            value={displayValue}
-            onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
-            className="w-full"
-            placeholder="e.g. qwen/qwen-2.5-7b-instruct"
-          />
-        </div>
+        <Input
+          aria-label={parameterLabel(p)}
+          type="text"
+          value={displayValue}
+          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
+          className="w-full"
+          placeholder={auxiliary ? "Empty: same as answer model" : "e.g. qwen/qwen-2.5-7b-instruct"}
+        />
       );
     }
 
@@ -593,7 +578,12 @@ export function AdminSettingsPage() {
                       <CardDescription>{block.description}</CardDescription>
                     </CardHeader>
                     <CardContent className="p-[14px] pt-0">
-                      <div className="divide-y">{globalParams.map(renderParameter)}</div>
+                      <div className="divide-y">
+                        {globalParams.map(renderParameter)}
+                        {block.id === LLM_CONNECTION_BLOCK && (
+                          <LLMApiKeyRow present={llmApiKey?.present ?? null} />
+                        )}
+                      </div>
                       {domains.map((domain) => (
                         <div key={domain} className="mt-4 rounded-lg border px-4">
                           <div className="border-b py-3">
@@ -635,6 +625,36 @@ export function AdminSettingsPage() {
           </TabsContent>
         </div>
       </Tabs>
+    </div>
+  );
+}
+
+/** The key is deployment-owned (LLM_API_KEY in server/.env.secrets); the API exposes only presence. */
+function LLMApiKeyRow({ present }: { present: boolean | null }) {
+  return (
+    <div className="grid items-center gap-3 py-[10px] md:grid-cols-[minmax(0,1fr)_minmax(240px,360px)] md:gap-8">
+      <div className="min-w-0 space-y-1">
+        <p className="text-sm font-medium">API key</p>
+        <p className="text-sm text-muted-foreground">
+          Set LLM_API_KEY in server/.env.secrets and restart. Leave it empty for keyless servers
+          (vLLM, Ollama).
+        </p>
+        <p className="break-all font-mono text-xs text-muted-foreground/70">llm_api_key</p>
+      </div>
+      <div className="flex min-w-0 items-center gap-2">
+        <Input
+          aria-label="API key"
+          type="password"
+          value={present ? "••••••••••••" : ""}
+          placeholder="Not set"
+          readOnly
+          disabled
+          className="w-full"
+        />
+        <Badge variant={present === null ? "secondary" : present ? "success" : "warning"}>
+          {present === null ? "Unknown" : present ? "Set" : "Not set"}
+        </Badge>
+      </div>
     </div>
   );
 }

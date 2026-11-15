@@ -28,7 +28,7 @@ from application.runtime.config import ConfigParameter, ConfigValueType
 from application.runtime.dynamic_params import (
     DYNAMIC_PARAMS,
 )
-from application.runtime.enums import LLMProvider, MLProvider
+from application.runtime.enums import MLProvider
 from application.runtime.setting_keys import (
     SECRET_SETTING_KEYS,
     TARGET_DYNAMIC_SETTING_KEYS,
@@ -327,19 +327,11 @@ def validate_storage_and_credentials(
         raise ValueError("S3 env/DB mismatch: " + ", ".join(sorted(conflicts)))
 
     required = {"DB_PASSWORD", "REDIS_PASSWORD", "JWT_SECRET_KEY", "S3_ACCESS_KEY", "S3_SECRET_KEY"}
-    providers = {
-        key: effective.get(key.upper(), Settings.model_fields[key].default)
-        for key in ("llm_provider", "ml_provider")
-    }
-    providers.update(
-        {row.key: row.value for row in rows if row.domain_key is None and row.key == "llm_provider"}
-    )
+    # The LLM key stays optional: keyless self-hosted endpoints are supported.
+    ml_provider = effective.get("ML_PROVIDER", Settings.model_fields["ml_provider"].default)
 
-    if providers["ml_provider"] == MLProvider.DEEPINFRA.value:
+    if ml_provider == MLProvider.DEEPINFRA.value:
         required.add("DEEPINFRA_API_KEY")
-
-    if providers["llm_provider"] == LLMProvider.OPENROUTER.value:
-        required.add("OPENROUTER_API_KEY")
 
     missing = [key for key in sorted(required) if not effective.get(key) or effective[key] == "minioadmin"]
 

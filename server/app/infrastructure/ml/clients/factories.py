@@ -15,7 +15,7 @@ import httpx
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from application.runtime.enums import LLMProvider, MLProvider
+from application.runtime.enums import MLProvider
 from config import LLMSection, VectorStoreSection, ml_client_settings, process_section
 from domain.rag.breadth import Breadth
 from infrastructure.corpus import snapshot as corpus_snapshot
@@ -24,7 +24,7 @@ from infrastructure.corpus.locks import corpus_write_guard
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.database.database import database
 from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient, DeepInfraRerankerClient
-from infrastructure.ml.clients.instructor_client import NO_API_KEY
+from infrastructure.ml.clients.instructor_client import NO_API_KEY, llm_auth_headers
 from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient, TEIRerankerClient
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
@@ -98,9 +98,6 @@ def create_reranker(model: MLClientSettings | None = None) -> DeepInfraRerankerC
 # ---------------------------------------------------------------------------
 
 
-FAST_OPENROUTER_MODEL = "meta-llama/llama-3.1-8b-instruct"
-
-
 class ChatModelRole(StrEnum):
     DEFAULT = "default"
     NARROW = "narrow"
@@ -142,16 +139,7 @@ class OpenAIParameters(TypedDict, total=False):
     stream_usage: bool
 
 
-def local_placeholder_key(provider: LLMProvider | str) -> SecretStr | None:
-    """Keyless local servers still need a non-empty key for the OpenAI SDK."""
-    return SecretStr(NO_API_KEY) if provider == LLMProvider.OPENAI_COMPATIBLE else None
-
-
-def build_chat_model(
-    provider: LLMProvider | str,
-    role: ChatModelRole,
-    **options: Unpack[ChatModelOptions],
-) -> ChatOpenAI:
+def build_chat_model(role: ChatModelRole, **options: Unpack[ChatModelOptions]) -> ChatOpenAI:
     """Build a chat client from one settings snapshot and its call role."""
     model = (options.get("model") or ml_client_settings()).model_copy()
     temperature = options.get("temperature")
@@ -167,29 +155,18 @@ def build_chat_model(
     role_temperature = (
         0 if role in (ChatModelRole.AUXILIARY, ChatModelRole.BENCHMARK) else model.llm_temperature
     )
-
-    if provider == LLMProvider.OPENROUTER:
-        default_name = FAST_OPENROUTER_MODEL if role == ChatModelRole.AUXILIARY else model.openrouter_model
-        api_key, base_url = model.openrouter_api_key, model.openrouter_base_url
-    elif provider == LLMProvider.OPENAI_COMPATIBLE:
-        default_name = (
-            model.openai_compatible_auxiliary_model or model.openai_compatible_model
-            if role == ChatModelRole.AUXILIARY
-            else model.openai_compatible_model
-        )
-        api_key, base_url = model.openai_compatible_api_key, model.openai_compatible_base_url
-    else:
-        message = f"Unsupported LLM provider: {provider}"
-        raise ValueError(message)
+    default_name = model.active_auxiliary_model if role == ChatModelRole.AUXILIARY else model.llm_model
+    # Keyless servers (vLLM, Ollama) still need a non-empty key for the OpenAI SDK.
+    api_key = model.llm_api_key if model.llm_api_key.get_secret_value() else SecretStr(NO_API_KEY)
 
     parameters: OpenAIParameters = {
         "model_name": model_name if model_name is not None else default_name,
-        "openai_api_key": api_key if api_key.get_secret_value() else local_placeholder_key(provider),
-        "openai_api_base": base_url,
+        "openai_api_key": api_key,
+        "openai_api_base": model.llm_base_url,
         "temperature": temperature if temperature is not None else role_temperature,
         "max_tokens": num_predict if num_predict is not None else output_limits[role],
         "max_retries": 0,
-        # Self-hosted origins are restricted to ML_INTERNAL_ALLOWED_ORIGINS by endpoint_policy.
+        # Endpoint origins are restricted to deployment-approved lists by endpoint_policy.
         "http_client": httpx.Client(follow_redirects=False),
         "http_async_client": httpx.AsyncClient(follow_redirects=False),
     }
@@ -210,30 +187,14 @@ def create_llm(
     num_predict: int | None = None,
     model: MLClientSettings | None = None,
 ) -> ChatOpenAI:
-    """Create LLM based on the configured provider."""
+    """Create LLM for the configured OpenAI-compatible endpoint."""
     return build_chat_model(
-        (model or ml_client_settings()).llm_provider,
         ChatModelRole.DEFAULT,
         model=model,
         temperature=temperature,
         top_p=top_p,
         num_ctx=num_ctx,
         num_predict=num_predict,
-    )
-
-
-def create_openrouter_llm(
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    model: MLClientSettings | None = None,
-) -> ChatOpenAI:
-    """Create an OpenRouter chat client through the shared provider factory."""
-    return build_chat_model(
-        LLMProvider.OPENROUTER,
-        ChatModelRole.DEFAULT,
-        model=model,
-        temperature=temperature,
-        num_predict=max_tokens,
     )
 
 
@@ -248,7 +209,6 @@ def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions])
     num_predict_narrow = options.get("num_predict_narrow")
     is_broad = breadth == Breadth.BROAD
     return build_chat_model(
-        (model or ml_client_settings()).llm_provider,
         ChatModelRole.BROAD if is_broad else ChatModelRole.NARROW,
         model=model,
         temperature=temperature,
@@ -260,9 +220,7 @@ def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions])
 
 def create_fast_llm_for_auxiliary(model: MLClientSettings | None = None) -> ChatOpenAI:
     """Create the lightweight client for condense, relevance and decomposition."""
-    return build_chat_model(
-        (model or ml_client_settings()).llm_provider, ChatModelRole.AUXILIARY, model=model
-    )
+    return build_chat_model(ChatModelRole.AUXILIARY, model=model)
 
 
 # ---------------------------------------------------------------------------
@@ -283,56 +241,69 @@ def create_qdrant_client() -> BoundQdrantClient:
 
 
 # ---------------------------------------------------------------------------
-# OpenRouter models (async, not cached — called rarely)
+# LLM endpoint models (async, not cached — called rarely)
 # ---------------------------------------------------------------------------
 
+NON_CHAT_MODEL_MARKERS = ("embedding", "vision", "tts", "whisper")
 
-async def fetch_openrouter_models() -> list[dict[str, Any]]:
-    """Fetch available models from OpenRouter API.
 
-    Returns list of dicts with keys: id, name, context_length, pricing.
-    Filters to chat-capable models only.
+def model_price_per_million(pricing: object, field: str) -> float | None:
+    raw = pricing.get(field) if isinstance(pricing, dict) else None
+
+    if not isinstance(raw, (str, int, float)) or raw == "":
+        return None
+
+    try:
+        return round(float(raw) * 1_000_000, 4)
+    except ValueError:
+        return None
+
+
+def normalize_llm_model(item: object) -> dict[str, Any] | None:
+    """One OpenAI ``/models`` entry; optional OpenRouter/vLLM metadata is kept when present."""
+    if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]:
+        return None
+
+    model_id = item["id"]
+
+    if any(marker in model_id.lower() for marker in NON_CHAT_MODEL_MARKERS):
+        return None
+
+    window = item.get("context_length") or item.get("max_model_len")
+    pricing = item.get("pricing")
+    prompt = model_price_per_million(pricing, "prompt")
+    completion = model_price_per_million(pricing, "completion")
+    return {
+        "id": model_id,
+        "name": item.get("name") if isinstance(item.get("name"), str) and item.get("name") else model_id,
+        "context_length": window if isinstance(window, int) else None,
+        "pricing": {"prompt": prompt, "completion": completion}
+        if prompt is not None and completion is not None
+        else None,
+    }
+
+
+async def fetch_llm_models() -> list[dict[str, Any]]:
+    """List chat models served by the configured endpoint via the standard ``GET /models``.
+
+    Returns an empty list when the endpoint does not implement it; the admin UI then
+    falls back to free-text model names.
     """
     llm_settings = process_section(LLMSection)
 
-    if not llm_settings.openrouter_api_key.get_secret_value():
-        return []
-
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                f"{llm_settings.openrouter_base_url}/models",
-                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key.get_secret_value()}"},
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+            response = await client.get(
+                f"{llm_settings.llm_base_url.rstrip('/')}/models",
+                headers=llm_auth_headers(llm_settings.llm_api_key),
             )
-            r.raise_for_status()
-            data = r.json()
-
-            models = []
-
-            for m in data.get("data", []):
-                model_id = m.get("id", "")
-
-                if any(skip in model_id.lower() for skip in ["embedding", "vision", "tts", "whisper"]):
-                    continue
-
-                pricing = m.get("pricing", {})
-                prompt_price = float(pricing.get("prompt", "0") or "0") * 1_000_000
-                completion_price = float(pricing.get("completion", "0") or "0") * 1_000_000
-
-                models.append(
-                    {
-                        "id": model_id,
-                        "name": m.get("name", model_id),
-                        "context_length": m.get("context_length", 0),
-                        "pricing": {
-                            "prompt": round(prompt_price, 4),
-                            "completion": round(completion_price, 4),
-                        },
-                    }
-                )
-
-            models.sort(key=lambda x: x["name"].lower())
-            return models
-    except Exception as e:
-        log.warning("Failed to fetch OpenRouter models: %s", e, exc_info=True)
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("Failed to fetch LLM endpoint models: %s", type(exc).__name__)
         return []
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    models = [model for model in map(normalize_llm_model, data if isinstance(data, list) else []) if model]
+    models.sort(key=lambda model: model["name"].lower())
+    return models

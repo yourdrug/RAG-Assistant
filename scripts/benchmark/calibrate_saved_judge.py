@@ -111,7 +111,7 @@ def protocol_for(snapshot: dict[str, Any]) -> dict[str, Any]:
         "reasoning": {"effort": "low"},
         "provider": {"only": ["DeepInfra"], "allow_fallbacks": False},
         "max_tokens": 8192,
-        "base_url": settings.openrouter_base_url,
+        "base_url": settings.llm_base_url,
         "prompt_builder": digest(Path(__file__).read_text()),
     }
 
@@ -150,7 +150,7 @@ def prepare_run(snapshot: dict[str, Any], output: Path) -> tuple[dict[str, Any],
 
 async def request_scores(client: httpx.AsyncClient, protocol: dict[str, Any], prompt: str) -> dict[str, Any]:
     response = await client.post(
-        settings.openrouter_base_url.rstrip("/") + "/chat/completions",
+        settings.llm_base_url.rstrip("/") + "/chat/completions",
         json={
             "model": protocol["model"],
             "messages": [{"role": "user", "content": prompt}],
@@ -172,7 +172,7 @@ async def run(snapshot: dict[str, Any], output: Path, cohort: str) -> None:
     limiter = asyncio.Semaphore(6)
     save(output, result)
     async with httpx.AsyncClient(
-        headers={"Authorization": "Bearer " + settings.openrouter_api_key.get_secret_value()}, timeout=180
+        headers={"Authorization": "Bearer " + settings.llm_api_key.get_secret_value()}, timeout=180
     ) as client:
 
         async def evaluate(

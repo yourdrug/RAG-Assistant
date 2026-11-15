@@ -284,8 +284,8 @@ class MLClientRegistry(MLClientPort):
                     model = settings.model_copy()
 
                     instructor = create_async_instructor_client(
-                        base_url=model.active_llm_base_url,
-                        api_key=model.active_llm_api_key.get_secret_value(),
+                        base_url=model.llm_base_url,
+                        api_key=model.llm_api_key.get_secret_value(),
                     )
 
                     self.cached_instructor = ManagedInstructor(instructor)

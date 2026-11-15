@@ -25,27 +25,29 @@ class ConfigParamUpdateRequest(BaseModel):
 
 
 class ModelsInfoResponse(BaseModel):
-    llm_provider: str
+    llm_base_url: str
     llm_model: str
+    llm_auxiliary_model: str
+    llm_api_key_configured: bool
     tei_embed_url: str
     tei_rerank_url: str
     embed_model: str
     rerank_model: str
     ocr_engine: str
     ocr_enabled: bool
-    openrouter_model: str | None = None
     ml_provider: str = MLProvider.TEI.value
 
 
-class OpenRouterModelInfo(BaseModel):
+class LLMModelInfo(BaseModel):
     id: str
     name: str
-    context_length: int
-    pricing: dict[str, float]
+    context_length: int | None = None
+    # Present only when the endpoint reports it (e.g. OpenRouter); USD per 1M tokens.
+    pricing: dict[str, float] | None = None
 
 
-class OpenRouterModelsResponse(BaseModel):
-    models: list[OpenRouterModelInfo]
+class LLMModelsResponse(BaseModel):
+    models: list[LLMModelInfo]
     active_model: str
 
 

@@ -343,7 +343,7 @@ def create_benchmark_config(_request: Request) -> BenchmarkConfig:
     return BenchmarkConfig(
         data_dir=process_section(StorageSection).data_dir,
         retriever_top_k=process_section(RetrievalSection).retriever_top_k,
-        llm_model=process_section(LLMSection).active_llm_model,
+        llm_model=process_section(LLMSection).llm_model,
     )
 
 

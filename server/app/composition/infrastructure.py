@@ -465,16 +465,14 @@ class InfrastructureContainer:
             return
 
         if event.key in {
-            "llm_provider",
             "llm_temperature",
             "llm_top_p",
             "llm_num_ctx_narrow",
             "llm_num_predict_narrow",
             "llm_num_ctx_broad",
             "llm_num_predict_broad",
-            "openrouter_model",
-            "openai_compatible_model",
-            "openai_compatible_auxiliary_model",
+            "llm_model",
+            "llm_auxiliary_model",
         }:
             ml.invalidate_llm()
 
