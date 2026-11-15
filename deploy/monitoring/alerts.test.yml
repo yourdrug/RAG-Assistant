@@ -1,0 +1,53 @@
+rule_files:
+  - alerts.yml
+evaluation_interval: 15s
+tests:
+  - name: idle pool
+    interval: 15s
+    input_series:
+      - series: 'pgbouncer_pools_client_waiting_connections{instance="pool",database="ragdb",user="raguser"}'
+        values: '0+0x8'
+      - series: 'pgbouncer_pools_client_maxwait_seconds{instance="pool",database="ragdb",user="raguser"}'
+        values: '0+0x8'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PgBouncerWaitingForConnection
+        exp_alerts: []
+  - name: waiting clients persist
+    interval: 15s
+    input_series:
+      - series: 'pgbouncer_pools_client_waiting_connections{instance="pool",database="ragdb",user="raguser"}'
+        values: '1+0x8'
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: PgBouncerWaitingForConnection
+        exp_alerts: []
+      - eval_time: 30s
+        alertname: PgBouncerWaitingForConnection
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: pool, database: ragdb, user: raguser}
+            exp_annotations:
+              summary: "PgBouncer ждёт свободное соединение"
+              description: "Пул ragdb/raguser: cl_waiting > 0 или maxwait > 0. Проверьте длительность транзакций и DEFAULT_POOL_SIZE (по умолчанию 40)."
+  - name: oldest waiter persists
+    interval: 15s
+    input_series:
+      - series: 'pgbouncer_pools_client_maxwait_seconds{instance="pool",database="ragdb",user="raguser"}'
+        values: '2+0x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: PgBouncerWaitingForConnection
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: pool, database: ragdb, user: raguser}
+            exp_annotations:
+              summary: "PgBouncer ждёт свободное соединение"
+              description: "Пул ragdb/raguser: cl_waiting > 0 или maxwait > 0. Проверьте длительность транзакций и DEFAULT_POOL_SIZE (по умолчанию 40)."
+  - name: short spike recovers
+    interval: 15s
+    input_series:
+      - series: 'pgbouncer_pools_client_waiting_connections{instance="pool",database="ragdb",user="raguser"}'
+        values: '0 1 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PgBouncerWaitingForConnection
+        exp_alerts: []

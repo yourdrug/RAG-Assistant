@@ -364,6 +364,7 @@ tasks:
       - >
         python3 data/generate_users.py
         --count {{.count | default "50"}}
+        --prefix {{.prefix | default "loadtest"}}
         --base-url {{.url | default "http://localhost:8001"}}
         {{if .admin_email}}--admin-email {{.admin_email}}{{end}}
         {{if .admin_password}}--admin-password {{.admin_password}}{{end}}
@@ -421,6 +422,42 @@ tasks:
         --out json=/results/results_breakpoint_{{now | date "20060102_150405"}}.json
     env:
       BASE_URL: '{{.url | default "http://host.docker.internal:8001"}}'
+
+  loadtest:upload-chat:
+    desc: "1000 загрузок одного куратора при параллельном чате других пользователей"
+    dir: loadtest
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile k6 run --rm k6
+        run --env UPLOAD_COUNT={{.uploads | default "1000"}}
+        --env UPLOAD_VUS={{.upload_vus | default "20"}}
+        --env CHAT_VUS={{.chat_vus | default "20"}}
+        --env DURATION={{.duration | default "5m"}}
+        --env CHAT_P95_MS={{.chat_p95_ms | default "120000"}}
+        --summary-export=/results/summary_upload_chat_{{now | date "20060102_150405"}}.json
+        /scripts/upload-chat.js
+    env:
+      BASE_URL: '{{.url | default "http://server:8001"}}'
+
+  loadtest:replicas:
+    desc: "Чат N × users_per_replica; проверяет фактическое число запущенных API-реплик"
+    dir: loadtest
+    preconditions:
+      - sh: 'test "$(docker ps -q --filter "label=com.docker.compose.project=$LOADTEST_PROJECT" --filter label=com.docker.compose.service=server --filter status=running | wc -l)" -eq "$API_REPLICAS"'
+        msg: "Число запущенных API-реплик не совпадает с replicas; сначала масштабируйте тестовый стек"
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile k6 run --rm k6
+        run --env API_REPLICAS={{.replicas | default "1"}}
+        --env CHAT_VUS_PER_REPLICA={{.users_per_replica | default "20"}}
+        --env DURATION={{.duration | default "5m"}}
+        --env CHAT_P95_MS={{.chat_p95_ms | default "120000"}}
+        --summary-export=/results/summary_replicas_{{.replicas | default "1"}}_{{now | date "20060102_150405"}}.json
+        /scripts/replicas.js
+    env:
+      BASE_URL: '{{.url | default "http://server:8001"}}'
+      API_REPLICAS: '{{.replicas | default "1"}}'
+      LOADTEST_PROJECT: '{{.PROJECT}}'
 
   loadtest:sse:
     desc: "Locust SSE test — тестирование /chat streaming (task loadtest:sse -- users=200 duration=10m)"

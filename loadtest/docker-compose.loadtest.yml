@@ -11,6 +11,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     working_dir: /scripts
+    networks: [default, target]
     profiles: ["k6"]
 
   locust:
@@ -33,3 +34,8 @@ services:
       --csv=/results/locust
       --html=/results/locust_report.html
     profiles: ["locust"]
+
+networks:
+  target:
+    external: true
+    name: ${LOADTEST_NETWORK:-rag-network}

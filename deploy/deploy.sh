@@ -11,7 +11,6 @@ for arg in "$@"; do
 done
 DEPLOY_DIR="${DEPLOY_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 source "$DEPLOY_DIR/scripts/operations/compose.sh"
-source "$DEPLOY_DIR/deploy/rolling.sh"
 mkdir -p .deploy
 exec 9>.deploy/operations.lock
 flock -n 9 || { echo "Another deploy/backup is running" >&2; exit 1; }
@@ -55,7 +54,14 @@ rollback() {
     if after_schema=$(schema_revision) && [[ "$before_schema" == "$after_schema" || "${DEPLOY_SCHEMA_BACKWARD_COMPATIBLE:-false}" == true ]]; then
       echo "Deployment failed; restoring previous application images" >&2
       export SERVER_IMAGE="$old_server" CLIENT_IMAGE="$old_client"
-      compose_args+=(-f deploy/rollback.compose.yml)
+      # Previous releases may not have /ready; require healthy JSON from the legacy endpoint.
+      cat >.deploy/rollback.compose.yml <<'YAML'
+services:
+  server:
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail http://localhost:8001/health | python -c 'import json,sys; sys.exit(json.load(sys.stdin)[\"status\"] != \"healthy\")'"]
+YAML
+      compose_args+=(-f .deploy/rollback.compose.yml)
       local rollback_services=(server worker client)
       if [[ -n "$old_maintenance" ]]; then
         rollback_services+=(maintenance)
@@ -68,7 +74,8 @@ rollback() {
         # The previous release predates the documents/batch split: its worker
         # serves every task type and does not know the --role documents flag.
         compose stop worker-batch
-        compose_args+=(-f deploy/rollback.legacy-worker.compose.yml)
+        printf 'services:\n  worker:\n    command: ["python", "main.py", "worker"]\n' >.deploy/rollback.legacy-worker.compose.yml
+        compose_args+=(-f .deploy/rollback.legacy-worker.compose.yml)
       fi
       if compose up -d --no-deps --force-recreate --pull never --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" "${rollback_services[@]}"; then
         echo "Previous images restored; deployment remains failed" >&2
@@ -82,6 +89,55 @@ rollback() {
   exit "$failed_status"
 }
 trap rollback ERR
+# Add one new-image replica, wait for health, then remove one old replica.
+
+rolling_replace() {
+  local service=$1 grace=$2 old replacement id desired count deadline ids expected actual
+  local -a originals current before
+  ids=$(compose ps -q "$service") || return 1
+  if [[ -z "$ids" ]]; then
+    compose up -d --no-deps --pull never --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" "$service"
+    return
+  fi
+  mapfile -t originals <<<"$ids"
+  if [[ "$service" == client ]]; then
+    expected=$(docker image inspect --format '{{.Id}}' "$CLIENT_IMAGE") || return 1
+  else
+    expected=$(docker image inspect --format '{{.Id}}' "$SERVER_IMAGE") || return 1
+  fi
+  count=${#originals[@]}
+  desired=$(compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"][sys.argv[1]].get("deploy", {}).get("replicas", sys.argv[2]))' "$service" "$count")
+  for old in "${originals[@]}"; do
+    ids=$(compose ps -q "$service") || return 1
+    mapfile -t before <<<"$ids"
+    # --no-recreate leaves every existing replica intact while adding one from
+    # the new image. Never stop an old owner before its replacement is healthy.
+    compose up -d --no-deps --no-recreate --pull never --scale "$service=$((count + 1))" --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" "$service"
+    ids=$(compose ps -q "$service") || return 1
+    mapfile -t current <<<"$ids"
+    replacement=""
+    for id in "${current[@]}"; do
+      if [[ " ${before[*]} " != *" $id "* ]]; then replacement=$id; fi
+    done
+    [[ -n "$replacement" ]] || { echo "No replacement found for $service" >&2; return 1; }
+    actual=$(docker inspect --format '{{.Image}}' "$replacement") || return 1
+    [[ "$actual" == "$expected" ]] || { echo "Replacement for $service has an unexpected image" >&2; return 1; }
+    if [[ "$service" == server ]]; then
+      deadline=$((SECONDS + ${DEPLOY_WAIT_TIMEOUT:-600}))
+      until docker exec "$replacement" curl --fail --silent --max-time 5 http://localhost:8001/ready >/dev/null; do
+        ((SECONDS < deadline)) || { echo "Replacement API did not become ready" >&2; return 1; }
+        sleep 2
+      done
+    fi
+    if [[ "$service" == server || "$service" == client ]]; then
+      sleep "${DEPLOY_DNS_SETTLE_SECONDS:-12}"
+    fi
+    docker stop --time "$grace" "$old" >/dev/null
+    docker rm "$old" >/dev/null
+  done
+  # Honor an explicitly configured scale change once the old image is gone.
+  compose up -d --no-deps --no-recreate --pull never --scale "$service=$desired" --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" "$service"
+}
 # Download every enabled image before touching the application. Preserve old image IDs.
 # Locally built services (ocr-vl profile) have no registry image.
 compose pull --ignore-buildable
@@ -92,7 +148,7 @@ if grep -qx tei-embed <<<"$enabled_services"; then infra+=(tei-embed tei-rerank)
 for optional in vllm ocr-vl; do
   if grep -qx "$optional" <<<"$enabled_services"; then infra+=("$optional"); fi
 done
-if grep -qx prometheus <<<"$enabled_services"; then infra+=(prometheus); fi
+if grep -qx prometheus <<<"$enabled_services"; then infra+=(prometheus pgbouncer-exporter); fi
 # Infrastructure upgrades are a separate maintenance operation.
 compose up -d --no-recreate --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" "${infra[@]}"
 pg_limit=$(compose exec -T postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SHOW max_connections"')

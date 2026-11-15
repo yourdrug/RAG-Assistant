@@ -65,6 +65,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       DB_NAME: ${DB_NAME:-ragdb}
       AUTH_TYPE: scram-sha-256
+      STATS_USERS: ${DB_USER:-raguser}
       POOL_MODE: transaction
       DEFAULT_POOL_SIZE: ${PGBOUNCER_POOL_SIZE:-40}
       RESERVE_POOL_SIZE: ${PGBOUNCER_RESERVE_POOL_SIZE:-10}
@@ -79,6 +80,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - backend
+
+  pgbouncer-exporter:
+    image: prometheuscommunity/pgbouncer-exporter:v0.11.0
+    profiles: ["monitoring"]
+    logging: *bounded-logging
+    environment:
+      PGBOUNCER_EXPORTER_CONNECTION_STRING: "host=pgbouncer port=5432 dbname=pgbouncer sslmode=disable connect_timeout=5"
+      PGUSER: ${DB_USER:-raguser}
+      PGPASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - backend

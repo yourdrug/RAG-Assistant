@@ -1,4 +1,17 @@
 groups:
+  - name: pgbouncer
+    rules:
+      - alert: PgBouncerWaitingForConnection
+        expr: |
+          max by (instance, database, user) (pgbouncer_pools_client_waiting_connections{database!="pgbouncer"}) > 0
+          or
+          max by (instance, database, user) (pgbouncer_pools_client_maxwait_seconds{database!="pgbouncer"}) > 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "PgBouncer ждёт свободное соединение"
+          description: "Пул {{ $labels.database }}/{{ $labels.user }}: cl_waiting > 0 или maxwait > 0. Проверьте длительность транзакций и DEFAULT_POOL_SIZE (по умолчанию 40)."
   - name: background-jobs
     rules:
       - alert: BackgroundJobCleanupFallingBehind
