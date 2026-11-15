@@ -481,7 +481,7 @@ class EmbeddingCache:
 
 def deepinfra_key() -> str:
     """Read the key from the environment or server/.env.secrets; it is never printed."""
-    if key := os.environ.get("DEEPINFRA_API_KEY"):
+    if key := os.environ.get("EMBEDDING_API_KEY"):
         return key
 
     secrets = ROOT / "server/.env.secrets"
@@ -490,10 +490,10 @@ def deepinfra_key() -> str:
         for line in secrets.read_text().splitlines():
             name, _, value = line.partition("=")
 
-            if name.strip() == "DEEPINFRA_API_KEY" and value.strip():
+            if name.strip() == "EMBEDDING_API_KEY" and value.strip():
                 return value.strip().strip("'\"")
 
-    message = "DEEPINFRA_API_KEY is not set (environment or server/.env.secrets)"
+    message = "EMBEDDING_API_KEY (DeepInfra) is not set (environment or server/.env.secrets)"
     raise SystemExit(message)
 
 

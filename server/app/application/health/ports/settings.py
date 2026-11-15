@@ -15,6 +15,3 @@ class HealthSettingsPort(Protocol):
 
     @property
     def uptime_seconds(self) -> float: ...
-
-    @property
-    def ml_provider(self) -> str: ...

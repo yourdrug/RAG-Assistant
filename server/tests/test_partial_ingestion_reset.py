@@ -100,7 +100,7 @@ def ingestion(tmp_path: Path) -> SimpleNamespace:
     settings = SimpleNamespace(
         s3_bucket="bucket",
         embed_dim=384,
-        tei_embed_url="tei",
+        embedding_base_url="embeddings",
         qdrant_url="qdrant",
         collection_name="chunks",
     )

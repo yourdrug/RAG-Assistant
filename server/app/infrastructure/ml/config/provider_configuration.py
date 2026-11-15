@@ -25,7 +25,6 @@ from pyrate_limiter.utils import validate_rate_list
 from application.admin import ConfigurationStatus, EffectiveParameter
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType, parse_bool
 from application.runtime.dynamic_params import DYNAMIC_PARAMS, PROFILE_CONFIG_DEFAULTS
-from application.runtime.enums import MLProvider
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from config import settings
 from domain.shared.exceptions import ValidationError
@@ -353,13 +352,9 @@ class SettingsProviderConfiguration:
             candidate = self.settings.model_copy(update=updates)
             keys = {event.key for event in events}
 
-            if (
-                previous_version is None
-                and require_complete
-                and candidate.ml_provider == MLProvider.TEI.value
-            ):
+            if previous_version is None and require_complete:
                 # Defaults produce no change event, but startup must verify the serving encoder.
-                keys.add("tei_embed_url")
+                keys.add("embedding_base_url")
 
             prepared = await prepare_clients(
                 self.ml_clients,
@@ -510,7 +505,7 @@ def validate_chunking(candidate: Settings, domain_values: dict[tuple[str, str], 
 
 
 def validate_provider_credentials(candidate: Settings) -> None:
-    errors = [*candidate.check_ml_provider(), *candidate.check_llm_endpoint()]
+    errors = [*candidate.check_ml_endpoints(), *candidate.check_llm_endpoint()]
 
     if errors:
         raise ValidationError("; ".join(errors))

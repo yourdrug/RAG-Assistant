@@ -8,7 +8,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from application.health.ports import HealthCheckResult
-from application.runtime.enums import HealthStatus, MLProvider
+from application.runtime.enums import HealthStatus
 
 
 if TYPE_CHECKING:
@@ -52,9 +52,7 @@ class HealthService:
         qdrant, postgres, redis = await asyncio.gather(
             self._probe.check_qdrant(), self._probe.check_postgres(), self._probe.check_redis()
         )
-        ml_checks = (
-            await self._probe.check_tei() if self._settings.ml_provider == MLProvider.TEI.value else {}
-        )
+        ml_checks = await self._probe.check_ml()
         active_jobs = await self.count_active_jobs()
 
         llm_check = await self._probe.check_llm()

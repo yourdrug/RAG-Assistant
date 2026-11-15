@@ -15,7 +15,6 @@ import httpx
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from application.runtime.enums import MLProvider
 from config import LLMSection, VectorStoreSection, ml_client_settings, process_section
 from domain.rag.breadth import Breadth
 from infrastructure.corpus import snapshot as corpus_snapshot
@@ -23,9 +22,8 @@ from infrastructure.corpus.clients import raw_corpus_client
 from infrastructure.corpus.locks import corpus_write_guard
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.database.database import database
-from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient, DeepInfraRerankerClient
+from infrastructure.ml.clients.inference_clients import EmbeddingsClient, RerankerClient
 from infrastructure.ml.clients.instructor_client import NO_API_KEY, llm_auth_headers
-from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient, TEIRerankerClient
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
 
@@ -40,32 +38,21 @@ log = logging.getLogger("default")
 # ---------------------------------------------------------------------------
 
 
-def create_embeddings(
-    model: MLClientSettings | None = None,
-) -> DeepInfraEmbeddingsClient | TEIEmbeddingsClient:
+def create_embeddings(model: MLClientSettings | None = None) -> EmbeddingsClient:
     model = (model or ml_client_settings()).model_copy()
     pool_limits = httpx.Limits(
         max_connections=model.embedding_http_max_connections,
         max_keepalive_connections=model.embedding_http_max_keepalive_connections,
     )
-
-    if model.ml_provider == MLProvider.DEEPINFRA.value:
-        log.info("Creating DeepInfra embeddings client (model=%s) ...", model.deepinfra_embed_model)
-        client = DeepInfraEmbeddingsClient(
-            api_key=model.deepinfra_api_key.get_secret_value(),
-            base_url=f"{model.deepinfra_base_url}/openai",
-            model=model.deepinfra_embed_model,
-            pool_limits=pool_limits,
-        )
-
-        client.embedding_identity = configured_embedding_identity(model)
-        return client
-
-    log.info("Creating TEI embeddings client (%s) ...", model.tei_embed_url)
-
-    tei_client = TEIEmbeddingsClient(model.tei_embed_url, pool_limits=pool_limits)
-    tei_client.embedding_identity = configured_embedding_identity(model)
-    return tei_client
+    log.info("Creating embeddings client (model=%s) ...", model.embedding_model)
+    client = EmbeddingsClient(
+        model.embedding_base_url,
+        model.embedding_model,
+        api_key=model.embedding_api_key.get_secret_value(),
+        pool_limits=pool_limits,
+    )
+    client.embedding_identity = configured_embedding_identity(model)
+    return client
 
 
 # ---------------------------------------------------------------------------
@@ -73,24 +60,20 @@ def create_embeddings(
 # ---------------------------------------------------------------------------
 
 
-def create_reranker(model: MLClientSettings | None = None) -> DeepInfraRerankerClient | TEIRerankerClient:
+def create_reranker(model: MLClientSettings | None = None) -> RerankerClient:
     model = (model or ml_client_settings()).model_copy()
     pool_limits = httpx.Limits(
         max_connections=model.rerank_http_max_connections,
         max_keepalive_connections=model.rerank_http_max_keepalive_connections,
     )
-
-    if model.ml_provider == MLProvider.DEEPINFRA.value:
-        log.info("Creating DeepInfra reranker client (model=%s) ...", model.deepinfra_rerank_model)
-        return DeepInfraRerankerClient(
-            api_key=model.deepinfra_api_key.get_secret_value(),
-            base_url=model.deepinfra_base_url,
-            model=model.deepinfra_rerank_model,
-            pool_limits=pool_limits,
-        )
-
-    log.info("Creating TEI reranker client (%s) ...", model.tei_rerank_url)
-    return TEIRerankerClient(model.tei_rerank_url, pool_limits=pool_limits)
+    log.info("Creating reranker client (model=%s, api=%s) ...", model.rerank_model, model.rerank_api_format)
+    return RerankerClient(
+        model.rerank_base_url,
+        model.rerank_model,
+        model.rerank_api_format,
+        api_key=model.rerank_api_key.get_secret_value(),
+        pool_limits=pool_limits,
+    )
 
 
 # ---------------------------------------------------------------------------

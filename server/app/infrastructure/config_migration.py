@@ -28,7 +28,6 @@ from application.runtime.config import ConfigParameter, ConfigValueType
 from application.runtime.dynamic_params import (
     DYNAMIC_PARAMS,
 )
-from application.runtime.enums import MLProvider
 from application.runtime.setting_keys import (
     SECRET_SETTING_KEYS,
     TARGET_DYNAMIC_SETTING_KEYS,
@@ -38,6 +37,7 @@ from domain.shared.exceptions import ValidationError as DomainValidationError
 
 
 # Legacy names are recognized only by the offline migration parser.
+LEGACY_TEI_PROVIDER = "tei"
 LEGACY_POOL_SETTING_KEYS: frozenset[str] = frozenset({"http_pool_max_connections", "http_pool_max_keepalive"})
 
 logger = logging.getLogger("default")
@@ -304,9 +304,9 @@ def compose_updates(env: EnvSnapshot, effective: dict[str, str | None]) -> dict[
         return {}
 
     profiles = [p.strip() for p in (effective.get("COMPOSE_PROFILES") or "").split(",") if p.strip()]
-    provider = effective.get("ML_PROVIDER", Settings.model_fields["ml_provider"].default)
 
-    if provider == MLProvider.TEI.value and "tei" not in profiles:
+    # Pre-unification env files selected local TEI containers through ML_PROVIDER.
+    if effective.get("ML_PROVIDER") == LEGACY_TEI_PROVIDER and "tei" not in profiles:
         profiles.append("tei")
 
     joined = ",".join(profiles)
@@ -327,12 +327,7 @@ def validate_storage_and_credentials(
         raise ValueError("S3 env/DB mismatch: " + ", ".join(sorted(conflicts)))
 
     required = {"DB_PASSWORD", "REDIS_PASSWORD", "JWT_SECRET_KEY", "S3_ACCESS_KEY", "S3_SECRET_KEY"}
-    # The LLM key stays optional: keyless self-hosted endpoints are supported.
-    ml_provider = effective.get("ML_PROVIDER", Settings.model_fields["ml_provider"].default)
-
-    if ml_provider == MLProvider.DEEPINFRA.value:
-        required.add("DEEPINFRA_API_KEY")
-
+    # LLM/embedding/rerank keys stay optional: keyless self-hosted endpoints are supported.
     missing = [key for key in sorted(required) if not effective.get(key) or effective[key] == "minioadmin"]
 
     if missing:

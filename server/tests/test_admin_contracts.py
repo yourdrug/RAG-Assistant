@@ -43,18 +43,19 @@ def test_public_exports_share_canonical_objects(public: str, implementation: str
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("ml_provider", ["tei", "deepinfra"])
-async def test_models_info_preserves_provider_selection(ml_provider: str) -> None:
+async def test_models_info_reports_configured_endpoints() -> None:
     settings = SimpleNamespace(
-        ml_provider=ml_provider,
         llm_base_url="https://openrouter.ai/api/v1",
         llm_model="router-model",
         llm_auxiliary_model="router-model",
         llm_api_key_configured=True,
-        tei_embed_url="http://embed",
-        tei_rerank_url="http://rerank",
-        deepinfra_embed_model="embed-model",
-        deepinfra_rerank_model="rerank-model",
+        embedding_base_url="http://embed/v1",
+        embedding_model="embed-model",
+        embedding_api_key_configured=False,
+        rerank_base_url="http://rerank",
+        rerank_model="rerank-model",
+        rerank_api_format="tei",
+        rerank_api_key_configured=True,
         ocr_engine="surya",
         ocr_enabled=True,
     )
@@ -62,9 +63,12 @@ async def test_models_info_preserves_provider_selection(ml_provider: str) -> Non
     assert info.llm_base_url == "https://openrouter.ai/api/v1"
     assert info.llm_model == "router-model"
     assert info.llm_api_key_configured
-    assert info.ml_provider == ml_provider
-    assert info.embed_model == ("embed-model" if ml_provider == "deepinfra" else "http://embed")
-    assert info.rerank_model == ("rerank-model" if ml_provider == "deepinfra" else "http://rerank")
+    assert info.embedding_base_url == "http://embed/v1"
+    assert info.embed_model == "embed-model"
+    assert not info.embedding_api_key_configured
+    assert info.rerank_model == "rerank-model"
+    assert info.rerank_api_format == "tei"
+    assert info.rerank_api_key_configured
     assert info.ocr_enabled
     assert info.ocr_engine == "surya"
 

@@ -81,7 +81,7 @@ def _make_service(**overrides: Any) -> IngestionService:
     mock_ingestion_settings.embed_dim = 384
     mock_ingestion_settings.collection_name = "test-collection"
     mock_ingestion_settings.hybrid_enabled = False
-    mock_ingestion_settings.tei_embed_url = "http://localhost:8080"
+    mock_ingestion_settings.embedding_base_url = "http://localhost:8080"
     mock_ingestion_settings.qdrant_url = "http://localhost:6333"
 
     defaults: dict[str, Any] = {

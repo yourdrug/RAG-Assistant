@@ -76,11 +76,13 @@ task pull-model MODEL=qwen2.5:7b
 ```
 
 Если TEI не проходит health-check, проверьте его логи и содержимое каталогов моделей
-до запуска приложения. Для окружения с облачным ML эти шаги TEI пропускаются:
-профиль Compose и runtime provider должны соответствовать выбранному окружению.
+до запуска приложения. Для окружения с облачным ML эти шаги TEI пропускаются.
+Чтобы приложение использовало локальный TEI, в Admin → Settings укажите
+`embedding_base_url=http://tei-embed:8080/v1`, `rerank_base_url=http://tei-rerank:8080`
+и `rerank_api_format=tei`, а `EMBEDDING_MODEL` — равным `model_id` из TEI `/info`.
 
-`task up` запускает Compose-стек; генерация LLM работает через OpenRouter.
-Выбор модели и ML-провайдера для приложения задаётся runtime-конфигурацией, а не
+`task up` запускает Compose-стек; по умолчанию LLM — OpenRouter, эмбеддинги и
+реранкер — DeepInfra. Эндпоинты и модели задаются runtime-конфигурацией, а не
 самим фактом скачивания. Swagger доступен по `http://localhost:8001/docs`, если
 используются стандартные локальные порты. Состояние сервисов можно посмотреть в
 `task ps`, логи — в `task logs -- server`.

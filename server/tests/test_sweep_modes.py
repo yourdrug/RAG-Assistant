@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 from langchain.schema import Document
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 import pytest
 
 from application.benchmark import compute_summary_from_results
@@ -429,3 +429,9 @@ async def test_worker_saves_evidence_scores_and_selection_scope(monkeypatch: pyt
     assert created[0].summary_metrics["avg_context_fact_coverage"] == 1
     assert created[0].summary_metrics["evaluation_mode"] == SweepEvaluationMode.FULL
     assert created[0].summary_metrics["fragment_recall_at_k_evaluated_count"] == 7
+
+
+def test_settings_snapshot_never_persists_credentials() -> None:
+    snapshot = settings_snapshot()
+    assert not any(isinstance(value, SecretStr) for value in snapshot.values())
+    assert "metrics_scrape_token" not in snapshot

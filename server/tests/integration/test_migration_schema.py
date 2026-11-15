@@ -61,7 +61,8 @@ def test_baseline_round_trip_matches_metadata(migration_connection: Connection) 
 
     inspector = inspect(migration_connection)
     tables = set(inspector.get_table_names()) - {"alembic_version"}
-    assert len(tables) == 26
+    # 0009 dropped cost_rates and cost_usage from the 26-table baseline.
+    assert len(tables) == 24
 
     for name in tables:
         assert migration_connection.scalar(select(func.count()).select_from(Table(name, MetaData()))) == 0
@@ -163,6 +164,25 @@ def test_unified_llm_endpoint_migration_keeps_active_provider(
     restored = config_rows(migration_connection)
     assert restored["llm_provider"] == legacy["llm_provider"]
     assert not set(restored) & {"llm_base_url", "llm_model", "llm_auxiliary_model"}
+
+
+def test_generic_ml_endpoint_migration_drops_provider_keys(migration_connection: Connection) -> None:
+    config = Config("alembic.ini")
+    config.attributes["connection"] = migration_connection
+    command.upgrade(config, "0010")
+    insert_config_rows(
+        migration_connection,
+        {
+            "ml_provider": "tei",
+            "tei_embed_url": "http://tei-embed:8080",
+            "deepinfra_rerank_model": "custom-reranker",
+            "retriever_top_k": "5",
+        },
+    )
+    command.upgrade(config, "0011")
+    assert config_rows(migration_connection) == {"rerank_model": "custom-reranker", "retriever_top_k": "5"}
+    command.downgrade(config, "0010")
+    assert config_rows(migration_connection) == {"retriever_top_k": "5"}
 
 
 @pytest.mark.asyncio

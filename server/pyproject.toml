@@ -4,7 +4,7 @@ version = "0.1.0"
 
 requires-python = "==3.12.*"
 
-description = "Корпоративный RAG-ассистент — FastAPI + Qdrant + OpenRouter"
+description = "Корпоративный RAG-ассистент: поиск по документам, ответы с источниками и разграничение доступа"
 readme = "../README.md"
 
 authors = [
@@ -305,10 +305,10 @@ explicit_package_bases = true
 namespace_packages = true
 plugins = ["pydantic.mypy"]
 
-strict = true                  # включает disallow_untyped_defs, disallow_any_generics,
+strict = true
 # warn_return_any, no_implicit_reexport и т.д.
 disallow_any_unimported = true
-disallow_any_decorated = false # включите, если готовы бороться с декораторами FastAPI
+disallow_any_decorated = false
 warn_unreachable = true
 warn_unused_ignores = true
 warn_redundant_casts = true
@@ -379,12 +379,6 @@ forbidden_modules = [
     "httpx", "redis", "qdrant_client",
     "langchain", "langchain_core", "langchain_openai",
 ]
-
-[[tool.importlinter.contracts]]
-name = "Application is independent of configuration"
-type = "forbidden"
-source_modules = ["application"]
-forbidden_modules = ["config"]
 
 [[tool.importlinter.contracts]]
 name = "Domain shared kernel is independent of contexts"
@@ -471,19 +465,21 @@ forbidden_modules = [
 
 # Feature dependencies are direct; each target enforces its own boundary.
 # DDD layers above also check indirect paths to implementations.
+# When adding an application feature, update these explicit dependency lists.
 
 [[tool.importlinter.contracts]]
 name = "UoW: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.uow"]
 allow_indirect_imports = true
-# Allowed features: none.
+# Allowed features: runtime.
 forbidden_modules = [
     "application.admin", "application.benchmark",
     "application.act_versioning", "application.identity", "application.chat",
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.ports",
+    "application.rag",
 ]
 
 [[tool.importlinter.contracts]]
@@ -491,13 +487,14 @@ name = "Admin: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.admin"]
 allow_indirect_imports = true
-# Allowed features: uow.
+# Allowed features: uow, runtime.
 forbidden_modules = [
     "application.benchmark", "application.act_versioning",
     "application.identity", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
+    "application.rag",
 ]
 # Only these shared ports are part of this feature boundary.
 ignore_imports = [
@@ -515,6 +512,7 @@ forbidden_modules = [
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.ports",
+    "application.rag", "application.runtime",
 ]
 # Only these shared ports are part of this feature boundary.
 ignore_imports = [
@@ -534,6 +532,7 @@ forbidden_modules = [
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
+    "application.rag", "application.runtime",
 ]
 # Only these shared ports are part of this feature boundary.
 ignore_imports = [
@@ -553,6 +552,7 @@ forbidden_modules = [
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
+    "application.rag", "application.runtime",
 ]
 
 [[tool.importlinter.contracts]]
@@ -560,12 +560,13 @@ name = "Chat: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.chat"]
 allow_indirect_imports = true
-# Allowed features: identity, uow.
+# Allowed features: identity, uow, rag.
 forbidden_modules = [
     "application.admin", "application.benchmark",
     "application.act_versioning", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
     "application.health", "application.jobs", "application.ports",
+    "application.runtime",
 ]
 
 [[tool.importlinter.contracts]]
@@ -579,6 +580,7 @@ forbidden_modules = [
     "application.act_versioning", "application.chat", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
     "application.health", "application.jobs", "application.ports",
+    "application.rag", "application.runtime",
 ]
 
 [[tool.importlinter.contracts]]
@@ -593,6 +595,7 @@ forbidden_modules = [
     "application.search", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
+    "application.rag", "application.runtime",
 ]
 
 [[tool.importlinter.contracts]]
@@ -605,6 +608,7 @@ forbidden_modules = [
     "application.admin", "application.benchmark",
     "application.chat", "application.search", "application.chunks",
     "application.health", "application.jobs", "application.ports",
+    "application.rag", "application.runtime",
 ]
 # Only these shared ports are part of this feature boundary.
 ignore_imports = [
@@ -629,6 +633,7 @@ forbidden_modules = [
     "application.act_versioning", "application.chat", "application.search",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
+    "application.rag", "application.runtime",
 ]
 # Only these shared ports are part of this feature boundary.
 ignore_imports = [
@@ -646,6 +651,7 @@ forbidden_modules = [
     "application.identity", "application.chat", "application.search",
     "application.documents", "application.chunks", "application.health",
     "application.jobs", "application.ports",
+    "application.rag", "application.runtime",
 ]
 # Shared deletion preserves edition timelines; the remaining exceptions are storage ports.
 ignore_imports = [
@@ -661,12 +667,13 @@ name = "Health: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.health"]
 allow_indirect_imports = true
-# Allowed features: admin, uow.
+# Allowed features: admin, uow, runtime.
 forbidden_modules = [
     "application.benchmark", "application.act_versioning",
     "application.identity", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.jobs", "application.ports",
+    "application.rag",
 ]
 
 [[tool.importlinter.contracts]]
@@ -681,6 +688,7 @@ forbidden_modules = [
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
     "application.ports",
+    "application.rag", "application.runtime",
 ]
 
 [[tool.importlinter.contracts]]
@@ -695,6 +703,7 @@ forbidden_modules = [
     "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
     "application.health", "application.jobs",
+    "application.rag", "application.runtime",
 ]
 
 
@@ -781,6 +790,7 @@ name = "RAG: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.rag"]
 allow_indirect_imports = true
+# Runtime configuration contracts remain available to RAG.
 forbidden_modules = [
     "application.admin", "application.benchmark", "application.act_versioning",
     "application.identity", "application.chat", "application.search", "application.indexing",

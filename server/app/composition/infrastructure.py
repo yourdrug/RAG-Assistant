@@ -476,10 +476,10 @@ class InfrastructureContainer:
         }:
             ml.invalidate_llm()
 
-        if event.key in {"ml_provider", "deepinfra_embed_model"}:
+        if event.key == "embedding_base_url":
             ml.invalidate_embeddings()
 
-        if event.key in {"ml_provider", "deepinfra_rerank_model"}:
+        if event.key in {"rerank_base_url", "rerank_model", "rerank_api_format"}:
             ml.invalidate_reranker()
 
     def init_rate_limit(self) -> None:

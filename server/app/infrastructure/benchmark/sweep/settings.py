@@ -5,6 +5,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from pydantic import SecretStr
+
 from config import get_setting, settings, settings_overrides
 from infrastructure.benchmark.checkpoint import fingerprint
 
@@ -48,7 +50,7 @@ class LiveSweepSettings:
 
 
 def settings_snapshot() -> dict[str, Any]:
-    return {
+    snapshot = {
         name: get_setting(name)
         for name in type(settings).model_fields
         if not any(part in name for part in ("key", "password", "secret", "url", "dir"))
@@ -60,6 +62,8 @@ def settings_snapshot() -> dict[str, Any]:
             "benchmark_judge_max_concurrent",
         }
     }
+    # Name patterns miss credentials such as metrics_scrape_token; never persist any secret.
+    return {name: value for name, value in snapshot.items() if not isinstance(value, SecretStr)}
 
 
 def settings_fingerprint() -> str:

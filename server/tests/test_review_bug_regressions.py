@@ -36,8 +36,8 @@ async def test_broad_config_rebuilds_cached_llm(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr(container.infrastructure.ml, "ml_clients", registry)
 
     monkeypatch.setattr("composition.infrastructure.event_bus", bus)
-    monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:8080")
-    monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:8080")
+    monkeypatch.setattr(settings, "embedding_base_url", "http://tei-embed:8080")
+    monkeypatch.setattr(settings, "rerank_base_url", "http://tei-rerank:8080")
     container.infrastructure.configuration = SettingsProviderConfiguration(bus=bus)
     container.subscribe_config_events()
     try:

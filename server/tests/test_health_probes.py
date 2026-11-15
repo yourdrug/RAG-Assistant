@@ -39,8 +39,9 @@ def http_probe(monkeypatch: pytest.MonkeyPatch) -> HttpFixture:
             llm_base_url="http://llm-endpoint",
             llm_api_key=SecretStr("test-key"),
             llm_model="test-model",
-            tei_embed_url="http://embed/",
-            tei_rerank_url="http://rerank/",
+            embedding_base_url="http://embed/v1",
+            rerank_base_url="http://rerank/",
+            ml_internal_allowed_origins=["http://embed", "http://rerank"],
         ),
     )
     return probes.SystemHealthProbe(), responses, requests
@@ -59,11 +60,11 @@ async def test_llm_status_and_authentication(http_probe: HttpFixture, status: in
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [200, 503])
-async def test_tei_checks_both_endpoints(http_probe: HttpFixture, status: int) -> None:
+async def test_self_hosted_ml_checks_both_endpoints(http_probe: HttpFixture, status: int) -> None:
     health, responses, requests = http_probe
     responses["/health"] = httpx.Response(status)
-    result = await health.check_tei()
-    assert set(result) == {"tei_embed", "tei_rerank"}
+    result = await health.check_ml()
+    assert set(result) == {"embeddings", "reranker"}
     assert all(check.status == "ok" for check in result.values()) == (status == 200)
     assert {request.url.host for request in requests} == {"embed", "rerank"}
 

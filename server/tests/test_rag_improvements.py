@@ -21,6 +21,7 @@ import pytest_asyncio
 
 from application.chat import ConversationService
 from application.rag.dto import PreparedQuery
+from application.runtime.enums import RerankApiFormat
 from composition.service_providers import create_rag_service
 from config import settings
 from domain.chat.message import MessageRole
@@ -33,7 +34,12 @@ from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.cache import answers as answer_cache, keys as cache_keys
 from infrastructure.ml.cache.answers import compute_question_hash
-from infrastructure.ml.clients.tei_clients import TEIRerankerClient
+from infrastructure.ml.clients.inference_clients import (
+    EmbeddingsClient,
+    InferenceResponseError,
+    RerankerClient,
+    indexed_scores,
+)
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_prompts import update_rolling_summary
@@ -129,7 +135,7 @@ async def test_tei_sorted_response_selects_the_actually_relevant_document(
     monkeypatch.setattr(
         httpx, "AsyncClient", lambda **kwargs: real_client(**{**kwargs, "transport": transport})
     )
-    reranker = TEIRerankerClient("http://tei")
+    reranker = RerankerClient("http://tei", "reranker", RerankApiFormat.TEI)
     try:
         selected = await rerank_documents("Q", [doc("irrelevant", 1), doc("relevant", 2)], 1, reranker)
         assert selected[0][0].metadata["document_id"] == 2
@@ -142,7 +148,7 @@ async def test_tei_sorted_response_selects_the_actually_relevant_document(
 def test_tei_strong_matches_stay_distinct_instead_of_tying_at_one() -> None:
     """float32 sigmoid in TEI maps logits above ~17 to 1.0; local float64 keeps the order."""
     response = [{"index": 0, "score": 18.0}, {"index": 1, "score": 25.0}, {"index": 2, "score": -800.0}]
-    scores = TEIRerankerClient.ordered_scores(response, 3)
+    scores = indexed_scores(response, 3, "score", logits=True)
     assert scores[0] < scores[1] < 1.0
     assert scores[2] == 0.0
     assert scores[1] > 0.9999999
@@ -160,8 +166,55 @@ def test_tei_strong_matches_stay_distinct_instead_of_tying_at_one() -> None:
 def test_tei_malformed_response_fails_instead_of_misranking(
     response: list[dict[str, int | float]] | list[dict[str, int] | dict[str, int | float]],
 ) -> None:
-    with pytest.raises(ValueError, match="TEI rerank"):
-        TEIRerankerClient.ordered_scores(response, 2)
+    with pytest.raises(InferenceResponseError, match="rerank"):
+        indexed_scores(response, 2, "score", logits=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "api_format, path, response, expected_body",
+    [
+        (
+            RerankApiFormat.COHERE,
+            "/v1/rerank",
+            {"results": [{"index": 1, "relevance_score": 0.9}, {"index": 0, "relevance_score": 0.2}]},
+            {"model": "reranker", "query": "Q", "documents": ["a", "b"]},
+        ),
+        (
+            RerankApiFormat.DEEPINFRA,
+            "/v1/inference/reranker",
+            {"scores": [0.2, 0.9]},
+            {"queries": ["Q"], "documents": ["a", "b"]},
+        ),
+    ],
+)
+async def test_rerank_formats_send_their_wire_shape_and_key(
+    monkeypatch: pytest.MonkeyPatch,
+    api_format: RerankApiFormat,
+    path: str,
+    response: dict[str, object],
+    expected_body: dict[str, object],
+) -> None:
+    real_client = httpx.AsyncClient
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=response)
+
+    transport = httpx.MockTransport(respond)
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: real_client(**{**kwargs, "transport": transport})
+    )
+    reranker = RerankerClient("http://rerank/v1", "reranker", api_format, api_key="rerank-key")
+    try:
+        assert await reranker.predict([("Q", "a"), ("Q", "b")]) == [0.2, 0.9]
+    finally:
+        await reranker.close()
+
+    assert requests[0].url.path == path
+    assert json.loads(requests[0].content) == expected_body
+    assert requests[0].headers["Authorization"] == "Bearer rerank-key"
 
 
 def test_complete_prompt_budget_trims_old_history_and_keeps_summary() -> None:
@@ -413,3 +466,47 @@ async def test_split_answer_policies_preserve_cache_prompt_scope(
     assert contexts[-1]["domain_prompts"] == {}
     await step_check_cache(state, ("unknown",))
     assert contexts[-1]["domain_prompts"] == {"unknown": [None, None]}
+
+
+@pytest.mark.asyncio
+async def test_embeddings_client_uses_openai_shape_order_and_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_client = httpx.AsyncClient
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        data = [{"index": 1, "embedding": [2.0]}, {"index": 0, "embedding": [1.0]}]
+        return httpx.Response(200, json={"data": data})
+
+    transport = httpx.MockTransport(respond)
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: real_client(**{**kwargs, "transport": transport})
+    )
+    client = EmbeddingsClient("http://tei-embed:8080/v1", "bge", api_key="embed-key")
+    try:
+        assert await client.embed_documents(["a", "b"]) == [[1.0], [2.0]]
+    finally:
+        await client.close()
+
+    assert requests[0].url.path == "/v1/embeddings"
+    assert json.loads(requests[0].content) == {
+        "input": ["a", "b"],
+        "model": "bge",
+        "encoding_format": "float",
+    }
+    assert requests[0].headers["Authorization"] == "Bearer embed-key"
+
+
+@pytest.mark.asyncio
+async def test_embeddings_client_rejects_missing_vectors(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_client = httpx.AsyncClient
+    transport = httpx.MockTransport(lambda _request: httpx.Response(200, json={"data": [{"index": 0}]}))
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: real_client(**{**kwargs, "transport": transport})
+    )
+    client = EmbeddingsClient("http://embed", "bge")
+    try:
+        with pytest.raises(InferenceResponseError):
+            await client.embed_documents(["a", "b"])
+    finally:
+        await client.close()

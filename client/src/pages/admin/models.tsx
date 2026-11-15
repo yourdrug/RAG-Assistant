@@ -11,9 +11,13 @@ interface ModelsInfo {
   llm_model: string;
   llm_auxiliary_model: string;
   llm_api_key_configured: boolean;
+  embedding_base_url: string;
   embed_model: string;
+  embedding_api_key_configured: boolean;
+  rerank_base_url: string;
   rerank_model: string;
-  ml_provider: string;
+  rerank_api_format: string;
+  rerank_api_key_configured: boolean;
   ocr_engine: string;
   ocr_enabled: boolean;
 }
@@ -64,13 +68,13 @@ export function AdminModelsPage() {
       title: "Embedding Model",
       value: data?.embed_model,
       icon: FileText,
-      description: "Vector embeddings",
+      description: data?.embedding_base_url ?? "Vector embeddings",
     },
     {
       title: "Reranker Model",
       value: data?.rerank_model,
       icon: Cpu,
-      description: "Cross-encoder for reranking",
+      description: `${data?.rerank_api_format ?? "—"} · ${data?.rerank_base_url ?? ""}`,
     },
     {
       title: "OCR Engine",
@@ -144,9 +148,19 @@ export function AdminModelsPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            <div className="flex justify-between border-b pb-2">
-              <span className="text-sm text-muted-foreground">ML Provider</span>
-              <span className="text-sm font-medium">{data?.ml_provider}</span>
+            <div className="flex justify-between gap-4 border-b pb-2">
+              <span className="text-sm text-muted-foreground">
+                Embedding Key (EMBEDDING_API_KEY)
+              </span>
+              <Badge variant={data?.embedding_api_key_configured ? "success" : "secondary"}>
+                {data?.embedding_api_key_configured ? "••••••• set" : "Not set"}
+              </Badge>
+            </div>
+            <div className="flex justify-between gap-4 border-b pb-2">
+              <span className="text-sm text-muted-foreground">Rerank Key (RERANK_API_KEY)</span>
+              <Badge variant={data?.rerank_api_key_configured ? "success" : "secondary"}>
+                {data?.rerank_api_key_configured ? "••••••• set" : "Not set"}
+              </Badge>
             </div>
             <div className="flex justify-between border-b pb-2">
               <span className="text-sm text-muted-foreground">OCR Enabled</span>

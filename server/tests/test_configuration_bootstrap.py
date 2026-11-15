@@ -56,9 +56,9 @@ def configuration() -> SettingsProviderConfiguration:
 
     model = Settings(
         _env_file=None,
-        ml_provider="tei",
-        tei_embed_url="http://tei-embed:8080",
-        tei_rerank_url="http://tei-rerank:8080",
+        embedding_base_url="http://tei-embed:8080/v1",
+        rerank_base_url="http://tei-rerank:8080",
+        rerank_api_format="tei",
     )
     adapter = DomainSettingsAdapter()
     registry = DomainProfileRegistry()
@@ -84,16 +84,22 @@ async def test_seed_and_load_errors_are_fatal() -> None:
         await initialization.load_config_from_db(factory)
 
 
-def test_production_provider_validation_uses_deployment_provider(
-    monkeypatch: pytest.MonkeyPatch, configuration: SettingsProviderConfiguration
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("embedding_base_url", ""),
+        ("rerank_base_url", ""),
+        ("embedding_base_url", "https://attacker.example/v1"),
+        ("rerank_base_url", "https://attacker.example/v1"),
+        ("rerank_api_format", "unknown"),
+    ],
+)
+def test_ml_endpoint_change_rejected_before_commit(
+    configuration: SettingsProviderConfiguration, key: str, value: str
 ) -> None:
-    model = configuration.settings
-    model.tei_embed_url = model.tei_rerank_url = ""
-    model.ml_provider = "deepinfra"
-    model.deepinfra_api_key = SecretStr("private-test-key")
-    configuration.apply([row("ml_provider", "tei")])
-    assert model.ml_provider == "deepinfra"
-    assert configuration.status().ready
+    # Embedding/rerank keys are forwarded to these URLs: unapproved origins must never apply.
+    with pytest.raises(ValidationError):
+        configuration.validate_change(key, value)
 
 
 @pytest.mark.parametrize(
@@ -108,7 +114,7 @@ def test_production_provider_validation_uses_deployment_provider(
 def test_bad_snapshot_keeps_entire_previous_state_and_safe_error(
     configuration: SettingsProviderConfiguration, rows: list[ConfigParameter]
 ) -> None:
-    configuration.settings.deepinfra_api_key = SecretStr("")
+    configuration.settings.embedding_api_key = SecretStr("")
     configuration.apply([row("llm_model", "previous-model")])
     previous_version = configuration.status().applied_version
     with pytest.raises(ValidationError):
@@ -312,22 +318,20 @@ async def test_cli_bootstrap_failure_does_not_run_action_and_closes_resources(
     assert closed == ["container", "database", "redis"]
 
 
-def test_deepinfra_production_can_construct_before_db_load_and_without_tei_urls(
+def test_cloud_ml_production_can_construct_before_db_load(
     configuration: SettingsProviderConfiguration,
 ) -> None:
 
     model = Settings(
         _env_file=None,
         stage=AppStage.PROD,
-        ml_provider="deepinfra",
         allowed_origins="https://app.example.test",
-        deepinfra_api_key=SecretStr("private-test-key"),
-        tei_embed_url="",
-        tei_rerank_url="",
+        embedding_api_key=SecretStr("private-test-key"),
+        rerank_api_key=SecretStr("private-test-key"),
     )
     configuration.settings = model
-    configuration.apply([row("ml_provider", "deepinfra")])
-    assert model.ml_provider == "deepinfra"
+    configuration.apply([row("rerank_api_format", "deepinfra")])
+    assert model.embedding_base_url == "https://api.deepinfra.com/v1/openai"
     assert configuration.status().ready
 
 
@@ -342,13 +346,13 @@ async def test_readiness_rejects_failed_configuration_snapshot(
             name: AsyncMock(return_value=HealthCheckResult(HealthStatus.OK.value))
             for name in ("check_qdrant", "check_postgres", "check_redis", "check_llm")
         },
-        check_tei=AsyncMock(return_value={}),
+        check_ml=AsyncMock(return_value={}),
     )
     service = HealthService(
         FakeUnitOfWorkFactory(),
         probes,
         SimpleNamespace(is_connected=True),
-        SimpleNamespace(ml_provider="tei", version="test", uptime_seconds=1),
+        SimpleNamespace(version="test", uptime_seconds=1),
         configuration=configuration,
         corpus_control=SimpleNamespace(is_ready=AsyncMock(return_value=corpus_ready))
         if corpus_ready is not None

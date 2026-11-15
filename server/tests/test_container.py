@@ -98,14 +98,16 @@ class TestApplicationContainer:
 
         configuration = SettingsProviderConfiguration(
             Settings(
-                _env_file=None, tei_embed_url="http://tei-embed:8080", tei_rerank_url="http://tei-rerank:8080"
+                _env_file=None,
+                embedding_base_url="http://tei-embed:8080",
+                rerank_base_url="http://tei-rerank:8080",
             ),
             bus=bus,
         )
         # LivePIIRedactor consumes the process singleton, so apply to that instance.
         configuration.settings = settings
-        monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:8080")
-        monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:8080")
+        monkeypatch.setattr(settings, "embedding_base_url", "http://tei-embed:8080")
+        monkeypatch.setattr(settings, "rerank_base_url", "http://tei-rerank:8080")
         container.infrastructure.configuration = configuration
 
         chat_redactor = require_present(container.application.chat_service)._pii_redactor
@@ -361,8 +363,8 @@ class TestSubscribeConfigEvents:
 def test_ocr_cache_reacts_to_validated_configuration(monkeypatch: pytest.MonkeyPatch, change: str) -> None:  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
     monkeypatch.setattr(settings, "ocr_lang_paddle", "ru")
     monkeypatch.setattr(settings, "ocr_dpi", settings.ocr_dpi)
-    monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:8080")
-    monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:8080")
+    monkeypatch.setattr(settings, "embedding_base_url", "http://tei-embed:8080")
+    monkeypatch.setattr(settings, "rerank_base_url", "http://tei-rerank:8080")
     paddle = MagicMock(side_effect=SimpleNamespace)
     monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(PaddleOCR=paddle))
     bus = InProcessEventBus()

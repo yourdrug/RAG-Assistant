@@ -320,7 +320,7 @@ tasks:
     desc: Прогнать unit-тесты (pytest)
     dir: server
     cmds:
-      - uv run pytest -v -m "not integration" {{.CLI_ARGS}}
+      - uv run pytest -m "not integration" {{.CLI_ARGS}}
 
   test:integration:
     desc: Прогнать интеграционные тесты (требуются настроенные внешние сервисы)
@@ -328,7 +328,7 @@ tasks:
     env:
       RUN_INTEGRATION_TESTS: "1"
     cmds:
-      - uv run pytest -v -m integration {{.CLI_ARGS}}
+      - uv run pytest -m integration {{.CLI_ARGS}}
 
   benchmark:validate:
     desc: "Проверить структуру benchmark v2 без запуска RAG"

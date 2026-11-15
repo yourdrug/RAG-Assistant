@@ -38,8 +38,7 @@ if TYPE_CHECKING:
 
     from application.ports.ml_clients import EmbeddingClientPort, RerankerClientPort
     from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
-    from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient, DeepInfraRerankerClient
-    from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient, TEIRerankerClient
+    from infrastructure.ml.clients.inference_clients import EmbeddingsClient, RerankerClient
 
 log = logging.getLogger("default")
 
@@ -108,12 +107,12 @@ class MLClientRegistry(MLClientPort):
             else CorpusResources(factories.create_qdrant_client)
         )
         self._init_lock = threading.Lock()
-        self.cached_embeddings: DeepInfraEmbeddingsClient | TEIEmbeddingsClient | None = None
+        self.cached_embeddings: EmbeddingsClient | None = None
         self._retired_clients: list[object] = []
         self.cached_llm: ManagedLLM | None = None
         self.cached_llm_breadth_cache: dict[str, ManagedLLM] = {}
         self.cached_fast_llm: ManagedLLM | None = None
-        self.cached_reranker: DeepInfraRerankerClient | TEIRerankerClient | None = None
+        self.cached_reranker: RerankerClient | None = None
         self._close_task: asyncio.Task[None] | None = None
         self.cached_instructor: ManagedInstructor | None = None
 
@@ -192,7 +191,7 @@ class MLClientRegistry(MLClientPort):
         pinned = self.request_client("embeddings")
 
         if pinned is not None:
-            return cast("DeepInfraEmbeddingsClient | TEIEmbeddingsClient", pinned)
+            return cast("EmbeddingsClient", pinned)
 
         if self.cached_embeddings is None:
             with self._init_lock:
@@ -248,7 +247,7 @@ class MLClientRegistry(MLClientPort):
         pinned = self.request_client("reranker")
 
         if pinned is not None:
-            return cast("DeepInfraRerankerClient | TEIRerankerClient", pinned)
+            return cast("RerankerClient", pinned)
 
         if self.cached_reranker is None:
             with self._init_lock:

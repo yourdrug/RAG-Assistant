@@ -462,15 +462,15 @@ async def test_environment_edit_after_db_commit_is_preserved(
 
 
 @pytest.mark.asyncio
-async def test_missing_provider_credential_blocks_apply(
+async def test_ml_endpoint_keys_are_optional_for_migration(
     migration_env: tuple[Path, MigrationFactory], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Keyless self-hosted embedding/rerank servers are supported, so no ML key is required.
     path, factory = migration_env
-    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
-    path.write_text("ML_PROVIDER=deepinfra\n")
-    with pytest.raises(ValueError, match="DEEPINFRA_API_KEY"):
-        await config_migration.migrate_env_configuration(factory, path, apply=True)
-    assert await factory.repository.get_all() == []
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    monkeypatch.delenv("RERANK_API_KEY", raising=False)
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    assert await factory.repository.get_all() != []
 
 
 @pytest.mark.asyncio
@@ -478,7 +478,6 @@ async def test_migration_uses_env_provider_despite_legacy_database_value(
     migration_env: tuple[Path, MigrationFactory], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path, factory = migration_env
-    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
     legacy = ConfigParameter("ml_provider", "deepinfra", ConfigValueType.STR, "ml")
     await factory.repository.save(legacy)
     await config_migration.migrate_env_configuration(factory, path, apply=True, trim_env=True)
@@ -558,10 +557,10 @@ async def test_empty_optional_provider_key_is_preserved(
     migration_env: tuple[Path, MigrationFactory], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path, factory = migration_env
-    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
-    path.write_text(path.read_text() + "DEEPINFRA_API_KEY=''\n")
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    path.write_text(path.read_text() + "EMBEDDING_API_KEY=''\n")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
-    assert dotenv_values(path.with_name(".env.secrets"))["DEEPINFRA_API_KEY"] == ""
+    assert dotenv_values(path.with_name(".env.secrets"))["EMBEDDING_API_KEY"] == ""
 
 
 @pytest.mark.asyncio

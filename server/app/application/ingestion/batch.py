@@ -128,7 +128,7 @@ class BatchIngestionWorkflow:
         log.info("RAG Ingestion  |  mode: %s", "RESET" if reset else "APPEND")
         log.info("backend  : s3")
         log.info("prefix   : %s (bucket: %s)", docs_dir or "docs/", self._settings.s3_bucket)
-        log.info("tei_embed: %s", self._settings.tei_embed_url)
+        log.info("embedding: %s", self._settings.embedding_base_url)
         log.info(
             "qdrant   : %s  /  collection: %s",
             self._settings.qdrant_url,

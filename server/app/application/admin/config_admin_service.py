@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from application.admin.dto import LLMModelsInfo, ModelsInfo, VectorDBCollectionInfo, VectorDBInfo
-from application.runtime.enums import HealthStatus, MLProvider
+from application.runtime.enums import HealthStatus
 
 
 if TYPE_CHECKING:
@@ -27,25 +27,20 @@ class ConfigAdminService:
         self._llm_models_fetcher = llm_models_fetcher
 
     async def get_models_info(self) -> ModelsInfo:
-        if self._settings.ml_provider == MLProvider.DEEPINFRA.value:
-            embed_model = self._settings.deepinfra_embed_model
-            rerank_model = self._settings.deepinfra_rerank_model
-        else:
-            embed_model = self._settings.tei_embed_url
-            rerank_model = self._settings.tei_rerank_url
-
         return ModelsInfo(
             llm_base_url=self._settings.llm_base_url,
             llm_model=self._settings.llm_model,
             llm_auxiliary_model=self._settings.llm_auxiliary_model,
             llm_api_key_configured=self._settings.llm_api_key_configured,
-            tei_embed_url=self._settings.tei_embed_url,
-            tei_rerank_url=self._settings.tei_rerank_url,
-            embed_model=embed_model,
-            rerank_model=rerank_model,
+            embedding_base_url=self._settings.embedding_base_url,
+            embed_model=self._settings.embedding_model,
+            embedding_api_key_configured=self._settings.embedding_api_key_configured,
+            rerank_base_url=self._settings.rerank_base_url,
+            rerank_model=self._settings.rerank_model,
+            rerank_api_format=self._settings.rerank_api_format,
+            rerank_api_key_configured=self._settings.rerank_api_key_configured,
             ocr_engine=self._settings.ocr_engine,
             ocr_enabled=self._settings.ocr_enabled,
-            ml_provider=self._settings.ml_provider,
         )
 
     async def get_vectordb_info(self) -> VectorDBInfo:

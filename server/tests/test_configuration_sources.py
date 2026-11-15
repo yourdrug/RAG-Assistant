@@ -114,7 +114,8 @@ async def test_domain_profile_defaults_are_seeded_in_declared_scope() -> None:
     [
         ("llm_base_url", "https://openrouter.ai/api/v1"),
         ("llm_model", "qwen/qwen-2.5-7b-instruct"),
-        ("ml_provider", "deepinfra"),
+        ("embedding_base_url", "https://api.deepinfra.com/v1/openai"),
+        ("rerank_api_format", "deepinfra"),
     ],
 )
 def test_provider_defaults(key: str, expected: Any) -> None:

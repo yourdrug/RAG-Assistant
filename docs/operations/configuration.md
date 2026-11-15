@@ -30,8 +30,30 @@ API отдельно создаёт начального администрат�
 Для legacy env выполните миграцию до запуска нового приложения: уже существующие
 строки БД миграция сохраняет, включая defaults от предыдущего запуска.
 
-`COMPOSE_PROFILES=tei` включает локальные Docker-сервисы TEI. `ML_PROVIDER` в БД
-выбирает провайдера приложения и не запускает контейнеры.
+`COMPOSE_PROFILES=tei` включает локальные Docker-сервисы TEI и не переключает приложение:
+для этого укажите их URL в настройках эмбеддингов и реранкера (см. ниже).
+
+## Embedding и rerank endpoints
+
+Отдельного выбора провайдера (TEI/DeepInfra) нет: эмбеддинги и реранкинг задаются URL.
+
+| Параметр | Где задаётся | Назначение |
+|---|---|---|
+| `embedding_base_url` | Runtime (Admin → Settings → Model connections) | OpenAI-совместимый `/embeddings`: `http://tei-embed:8080/v1`, `https://api.deepinfra.com/v1/openai`, vLLM, OpenAI. |
+| `EMBEDDING_MODEL`, `EMBEDDING_REVISION`, `EMBED_DIM` | `server/.env` | Идентичность корпуса (`{model}:{revision}` в Qdrant); смена требует переиндексации. Для локального TEI — `model_id` из его `/info`. |
+| `rerank_base_url`, `rerank_model` | Runtime | Эндпоинт и модель реранкера. |
+| `rerank_api_format` | Runtime | `cohere` — `POST /rerank` с `results[].relevance_score` (vLLM, Jina, Cohere, Infinity); `tei` — TEI `/rerank` (логиты, sigmoid на стороне приложения); `deepinfra` — `POST /inference/{model}`. Оценки всех форматов приводятся к `[0, 1]`. |
+| `EMBEDDING_API_KEY`, `RERANK_API_KEY` | `server/.env.secrets` | Bearer-ключи; пусто для локального TEI. В UI показывается только наличие. |
+| `ML_ALLOWED_ORIGINS` | `server/.env` | Внешние origins для обоих URL; default `["https://api.deepinfra.com"]`. |
+
+Как и для LLM, origin URL обязан входить в `ML_ALLOWED_ORIGINS` или
+`ML_INTERNAL_ALLOWED_ORIGINS`. При смене URL эмбеддингов приложение запрашивает тестовый
+вектор и проверяет размерность; если сервер отдаёт TEI `/info`, дополнительно сверяются
+`model_id` с `EMBEDDING_MODEL` и, при переключении между TEI, `model_sha`/dtype/тип модели.
+Изменение URL, модели или формата реранкера проверяется тестовым запросом.
+`/health` проверяет `GET /health` только у внутренних (self-hosted) эндпоинтов.
+Миграция `0011` удаляет прежние ключи `tei_*`/`deepinfra_*` из БД, сохраняя выбранную
+модель реранкера.
 
 ## LLM endpoint
 

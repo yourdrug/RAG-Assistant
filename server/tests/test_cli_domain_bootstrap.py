@@ -41,7 +41,7 @@ def build_infrastructure(
     monkeypatch.setattr(infra.db, "uow_factory", FakeUnitOfWorkFactory())
 
     model = Settings(
-        _env_file=None, tei_embed_url="http://tei-embed:80", tei_rerank_url="http://tei-rerank:80"
+        _env_file=None, embedding_base_url="http://tei-embed:80", rerank_base_url="http://tei-rerank:80"
     )
     infra.configuration = SettingsProviderConfiguration(model, adapter, registry, bus)
     infra.events.config_listener = PostgresConfigListener(

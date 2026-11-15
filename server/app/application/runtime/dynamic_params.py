@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from application.runtime.enums import RerankApiFormat
 from domain.ingestion.profiles.catalog import SETTINGS_PROFILE_TYPES
 
 
@@ -110,13 +111,25 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         "Auxiliary model for condense/relevance/decomposition; empty reuses the answer model",
     ),
     DynamicParam(
-        "tei_embed_url", str, DynamicParamCategory.ML, "TEI embedding endpoint (same model identity required)"
+        "embedding_base_url",
+        str,
+        DynamicParamCategory.ML,
+        "OpenAI-compatible embeddings endpoint, e.g. http://tei-embed:8080/v1 or "
+        "https://api.deepinfra.com/v1/openai (same model identity required)",
     ),
     DynamicParam(
-        "tei_rerank_url", str, DynamicParamCategory.ML, "TEI reranker endpoint (deployment-approved origin)"
+        "rerank_base_url",
+        str,
+        DynamicParamCategory.ML,
+        "Reranking endpoint, e.g. http://tei-rerank:8080 or https://api.deepinfra.com/v1",
     ),
+    DynamicParam("rerank_model", str, DynamicParamCategory.ML, "Reranker model name"),
     DynamicParam(
-        "deepinfra_base_url", str, DynamicParamCategory.ML, "DeepInfra endpoint (canonical HTTPS origin)"
+        "rerank_api_format",
+        str,
+        DynamicParamCategory.ML,
+        "Reranking API: cohere (vLLM/Jina/Cohere/Infinity), tei or deepinfra",
+        allowed=[item.value for item in RerankApiFormat],
     ),
     DynamicParam(
         "embedding_http_max_connections",
@@ -203,9 +216,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam(
         "llm_num_predict_broad", int, DynamicParamCategory.LLM, "LLM max tokens predict (broad)", 64, 16384
     ),
-    # ── ML Provider ─────────────────────────────────────────────
-    DynamicParam("deepinfra_embed_model", str, DynamicParamCategory.ML, "DeepInfra embedding model"),
-    DynamicParam("deepinfra_rerank_model", str, DynamicParamCategory.ML, "DeepInfra reranker model"),
     # ── OCR ─────────────────────────────────────────────────────
     DynamicParam("ocr_enabled", bool, DynamicParamCategory.OCR, "Enable OCR processing"),
     DynamicParam(

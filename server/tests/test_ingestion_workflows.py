@@ -104,7 +104,7 @@ def batch_fixture(failure: str | None) -> tuple[BatchIngestionWorkflow, Document
     settings = MagicMock(
         embed_dim=384,
         s3_bucket="bucket",
-        tei_embed_url="http://tei",
+        embedding_base_url="http://tei",
         qdrant_url="http://qdrant",
         collection_name="chunks",
     )

@@ -245,30 +245,6 @@
     "metadata": "[]",
     "required": false
   },
-  "deepinfra_api_key": {
-    "annotation": "<class 'pydantic.types.SecretStr'>",
-    "default": "SecretStr('')",
-    "metadata": "[]",
-    "required": false
-  },
-  "deepinfra_base_url": {
-    "annotation": "<class 'str'>",
-    "default": "'https://api.deepinfra.com/v1'",
-    "metadata": "[]",
-    "required": false
-  },
-  "deepinfra_embed_model": {
-    "annotation": "<class 'str'>",
-    "default": "'BAAI/bge-m3'",
-    "metadata": "[]",
-    "required": false
-  },
-  "deepinfra_rerank_model": {
-    "annotation": "<class 'str'>",
-    "default": "'Qwen/Qwen3-Reranker-0.6B'",
-    "metadata": "[]",
-    "required": false
-  },
   "dense_weight": {
     "annotation": "<class 'float'>",
     "default": "1.5",
@@ -299,6 +275,18 @@
     "metadata": "[]",
     "required": false
   },
+  "embedding_api_key": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
+    "metadata": "[]",
+    "required": false
+  },
+  "embedding_base_url": {
+    "annotation": "<class 'str'>",
+    "default": "'https://api.deepinfra.com/v1/openai'",
+    "metadata": "[]",
+    "required": false
+  },
   "embedding_http_max_connections": {
     "annotation": "<class 'int'>",
     "default": "40",
@@ -315,6 +303,12 @@
     "annotation": "<class 'int'>",
     "default": "16",
     "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "embedding_model": {
+    "annotation": "<class 'str'>",
+    "default": "'BAAI/bge-m3'",
+    "metadata": "[]",
     "required": false
   },
   "embedding_revision": {
@@ -533,15 +527,15 @@
     "metadata": "[]",
     "required": false
   },
-  "ml_internal_allowed_origins": {
+  "ml_allowed_origins": {
     "annotation": "list[str]",
-    "default": "['http://tei-embed:8080', 'http://tei-rerank:8080', 'http://qdrant:6333', 'http://localhost:6333']",
+    "default": "['https://api.deepinfra.com']",
     "metadata": "[]",
     "required": false
   },
-  "ml_provider": {
-    "annotation": "typing.Literal['tei', 'deepinfra']",
-    "default": "'deepinfra'",
+  "ml_internal_allowed_origins": {
+    "annotation": "list[str]",
+    "default": "['http://tei-embed:8080', 'http://tei-rerank:8080', 'http://qdrant:6333', 'http://localhost:6333']",
     "metadata": "[]",
     "required": false
   },
@@ -773,6 +767,24 @@
     "metadata": "[]",
     "required": false
   },
+  "rerank_api_format": {
+    "annotation": "<class 'str'>",
+    "default": "'deepinfra'",
+    "metadata": "[]",
+    "required": false
+  },
+  "rerank_api_key": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
+    "metadata": "[]",
+    "required": false
+  },
+  "rerank_base_url": {
+    "annotation": "<class 'str'>",
+    "default": "'https://api.deepinfra.com/v1'",
+    "metadata": "[]",
+    "required": false
+  },
   "rerank_http_max_connections": {
     "annotation": "<class 'int'>",
     "default": "20",
@@ -788,6 +800,12 @@
   "rerank_min_score": {
     "annotation": "float | None",
     "default": "0.15",
+    "metadata": "[]",
+    "required": false
+  },
+  "rerank_model": {
+    "annotation": "<class 'str'>",
+    "default": "'Qwen/Qwen3-Reranker-0.6B'",
     "metadata": "[]",
     "required": false
   },
@@ -927,24 +945,6 @@
     "annotation": "<class 'int'>",
     "default": "1",
     "metadata": "[Gt(gt=0)]",
-    "required": false
-  },
-  "tei_embed_model": {
-    "annotation": "<class 'str'>",
-    "default": "'BAAI/bge-m3'",
-    "metadata": "[]",
-    "required": false
-  },
-  "tei_embed_url": {
-    "annotation": "<class 'str'>",
-    "default": "'http://tei-embed:8080'",
-    "metadata": "[]",
-    "required": false
-  },
-  "tei_rerank_url": {
-    "annotation": "<class 'str'>",
-    "default": "'http://tei-rerank:8080'",
-    "metadata": "[]",
     "required": false
   },
   "timezone": {

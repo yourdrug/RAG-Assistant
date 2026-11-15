@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import logging
 import math
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlsplit
 
 
 if TYPE_CHECKING:
@@ -18,7 +19,6 @@ if TYPE_CHECKING:
 
 import httpx
 
-from application.runtime.enums import MLProvider
 from domain.shared.exceptions import ValidationError
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client, llm_auth_headers
@@ -64,23 +64,23 @@ LLM_CLIENT_KEYS = frozenset(
 )
 EMBEDDING_CLIENT_KEYS = frozenset(
     {
-        "ml_provider",
-        "deepinfra_embed_model",
-        "tei_embed_url",
-        "deepinfra_base_url",
+        "embedding_base_url",
         "embedding_http_max_connections",
         "embedding_http_max_keepalive_connections",
     }
 )
-RERANK_CLIENT_KEYS = frozenset(
+RERANK_ENDPOINT_KEYS = frozenset({"rerank_base_url", "rerank_model", "rerank_api_format"})
+RERANK_CLIENT_KEYS = RERANK_ENDPOINT_KEYS | frozenset(
     {
-        "ml_provider",
-        "deepinfra_rerank_model",
-        "tei_rerank_url",
-        "deepinfra_base_url",
         "rerank_http_max_connections",
         "rerank_http_max_keepalive_connections",
     }
+)
+
+
+# Optional discovery routes (``/models``, TEI ``/info``) that a server may not implement.
+MODELS_LISTING_UNSUPPORTED = frozenset(
+    {httpx.codes.NOT_FOUND, httpx.codes.METHOD_NOT_ALLOWED, httpx.codes.NOT_IMPLEMENTED}
 )
 
 
@@ -97,17 +97,27 @@ async def dispose_clients(clients: dict[str, object]) -> None:
     await finish_owned_task(asyncio.create_task(close_all()))
 
 
-async def tei_model_info(url: str) -> dict[str, Any]:
+async def serving_model_info(base_url: str) -> dict[str, Any] | None:
+    """TEI-style ``/info`` at the endpoint origin, or ``None`` when the server has none.
+
+    Only TEI reports immutable weights identity (``model_sha``); other OpenAI-compatible
+    servers are verified by model name and vector dimension alone. No key is sent here.
+    """
+    parsed = urlsplit(base_url)
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
-        response = await client.get(f"{url.rstrip('/')}/info")
-        response.raise_for_status()
+        response = await client.get(f"{parsed.scheme}://{parsed.netloc}/info")
+
+    if response.status_code in MODELS_LISTING_UNSUPPORTED:
+        return None
+
+    response.raise_for_status()
+
+    try:
         info = response.json()
+    except ValueError:
+        return None
 
-    if not isinstance(info, dict) or not info.get("model_id"):
-        message = "TEI embedding identity is unavailable"
-        raise ValidationError(message)
-
-    return info
+    return info if isinstance(info, dict) and info.get("model_id") else None
 
 
 def check_embedding_vector(vector: object, dimension: int) -> None:
@@ -152,10 +162,6 @@ def prepare_llm_clients(registry: MLClientRegistry, candidate: Settings, prepare
 
 
 LLM_ENDPOINT_KEYS = frozenset({"llm_base_url"})
-# Servers that generate but do not implement ``GET /models``; names are then entered manually.
-MODELS_LISTING_UNSUPPORTED = frozenset(
-    {httpx.codes.NOT_FOUND, httpx.codes.METHOD_NOT_ALLOWED, httpx.codes.NOT_IMPLEMENTED}
-)
 # The endpoint serves a fixed model list and context window: re-check them on these changes too.
 LLM_CAPACITY_KEYS = frozenset(
     {
@@ -245,41 +251,40 @@ async def probe_embedding_endpoint(
     *,
     applied: bool,
 ) -> None:
-    if "tei_embed_url" in keys and candidate.ml_provider == MLProvider.TEI.value:
-        info = await tei_model_info(candidate.tei_embed_url)
+    if "embedding_base_url" not in keys:
+        return
 
-        if info["model_id"] != candidate.tei_embed_model:
-            message = "TEI serves a different embedding model"
+    info = await serving_model_info(candidate.embedding_base_url)
+
+    if info is not None:
+        if info["model_id"] != candidate.embedding_model:
+            message = "Embedding endpoint serves a different model"
             raise ValidationError(message)
 
-        if applied or registry.cached_embeddings is not None:
-            previous = await tei_model_info(current.tei_embed_url)
+        previous = (
+            await serving_model_info(current.embedding_base_url)
+            if applied or registry.cached_embeddings is not None
+            else None
+        )
 
+        if previous is not None:
             # A local path and a null sha cannot prove immutable weights identity.
             if not previous.get("model_sha") or not info.get("model_sha"):
-                message = "TEI must expose a model revision before endpoint switching"
+                message = "Embedding endpoint must expose a model revision before endpoint switching"
                 raise ValidationError(message)
 
             identity_fields = ("model_id", "model_sha", "model_dtype", "model_type")
 
             if any(info.get(key) != previous.get(key) for key in identity_fields):
-                message = "TEI embedding identity changed; use the corpus migration workflow"
+                message = "Embedding identity changed; use the corpus migration workflow"
                 raise ValidationError(message)
 
-        check_embedding_vector(
-            await cast("EmbeddingClientPort", prepared["cached_embeddings"]).embed_query(
-                "embedding endpoint compatibility probe"
-            ),
-            candidate.embed_dim,
-        )
-
-    if "deepinfra_base_url" in keys and candidate.ml_provider == MLProvider.DEEPINFRA.value:
-        check_embedding_vector(
-            await cast("EmbeddingClientPort", prepared["cached_embeddings"]).embed_query(
-                "embedding endpoint compatibility probe"
-            ),
-            candidate.embed_dim,
-        )
+    check_embedding_vector(
+        await cast("EmbeddingClientPort", prepared["cached_embeddings"]).embed_query(
+            "embedding endpoint compatibility probe"
+        ),
+        candidate.embed_dim,
+    )
 
 
 async def prepare_clients(
@@ -306,9 +311,7 @@ async def prepare_clients(
         if keys & RERANK_CLIENT_KEYS:
             prepared["cached_reranker"] = factories.create_reranker(candidate)
 
-            if ("tei_rerank_url" in keys and candidate.ml_provider == MLProvider.TEI.value) or (
-                "deepinfra_base_url" in keys and candidate.ml_provider == MLProvider.DEEPINFRA.value
-            ):
+            if keys & RERANK_ENDPOINT_KEYS:
                 with endpoint_availability(component="Reranker", allow_unavailable=allow_unavailable):
                     await cast("RerankerClientPort", prepared["cached_reranker"]).predict(
                         [("compatibility probe", "compatibility probe")]

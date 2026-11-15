@@ -42,6 +42,17 @@ interface SettingsBlock {
 
 const LLM_CONNECTION_BLOCK = "llm_connection";
 const MODEL_PICKER_KEYS = new Set(["llm_model", "llm_auxiliary_model"]);
+const RERANK_API_FORMATS: { value: string; label: string }[] = [
+  { value: "cohere", label: "Cohere-compatible /rerank (vLLM, Jina, Cohere, Infinity)" },
+  { value: "tei", label: "Text Embeddings Inference /rerank" },
+  { value: "deepinfra", label: "DeepInfra /inference/{model}" },
+];
+/** Deployment-owned credentials shown (presence only) inside their connection block. */
+const BLOCK_SECRETS: Record<string, { name: string; env: string; keyless: string }> = {
+  [LLM_CONNECTION_BLOCK]: { name: "llm_api_key", env: "LLM_API_KEY", keyless: "vLLM, Ollama" },
+  embeddings: { name: "embedding_api_key", env: "EMBEDDING_API_KEY", keyless: "local TEI" },
+  "reranking-service": { name: "rerank_api_key", env: "RERANK_API_KEY", keyless: "local TEI" },
+};
 
 const SETTINGS_SECTIONS = [
   {
@@ -135,31 +146,27 @@ const SETTINGS_SECTIONS = [
       },
       {
         id: "embeddings",
-        label: "Embedding service",
-        description: "Convert document chunks and questions into vectors for semantic search.",
+        label: "Embedding endpoint",
+        description:
+          "OpenAI-compatible /embeddings API (TEI /v1, DeepInfra /v1/openai, vLLM, OpenAI). The model and dimension are fixed by the deployment (EMBEDDING_MODEL, EMBED_DIM) because they define the search collection.",
         keys: [
-          "tei_embed_url",
-          "deepinfra_embed_model",
+          "embedding_base_url",
           "embedding_http_max_connections",
           "embedding_http_max_keepalive_connections",
         ],
       },
       {
         id: "reranking-service",
-        label: "Reranking service",
-        description: "Model connection used to refine the order of retrieved documents.",
+        label: "Reranking endpoint",
+        description:
+          "Model used to refine the order of retrieved documents. Choose the API format the server speaks.",
         keys: [
-          "tei_rerank_url",
-          "deepinfra_rerank_model",
+          "rerank_base_url",
+          "rerank_model",
+          "rerank_api_format",
           "rerank_http_max_connections",
           "rerank_http_max_keepalive_connections",
         ],
-      },
-      {
-        id: "ml",
-        label: "Shared ML connection",
-        description: "Provider endpoint shared by embedding and reranking models.",
-        categories: ["ml"],
       },
     ],
   },
@@ -198,6 +205,10 @@ const SETTINGS_SECTIONS = [
 
 const PARAMETER_LABELS: Record<string, string> = {
   llm_base_url: "Endpoint URL",
+  embedding_base_url: "Endpoint URL",
+  rerank_base_url: "Endpoint URL",
+  rerank_model: "Reranker model",
+  rerank_api_format: "API format",
   llm_model: "Answer model",
   llm_auxiliary_model: "Auxiliary model",
   llm_temperature: "Creativity (temperature)",
@@ -269,7 +280,6 @@ export function AdminSettingsPage() {
   });
 
   const { data: llmModels, isLoading: isLoadingModels } = useLLMModels();
-  const llmApiKey = effective?.find((p) => p.key === "llm_api_key" && !p.domain_key);
 
   const updateMutation = useMutation({
     mutationFn: async ({ key, value, domain }: { key: string; value: string; domain?: string }) => {
@@ -333,6 +343,23 @@ export function AdminSettingsPage() {
             OFF
           </Button>
         </div>
+      );
+    }
+
+    if (p.key === "rerank_api_format") {
+      return (
+        <select
+          aria-label={parameterLabel(p)}
+          value={displayValue}
+          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {RERANK_API_FORMATS.map((format) => (
+            <option key={format.value} value={format.value}>
+              {format.label}
+            </option>
+          ))}
+        </select>
       );
     }
 
@@ -580,8 +607,15 @@ export function AdminSettingsPage() {
                     <CardContent className="p-[14px] pt-0">
                       <div className="divide-y">
                         {globalParams.map(renderParameter)}
-                        {block.id === LLM_CONNECTION_BLOCK && (
-                          <LLMApiKeyRow present={llmApiKey?.present ?? null} />
+                        {BLOCK_SECRETS[block.id] && (
+                          <SecretKeyRow
+                            {...BLOCK_SECRETS[block.id]}
+                            present={
+                              effective?.find(
+                                (p) => p.key === BLOCK_SECRETS[block.id].name && !p.domain_key,
+                              )?.present ?? null
+                            }
+                          />
                         )}
                       </div>
                       {domains.map((domain) => (
@@ -629,17 +663,27 @@ export function AdminSettingsPage() {
   );
 }
 
-/** The key is deployment-owned (LLM_API_KEY in server/.env.secrets); the API exposes only presence. */
-function LLMApiKeyRow({ present }: { present: boolean | null }) {
+/** The key is deployment-owned (server/.env.secrets); the API exposes only its presence. */
+function SecretKeyRow({
+  name,
+  env,
+  keyless,
+  present,
+}: {
+  name: string;
+  env: string;
+  keyless: string;
+  present: boolean | null;
+}) {
   return (
     <div className="grid items-center gap-3 py-[10px] md:grid-cols-[minmax(0,1fr)_minmax(240px,360px)] md:gap-8">
       <div className="min-w-0 space-y-1">
         <p className="text-sm font-medium">API key</p>
         <p className="text-sm text-muted-foreground">
-          Set LLM_API_KEY in server/.env.secrets and restart. Leave it empty for keyless servers
-          (vLLM, Ollama).
+          Set {env} in server/.env.secrets and restart. Leave it empty for keyless servers (
+          {keyless}).
         </p>
-        <p className="break-all font-mono text-xs text-muted-foreground/70">llm_api_key</p>
+        <p className="break-all font-mono text-xs text-muted-foreground/70">{name}</p>
       </div>
       <div className="flex min-w-0 items-center gap-2">
         <Input

@@ -144,13 +144,15 @@ async def models_info(
         llm_model=info.llm_model,
         llm_auxiliary_model=info.llm_auxiliary_model,
         llm_api_key_configured=info.llm_api_key_configured,
-        tei_embed_url=info.tei_embed_url,
-        tei_rerank_url=info.tei_rerank_url,
+        embedding_base_url=info.embedding_base_url,
         embed_model=info.embed_model,
+        embedding_api_key_configured=info.embedding_api_key_configured,
+        rerank_base_url=info.rerank_base_url,
         rerank_model=info.rerank_model,
+        rerank_api_format=info.rerank_api_format,
+        rerank_api_key_configured=info.rerank_api_key_configured,
         ocr_engine=info.ocr_engine,
         ocr_enabled=info.ocr_enabled,
-        ml_provider=info.ml_provider,
     )
 
 
