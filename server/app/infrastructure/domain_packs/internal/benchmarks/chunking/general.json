@@ -1,0 +1,72 @@
+[
+  {
+    "case_id": "synthetic-internal-019",
+    "question": "Кто оформляет гостевой пропуск и когда подать заявку?",
+    "expected_answer": "Гостевой пропуск оформляет офис-менеджер по заявке принимающего сотрудника не позднее 16:00 предыдущего рабочего дня.",
+    "source_hint": "office-notice.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "office-notice.txt",
+          "text": "Гостевой пропуск оформляет офис-менеджер по заявке принимающего сотрудника не позднее 16:00 предыдущего рабочего дня."
+        }
+      ],
+      "required_facts": [
+        "офис-менеджер",
+        "16:00",
+        "предыдущего"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "office-notice.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "general"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-020",
+    "question": "Сколько времени есть на получение бумажной почты после извещения?",
+    "expected_answer": "Входящую бумажную корреспонденцию регистрирует секретарь; получатель забирает её в течение двух рабочих дней после уведомления.",
+    "source_hint": "office-notice.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "office-notice.txt",
+          "text": "Входящую бумажную корреспонденцию регистрирует секретарь; получатель забирает её в течение двух рабочих дней после уведомления."
+        }
+      ],
+      "required_facts": [
+        "двух рабочих дней"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "office-notice.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "general"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  }
+]

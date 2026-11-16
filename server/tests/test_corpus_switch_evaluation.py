@@ -35,7 +35,6 @@ if TYPE_CHECKING:
 
     from application.benchmark.export_service import BenchmarkExportService
     from application.benchmark.result_service import BenchmarkResultService
-    from application.uow.factory import UnitOfWorkFactory
 
 
 def corpus_pair() -> tuple[MLClientRegistry, BoundQdrantClient, BoundQdrantClient]:
@@ -197,7 +196,7 @@ async def test_worker_report_uses_pinned_corpus_after_switch(monkeypatch: pytest
             {
                 "uow_factory": object(),
                 "benchmark_job": BenchmarkJobService(
-                    cast("UnitOfWorkFactory", object()),
+                    FakeUnitOfWorkFactory(),
                     container.infrastructure.ml.benchmark_service,
                     cast("BenchmarkResultService", service),
                     cast("BenchmarkExportService", object()),

@@ -1,0 +1,1 @@
+"""Internal resource evidence rules."""

@@ -1,0 +1,212 @@
+[
+  {
+    "case_id": "synthetic-internal-013",
+    "question": "Что проверить перед подписью при получении ноутбука?",
+    "expected_answer": "Оборудование выдаёт ИТ по акту приёма-передачи. Сотрудник сверяет серийный номер в акте до подписания.",
+    "source_hint": "workplace-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "workplace-guide.txt",
+          "text": "Оборудование выдаёт ИТ по акту приёма-передачи. Сотрудник сверяет серийный номер в акте до подписания."
+        }
+      ],
+      "required_facts": [
+        "серийный номер"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "workplace-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-014",
+    "question": "В какой последовательности пройти первый вход и когда заработает почта?",
+    "expected_answer": "При первом входе сначала смените временный пароль, затем настройте второй фактор. До выполнения обоих действий доступ к рабочей почте не открывается.",
+    "source_hint": "workplace-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "workplace-guide.txt",
+          "text": "При первом входе сначала смените временный пароль, затем настройте второй фактор. До выполнения обоих действий доступ к рабочей почте не открывается."
+        }
+      ],
+      "required_facts": [
+        "сначала",
+        "затем",
+        "обоих"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "workplace-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-015",
+    "question": "Как сдавать ноутбук и можно ли предварительно очистить его самому?",
+    "expected_answer": "При возврате ноутбука передайте его в ИТ вместе с зарядным устройством. Самостоятельно удалять корпоративные данные перед возвратом нельзя.",
+    "source_hint": "workplace-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "workplace-guide.txt",
+          "text": "При возврате ноутбука передайте его в ИТ вместе с зарядным устройством. Самостоятельно удалять корпоративные данные перед возвратом нельзя."
+        }
+      ],
+      "required_facts": [
+        "зарядным",
+        "нельзя"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "workplace-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-016",
+    "question": "Что требуется для входа во внутренний портал из дома?",
+    "expected_answer": "Для доступа к внутреннему порталу из внешней сети включите корпоративный VPN и подтвердите второй фактор. Личная учётная запись VPN не подходит.",
+    "source_hint": "remote-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "remote-guide.txt",
+          "text": "Для доступа к внутреннему порталу из внешней сети включите корпоративный VPN и подтвердите второй фактор. Личная учётная запись VPN не подходит."
+        }
+      ],
+      "required_facts": [
+        "корпоративный VPN",
+        "второй фактор"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "remote-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-017",
+    "question": "Разрешено ли открыть рабочий документ на компьютере в гостинице?",
+    "expected_answer": "Работать с внутренними документами на общедоступных компьютерах запрещено. На корпоративном ноутбуке блокируйте экран при каждом уходе.",
+    "source_hint": "remote-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "remote-guide.txt",
+          "text": "Работать с внутренними документами на общедоступных компьютерах запрещено. На корпоративном ноутбуке блокируйте экран при каждом уходе."
+        }
+      ],
+      "required_facts": [
+        "запрещено"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "remote-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-018",
+    "question": "Кого уведомить при потере рабочего ноутбука и чего не делать?",
+    "expected_answer": "При потере рабочего устройства немедленно сообщите в сервис-деск и непосредственному руководителю. Не пытайтесь самостоятельно отключать средства управления устройством.",
+    "source_hint": "remote-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "remote-guide.txt",
+          "text": "При потере рабочего устройства немедленно сообщите в сервис-деск и непосредственному руководителю. Не пытайтесь самостоятельно отключать средства управления устройством."
+        }
+      ],
+      "required_facts": [
+        "сервис-деск",
+        "руководителю",
+        "Не пытайтесь"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "remote-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  }
+]

@@ -1,0 +1,213 @@
+[
+  {
+    "case_id": "synthetic-support-013",
+    "question": "Какая роль нужна, чтобы подключить интеграцию?",
+    "expected_answer": "Создать интеграцию может владелец или администратор пространства. Обычному участнику сначала требуется запросить нужную роль.",
+    "source_hint": "connect-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "connect-guide.txt",
+          "text": "Создать интеграцию может владелец или администратор пространства. Обычному участнику сначала требуется запросить нужную роль."
+        }
+      ],
+      "required_facts": [
+        "владелец",
+        "администратор"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "connect-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "support",
+      "support_guide"
+    ],
+    "dataset": "synthetic-support-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-support-014",
+    "question": "В каком порядке проверять новое соединение и включать передачу?",
+    "expected_answer": "Сначала сохраните адрес тестового сервера, затем нажмите «Проверить связь». Включать передачу разрешено только после зелёного статуса проверки.",
+    "source_hint": "connect-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "connect-guide.txt",
+          "text": "Сначала сохраните адрес тестового сервера, затем нажмите «Проверить связь». Включать передачу разрешено только после зелёного статуса проверки."
+        }
+      ],
+      "required_facts": [
+        "Сначала",
+        "затем",
+        "зелёного"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "connect-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "support",
+      "support_guide"
+    ],
+    "dataset": "synthetic-support-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-support-015",
+    "question": "Можно ли повторить отправку без уведомления, если журнал уже показывает доставку?",
+    "expected_answer": "Перед повтором неуспешной отправки проверьте журнал. Если запись имеет статус «Доставлено», повтор запрещён, даже если уведомление ещё не пришло.",
+    "source_hint": "connect-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "connect-guide.txt",
+          "text": "Перед повтором неуспешной отправки проверьте журнал. Если запись имеет статус «Доставлено», повтор запрещён, даже если уведомление ещё не пришло."
+        }
+      ],
+      "required_facts": [
+        "повтор запрещён",
+        "Доставлено"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "connect-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "support",
+      "support_guide"
+    ],
+    "dataset": "synthetic-support-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-support-016",
+    "question": "Чем отличаются действия администратора и участника при настройке каналов?",
+    "expected_answer": "Администратор задаёт доступные каналы уведомлений, а каждый участник самостоятельно включает их в своём профиле.",
+    "source_hint": "notifications-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "notifications-guide.txt",
+          "text": "Администратор задаёт доступные каналы уведомлений, а каждый участник самостоятельно включает их в своём профиле."
+        }
+      ],
+      "required_facts": [
+        "Администратор",
+        "самостоятельно"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "notifications-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "support",
+      "support_guide"
+    ],
+    "dataset": "synthetic-support-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-support-017",
+    "question": "Придёт ли предупреждение о подозрительном входе во время тихих часов?",
+    "expected_answer": "Тихие часы подавляют обычные уведомления, но не сообщения о подозрительном входе. Часовой пояс берётся из профиля участника.",
+    "source_hint": "notifications-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "notifications-guide.txt",
+          "text": "Тихие часы подавляют обычные уведомления, но не сообщения о подозрительном входе. Часовой пояс берётся из профиля участника."
+        }
+      ],
+      "required_facts": [
+        "не сообщения",
+        "профиля"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "notifications-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "support",
+      "support_guide"
+    ],
+    "dataset": "synthetic-support-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-support-018",
+    "question": "Кому отправляется тест уведомления и что проверять после пяти минут ожидания?",
+    "expected_answer": "Тестовое уведомление отправляется только текущему участнику. Если оно не пришло за пять минут, проверьте папку нежелательной почты и настройки канала.",
+    "source_hint": "notifications-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "notifications-guide.txt",
+          "text": "Тестовое уведомление отправляется только текущему участнику. Если оно не пришло за пять минут, проверьте папку нежелательной почты и настройки канала."
+        }
+      ],
+      "required_facts": [
+        "текущему участнику",
+        "нежелательной"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "notifications-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "support",
+      "support_guide"
+    ],
+    "dataset": "synthetic-support-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  }
+]

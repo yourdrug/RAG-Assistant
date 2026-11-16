@@ -54,6 +54,7 @@ class BenchmarkService:
             top_k=top_k,
             judge_model=judge_model,
             max_concurrent=options.get("max_concurrent"),
+            space_id=options.get("space_id"),
             seed=options.get("seed"),
             n_runs=options.get("n_runs", 1),
             rag_service=self._rag_service,

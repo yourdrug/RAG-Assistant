@@ -142,6 +142,9 @@ async def execute_benchmark(  # noqa: C901, PLR0913, PLR0915, PLR0917 — preser
         identity = fingerprint(
             {
                 "corpus": execution.corpus_metadata,
+                "space": {"id": execution.space.id, "pack_key": execution.space.pack_key}
+                if execution.space is not None
+                else None,
                 "questions": questions,
                 "top_k": top_k,
                 "fetch_k": fetch_k,

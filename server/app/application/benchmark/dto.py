@@ -48,6 +48,7 @@ class SweepCreateDTO:
     top_n_llm: int = 3
     judge_model: str | None = None
     evaluation_mode: str = SweepEvaluationMode.FAST.value
+    space_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,7 @@ type RunCompareResult = tuple[list[BenchmarkRun], dict[str, list[dict[str, Any]]
 
 
 class BenchmarkRunOptions(TypedDict, total=False):
+    space_id: int | None
     seed: int | None
     n_runs: int
     max_concurrent: int | None

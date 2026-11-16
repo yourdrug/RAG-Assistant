@@ -186,6 +186,7 @@ async def enqueue_benchmark(
     top_k: int,
     judge_model: str,
     job_id: int,
+    space_id: int | None = None,
 ) -> None:
     """Enqueue benchmark run via Arq (deduplicated per parameters)."""
     await enqueue_arq(
@@ -193,6 +194,7 @@ async def enqueue_benchmark(
         TASKS[JobType.BENCHMARK].name,
         arq_job_id=f"job:{job_id}",
         dataset=dataset,
+        space_id=space_id,
         top_k=top_k,
         judge_model=judge_model,
         job_id=job_id,

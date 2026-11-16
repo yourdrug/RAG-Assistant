@@ -63,6 +63,8 @@ PACK_REGISTRATIONS: dict[str, PackRegistration] = {
         pack=("infrastructure.domain_packs.belarus_law.pack", "BELARUS_LAW_PACK"),
         wiring=("composition.domain_packs.belarus_law", "BELARUS_LAW_WIRING"),
     ),
+    "support": PackRegistration(pack=("infrastructure.domain_packs.support.pack", "SUPPORT_PACK")),
+    "internal": PackRegistration(pack=("infrastructure.domain_packs.internal.pack", "INTERNAL_PACK")),
 }
 
 

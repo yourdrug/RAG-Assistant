@@ -28,6 +28,7 @@ from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_reposit
 )
 from infrastructure.worker import queue, runtime, tasks
 from presentation.api.schemas.benchmark import BenchmarkQuestionCreate, BenchmarkRequest, SweepCreateRequest
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -46,6 +47,7 @@ def dataset_factory(
     uow = MagicMock()
     uow.__aenter__ = AsyncMock(
         return_value=SimpleNamespace(
+            knowledge_spaces=FakeUnitOfWorkFactory()._uow.knowledge_spaces,
             benchmark_questions=repo,
             benchmark_runs=SimpleNamespace(
                 create=AsyncMock(),

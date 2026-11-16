@@ -105,7 +105,14 @@ class SQLAlchemyBenchmarkRunRepository:
         )
         stmt = stmt.where(mode_expr.is_(None) if mode is None else mode_expr == mode)
 
-        for key in ("collection_name", "qdrant_url", "embedding_identity", "dataset_hash"):
+        for key in (
+            "collection_name",
+            "qdrant_url",
+            "embedding_identity",
+            "dataset_hash",
+            "space_id",
+            "pack_key",
+        ):
             value = current.config_json.get(key, current.summary_metrics.get(key))
             expression = func.coalesce(
                 BenchmarkRunModel.config_json[key].as_string(),

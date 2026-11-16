@@ -67,6 +67,7 @@ class JobEnqueuerPort(Protocol):
         top_k: int,
         judge_model: str,
         job_id: int,
+        space_id: int | None = None,
     ) -> None: ...
 
     async def enqueue_sweep(

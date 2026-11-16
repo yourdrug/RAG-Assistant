@@ -58,8 +58,9 @@ async def default_space(uow_factory: UnitOfWorkFactory) -> KnowledgeSpace:
         return await resolve_space(uow, None)
 
 
-async def default_space_ref(uow_factory: UnitOfWorkFactory) -> SpaceRef:
-    return (await default_space(uow_factory)).ref
+async def default_space_ref(uow_factory: UnitOfWorkFactory, space_id: int | None = None) -> SpaceRef:
+    async with uow_factory.create() as uow:
+        return (await resolve_space(uow, space_id)).ref
 
 
 async def document_space(uow: UnitOfWork, document: Document) -> KnowledgeSpace:

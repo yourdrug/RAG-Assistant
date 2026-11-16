@@ -332,6 +332,7 @@ export interface HealthResponse {
 // ─── Benchmark ───────────────────────────────────────────────────────────────
 
 export interface BenchmarkRequest {
+  space_id?: number | null;
   dataset?: string;
   top_k?: number | null;
   judge_model?: string | null;
@@ -516,6 +517,7 @@ export interface BenchmarkQuestionUpdate {
 }
 
 export interface SweepCreateRequest {
+  space_id?: number | null;
   evaluation_mode?: "fast" | "full";
   strategy: "grid" | "random" | "optuna_tpe";
   search_space: Record<string, { values?: number[]; min?: number; max?: number; step?: number }>;
@@ -526,6 +528,7 @@ export interface SweepCreateRequest {
 }
 
 export interface SweepResponse {
+  space_id?: number | null;
   evaluation_mode: "fast" | "full";
   id: number;
   status: "pending" | "running" | "done" | "failed" | "cancelled";

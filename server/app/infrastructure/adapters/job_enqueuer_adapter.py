@@ -107,12 +107,14 @@ class JobEnqueuerAdapter:
         top_k: int,
         judge_model: str,
         job_id: int,
+        space_id: int | None = None,
     ) -> None:
         await _enqueue_benchmark(
             dataset=dataset,
             top_k=top_k,
             judge_model=judge_model,
             job_id=job_id,
+            space_id=space_id,
         )
 
     async def enqueue_sweep(

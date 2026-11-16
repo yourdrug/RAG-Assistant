@@ -32,11 +32,13 @@ from application.ingestion import (
 from application.ingestion.space_router import SpaceIngestionService
 from application.rag.service import RagService as ApplicationRagService
 from application.rag.space_router import SpaceRagRouter
-from application.spaces import SpacePackHooks, default_space
+from application.spaces import SpacePackHooks
+from application.spaces.resolution import default_space_ref
 from composition.utils import require
 from config import ChunkingSection, process_section
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
+from infrastructure.benchmark.space_scope import space_corpus_metadata, sweep_space_scope
 from infrastructure.benchmark.sweep.data import SweepDataSource
 from infrastructure.benchmark.sweep.scoring import score_stage_candidates
 from infrastructure.benchmark.sweep.settings import LiveSweepSettings
@@ -86,23 +88,30 @@ def build_sweep_engine(  # noqa: PLR0913 - independent build options
     evidence_profile: EvidenceProfile | None = None,
     evidence_profiles: Mapping[str, EvidenceProfile] | None = None,
 ) -> SweepEngine:
-    """Sweep reranking reads evidence rules: an explicit profile, else the default space's pack's.
+    """Bind retrieval and full evaluation to the selected space and its pack's evidence rules."""
 
-    Without either the neutral rules apply.
-    """
-
-    async def run_profile() -> EvidenceProfile:
+    async def run_profile(pack_key: str) -> EvidenceProfile:
         if evidence_profile is not None or evidence_profiles is None:
             return evidence_profile or GenericEvidenceProfile()
 
-        space = await default_space(uow_factory)
-        return evidence_profiles.get(space.pack_key) or GenericEvidenceProfile()
+        return evidence_profiles[pack_key]
 
     @asynccontextmanager
-    async def corpus() -> AsyncIterator[dict[str, Any]]:
-        with evidence_profile_scope(await run_profile()):
+    async def corpus(space_id: int | None = None) -> AsyncIterator[dict[str, Any]]:
+        # Standalone engines may inject evidence rules without a persistent pack catalog.
+        space = (
+            await default_space_ref(uow_factory, space_id)
+            if evidence_profiles is not None or space_id is not None
+            else None
+        )
+        profile = await run_profile(space.pack_key if space is not None else NEUTRAL_PACK_KEY)
+        with evidence_profile_scope(profile):
             async with benchmark_corpus(ml_clients) as snapshot:
-                yield corpus_metadata(snapshot)
+                if space is None:
+                    yield corpus_metadata(snapshot)
+                else:
+                    with sweep_space_scope(space):
+                        yield space_corpus_metadata(corpus_metadata(snapshot), space)
 
     runtime = runtime if runtime is not None else LiveSweepSettings()
     return SweepEngine(

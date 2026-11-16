@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from application.benchmark.dto import (
     ApplyConfigResult,
 )
+from application.spaces.resolution import resolve_space
 from domain.benchmark.question import BenchmarkQuestion, validate_annotations
 from domain.benchmark.sweep import (
     BenchmarkStrategy,
@@ -165,7 +166,9 @@ class BenchmarkSweepService:
                 message = "Another sweep is pending or running — cancel it or wait for it to finish"
                 raise BusinessRuleViolationError(message)
 
+            space = await resolve_space(uow, body.space_id)
             sweep_entity = BenchmarkSweep(
+                space_id=space.id,
                 strategy=BenchmarkStrategy(body.strategy),
                 search_space=body.search_space,
                 objective_weights=body.objective_weights,

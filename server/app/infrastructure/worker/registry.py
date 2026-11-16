@@ -64,6 +64,7 @@ class FileIngestPayload(Payload):
 
 
 class BenchmarkPayload(Payload):
+    space_id: PositiveInt | None = None
     dataset: str
     top_k: PositiveInt
     judge_model: str

@@ -575,6 +575,9 @@ forbidden_modules = [
 ignore_imports = [
     "application.benchmark.export_service -> application.ports.file_storage",
     "application.benchmark.sweep_launcher -> application.ports.job_enqueuer",
+    # Standalone jobs and sweeps validate and freeze their selected knowledge space.
+    "application.benchmark.jobs -> application.spaces.resolution",
+    "application.benchmark.services -> application.spaces.resolution",
 ]
 
 [[tool.importlinter.contracts]]

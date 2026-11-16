@@ -8,7 +8,7 @@ from sqlalchemy import delete, exists, select
 from sqlalchemy.exc import IntegrityError
 
 from domain.knowledge.space import KnowledgeSpace
-from domain.shared.exceptions import UniqueConstraintError
+from domain.shared.exceptions import BusinessRuleViolationError, UniqueConstraintError
 from infrastructure.database.models import (
     DocumentModel,
     KnowledgeSpaceModel,
@@ -73,7 +73,18 @@ class SQLAlchemyKnowledgeSpaceRepository:
         return space
 
     async def delete(self, space_id: int) -> None:
-        await self._db.execute(delete(KnowledgeSpaceModel).where(KnowledgeSpaceModel.id == space_id))
+        try:
+            await self._db.execute(delete(KnowledgeSpaceModel).where(KnowledgeSpaceModel.id == space_id))
+        except IntegrityError as exc:
+            cause = exc.orig.__cause__ if exc.orig is not None else None
+            diag = getattr(exc.orig, "diag", None)
+            constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
+
+            if constraint == "fk_benchmark_sweeps_space_id":
+                message = "A knowledge space referenced by benchmark sweeps cannot be deleted"
+                raise BusinessRuleViolationError(message) from exc
+
+            raise
 
     async def has_documents(self, space_id: int) -> bool:
         stmt = select(exists().where(DocumentModel.space_id == space_id))

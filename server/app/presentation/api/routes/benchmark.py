@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from application.benchmark import BenchmarkExportService, BenchmarkResultService
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import BenchmarkConfig
+from application.spaces import KnowledgeSpaceService
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import JobType
 from presentation.api.dependencies import (
@@ -22,6 +23,7 @@ from presentation.api.dependencies import (
     create_benchmark_result_service,
     create_idempotency_context,
     create_job_submission,
+    create_knowledge_space_service,
 )
 from presentation.api.helpers import summary_to_response
 from presentation.api.idempotency import complete_idempotency, reserve_idempotency
@@ -50,6 +52,7 @@ async def run_benchmark(
     *,
     request: Request,
     req: BenchmarkRequest,
+    spaces: Annotated[KnowledgeSpaceService, Depends(create_knowledge_space_service)],
     admin: Annotated[CurrentUser, Depends(require_admin)],
     submission: Annotated[JobSubmission, Depends(create_job_submission)],
     bench_cfg: Annotated[BenchmarkConfig, Depends(create_benchmark_config)],
@@ -74,18 +77,20 @@ async def run_benchmark(
     if cached is not None:
         return BenchmarkResponse(**cached)
 
+    space = await spaces.resolve_ref(req.space_id)
     job_id = await submission.jobs.create_job(
         JobType.BENCHMARK,
         cost_principal=f"user:{admin.id}",
         dispatch_payload={
             "dataset": req.dataset,
+            "space_id": space.id,
             "top_k": k,
             "judge_model": judge,
         },
     )
     try:
         await submission.enqueuer.enqueue_benchmark(
-            dataset=req.dataset, top_k=k, judge_model=judge, job_id=job_id
+            dataset=req.dataset, top_k=k, judge_model=judge, job_id=job_id, space_id=space.id
         )
     except Exception:  # noqa: BLE001 — committed work remains available to the relay
         logger.warning("Benchmark delivery deferred: job_id=%d", job_id)

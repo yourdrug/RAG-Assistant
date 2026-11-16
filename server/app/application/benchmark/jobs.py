@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from application.benchmark.dataset import load_benchmark_questions
 from application.benchmark.identity import fingerprint
+from application.spaces.resolution import default_space_ref
 from domain.benchmark.run import BenchmarkRun
 
 
@@ -38,17 +39,21 @@ class BenchmarkJobService:
         self.exports = exports
         self.corpus_scope = corpus_scope
 
-    async def run(self, *, dataset: str, top_k: int, judge_model: str, job_id: int) -> None:
+    async def run(
+        self, *, dataset: str, top_k: int, judge_model: str, job_id: int, space_id: int | None = None
+    ) -> None:
         service = self.results
         existing = await service.get_job_result(job_id)
 
         if existing is None:
+            space = await default_space_ref(self.uow_factory, space_id)
             async with self.corpus_scope() as metadata:
                 questions = await load_benchmark_questions(self.uow_factory, dataset)
                 summary = await self.benchmark.run(
                     questions=questions,
                     top_k=top_k,
                     judge_model=judge_model,
+                    space_id=space.id,
                 )
                 existing = await service.record_result(
                     BenchmarkRun(
@@ -59,6 +64,8 @@ class BenchmarkJobService:
                             "evaluation_mode": "full",
                             "dataset_hash": fingerprint(questions),
                             **metadata,
+                            "space_id": space.id,
+                            "pack_key": space.pack_key,
                         },
                         summary_metrics={
                             key: value for key, value in summary.items() if key not in {"results", "status"}

@@ -84,6 +84,7 @@ async def test_runner_receives_defaults_and_resume_options(*, explicit_options: 
         seed=42 if explicit_options else None,
         n_runs=2 if explicit_options else 1,
         max_concurrent=3 if explicit_options else None,
+        space_id=None,
         rag_service=rag,
         resume=explicit_options,
         checkpoints=checkpoints if explicit_options else None,

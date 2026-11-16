@@ -19,6 +19,7 @@ from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEval
 from infrastructure.benchmark.evaluation.run_manifest import build_run_manifest
 from infrastructure.benchmark.judging.judge_rubric import JUDGE_RUBRIC_VERSION
 from infrastructure.benchmark.reporting import progress
+from infrastructure.benchmark.space_scope import space_corpus_metadata
 from infrastructure.benchmark.sweep.settings import settings_fingerprint
 
 
@@ -38,7 +39,7 @@ async def run_benchmark_async(
     *,
     corpus_resource: MLClientPort | None = None,
     annotation_validator: AnnotationValidator | None = None,
-    space_resolver: Callable[[], Awaitable[SpaceRef]] | None = None,
+    space_resolver: Callable[[int | None], Awaitable[SpaceRef]] | None = None,
     **options: Unpack[BenchmarkRunnerOptions],
 ) -> list[dict[str, Any]]:
     rag_service = options.get("rag_service")
@@ -50,19 +51,24 @@ async def run_benchmark_async(
     checkpoints = options.get("checkpoints")
     checkpoint_prefix = options.get("checkpoint_prefix")
 
+    if options.get("space_id") is not None and space_resolver is None:
+        message = "An explicit benchmark space requires a space resolver"
+        raise ValueError(message)
+
     if rag_service is None:
         message = "rag_service is required for benchmark evaluation"
         raise ValueError(message)
 
     @asynccontextmanager
     async def scope() -> AsyncIterator[BenchmarkExecutionScope]:
-        space = await space_resolver() if space_resolver is not None else None
+        space = await space_resolver(options.get("space_id")) if space_resolver is not None else None
 
         async with benchmark_corpus(corpus_resource) as corpus:
-            manifest = await asyncio.to_thread(
-                build_run_manifest, questions, corpus_metadata(corpus), judge_model
-            )
+            metadata = space_corpus_metadata(corpus_metadata(corpus), space)
+            manifest = await asyncio.to_thread(build_run_manifest, questions, metadata, judge_model)
             manifest["execution"] = {
+                "space_id": space.id if space is not None else None,
+                "pack_key": space.pack_key if space is not None else None,
                 "top_k": top_k,
                 "fetch_k": fetch_k,
                 "n_runs": n_runs,
@@ -79,7 +85,7 @@ async def run_benchmark_async(
                     annotation_validator=annotation_validator,
                     run_manifest=manifest,
                 ),
-                corpus_metadata(corpus),
+                metadata,
                 space,
             )
 

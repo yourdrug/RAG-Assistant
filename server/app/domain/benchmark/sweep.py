@@ -53,6 +53,7 @@ class BenchmarkSweep:
     search_space: dict[str, Any] = field(default_factory=dict)
     objective_weights: dict[str, Any] = field(default_factory=DEFAULT_OBJECTIVE_WEIGHTS.copy)
     dataset: str = DEFAULT_DATASET
+    space_id: int | None = None
     top_n_llm: int = 3
     judge_model: str | None = None
     evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST

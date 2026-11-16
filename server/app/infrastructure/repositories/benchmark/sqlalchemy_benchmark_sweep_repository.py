@@ -15,7 +15,7 @@ from domain.benchmark.sweep import (
     SweepEvaluationMode,
 )
 from domain.runtime.jobs import BackgroundJobStatus
-from domain.shared.exceptions import BusinessRuleViolationError
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
 from infrastructure.database.models import (
     BENCHMARK_ACTIVE_SWEEP_INDEX,
     BackgroundJobModel,
@@ -50,6 +50,7 @@ class SQLAlchemyBenchmarkSweepRepository:
             search_space=sweep.search_space,
             objective_weights=sweep.objective_weights,
             dataset=sweep.dataset,
+            space_id=sweep.space_id,
             top_n_llm=sweep.top_n_llm,
             judge_model=sweep.judge_model,
             evaluation_mode=sweep.evaluation_mode,
@@ -72,6 +73,11 @@ class SQLAlchemyBenchmarkSweepRepository:
             if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:
                 msg = "Another sweep is pending or running — cancel it or wait for it to finish"
                 raise BusinessRuleViolationError(msg) from exc
+
+            if constraint == "fk_benchmark_sweeps_space_id":
+                # Deletion can commit after resolve_space but before this insert.
+                entity = "KnowledgeSpace"
+                raise EntityNotFoundError(entity, str(sweep.space_id)) from exc
 
             raise
         await self._db.refresh(orm)
@@ -226,6 +232,7 @@ class SQLAlchemyBenchmarkSweepRepository:
             search_space=orm.search_space or {},
             objective_weights=orm.objective_weights or {},
             dataset=orm.dataset,
+            space_id=orm.space_id,
             top_n_llm=orm.top_n_llm,
             judge_model=orm.judge_model,
             evaluation_mode=SweepEvaluationMode(orm.evaluation_mode),

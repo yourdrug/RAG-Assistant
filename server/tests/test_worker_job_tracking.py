@@ -18,7 +18,7 @@ from arq import Retry
 import pytest
 
 from application.benchmark.dto import SweepCreateDTO
-from tests.fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeKnowledgeSpaceRepository, FakeUnitOfWorkFactory
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
@@ -315,6 +315,7 @@ class _InactiveSweepRepo:
 class _SweepUow:
     def __init__(self, repo: Any) -> None:
         self.benchmark_sweeps = repo
+        self.knowledge_spaces = FakeKnowledgeSpaceRepository()
 
     async def __aenter__(self) -> Self:
         return self

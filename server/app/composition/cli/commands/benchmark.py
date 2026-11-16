@@ -13,6 +13,7 @@ from application.benchmark import BenchmarkExportService, BenchmarkImportService
 from application.benchmark.services import BenchmarkQuestionService
 from application.jobs.principal import job_principal
 from application.jobs.service import JobService
+from application.spaces.resolution import default_space_ref
 from composition.cli.commands.ingest import run_with_infrastructure
 from composition.infrastructure import InfrastructureContainer
 from config import LLMSection, RetrievalSection, process_section
@@ -41,7 +42,11 @@ SUMMARY_KEYS = (
 
 
 async def enqueue_runs(
-    infra: InfrastructureContainer, datasets: list[str], top_k: int | None, judge_model: str | None
+    infra: InfrastructureContainer,
+    datasets: list[str],
+    top_k: int | None,
+    judge_model: str | None,
+    space_id: int | None = None,
 ) -> dict[str, int]:
     """Create one durable benchmark job per dataset and hand it to the worker, like POST /benchmark."""
     selected = datasets or await BenchmarkQuestionService(infra.db.uow).list_datasets()
@@ -50,6 +55,7 @@ async def enqueue_runs(
         msg = "No benchmark datasets in the database; import questions in Admin -> Benchmark first"
         raise ValueError(msg)
 
+    space = await default_space_ref(infra.db.uow, space_id)
     k = top_k or process_section(RetrievalSection).retriever_top_k
     judge = judge_model or process_section(LLMSection).llm_model
     jobs = JobService(infra.db.uow)
@@ -60,10 +66,12 @@ async def enqueue_runs(
             job_id = await jobs.create_job(
                 JobType.BENCHMARK,
                 cost_principal=job_principal.get(),
-                dispatch_payload={"dataset": dataset, "top_k": k, "judge_model": judge},
+                dispatch_payload={"dataset": dataset, "top_k": k, "judge_model": judge, "space_id": space.id},
             )
             try:
-                await enqueue_benchmark(dataset=dataset, top_k=k, judge_model=judge, job_id=job_id)
+                await enqueue_benchmark(
+                    dataset=dataset, top_k=k, judge_model=judge, job_id=job_id, space_id=space.id
+                )
             except Exception:  # noqa: BLE001 — committed work remains available to the relay
                 logger.warning("Benchmark delivery deferred: job_id=%d", job_id)
             job_ids[dataset] = job_id
@@ -115,13 +123,14 @@ def benchmark_run(
     judge_model: Annotated[
         str | None, typer.Option("--judge-model", help="Judge model; default: active LLM model")
     ] = None,
+    space_id: Annotated[int | None, typer.Option("--space-id", min=1)] = None,
     wait: Annotated[bool, typer.Option("--wait/--no-wait", help="Wait for the worker to finish")] = True,
 ) -> None:
     """Queue benchmark runs for the worker (same path as Admin -> Benchmark)."""
 
     async def run_action(infra: InfrastructureContainer) -> bool:
         job_principal.set("system:benchmark-cli")
-        job_ids = await enqueue_runs(infra, datasets or [], top_k, judge_model)
+        job_ids = await enqueue_runs(infra, datasets or [], top_k, judge_model, space_id)
         return await wait_for_runs(infra, job_ids) if wait else True
 
     try:

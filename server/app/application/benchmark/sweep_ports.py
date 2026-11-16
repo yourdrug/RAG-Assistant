@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from contextlib import AbstractAsyncContextManager
 import inspect
 import logging
 from typing import TYPE_CHECKING, Any, Protocol
 
 
 if TYPE_CHECKING:
-    from contextlib import AbstractContextManager
+    from contextlib import AbstractAsyncContextManager, AbstractContextManager
 
     from application.benchmark.sweep_dto import CandidateCache, DenseCache, RerankerCache, SparseCache
 
@@ -88,4 +87,5 @@ class SweepScoringPort(Protocol):
     ) -> dict[str, Any]: ...
 
 
-SweepCorpus = Callable[[], AbstractAsyncContextManager[dict[str, Any]]]
+class SweepCorpus(Protocol):
+    def __call__(self, space_id: int | None = None) -> AbstractAsyncContextManager[dict[str, Any]]: ...

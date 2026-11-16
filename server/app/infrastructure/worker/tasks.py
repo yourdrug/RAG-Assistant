@@ -154,6 +154,9 @@ async def run_benchmark(
     top_k: int,
     judge_model: str,
     job_id: int,
+    space_id: int | None = None,
 ) -> None:
     del out_dir  # Retained for jobs serialized before report export moved to the service.
-    await ctx["benchmark_job"].run(dataset=dataset, top_k=top_k, judge_model=judge_model, job_id=job_id)
+    await ctx["benchmark_job"].run(
+        dataset=dataset, top_k=top_k, judge_model=judge_model, job_id=job_id, space_id=space_id
+    )

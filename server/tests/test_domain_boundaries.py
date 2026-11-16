@@ -26,6 +26,8 @@ from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 from domain.shared.profile_policy import AnswerPolicy
 from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
 from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
+from infrastructure.domain_packs.internal.pack import INTERNAL_PACK
+from infrastructure.domain_packs.support.pack import SUPPORT_PACK
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.answer_policy import classify_query_domain, policy_for
 from infrastructure.domain_profile.packs import NEUTRAL_PACK
@@ -72,7 +74,12 @@ async def test_evidence_profiles_are_task_local_and_generic_has_no_transport_rul
 
 def test_domain_pack_defaults_to_neutral_rules() -> None:
     # Loading a pack does not change the neutral rules used without an explicit selection.
-    assert list(loaded_packs()) == [NEUTRAL_PACK.key, BELARUS_LAW_PACK.key]
+    assert list(loaded_packs()) == [
+        NEUTRAL_PACK.key,
+        BELARUS_LAW_PACK.key,
+        SUPPORT_PACK.key,
+        INTERNAL_PACK.key,
+    ]
     assert isinstance(
         RagOperations(MagicMock(), document_access=MagicMock()).evidence_profile, GenericEvidenceProfile
     )

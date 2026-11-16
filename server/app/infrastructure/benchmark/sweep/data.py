@@ -11,6 +11,7 @@ from application.benchmark import load_benchmark_questions
 from application.spaces import default_space
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
+from infrastructure.benchmark.space_scope import active_sweep_space
 from infrastructure.benchmark.sweep.candidates import cache_candidates
 from infrastructure.benchmark.sweep.reranking import cache_reranker_scores
 from infrastructure.ml.clients import factories
@@ -37,8 +38,8 @@ class SweepDataSource:
     async def cache_candidates(
         self, questions: list[dict[str, Any]], max_fetch_k: int
     ) -> tuple[DenseCache, SparseCache, CandidateCache]:
-        # A sweep searches the default space with its pack's rules (see build_sweep_engine).
-        space = await default_space(self._uow_factory)
+        # The run's corpus scope freezes both the space and its pack's evidence rules.
+        space = active_sweep_space.get() or (await default_space(self._uow_factory)).ref
         access_filter = build_search_filter(
             user={"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN},
             group_ids=[],

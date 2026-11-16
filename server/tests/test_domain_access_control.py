@@ -402,12 +402,14 @@ class TestGetVisibilityConditions:
     Each condition is an AND-clause. The full filter is OR of all conditions.
     """
 
-    def test_client_returns_single_private_condition(self) -> None:
+    def test_client_returns_own_private_and_public_conditions(self) -> None:
         conds = get_visibility_conditions(UserKind.CLIENT, [])
-        assert len(conds) == 1
+        assert len(conds) == 2
         assert conds[0].visibility == DocumentVisibility.CLIENT_PRIVATE
         assert conds[0].owner_match == "self"
         assert conds[0].group_match is False
+        assert conds[1].visibility == DocumentVisibility.CLIENT_PUBLIC
+        assert conds[1].owner_match is None
 
     def test_internal_no_groups_no_clients(self) -> None:
         conds = get_visibility_conditions(UserKind.INTERNAL, [])
@@ -459,8 +461,8 @@ class TestGetVisibilityConditions:
         # Admin sees all client docs + all group docs (regardless of membership)
         conds = get_visibility_conditions(UserKind.INTERNAL, [5], user_role=UserRole.ADMIN)
         # public + private + private (admin bypass) + group (by membership) +
-        # group (admin bypass) + client
-        assert len(conds) == 6
+        # group (admin bypass) + client_public + client
+        assert len(conds) == 7
 
     def test_conditions_are_frozen_dataclass(self) -> None:
         conds = get_visibility_conditions(UserKind.CLIENT, [])
@@ -551,8 +553,8 @@ class TestCuratorRole:
             managed_internal_ids=[],
             managed_group_ids=[],
         )
-        # Standard internal conditions: PUBLIC + PRIVATE(self)
-        assert len(conds) == 2
+        # Standard internal conditions: PUBLIC + PRIVATE(self) + CLIENT_PUBLIC
+        assert len(conds) == 3
 
     def test_curator_does_not_see_admin_bonuses(self) -> None:
         """CURATOR should NOT see ALL client_private or ALL internal_private docs."""

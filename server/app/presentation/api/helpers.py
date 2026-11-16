@@ -294,6 +294,7 @@ def sweep_create_to_dto(body: SweepCreateRequest) -> SweepCreateDTO:
     return SweepCreateDTO(
         strategy=body.strategy,
         search_space=body.search_space,
+        space_id=body.space_id,
         objective_weights=body.objective_weights,
         dataset=body.dataset,
         top_n_llm=body.top_n_llm,
@@ -358,6 +359,7 @@ def sweep_to_response(s: BenchmarkSweep, *, job_id: int | None = None) -> SweepR
         status=s.status,
         strategy=s.strategy,
         search_space=s.search_space,
+        space_id=s.space_id,
         objective_weights=s.objective_weights,
         dataset=s.dataset,
         top_n_llm=s.top_n_llm,

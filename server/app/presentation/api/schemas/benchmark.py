@@ -21,6 +21,7 @@ class BenchmarkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dataset: str = Field(default=DEFAULT_DATASET, min_length=1, max_length=100)
+    space_id: int | None = Field(default=None, gt=0)
     out_dir: str | None = Field(
         default=None,
         deprecated=True,
@@ -157,6 +158,7 @@ class SweepCreateRequest(BaseModel):
         BenchmarkStrategy.GRID,
         description="Search strategy.",
     )
+    space_id: int | None = Field(default=None, gt=0)
     search_space: dict[str, Any]
     objective_weights: dict[str, float] = Field(default_factory=DEFAULT_OBJECTIVE_WEIGHTS.copy)
     dataset: str = DEFAULT_DATASET
@@ -194,6 +196,7 @@ class SweepResponse(BaseModel):
     id: int
     status: str
     strategy: str
+    space_id: int | None = Field(default=None, gt=0)
     search_space: dict[str, Any]
     objective_weights: dict[str, Any]
     dataset: str

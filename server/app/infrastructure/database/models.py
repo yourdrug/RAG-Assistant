@@ -558,6 +558,10 @@ class BenchmarkSweepModel(BaseModel):
     search_space: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     objective_weights: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
+    space_id: Mapped[int | None] = mapped_column(
+        ForeignKey("knowledge_spaces.id", ondelete="RESTRICT", name="fk_benchmark_sweeps_space_id"),
+        nullable=True,
+    )
     top_n_llm: Mapped[int] = mapped_column(Integer, nullable=False, server_default="3")
     judge_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     evaluation_mode: Mapped[str] = mapped_column(

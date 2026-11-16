@@ -1,0 +1,71 @@
+[
+  {
+    "case_id": "synthetic-support-019",
+    "question": "Когда очищаются демонстрационные данные?",
+    "expected_answer": "Учебный стенд предназначен для демонстраций и автоматически очищается по воскресеньям в 03:00 UTC.",
+    "source_hint": "service-notice.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "service-notice.txt",
+          "text": "Учебный стенд предназначен для демонстраций и автоматически очищается по воскресеньям в 03:00 UTC."
+        }
+      ],
+      "required_facts": [
+        "воскресеньям",
+        "03:00 UTC"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "service-notice.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "support",
+      "general"
+    ],
+    "dataset": "synthetic-support-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-support-020",
+    "question": "Есть ли гарантированный срок исправления на учебном стенде?",
+    "expected_answer": "Обращения по учебному стенду принимаются с понедельника по пятницу с 09:00 до 18:00 UTC. Гарантированное время решения не установлено.",
+    "source_hint": "service-notice.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "service-notice.txt",
+          "text": "Обращения по учебному стенду принимаются с понедельника по пятницу с 09:00 до 18:00 UTC. Гарантированное время решения не установлено."
+        }
+      ],
+      "required_facts": [
+        "не установлено"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "service-notice.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "support",
+      "general"
+    ],
+    "dataset": "synthetic-support-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  }
+]

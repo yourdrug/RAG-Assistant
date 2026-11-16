@@ -38,6 +38,7 @@ import {
   useJob,
   useResumeSweep,
   useSourceFiles,
+  useSpaces,
   useSweeps,
   useUpdateBenchmarkQuestion,
 } from "@/shared/api/hooks";
@@ -737,6 +738,13 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
   const [evaluationMode, setEvaluationMode] = useState<"fast" | "full">("fast");
   const [judgeModel, setJudgeModel] = useState<string | null>(null);
   const [dataset, setDataset] = useState("main");
+  const { data: spaces } = useSpaces();
+  const [spaceId, setSpaceId] = useState<string>("");
+  const selectedSpaceId = spaceId
+    ? Number(spaceId)
+    : spaces?.length === 1
+      ? spaces[0].id
+      : undefined;
 
   // Parameter configs
   const [params, setParams] = useState<
@@ -800,8 +808,14 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
       return;
     }
 
+    if (!selectedSpaceId) {
+      toast.error("Select a knowledge space");
+      return;
+    }
+
     try {
       const result = await createSweep.mutateAsync({
+        space_id: selectedSpaceId,
         strategy,
         evaluation_mode: evaluationMode,
         search_space: searchSpace,
@@ -970,6 +984,21 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
                 Quick-30 · Top-N 1
               </Button>
               <BenchmarkDatasetSelect value={dataset} onChange={setDataset} />
+            </div>
+            <div className="flex items-center gap-3">
+              <Label className="w-28 text-xs">Knowledge space</Label>
+              <Select value={selectedSpaceId?.toString() ?? ""} onValueChange={setSpaceId}>
+                <SelectTrigger className="w-64">
+                  <SelectValue placeholder="Select space" />
+                </SelectTrigger>
+                <SelectContent>
+                  {spaces?.map((space) => (
+                    <SelectItem key={space.id} value={String(space.id)}>
+                      {space.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             {evaluationMode === "fast" && (
               <div className="flex items-center gap-3">
@@ -1194,6 +1223,7 @@ function SweepProgressTab({
                                 search_space: s.search_space,
                                 objective_weights: s.objective_weights,
                                 dataset: s.dataset,
+                                space_id: s.space_id,
                                 top_n_llm: s.top_n_llm,
                                 judge_model: s.judge_model,
                                 evaluation_mode: s.evaluation_mode,

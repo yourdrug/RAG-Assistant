@@ -1,0 +1,757 @@
+[
+  {
+    "case_id": "synthetic-internal-001",
+    "question": "Достаточно ли разрешения руководителя для выдачи доступа к сервису?",
+    "expected_answer": "Доступ к рабочему сервису выдаёт ИТ после согласования непосредственным руководителем и владельцем сервиса. До получения обоих согласований выдача запрещена.",
+    "source_hint": "access-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "access-policy.txt",
+          "text": "Доступ к рабочему сервису выдаёт ИТ после согласования непосредственным руководителем и владельцем сервиса. До получения обоих согласований выдача запрещена."
+        }
+      ],
+      "required_facts": [
+        "руководителем",
+        "владельцем",
+        "обоих"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "access-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-002",
+    "question": "С какого момента отсчитываются два рабочих дня обработки заявки на доступ?",
+    "expected_answer": "Заявка на обычный доступ рассматривается за два рабочих дня после получения всех согласований. Время ожидания согласований в этот срок не входит.",
+    "source_hint": "access-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "access-policy.txt",
+          "text": "Заявка на обычный доступ рассматривается за два рабочих дня после получения всех согласований. Время ожидания согласований в этот срок не входит."
+        }
+      ],
+      "required_facts": [
+        "после",
+        "всех согласований",
+        "не входит"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "access-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-003",
+    "question": "Можно ли продлить временный доступ без новой заявки?",
+    "expected_answer": "Временный доступ выдаётся не более чем на семь календарных дней; продление требует новой заявки с теми же двумя согласованиями.",
+    "source_hint": "access-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "access-policy.txt",
+          "text": "Временный доступ выдаётся не более чем на семь календарных дней; продление требует новой заявки с теми же двумя согласованиями."
+        }
+      ],
+      "required_facts": [
+        "семь",
+        "новой заявки"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "access-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-004",
+    "question": "Кто и когда блокирует учётную запись увольняемого сотрудника?",
+    "expected_answer": "При увольнении доступ блокируется в 18:00 по местному времени в последний рабочий день; ответственна служба ИТ по уведомлению кадров.",
+    "source_hint": "access-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "access-policy.txt",
+          "text": "При увольнении доступ блокируется в 18:00 по местному времени в последний рабочий день; ответственна служба ИТ по уведомлению кадров."
+        }
+      ],
+      "required_facts": [
+        "18:00",
+        "последний рабочий",
+        "ИТ",
+        "кадров"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "access-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-005",
+    "question": "За сколько дней подать командировку и кто согласует цель и бюджет?",
+    "expected_answer": "Заявку на командировку подают не позднее пяти рабочих дней до выезда. Руководитель утверждает цель, а финансовый отдел — бюджет.",
+    "source_hint": "travel-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "travel-policy.txt",
+          "text": "Заявку на командировку подают не позднее пяти рабочих дней до выезда. Руководитель утверждает цель, а финансовый отдел — бюджет."
+        }
+      ],
+      "required_facts": [
+        "пяти рабочих",
+        "Руководитель",
+        "финансовый"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "travel-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-006",
+    "question": "Можно купить билеты до согласования и рассчитывать на обязательное возмещение?",
+    "expected_answer": "Бронировать билеты можно только после утверждения цели и бюджета. Самостоятельная покупка до согласования не гарантирует возмещение.",
+    "source_hint": "travel-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "travel-policy.txt",
+          "text": "Бронировать билеты можно только после утверждения цели и бюджета. Самостоятельная покупка до согласования не гарантирует возмещение."
+        }
+      ],
+      "required_facts": [
+        "только после",
+        "не гарантирует"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "travel-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-007",
+    "question": "Когда сдавать авансовый отчёт и что приложить?",
+    "expected_answer": "Авансовый отчёт подают в течение трёх рабочих дней после возвращения вместе с подтверждающими расходы документами.",
+    "source_hint": "travel-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "travel-policy.txt",
+          "text": "Авансовый отчёт подают в течение трёх рабочих дней после возвращения вместе с подтверждающими расходы документами."
+        }
+      ],
+      "required_facts": [
+        "трёх рабочих",
+        "документами"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "travel-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-008",
+    "question": "Кто согласует удорожание поездки на 15 процентов и на каком этапе?",
+    "expected_answer": "Изменение стоимости поездки более чем на 10 процентов требует повторного согласования финансовым отделом до оплаты.",
+    "source_hint": "travel-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "travel-policy.txt",
+          "text": "Изменение стоимости поездки более чем на 10 процентов требует повторного согласования финансовым отделом до оплаты."
+        }
+      ],
+      "required_facts": [
+        "финансовым",
+        "до оплаты"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "travel-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-009",
+    "question": "Что писать в заявке об ИТ-инциденте и можно ли приложить пароль?",
+    "expected_answer": "Сотрудник регистрирует ИТ-инцидент в сервис-деске, указывая время, затронутый сервис и влияние на работу. Пароли и ключи в заявку не включаются.",
+    "source_hint": "incident-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "incident-policy.txt",
+          "text": "Сотрудник регистрирует ИТ-инцидент в сервис-деске, указывая время, затронутый сервис и влияние на работу. Пароли и ключи в заявку не включаются."
+        }
+      ],
+      "required_facts": [
+        "время",
+        "сервис",
+        "влияние",
+        "не включаются"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "incident-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-010",
+    "question": "Обещает ли регламент устранить критический сбой за четверть часа?",
+    "expected_answer": "При полной недоступности рабочего сервиса дежурный инженер подтверждает критический инцидент в течение 15 минут после регистрации. Это срок реакции, а не восстановления.",
+    "source_hint": "incident-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "incident-policy.txt",
+          "text": "При полной недоступности рабочего сервиса дежурный инженер подтверждает критический инцидент в течение 15 минут после регистрации. Это срок реакции, а не восстановления."
+        }
+      ],
+      "required_facts": [
+        "реакции",
+        "не восстановления"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "incident-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-011",
+    "question": "Кого уведомляют через полчаса продолжающегося критического сбоя?",
+    "expected_answer": "Если критический инцидент длится более 30 минут, дежурный инженер уведомляет руководителя ИТ и владельца сервиса.",
+    "source_hint": "incident-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "incident-policy.txt",
+          "text": "Если критический инцидент длится более 30 минут, дежурный инженер уведомляет руководителя ИТ и владельца сервиса."
+        }
+      ],
+      "required_facts": [
+        "руководителя ИТ",
+        "владельца"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "incident-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-012",
+    "question": "Можно автоматически закрыть восстановленный инцидент без ответа заявителя?",
+    "expected_answer": "Закрыть инцидент можно после проверки восстановления заявителем; при отсутствии ответа заявку не закрывают автоматически.",
+    "source_hint": "incident-policy.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "incident-policy.txt",
+          "text": "Закрыть инцидент можно после проверки восстановления заявителем; при отсутствии ответа заявку не закрывают автоматически."
+        }
+      ],
+      "required_facts": [
+        "проверки",
+        "не закрывают"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "incident-policy.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_procedure"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-013",
+    "question": "Что проверить перед подписью при получении ноутбука?",
+    "expected_answer": "Оборудование выдаёт ИТ по акту приёма-передачи. Сотрудник сверяет серийный номер в акте до подписания.",
+    "source_hint": "workplace-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "workplace-guide.txt",
+          "text": "Оборудование выдаёт ИТ по акту приёма-передачи. Сотрудник сверяет серийный номер в акте до подписания."
+        }
+      ],
+      "required_facts": [
+        "серийный номер"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "workplace-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-014",
+    "question": "В какой последовательности пройти первый вход и когда заработает почта?",
+    "expected_answer": "При первом входе сначала смените временный пароль, затем настройте второй фактор. До выполнения обоих действий доступ к рабочей почте не открывается.",
+    "source_hint": "workplace-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "workplace-guide.txt",
+          "text": "При первом входе сначала смените временный пароль, затем настройте второй фактор. До выполнения обоих действий доступ к рабочей почте не открывается."
+        }
+      ],
+      "required_facts": [
+        "сначала",
+        "затем",
+        "обоих"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "workplace-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-015",
+    "question": "Как сдавать ноутбук и можно ли предварительно очистить его самому?",
+    "expected_answer": "При возврате ноутбука передайте его в ИТ вместе с зарядным устройством. Самостоятельно удалять корпоративные данные перед возвратом нельзя.",
+    "source_hint": "workplace-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "workplace-guide.txt",
+          "text": "При возврате ноутбука передайте его в ИТ вместе с зарядным устройством. Самостоятельно удалять корпоративные данные перед возвратом нельзя."
+        }
+      ],
+      "required_facts": [
+        "зарядным",
+        "нельзя"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "workplace-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-016",
+    "question": "Что требуется для входа во внутренний портал из дома?",
+    "expected_answer": "Для доступа к внутреннему порталу из внешней сети включите корпоративный VPN и подтвердите второй фактор. Личная учётная запись VPN не подходит.",
+    "source_hint": "remote-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "remote-guide.txt",
+          "text": "Для доступа к внутреннему порталу из внешней сети включите корпоративный VPN и подтвердите второй фактор. Личная учётная запись VPN не подходит."
+        }
+      ],
+      "required_facts": [
+        "корпоративный VPN",
+        "второй фактор"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "remote-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-017",
+    "question": "Разрешено ли открыть рабочий документ на компьютере в гостинице?",
+    "expected_answer": "Работать с внутренними документами на общедоступных компьютерах запрещено. На корпоративном ноутбуке блокируйте экран при каждом уходе.",
+    "source_hint": "remote-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "remote-guide.txt",
+          "text": "Работать с внутренними документами на общедоступных компьютерах запрещено. На корпоративном ноутбуке блокируйте экран при каждом уходе."
+        }
+      ],
+      "required_facts": [
+        "запрещено"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "remote-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-018",
+    "question": "Кого уведомить при потере рабочего ноутбука и чего не делать?",
+    "expected_answer": "При потере рабочего устройства немедленно сообщите в сервис-деск и непосредственному руководителю. Не пытайтесь самостоятельно отключать средства управления устройством.",
+    "source_hint": "remote-guide.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "remote-guide.txt",
+          "text": "При потере рабочего устройства немедленно сообщите в сервис-деск и непосредственному руководителю. Не пытайтесь самостоятельно отключать средства управления устройством."
+        }
+      ],
+      "required_facts": [
+        "сервис-деск",
+        "руководителю",
+        "Не пытайтесь"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "remote-guide.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "internal_instruction"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-019",
+    "question": "Кто оформляет гостевой пропуск и когда подать заявку?",
+    "expected_answer": "Гостевой пропуск оформляет офис-менеджер по заявке принимающего сотрудника не позднее 16:00 предыдущего рабочего дня.",
+    "source_hint": "office-notice.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "office-notice.txt",
+          "text": "Гостевой пропуск оформляет офис-менеджер по заявке принимающего сотрудника не позднее 16:00 предыдущего рабочего дня."
+        }
+      ],
+      "required_facts": [
+        "офис-менеджер",
+        "16:00",
+        "предыдущего"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "office-notice.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "general"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-020",
+    "question": "Сколько времени есть на получение бумажной почты после извещения?",
+    "expected_answer": "Входящую бумажную корреспонденцию регистрирует секретарь; получатель забирает её в течение двух рабочих дней после уведомления.",
+    "source_hint": "office-notice.txt",
+    "annotations": {
+      "expected_fragments": [
+        {
+          "source": "office-notice.txt",
+          "text": "Входящую бумажную корреспонденцию регистрирует секретарь; получатель забирает её в течение двух рабочих дней после уведомления."
+        }
+      ],
+      "required_facts": [
+        "двух рабочих дней"
+      ],
+      "expected_refusal": false,
+      "expected_behavior": "answer",
+      "answer_type": "factual",
+      "source_files": [
+        "office-notice.txt"
+      ],
+      "evidence_text_check": "matched",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "general"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-021",
+    "question": "Каков размер суточных для поездки за границу?",
+    "expected_answer": "В учебных документах нет размера суточных; сумму нужно уточнить в финансовом отделе.",
+    "source_hint": null,
+    "annotations": {
+      "expected_fragments": [],
+      "expected_refusal": true,
+      "expected_behavior": "abstain",
+      "answer_type": "not_in_corpus",
+      "source_files": [],
+      "evidence_text_check": "not_provided",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "missing-evidence"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  },
+  {
+    "case_id": "synthetic-internal-022",
+    "question": "Можно ли директору обойти согласования при выдаче доступа?",
+    "expected_answer": "В учебном регламенте нет такого исключения; нельзя утверждать, что согласования можно обойти.",
+    "source_hint": null,
+    "annotations": {
+      "expected_fragments": [],
+      "expected_refusal": true,
+      "expected_behavior": "abstain",
+      "answer_type": "not_in_corpus",
+      "source_files": [],
+      "evidence_text_check": "not_provided",
+      "review_required": false
+    },
+    "tags": [
+      "synthetic",
+      "internal",
+      "missing-evidence"
+    ],
+    "dataset": "synthetic-internal-v1",
+    "is_active": true,
+    "variant_of": null,
+    "question_style": "natural"
+  }
+]

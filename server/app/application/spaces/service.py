@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from application.spaces.ports import DomainPackCatalog
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.identity.user_context import UserContext
+    from domain.knowledge.space import SpaceRef
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,10 @@ class KnowledgeSpaceService:
 
     def pack_keys(self) -> tuple[str, ...]:
         return self._catalog.pack_keys()
+
+    async def resolve_ref(self, space_id: int | None) -> SpaceRef:
+        async with self._uow_factory.create() as uow:
+            return (await resolve_space(uow, space_id)).ref
 
     async def list_for_user(self, user_id: int, user_kind: str, user_role: str) -> list[KnowledgeSpaceDTO]:
         async with self._uow_factory.create() as uow:

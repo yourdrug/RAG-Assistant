@@ -15,6 +15,7 @@ from application.benchmark.jobs import BenchmarkJobService
 from infrastructure.benchmark.corpus import benchmark_scope
 from infrastructure.benchmark.evaluation import runner
 from infrastructure.worker import queue, runtime, tasks
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -96,7 +97,7 @@ async def test_concurrent_shutdown_closes_shared_pool_once(
 @pytest.mark.asyncio
 async def test_worker_benchmark_runs_container_rag_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     rag = object()
-    factory = object()
+    factory = FakeUnitOfWorkFactory()
     results = SimpleNamespace(get_job_result=AsyncMock(return_value=None))
     container = SimpleNamespace(
         infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)),

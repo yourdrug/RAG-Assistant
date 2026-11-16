@@ -270,6 +270,7 @@ async def test_benchmark_launch_enqueues_database_dataset(
         top_k=7,
         judge_model="judge",
         job_id=8,
+        space_id=DEFAULT_SPACE_ID,
     )
     assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 

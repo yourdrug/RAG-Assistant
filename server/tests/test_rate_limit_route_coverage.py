@@ -46,6 +46,7 @@ _EXPECTED: dict[tuple[str, str], str] = {
     ("POST", "/spaces"): "write",
     ("PATCH", "/spaces/{space_id}"): "write",
     ("DELETE", "/spaces/{space_id}"): "write",
+    ("PUT", "/spaces/clients/{client_id}"): "write",
     ("POST", "/groups/{group_id}/members"): "write",
     ("DELETE", "/groups/{group_id}/members/{user_id}"): "write",
     ("POST", "/clients/{client_user_id}/api-keys"): "write",

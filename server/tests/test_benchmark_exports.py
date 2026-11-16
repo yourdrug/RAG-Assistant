@@ -70,7 +70,10 @@ class Factory:
         _ = kwargs
         self.open += 1
         try:
-            yield SimpleNamespace(benchmark_runs=self.repo)
+            yield SimpleNamespace(
+                benchmark_runs=self.repo,
+                knowledge_spaces=FakeUnitOfWorkFactory()._uow.knowledge_spaces,
+            )
         finally:
             self.open -= 1
 
@@ -206,6 +209,7 @@ async def test_legacy_out_dir_is_noop_only_for_previous_default() -> None:
     enqueuer = SimpleNamespace(enqueue_benchmark=AsyncMock())
     # Empty idempotency headers bypass the reservation store.
     await benchmark.run_benchmark(
+        spaces=AsyncMock(resolve_ref=AsyncMock(return_value=SimpleNamespace(id=1))),
         request=cast("Request", request),
         req=BenchmarkRequest(out_dir="/proc/readonly/benchmark_results"),
         admin=cast("CurrentUser", user),
@@ -216,6 +220,7 @@ async def test_legacy_out_dir_is_noop_only_for_previous_default() -> None:
     assert "out_dir" not in enqueuer.enqueue_benchmark.call_args.kwargs
     with pytest.raises(HTTPException) as exc:
         await benchmark.run_benchmark(
+            spaces=AsyncMock(resolve_ref=AsyncMock(return_value=SimpleNamespace(id=1))),
             request=cast("Request", request),
             req=BenchmarkRequest(out_dir="legacy-output/custom"),
             admin=cast("CurrentUser", user),

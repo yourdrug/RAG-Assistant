@@ -73,10 +73,12 @@ class SweepBenchmarkPort(Protocol):
         resume: bool = False,
         checkpoints: BenchmarkCheckpoints | None = None,
         checkpoint_prefix: str | None = None,
+        space_id: int | None = None,
     ) -> dict[str, Any]: ...
 
 
 class SweepResumeOptions(TypedDict, total=False):
+    space_id: int | None
     resume: bool
     checkpoints: BenchmarkCheckpoints
     checkpoint_prefix: str
@@ -124,7 +126,8 @@ class SweepEngine:
         progress_callback: ProgressCallback | None = None,
         should_cancel: ShouldCancel | None = None,
     ) -> list[dict[str, Any]]:
-        async with self._corpus() as corpus:
+        scope = self._corpus(sweep.space_id) if sweep.space_id is not None else self._corpus()
+        async with scope as corpus:
             run = SweepRun(corpus=corpus)
             mode, factory = self.prepare_strategy(sweep, judge_model)
             strategy = factory(sweep.search_space)
@@ -337,6 +340,9 @@ class SweepEngine:
         checkpoints = run.checkpoints
         extra: SweepResumeOptions = {}
 
+        if run.corpus is not None and run.corpus.get("space_id") is not None:
+            extra["space_id"] = int(run.corpus["space_id"])
+
         if checkpoints is not None:
             current_settings = self._runtime.snapshot()
             config_identity = fingerprint(
@@ -358,7 +364,7 @@ class SweepEngine:
                 )
                 await checkpoints.save(identity_key, prefix)
 
-            extra = {"resume": True, "checkpoints": checkpoints, "checkpoint_prefix": prefix}
+            extra.update({"resume": True, "checkpoints": checkpoints, "checkpoint_prefix": prefix})
 
         return await self._benchmark_service.run(
             questions=questions,

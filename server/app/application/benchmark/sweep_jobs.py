@@ -90,7 +90,7 @@ class SweepJobService:
         return best_run_id
 
     async def save_sweep_run(self, sweep: BenchmarkSweep, sweep_id: int, best: dict[str, Any]) -> int | None:
-        config = best.get("config", {})
+        config = {**best.get("config", {}), "space_id": sweep.space_id}
         full = best.get("full_metrics", {})
         metrics = {
             "hit_rate": full.get("hit_rate") if full else best.get("avg_hit_rate"),

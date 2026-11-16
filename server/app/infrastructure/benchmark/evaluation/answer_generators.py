@@ -75,6 +75,7 @@ class RagBenchmarkGenerator:
                 "history": history,
                 "as_of_date": ctx.as_of_date.isoformat() if ctx.as_of_date else None,
                 "user": asdict(ctx.user),
+                "space": asdict(ctx.space) if ctx.space is not None else None,
                 "summary": ctx.summary,
             },
         )

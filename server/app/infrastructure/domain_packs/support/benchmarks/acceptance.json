@@ -1,0 +1,37 @@
+{
+  "pack": "support",
+  "provenance": "synthetic",
+  "status": "provisional",
+  "dataset": "synthetic-support-v1",
+  "scope": "Offline chunking and BM25 retrieval only; refusal and generated answer quality require a separate online run.",
+  "expected_profiles": {
+    "account-faq.txt": "support_faq",
+    "export-faq.txt": "support_faq",
+    "connections-faq.txt": "support_faq",
+    "connect-guide.txt": "support_guide",
+    "notifications-guide.txt": "support_guide",
+    "service-notice.txt": "general"
+  },
+  "minimums": {
+    "support_faq": {
+      "dataset_questions": 12,
+      "fragment_reachability": 1.0
+    },
+    "support_guide": {
+      "dataset_questions": 6,
+      "fragment_reachability": 1.0
+    },
+    "general": {
+      "dataset_questions": 2,
+      "fragment_reachability": 1.0
+    }
+  },
+  "overall_minimums": {
+    "dataset_questions": 20,
+    "fragment_reachability": 1.0,
+    "bm25.recall_at_5": 0.8,
+    "bm25.recall_at_10": 0.9,
+    "bm25.mrr": 0.7
+  },
+  "threshold_rationale": "Provisional whole-corpus BM25 smoke-test floors, not production acceptance. Per-profile sets are too small for independent retrieval floors; all profiles require full evidence reachability. Lexical paraphrase misses remain in the dataset."
+}

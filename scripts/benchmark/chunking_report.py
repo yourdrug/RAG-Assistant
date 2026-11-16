@@ -46,12 +46,12 @@ import numpy as np
 from tokenizers import Tokenizer
 
 from application.indexing.contextualization import ChunkContextualization
+from composition.domain_packs import PACK_REGISTRATIONS, selected_pack
 from domain.benchmark.evaluation import matches_fragment, source_name
 from domain.benchmark.question import evaluation_annotations
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.rag.evidence.context import content_with_parent_scope
-from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK, BENCHMARKS_DIR
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer
@@ -90,16 +90,23 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--corpus", type=Path, default=ROOT / "data/chunking_corpus")
+    parser.add_argument("--corpus", type=Path, default=None, help="default: selected pack's bundled corpus")
+    parser.add_argument(
+        "--pack",
+        choices=("generic", *PACK_REGISTRATIONS),
+        default="belarus_law",
+        help="document rules of the corpus's knowledge space (default: belarus_law)",
+    )
     parser.add_argument(
         "--datasets",
         type=Path,
         action="append",
         default=None,
-        help="directory of <domain>.json sets; repeatable (default: shared sets + law pack sets)",
+        help="directory of <domain>.json sets; repeatable (default: selected pack's sets)",
     )
+    parser.add_argument("--baseline", type=Path, default=None)
     parser.add_argument(
-        "--baseline", type=Path, default=ROOT / "docs/quality/artifacts/chunking-baseline-v1.json"
+        "--thresholds", type=Path, default=None, help="pack acceptance JSON; failures exit nonzero"
     )
     parser.add_argument("--tokenizer", type=Path, default=None, help="bge-m3 tokenizer.json")
     parser.add_argument("--out", type=Path, default=None, help="write the full report as JSON")
@@ -116,19 +123,35 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
 
     # `task chunking:report` runs from server/; relative paths always mean the repository root.
-    for name in ("corpus", "baseline", "tokenizer", "out", "cache", "chunks_out", "notes_cache"):
+    path_options = ("corpus", "baseline", "thresholds", "tokenizer", "out", "cache", "chunks_out", "notes_cache")
+
+    for name in path_options:
         value = getattr(args, name)
 
         if value is not None and not value.is_absolute():
             setattr(args, name, ROOT / value)
 
-    # The corpus mixes general, contract and legal documents: shared sets plus the law pack's.
-    args.datasets = [
-        path if path.is_absolute() else ROOT / path
-        for path in args.datasets or [ROOT / "benchmarks/chunking", BENCHMARKS_DIR / "chunking"]
-    ]
+    pack = selected_pack(args.pack)
+    defaults = [path for path in pack.benchmark_sets if path.is_dir()]
 
-    if not args.baseline.exists():
+    if args.corpus is None:
+        args.corpus = next(
+            (path.parent / "corpus" for path in pack.benchmark_sets if (path.parent / "corpus").is_dir()),
+            ROOT / "data/chunking_corpus",
+        )
+
+    if args.pack == "belarus_law":
+        defaults.insert(0, ROOT / "benchmarks/chunking")
+
+        if args.baseline is None:
+            args.baseline = ROOT / "docs/quality/artifacts/chunking-baseline-v1.json"
+
+    args.datasets = [path if path.is_absolute() else ROOT / path for path in args.datasets or defaults]
+
+    if not args.datasets:
+        parser.error(f"No benchmark sets for {args.pack!r}; pass --datasets with labelled documents")
+
+    if args.baseline is not None and not args.baseline.exists():
         message = f"Baseline not found: {args.baseline}"
         raise SystemExit(message)
 
@@ -138,16 +161,19 @@ def parse_args() -> argparse.Namespace:
 # --- splitting -------------------------------------------------------------------------------
 
 
-def build_pipeline() -> tuple[DomainProfileRegistry, DomainSettingsAdapter, Any, Any]:
+def build_pipeline(
+    pack_key: str = "belarus_law",
+) -> tuple[DomainProfileRegistry, DomainSettingsAdapter, Any, Any]:
+    pack = selected_pack(pack_key)
     settings = DomainSettingsAdapter()
     values = {}
 
-    for profile in BELARUS_LAW_PACK.build_profiles(settings):
+    for profile in pack.build_profiles(settings):
         values.update({(item.key, profile.key): item.value for item in profile.config_defaults()})
 
     settings.replace_snapshot(values)
     registry = DomainProfileRegistry()
-    register_pack_profiles(registry, BELARUS_LAW_PACK, settings)
+    register_pack_profiles(registry, pack, settings)
     return (
         registry,
         settings,
@@ -220,10 +246,13 @@ def build_contextualization(notes_cache: Path, tokenizer_path: Path) -> ChunkCon
 
 
 def split_corpus(
-    corpus: Path, contextualization: ChunkContextualization | None = None
+    corpus: Path,
+    contextualization: ChunkContextualization | None = None,
+    *,
+    pack_key: str = "belarus_law",
 ) -> list[dict[str, Any]]:
     """Split every file the way the loader does: one registry-classified domain per document."""
-    registry, settings, parser, splitter = build_pipeline()
+    registry, settings, parser, splitter = build_pipeline(pack_key)
     files = sorted(path for path in corpus.iterdir() if path.is_file() and not path.name.startswith("."))
 
     if not files:
@@ -536,7 +565,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     contextualization = (
         build_contextualization(args.notes_cache, tokenizer_path) if args.contextualize else None
     )
-    documents = split_corpus(args.corpus, contextualization)
+    documents = split_corpus(args.corpus, contextualization, pack_key=args.pack)
 
     if args.chunks_out:
         args.chunks_out.parent.mkdir(parents=True, exist_ok=True)
@@ -544,6 +573,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     report: dict[str, Any] = {
         "label": args.label,
+        "pack": args.pack,
         "date": date.today().isoformat(),
         "tokenizer": "BAAI/bge-m3",
         "retrieval": f"proxy: BM25 (prod tokenizer) / bge-m3 cosine / RRF k={RRF_K}, no reranker, depth {SEARCH_DEPTH}",
@@ -568,6 +598,15 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         rankings["hybrid"] = {
             case: rrf(rankings["bm25"][case], rankings["dense"][case]) for case in rankings["bm25"]
         }
+
+    report["overall"] = {
+        "dataset_questions": len(flat_questions),
+        **reachability(flat_questions, by_source),
+        "retrieval": {
+            mode: retrieval_metrics(flat_questions, ranking, all_chunks)
+            for mode, ranking in rankings.items()
+        } if flat_questions else {},
+    }
 
     for domain in domains:
         items = [d for d in documents if d["domain"] == domain]
@@ -625,6 +664,59 @@ def delta(value: Any, base: Any, higher_is_better: bool | None) -> str:
     return f"{value} ({diff:+.4g}{mark})"
 
 
+def threshold_failures(name: str, stats: dict[str, Any], minimums: dict[str, Any]) -> list[str]:
+    failures = []
+
+    if not minimums:
+        failures.append(f"{name}: no minimums")
+
+    for metric, minimum in minimums.items():
+        value = (
+            stats.get("retrieval", {}).get("bm25", {}).get(metric.removeprefix("bm25."))
+            if metric.startswith("bm25.") else stats.get(metric)
+        )
+
+        if (
+            type(value) not in (int, float) or not math.isfinite(value)
+            or type(minimum) not in (int, float) or not math.isfinite(minimum)
+            or value < minimum
+        ):
+            failures.append(f"{name}.{metric}: {value!r} < required {minimum!r} (or missing)")
+
+    return failures
+
+
+def acceptance_failures(report: dict[str, Any], specification: dict[str, Any]) -> list[str]:
+    """Check corpus classification and retrieval floors; absent measurements fail closed."""
+    failures = []
+
+    if report.get("pack") != specification.get("pack"):
+        failures.append("Acceptance specification belongs to a different pack")
+
+    actual_profiles = {doc["file"]: doc["domain"] for doc in report.get("documents", [])}
+
+    if not specification.get("expected_profiles") or actual_profiles != specification["expected_profiles"]:
+        failures.append("Corpus files or document classifications differ from expected_profiles")
+
+    minimums = specification.get("minimums", {})
+
+    if not minimums:
+        failures.append("Acceptance specification has no minimums")
+
+    measurements = [
+        (domain, report.get("domains", {}).get(domain, {}), thresholds)
+        for domain, thresholds in minimums.items()
+    ]
+
+    if "overall_minimums" in specification:
+        measurements.append(("overall", report.get("overall", {}), specification["overall_minimums"]))
+
+    for domain, stats, thresholds in measurements:
+        failures.extend(threshold_failures(domain, stats, thresholds))
+
+    return failures
+
+
 def print_comparison(report: dict[str, Any], baseline: dict[str, Any] | None) -> None:
     base_domains = (baseline or {}).get("domains", {})
     print(f"\n{report['label']}" + (f"  vs  {baseline['label']}" if baseline else ""))
@@ -661,14 +753,37 @@ def print_comparison(report: dict[str, Any], baseline: dict[str, Any] | None) ->
 def main() -> None:
     logging.basicConfig(level=logging.WARNING)
     args = parse_args()
+    baseline = json.loads(args.baseline.read_text()) if args.baseline is not None else None
+
+    if baseline is not None and baseline.get("pack", "belarus_law") != args.pack:
+        message = "Baseline belongs to a different domain pack"
+        raise SystemExit(message)
+
     report = build_report(args)
-    baseline = json.loads(args.baseline.read_text())
+    failures = []
+
+    if args.thresholds is not None:
+        specification = json.loads(args.thresholds.read_text())
+        failures = acceptance_failures(report, specification)
+        report["acceptance"] = {
+            "provenance": specification.get("provenance"),
+            "status": specification.get("status"),
+            "passed": not failures,
+            "failures": failures,
+        }
+
     print_comparison(report, baseline)
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         print(f"\nreport: {args.out}")
+
+    if failures:
+        raise SystemExit("Acceptance failed:\n" + "\n".join(failures))
+
+    if args.thresholds is not None:
+        print(f"\nAcceptance: PASS ({report['acceptance']['provenance']}, {report['acceptance']['status']})")
 
 
 if __name__ == "__main__":

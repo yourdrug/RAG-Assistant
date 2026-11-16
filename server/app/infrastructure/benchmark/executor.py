@@ -22,7 +22,7 @@ class BenchmarkExecutor:
         corpus_resource: MLClientPort | None = None,
         *,
         annotation_validator: AnnotationValidator | None = None,
-        space_resolver: Callable[[], Awaitable[SpaceRef]] | None = None,
+        space_resolver: Callable[[int | None], Awaitable[SpaceRef]] | None = None,
     ) -> None:
         self.annotation_validator = annotation_validator
         self.corpus_resource = corpus_resource
