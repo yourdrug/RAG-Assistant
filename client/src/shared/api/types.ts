@@ -114,7 +114,13 @@ export type DocumentVisibility =
 
 export type DocumentStatus = "pending" | "processing" | "indexing" | "done" | "failed";
 
-export type DocumentDomain = "legal" | "general";
+// Profile key of the active domain pack (see GET /documents/domains).
+export type DocumentDomain = string;
+
+export interface DocumentDomainOption {
+  key: string;
+  display_name: string;
+}
 
 export interface DocumentResponse {
   id: number;

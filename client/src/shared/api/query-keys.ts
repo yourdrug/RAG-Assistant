@@ -9,6 +9,7 @@ export const queryKeys = {
     list: () => [...queryKeys.documents.all, "list"] as const,
     detail: (id: number) => [...queryKeys.documents.all, "detail", id] as const,
     clients: () => [...queryKeys.documents.all, "clients"] as const,
+    domains: () => [...queryKeys.documents.all, "domains"] as const,
   },
   chunks: {
     all: (documentId: number) => ["chunks", documentId] as const,

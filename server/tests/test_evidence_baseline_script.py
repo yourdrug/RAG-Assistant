@@ -7,6 +7,10 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 
+# Drives a benchmark script of the Belarusian law pack.
+pytestmark = pytest.mark.belarus
+
+
 @pytest.fixture
 def baseline_script() -> ModuleType:
     path = Path(__file__).parents[2] / "scripts" / "benchmark/validate_evidence_baseline.py"

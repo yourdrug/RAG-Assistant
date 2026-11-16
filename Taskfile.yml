@@ -322,6 +322,15 @@ tasks:
     cmds:
       - uv run pytest -m "not integration" {{.CLI_ARGS}}
 
+  test:core:
+    desc: Прогнать тесты ядра без доменных пакетов (импорт пакетов заблокирован, DOMAIN_PACK=generic)
+    dir: server
+    env:
+      DOMAIN_PACK: generic
+      PYTHONPATH: tests/support/without_domain_packs
+    cmds:
+      - uv run pytest -m "not integration and not belarus" {{.CLI_ARGS}}
+
   test:integration:
     desc: Прогнать интеграционные тесты (требуются настроенные внешние сервисы)
     dir: server

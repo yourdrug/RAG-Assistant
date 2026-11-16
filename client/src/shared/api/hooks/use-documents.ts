@@ -4,13 +4,26 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
-import type { DocumentResponse, JobResponse, UploadStatusResponse } from "../types";
+import type {
+  DocumentDomainOption,
+  DocumentResponse,
+  JobResponse,
+  UploadStatusResponse,
+} from "../types";
 
 export function useUploadableClients() {
   return useQuery({
     queryKey: queryKeys.documents.clients(),
     queryFn: async () =>
       (await apiClient.get<{ id: number; email: string }[]>("/documents/clients")).data,
+  });
+}
+
+export function useDocumentDomains() {
+  return useQuery({
+    queryKey: queryKeys.documents.domains(),
+    queryFn: async () => (await apiClient.get<DocumentDomainOption[]>("/documents/domains")).data,
+    staleTime: Infinity,
   });
 }
 

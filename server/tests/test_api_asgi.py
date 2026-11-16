@@ -87,6 +87,28 @@ def sign_in(role: str = "user", user_id: int = 1) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "law_pack,keys", [(False, ["general"]), (True, ["general", "legal", "decree", "contract"])]
+)
+async def test_document_domains_list_profiles_of_the_active_pack(
+    asgi_client: httpx.AsyncClient, law_pack: bool, keys: list[str]
+) -> None:
+    sign_in()
+    registry = law_registry() if law_pack else None
+    app.dependency_overrides[deps.create_domain_registry] = lambda: registry
+    response = await asgi_client.get("/documents/domains")
+    assert response.status_code == 200
+    assert [option["key"] for option in response.json()] == keys
+    assert all(option["display_name"] for option in response.json())
+
+
+@pytest.mark.asyncio
+async def test_document_domains_require_authentication(asgi_client: httpx.AsyncClient) -> None:
+    response = await asgi_client.get("/documents/domains")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["/ingest", "/ingest/file"])
 @pytest.mark.parametrize("domain", ["legal_typo", "", "AUTO"])
 async def test_ingestion_rejects_unknown_domain_before_creating_job(

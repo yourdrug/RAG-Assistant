@@ -105,6 +105,7 @@ from presentation.api.schemas.chunks import (
 from presentation.api.schemas.curators import CuratorAssignmentResponse
 from presentation.api.schemas.documents import (
     DeleteDocumentResponse,
+    DocumentDomainOption,
     DocumentRenameRequest,
     DocumentResponse,
     ManualDocumentRequest,
@@ -186,6 +187,7 @@ __all__ = [
     "DeleteDocumentResponse",
     # admin_quality
     "DocumentDiagnoseResponse",
+    "DocumentDomainOption",
     "DocumentQualityItem",
     "DocumentQualityListResponse",
     "DocumentRenameRequest",

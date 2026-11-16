@@ -20,6 +20,7 @@ from application.ports.action_logger import ActionLoggerPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import UploadConfig
 from domain.identity.capabilities import Capability
+from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.enums import DocumentVisibility
 from domain.runtime.jobs import BackgroundJobStatus
@@ -42,6 +43,7 @@ from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import (
     CurrentUser,
     DeleteDocumentResponse,
+    DocumentDomainOption,
     DocumentRenameRequest,
     DocumentResponse,
     UploadStatusResponse,
@@ -74,6 +76,17 @@ async def list_uploadable_clients(
 ) -> list[ClientInfo]:
     """List clients available for client_private upload (assigned clients for internal, self for client)."""
     return await query.list_uploadable_clients(current_user.id, current_user.kind, current_user.role)
+
+
+@router.get("/documents/domains")
+async def list_document_domains(
+    *,
+    _current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
+) -> list[DocumentDomainOption]:
+    """Document profiles of the active domain pack that an upload may request explicitly."""
+    profiles = registry.all() if registry is not None else [GeneralDomainProfile()]
+    return [DocumentDomainOption(key=profile.key, display_name=profile.display_name) for profile in profiles]
 
 
 def validate_upload_domain(

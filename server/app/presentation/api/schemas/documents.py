@@ -22,6 +22,11 @@ class DocumentRenameRequest(BaseModel):
     filename: str = Field(..., min_length=1, max_length=255)
 
 
+class DocumentDomainOption(BaseModel):
+    key: str
+    display_name: str
+
+
 class DocumentResponse(BaseModel):
     id: int
     filename: str

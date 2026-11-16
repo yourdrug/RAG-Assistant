@@ -274,6 +274,7 @@ def saved_snapshot_replay() -> dict[str, Any]:
     return result
 
 
+@pytest.mark.belarus  # The replay script runs with the law pack's evidence rules.
 @pytest.mark.parametrize("question_id", [136, 140, 154, 158])
 def test_saved_snapshot_loss_is_reproduced_and_repaired(
     saved_snapshot_replay: dict[str, Any], question_id: int

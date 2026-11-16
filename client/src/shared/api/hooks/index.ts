@@ -70,6 +70,7 @@ export {
 export {
   useDeleteDocument,
   useDocument,
+  useDocumentDomains,
   useDocuments,
   useRenameDocument,
   useUploadableClients,

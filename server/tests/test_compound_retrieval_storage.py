@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from langchain_core.documents import Document
 
 
+# Drives a benchmark script of the Belarusian law pack.
+pytestmark = pytest.mark.belarus
+
+
 @pytest.fixture
 def experiment() -> ModuleType:
     path = Path(__file__).parents[2] / "scripts" / "benchmark/compound_retrieval_experiment.py"

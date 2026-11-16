@@ -18,6 +18,10 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
+# Drives a benchmark script of the Belarusian law pack.
+pytestmark = pytest.mark.belarus
+
+
 @pytest.fixture
 def comparison() -> ModuleType:
     path = Path(__file__).parents[2] / "scripts" / "benchmark/compare_frozen_generation.py"

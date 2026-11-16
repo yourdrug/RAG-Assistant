@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
 import {
   useDeleteDocument,
+  useDocumentDomains,
   useDocuments,
   useGroups,
   useRenameDocument,
@@ -62,6 +63,7 @@ export function DocumentsPage() {
   const [progress, setProgress] = useState(0);
   const { data: groups } = useGroups();
   const { data: uploadableClients } = useUploadableClients();
+  const { data: documentDomains } = useDocumentDomains();
 
   useEffect(() => {
     if (user) {
@@ -446,12 +448,15 @@ export function DocumentsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto-detect</SelectItem>
-                  <SelectItem value="general">General</SelectItem>
-                  <SelectItem value="legal">Legal</SelectItem>
+                  {documentDomains?.map((d) => (
+                    <SelectItem key={d.key} value={d.key}>
+                      {d.display_name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Legal documents get article-aware chunking and retrieval
+                The domain profile selects document-aware chunking and retrieval
               </p>
             </div>
             {files.length > 0 && (

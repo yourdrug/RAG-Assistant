@@ -2,6 +2,7 @@ import { FileText, Loader2, Upload } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import {
+  useDocumentDomains,
   useDryRunOcr,
   useGroups,
   useIndexFromPreview,
@@ -24,6 +25,7 @@ export function DryRunActions({ result, onResultUpdate, onReset }: DryRunActions
   const indexFromPreview = useIndexFromPreview();
   const { data: groups } = useGroups();
   const { data: uploadableClients } = useUploadableClients();
+  const { data: documentDomains } = useDocumentDomains();
   const user = useAuthStore((s) => s.user);
   const isClient = user?.kind === "client";
   const isAdmin = user?.role === "admin";
@@ -218,8 +220,11 @@ export function DryRunActions({ result, onResultUpdate, onReset }: DryRunActions
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto-detect</SelectItem>
-                  <SelectItem value="general">General</SelectItem>
-                  <SelectItem value="legal">Legal</SelectItem>
+                  {documentDomains?.map((d) => (
+                    <SelectItem key={d.key} value={d.key}>
+                      {d.display_name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

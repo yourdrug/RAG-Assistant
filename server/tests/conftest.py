@@ -8,6 +8,7 @@ Postgres, Qdrant, Redis, or LLM.
 import ast
 from collections.abc import Iterator
 from functools import cache
+import importlib
 import os
 from pathlib import Path
 import sys
@@ -56,10 +57,61 @@ for _key, _val in _TEST_DEFAULTS.items():
 
 # Modules whose import makes a test module a test of the Belarusian law pack.
 LAW_PACK_MODULES = ("infrastructure.domain_packs", "tests.law_pack")
+LAW_PACK_PLUGIN = "tests.law_pack_plugin"
+# Why the law pack is not importable in this run; None when it is.
+law_pack_import_error: ImportError | None = None
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the law pack fixtures only when the pack imports, so the core runs without it."""
+    global law_pack_import_error  # noqa: PLW0603 -- set once per session before collection
+
+    try:
+        # Imported here, not at module level: the pack is optional for the core suite.
+        plugin = importlib.import_module(LAW_PACK_PLUGIN)
+    except ImportError as exc:
+        law_pack_import_error = exc
+    else:
+        config.pluginmanager.register(plugin, LAW_PACK_PLUGIN)
+        return
+
+    if "not belarus" not in (config.option.markexpr or ""):
+        message = (
+            f"Belarusian law pack is not importable ({law_pack_import_error}); "
+            "run the core suite with -m 'not belarus'"
+        )
+        raise pytest.UsageError(message)
+
+
+def pytest_report_header() -> str | None:
+    if law_pack_import_error is None:
+        return None
+
+    return f"law pack: not importable ({law_pack_import_error}); its test modules are not collected"
+
+
+def pytest_ignore_collect(collection_path: Path) -> bool | None:
+    """Skip law pack test modules when the pack is unavailable instead of failing their import."""
+    if law_pack_import_error is None or collection_path.suffix != ".py":
+        return None
+
+    return True if imports_law_pack(collection_path) else None
+
+
+SERVER_DIR = Path(__file__).resolve().parents[1]
+
+
+def helper_module_path(module: str) -> Path | None:
+    """Source file of a ``tests.*`` module, so law pack imports are followed through helpers."""
+    if module != "tests" and not module.startswith("tests."):
+        return None
+
+    base = SERVER_DIR.joinpath(*module.split("."))
+    return next((path for path in (base.with_suffix(".py"), base / "__init__.py") if path.is_file()), None)
 
 
 @cache
-def imports_law_pack(path: Path) -> bool:
+def imports_law_pack(path: Path, seen: frozenset[Path] = frozenset()) -> bool:
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         names = (
             [alias.name for alias in node.names]
@@ -73,6 +125,15 @@ def imports_law_pack(path: Path) -> bool:
             name == module or name.startswith(f"{module}.") for name in names for module in LAW_PACK_MODULES
         ):
             return True
+
+        for name in names:
+            helper = helper_module_path(name)
+
+            if helper is None or helper == path or helper in seen:
+                continue
+
+            if imports_law_pack(helper, seen | {path}):
+                return True
 
     return False
 
@@ -96,11 +157,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(skip_integration)
 
 
-from domain.ingestion.profiles.registry import DomainProfileRegistry  # noqa: E402
-from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile  # noqa: E402
 from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile, evidence_profile_scope  # noqa: E402
 from infrastructure.resilience.circuit_breaker import init_breakers  # noqa: E402
-from tests.law_pack import law_registry as build_law_registry  # noqa: E402
 
 
 # Initialize circuit breakers for all tests (required by step_generate, handle_relevance_gate, etc.)
@@ -124,24 +182,15 @@ def selected_evidence_profile(request: pytest.FixtureRequest) -> Iterator[None]:
     Production code must select a profile itself (a request, a sweep, a script), so an
     unscoped call fails here exactly as in production. ``@pytest.mark.generic_evidence``
     calls profile-dependent helpers directly with neutral rules; ``@pytest.mark.belarus``
-    marks tests of the Belarusian law pack (``-m "not belarus"`` runs the core suite).
+    marks tests of the Belarusian law pack (``-m "not belarus"`` runs the core suite), whose
+    evidence rules ``tests/law_pack_plugin.py`` selects.
     """
-    if request.node.get_closest_marker("belarus"):
-        profile: GenericEvidenceProfile = BelarusEvidenceProfile()
-    elif request.node.get_closest_marker("generic_evidence"):
-        profile = GenericEvidenceProfile()
-    else:
+    if request.node.get_closest_marker("belarus") or not request.node.get_closest_marker("generic_evidence"):
         yield
         return
 
-    with evidence_profile_scope(profile):
+    with evidence_profile_scope(GenericEvidenceProfile()):
         yield
-
-
-@pytest.fixture
-def law_registry() -> DomainProfileRegistry:
-    """Document profiles of the Belarusian law pack; requesting it marks the test ``belarus``."""
-    return build_law_registry()
 
 
 # Mock surya before any test module imports domain.ingestion

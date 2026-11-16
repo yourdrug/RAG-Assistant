@@ -12,7 +12,7 @@ import pytest
 
 from application.ingestion.profiles import ensure_known_domain, known_domains
 from application.runtime.errors import ConfigurationError
-from composition.domain_packs import DOMAIN_PACKS, selected_pack
+from composition.domain_packs import selected_pack
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.shared.exceptions import ValidationError
@@ -27,7 +27,8 @@ from infrastructure.ml.rag.rag_steps import RagOperations
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
 
-# Imports every core module while any domain pack import raises; prints the modules that needed one.
+# Imports every core and composition module while any domain pack import raises; prints the
+# modules that needed one. Composition loads a pack only when DOMAIN_PACK selects it.
 BLOCKED_PACKS_PROBE = """
 import importlib, importlib.abc, pkgutil, sys
 
@@ -40,7 +41,7 @@ class BlockPacks(importlib.abc.MetaPathFinder):
 
 sys.meta_path.insert(0, BlockPacks())
 
-for layer in ("domain", "application", "infrastructure", "presentation"):
+for layer in ("domain", "application", "infrastructure", "presentation", "composition"):
     for module in pkgutil.walk_packages(importlib.import_module(layer).__path__, layer + "."):
         if module.name == PACKS or module.name.startswith(PACKS + "."):
             continue
@@ -94,7 +95,7 @@ def test_neutral_pack_knows_only_general_documents_and_rules() -> None:
 
 @pytest.mark.belarus
 def test_law_pack_registers_its_profiles_keywords_and_evidence_rules() -> None:
-    pack = DOMAIN_PACKS["belarus_law"]
+    pack = selected_pack("belarus_law")
     registry = registry_for(pack)
     assert known_domains(registry) == ("general", "legal", "decree", "contract")
     assert dict(registry.doc_type_keywords)["contract"] == ("договор", "контракт", "соглашение")
