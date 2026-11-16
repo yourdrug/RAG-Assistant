@@ -9,11 +9,11 @@ from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import date
 
     from application.uow.factory import UnitOfWorkFactory
     from domain.identity.user_context import UserContext
     from domain.knowledge.chunk import ChunkRecord
+    from domain.knowledge.pack_metadata import MetadataCondition
     from domain.rag.ports import ChunkRetrievalRepository
 
 
@@ -35,7 +35,7 @@ class ChunkSearchAdapter:
         *,
         limit: int = 20,
         mode: str = "exact",
-        as_of_date: date | None = None,
+        selection: MetadataCondition | None = None,
         document_id: int | None = None,
         document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
@@ -46,7 +46,7 @@ class ChunkSearchAdapter:
                 user=user,
                 limit=limit,
                 mode=mode,
-                as_of_date=as_of_date,
+                selection=selection,
                 document_id=document_id,
                 document_ids=document_ids,
             )
@@ -98,10 +98,7 @@ class ChunkSearchAdapter:
         node_id: str,
         *,
         user: UserContext,
-        act_version_id: int | None,
         max_chars: int,
     ) -> list[ChunkRecord]:
         async with self._uow_factory.create() as uow:
-            return await uow.chunks.get_parent_context(
-                document_id, node_id, user=user, act_version_id=act_version_id, max_chars=max_chars
-            )
+            return await uow.chunks.get_parent_context(document_id, node_id, user=user, max_chars=max_chars)

@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
 DOCUMENT_ID = 7
 FOREIGN_DOCUMENT_ID = 8
-ACT_VERSION_ID = 9
 OWNER_ID = 12
 CHAPTER = "chapter:1"
 ARTICLE = "chapter:1/article:1"
@@ -88,7 +87,6 @@ def parent_scope_repository(
                     content=content,
                     visibility=visibility,
                     owner_id=owner_id,
-                    act_version_id=ACT_VERSION_ID,
                     context_metadata={PARENT_NODE_ID_KEY: node_id} if node_id else {},
                 )
                 for index, node_id, content in CHUNKS
@@ -110,7 +108,6 @@ def parent_scope_repository(
                 DocumentNodeModel(
                     id=position + 1,
                     document_id=DOCUMENT_ID,
-                    act_version_id=ACT_VERSION_ID,
                     node_id=node_id,
                     parent_id=parent_id,
                     kind=kind,

@@ -1,7 +1,6 @@
 """Execute real search SQL against PostgreSQL to protect pagination and scoped totals."""
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
 import secrets
 from unittest.mock import AsyncMock, Mock
 
@@ -13,11 +12,13 @@ from application.search import SearchService
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocDomain, DocumentVisibility, SearchMode
+from domain.knowledge.pack_metadata import Missing
 from infrastructure.database.models import ChunkModel, DocumentModel, UserModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 
 
 pytestmark = pytest.mark.integration
+SELECTION = Missing("hidden")
 
 
 @pytest_asyncio.fixture
@@ -44,14 +45,14 @@ async def repository(pg_engine: AsyncEngine) -> AsyncIterator[SQLAlchemyChunkRep
                 content="a needle appears here" if chunk_id != 7 else "no matching text",
                 visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
                 doc_domain=DocDomain.GENERAL.value,
-                is_current=True,
             )
             for chunk_id in range(1, 8)
         ]
         rows[3].visibility = DocumentVisibility.INTERNAL_PRIVATE.value
         rows[3].owner_id = 99
-        rows[4].effective_from = datetime.now(UTC).astimezone().date() + timedelta(days=1)
-        rows[5].is_current = False
+        # Outside the pack selection: the total must not count them either.
+        rows[4].pack_metadata = {"hidden": True}
+        rows[5].pack_metadata = {"hidden": True}
         session.add_all(rows)
     async with sessions() as session:
         yield SQLAlchemyChunkRepository(session)
@@ -67,9 +68,11 @@ def user() -> UserContext:
 async def test_pages_cover_all_accessible_matches_with_same_total(
     repository: SQLAlchemyChunkRepository, user: UserContext, mode: SearchMode
 ) -> None:
-    first, total = await repository.search_substring_page("needle", user, limit=2, offset=0, mode=mode.value)
+    first, total = await repository.search_substring_page(
+        "needle", user, limit=2, offset=0, mode=mode.value, selection=SELECTION
+    )
     second, second_total = await repository.search_substring_page(
-        "needle", user, limit=2, offset=2, mode=mode.value
+        "needle", user, limit=2, offset=2, mode=mode.value, selection=SELECTION
     )
     assert [row.chunk_id for row in first] == [1, 2]
     assert [row.chunk_id for row in second] == [3]
@@ -80,7 +83,9 @@ async def test_pages_cover_all_accessible_matches_with_same_total(
 async def test_out_of_range_page_still_reports_scoped_total(
     repository: SQLAlchemyChunkRepository, user: UserContext
 ) -> None:
-    rows, total = await repository.search_substring_page("needle", user, limit=2, offset=100)
+    rows, total = await repository.search_substring_page(
+        "needle", user, limit=2, offset=100, selection=SELECTION
+    )
     assert rows == []
     assert total == 3
 
@@ -90,7 +95,9 @@ async def test_out_of_range_page_still_reports_scoped_total(
 async def test_document_filter_applies_to_total_without_bypassing_acl(
     repository: SQLAlchemyChunkRepository, user: UserContext, document_id: int, total: int
 ) -> None:
-    rows, actual_total = await repository.search_substring_page("needle", user, document_id=document_id)
+    rows, actual_total = await repository.search_substring_page(
+        "needle", user, document_id=document_id, selection=SELECTION
+    )
     assert actual_total == total
     assert len(rows) == total
 
@@ -113,7 +120,7 @@ async def test_application_service_preserves_requested_page_and_total(
     factory = Mock()
     factory.create.return_value.__aenter__ = AsyncMock(return_value=uow)
     factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
-    service = SearchService(factory)
+    service = SearchService(factory, chunk_selection=lambda _as_of_date: SELECTION)
     rows, total = await service.exact_search("needle", user, limit=2, offset=2)
     assert [row.chunk_id for row in rows] == [3]
     assert total == 3

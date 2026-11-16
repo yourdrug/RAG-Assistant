@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from domain.knowledge.chunk import extract_chunk_context
+from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.ranking import RetrievalDocument
 from domain.shared.hashing import content_hash
@@ -51,11 +52,7 @@ def snapshot_documents(
                             "chunk_id",
                             "content_hash",
                             "citation_id",
-                            "act_id",
-                            "act_version_id",
-                            "effective_from",
-                            "effective_to",
-                            "is_current",
+                            PACK_METADATA_KEY,
                             "verified_timing_scope",
                             "verified_amended_acts",
                         )
@@ -142,7 +139,6 @@ def evidence_identity(document: dict[str, Any]) -> str:
         str(value)
         for value in (
             metadata.get("document_id"),
-            metadata.get("act_version_id"),
             metadata.get("source"),
             document.get("content_hash") or content_hash(document["content"]),
         )

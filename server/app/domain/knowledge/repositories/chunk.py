@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from datetime import date, datetime
+    from datetime import datetime
 
     from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
     from domain.knowledge.document_nodes import DocumentNode
@@ -21,10 +21,7 @@ class ChunkInsertOptions:
     group_id: int | None = None
     doc_domain: str = "general"
     domain_metadata: dict[str, Any] | None = None
-    act_version_id: int | None = None
-    effective_from: date | None = None
-    effective_to: date | None = None
-    is_current: bool = True
+    pack_metadata: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -36,10 +33,7 @@ class ManualChunkInsertOptions:
     context_metadata: dict[str, Any] | None = None
     embed_text: str | None = None
     doc_title: str | None = None
-    act_version_id: int | None = None
-    effective_from: date | None = None
-    effective_to: date | None = None
-    is_current: bool = True
+    pack_metadata: dict[str, Any] | None = None
 
 
 DEFAULT_CHUNK_INSERT_OPTIONS = ChunkInsertOptions()
@@ -128,22 +122,18 @@ class ChunkCorpusRepository(Protocol):
 
 
 @runtime_checkable
-class ChunkVersioningRepository(Protocol):
-    """Temporal versioning operations for act-versioned chunks."""
+class ChunkPackMetadataRepository(Protocol):
+    """Pack-owned metadata is per document: every chunk of a document carries the same value."""
 
-    async def set_current_by_act_version_ids(
-        self, act_version_ids: list[int], *, is_current: bool
-    ) -> int: ...
+    async def set_pack_metadata(self, document_id: int, pack_metadata: dict[str, Any]) -> int: ...
 
-    async def update_temporal_by_act_version_id(
-        self, act_version_id: int, effective_from: date | None, effective_to: date | None
-    ) -> int: ...
+    async def get_pack_metadata(self, document_id: int) -> dict[str, Any] | None:
+        """Pack metadata shared by the document's chunks; ``None`` when it has no chunks."""
+        ...
 
 
 @runtime_checkable
 class DocumentNodeRepository(Protocol):
     """Parent scopes of a document's chunks, replaced together with the chunks."""
 
-    async def replace_document_nodes(
-        self, document_id: int, act_version_id: int | None, nodes: list[DocumentNode]
-    ) -> None: ...
+    async def replace_document_nodes(self, document_id: int, nodes: list[DocumentNode]) -> None: ...

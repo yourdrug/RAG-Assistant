@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -14,6 +13,7 @@ import pytest
 from application.runtime.config import ConfigParameter
 from config import Settings
 from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.pack_metadata import Missing
 from tests.fakes import FakeUnitOfWorkFactory, require_present
 
 
@@ -263,8 +263,8 @@ class TestContainer:
 
 class TestChunkSearchAdapter:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("as_of_date", [None, date(2024, 1, 1)])
-    async def test_delegates_to_uow_factory(self, as_of_date: Any) -> None:
+    @pytest.mark.parametrize("selection", [None, Missing("superseded")])
+    async def test_delegates_to_uow_factory(self, selection: Any) -> None:
         mock_uow_factory = MagicMock()
         mock_chunks = AsyncMock()
         matches: list[ChunkRecord] = [MagicMock(spec=ChunkRecord)]
@@ -285,7 +285,7 @@ class TestChunkSearchAdapter:
             user=user,
             limit=10,
             mode="exact",
-            as_of_date=as_of_date,
+            selection=selection,
         )
 
         mock_chunks.search_substring.assert_awaited_once_with(
@@ -293,7 +293,7 @@ class TestChunkSearchAdapter:
             user=user,
             limit=10,
             mode="exact",
-            as_of_date=as_of_date,
+            selection=selection,
             document_id=None,
             document_ids=None,
         )

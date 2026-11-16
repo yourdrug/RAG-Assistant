@@ -13,15 +13,24 @@ from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from domain.knowledge.pack_metadata import MetadataCondition
     from domain.rag.ports import ChunkSearchRepository
+
+    type ChunkSelection = Callable[[date | None], MetadataCondition | None]
 
 
 REFERENCE_SEARCH_LIMIT = 100
 
 
 class AnnotationValidator:
-    def __init__(self, search: ChunkSearchRepository) -> None:
+    def __init__(
+        self, search: ChunkSearchRepository, *, chunk_selection: ChunkSelection | None = None
+    ) -> None:
         self.search = search
+        # The domain pack's selection at the question date; validation runs outside a RAG request.
+        self.chunk_selection = chunk_selection
 
     async def validate(self, annotations: dict[str, Any] | None, ctx: RagContext) -> dict[str, Any]:
         annotations = evaluation_annotations(annotations)
@@ -33,6 +42,7 @@ class AnnotationValidator:
         missing = []
         verified_options = []
         truncated = False
+        selection = self.chunk_selection(ctx.as_of_date) if self.chunk_selection is not None else None
 
         for index, fragment in enumerate(fragments):
             found = False
@@ -44,7 +54,7 @@ class AnnotationValidator:
                     ctx.user,
                     limit=REFERENCE_SEARCH_LIMIT,
                     document_id=option.get("document_id"),
-                    as_of_date=ctx.as_of_date,
+                    selection=selection,
                 )
                 truncated = truncated or len(chunks) == REFERENCE_SEARCH_LIMIT
 

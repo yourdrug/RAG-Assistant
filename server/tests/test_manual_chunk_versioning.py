@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from domain.identity.roles import UserRole
+from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.index_sync import OutboxOperation
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
@@ -50,14 +51,9 @@ async def test_add_chunk_inherits_edition_in_sql_model_and_outbox(version: ActVe
     )
 
     uow.act_versions.get_by_document_id.assert_awaited_once_with(1, for_update=True)
-    expected = {
-        "act_version_id": version.id if version else None,
-        "effective_from": version.effective_from if version else None,
-        "effective_to": version.effective_to if version else None,
-        "is_current": version.is_current if version else True,
-    }
+    expected = edition_metadata(version) if version else {}
     model = models[0]
-    assert {key: getattr(model, key) for key in expected} == expected
+    assert model.pack_metadata == expected
     assert model.manual is True
     assert model.context_metadata == {"page": 3, "section": "Rules"}
     entry = uow.vector_outbox.enqueue.call_args.args[0]
@@ -65,10 +61,7 @@ async def test_add_chunk_inherits_edition_in_sql_model_and_outbox(version: ActVe
     point = entry.payload["points"][0]
     assert point["chunk_id"] == result.id == model.id
     metadata = point["metadata"]
-    assert {key: metadata[key] for key in expected} == {
-        key: value.isoformat() if isinstance(value, date) else value for key, value in expected.items()
-    }
-    assert metadata["act_id"] == (version.act_id if version else None)
+    assert metadata["pack_metadata"] == expected
     assert metadata["page"] == 3
     assert metadata["section"] == "Rules"
 

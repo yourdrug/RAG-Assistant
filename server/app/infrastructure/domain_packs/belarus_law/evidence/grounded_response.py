@@ -14,6 +14,7 @@ from infrastructure.domain_packs.belarus_law.evidence.applicability import (
     timing_assessment,
     timing_question,
 )
+from infrastructure.domain_packs.belarus_law.evidence.editions import edition_of
 from infrastructure.domain_packs.belarus_law.evidence.focus import (
     evidence_reading_map,
     matching_field_rows,
@@ -70,7 +71,7 @@ def evidence_fragments(docs: Sequence[tuple[RetrievalDocument, float]]) -> list[
                 text=content_with_parent_scope(doc),
                 source=source,
                 document_id=metadata.get("document_id") or metadata.get("source"),
-                version_id=metadata.get("act_version_id"),
+                version_id=edition_of(metadata),
                 act_number=next(iter(numbers)) if len(numbers) == 1 else None,
                 chunk_index=metadata.get("chunk_index", 0),
                 linked_scope=metadata.get("verified_timing_scope", ""),

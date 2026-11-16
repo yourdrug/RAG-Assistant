@@ -19,6 +19,7 @@ from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.enums import DocumentVisibility, PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
+from infrastructure.domain_packs.belarus_law.evidence.editions import edition_selection
 from infrastructure.domain_packs.belarus_law.evidence.field_evidence import augment_field_candidates
 from infrastructure.domain_packs.belarus_law.evidence.focus import evidence_reading_map
 from infrastructure.domain_packs.belarus_law.evidence.grounded_response import (
@@ -70,7 +71,7 @@ def chunk(
         filename="source.docx",
         content=text,
         chunk_index=index,
-        act_version_id=version,
+        pack_metadata={"act_version_id": version},
         section=section,
         content_type=PageContentType.TABLE.value if table else None,
     )
@@ -124,7 +125,7 @@ async def test_amendment_cannot_link_unrelated_or_missing_source_chunks(mutation
     elif mutation == "other_document":
         chunks[-1].document_id = 99
     elif mutation == "other_version":
-        chunks[-1].act_version_id = 3
+        chunks[-1].pack_metadata = {"act_version_id": 3}
     else:
         chunks[2].content = "пояснение"
 
@@ -259,7 +260,7 @@ async def test_missing_field_lookup_uses_authorized_document_and_requested_date(
     assert docs[-1].page_content == valid.content
     call = search.search_substring.await_args.kwargs
     assert call["document_id"] == 27
-    assert call["as_of_date"] == ctx.as_of_date
+    assert call["selection"] == edition_selection(ctx.as_of_date)
     assert call["user"] == ctx.to_user_context()
 
 

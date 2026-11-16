@@ -1,6 +1,6 @@
 """Tests for ACL filter propagation to Qdrant calls (F-017 regression).
 
-Verifies that must-style filters (from with_temporal_filter / with_domain_filter)
+Verifies that must-style filters (from build_search_filter / with_domain_filter)
 are correctly passed to qdrant_dense_search and resolve_hashes_batch,
 rather than being silently dropped.
 """
@@ -8,7 +8,6 @@ rather than being silently dropped.
 from __future__ import annotations
 
 import asyncio
-from datetime import date
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -25,6 +24,7 @@ from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.pack_metadata import Missing
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.rag.ranking import same_text_run
@@ -44,11 +44,10 @@ from infrastructure.repositories.chunk.chunk_context import (
 )
 from infrastructure.repositories.vector.acl import (
     build_qdrant_filter,
+    build_search_filter,
     with_domain_filter,
-    with_temporal_filter,
 )
 from tests.document_node_sql import (
-    ACT_VERSION_ID,
     ARTICLE,
     CHAPTER,
     CHUNKS,
@@ -81,6 +80,10 @@ class FallbackProfile(GeneralDomainProfile):
 LAW_REGISTRY = DomainProfileRegistry()
 LAW_REGISTRY.register(GeneralDomainProfile())
 LAW_REGISTRY.register(FallbackProfile())
+
+
+# Any pack selection turns the access filter into Filter(must=[acl, selection]).
+PACK_SELECTION = Missing("superseded")
 
 
 def _user(kind: str = "internal", uid: int = 5) -> dict[str, str | int]:
@@ -119,10 +122,9 @@ class TestDenseSearchACLFilter:
         call_kwargs = mock_client.search.call_args
         assert call_kwargs.kwargs["query_filter"] is not None
 
-    def test_must_style_filter_after_temporal_not_dropped(self) -> None:
+    def test_must_style_filter_with_pack_selection_not_dropped(self) -> None:
 
-        af = build_qdrant_filter(_user(), [1, 2])
-        temporal_af = with_temporal_filter(af, None)
+        temporal_af = build_search_filter(_user(), [1, 2], PACK_SELECTION)
 
         mock_client = MagicMock()
         mock_client.search.return_value = []
@@ -133,7 +135,7 @@ class TestDenseSearchACLFilter:
         call_kwargs = mock_client.search.call_args
         applied_filter = call_kwargs.kwargs["query_filter"]
         assert applied_filter is not None, (
-            "Must-style filter from with_temporal_filter was dropped — dense search ran without ACL!"
+            "Must-style filter from build_search_filter was dropped — dense search ran without ACL!"
         )
         assert applied_filter is temporal_af
 
@@ -176,9 +178,8 @@ class TestDenseSearchACLFilter:
 class TestResolveHashesACLFilter:
     def test_must_style_filter_includes_acl_in_scroll(self) -> None:
 
-        af = build_qdrant_filter(_user(), [1, 2])
-        temporal_af = with_temporal_filter(af, None)
-        # temporal_af = Filter(must=[...]) → should=None
+        temporal_af = build_search_filter(_user(), [1, 2], PACK_SELECTION)
+        # A pack selection makes Filter(must=[acl, selection]) → should=None
 
         mock_client = MagicMock()
         mock_client.scroll.return_value = ([], None)
@@ -211,7 +212,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(
     decomposition: bool, sub_queries: list[str]
 ) -> None:
 
-    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    af = build_search_filter(_user(), [1, 2], PACK_SELECTION)
     conditions = get_visibility_conditions(UserKind.INTERNAL, [1, 2], for_list=False)
     rag = MagicMock()
     rag.features.decomposition_enabled = decomposition
@@ -273,7 +274,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter() -> None:
 
-    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    af = build_search_filter(_user(), [1, 2], PACK_SELECTION)
     conditions = get_visibility_conditions(UserKind.INTERNAL, [1, 2], for_list=False)
     ctx = RagContext(
         user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, user_role=UserRole.USER, group_ids=(1, 2)),
@@ -344,7 +345,7 @@ async def test_retrieval_domain_fallback_only_on_empty_legal_search(
     domain: str, first_hit: bool, expected_calls: int
 ) -> None:
 
-    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    af = build_search_filter(_user(), [1, 2], PACK_SELECTION)
     ctx = RagContext(
         user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, group_ids=(1, 2), user_role=UserRole.USER)
     )
@@ -449,19 +450,15 @@ async def _rerank_with_fallback(
 
 @pytest.mark.generic_evidence
 @pytest.mark.asyncio
-async def test_legal_rerank_fallback_resolves_temporal_conflicts() -> None:
-    old = Document(
-        page_content="old", metadata={"act_id": 1, "act_version_id": 1, "effective_from": "2020-01-01"}
-    )
-    new = Document(
-        page_content="new", metadata={"act_id": 1, "act_version_id": 2, "effective_from": "2024-01-01"}
-    )
-    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+async def test_legal_rerank_fallback_keeps_candidates_without_pack_conflict_rules() -> None:
+    first = Document(page_content="first", metadata={"document_id": 1})
+    second = Document(page_content="second", metadata={"document_id": 2})
+    af = build_search_filter(_user(), [1, 2], PACK_SELECTION)
 
-    docs, search = await _rerank_with_fallback(_fallback_work(af), [(old, 0.9), (new, 0.8)])
+    docs, search = await _rerank_with_fallback(_fallback_work(af), [(first, 0.9), (second, 0.8)])
 
     search.assert_awaited_once()
-    assert [doc.metadata["act_version_id"] for doc, _ in docs] == [2]
+    assert [doc.page_content for doc, _ in docs] == ["first", "second"]
 
 
 def _fallback_rag() -> MagicMock:
@@ -475,7 +472,7 @@ def _fallback_rag() -> MagicMock:
 @pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_skipped_when_same_full_corpus_search_already_ran() -> None:
-    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    af = build_search_filter(_user(), [1, 2], PACK_SELECTION)
     work = _fallback_work(af, rag=_fallback_rag(), full_corpus_searches={("query", 10, 0.7, 0.3)})
 
     docs, search = await _rerank_with_fallback(work, [(Document(page_content="x"), 0.9)])
@@ -487,7 +484,7 @@ async def test_legal_rerank_fallback_skipped_when_same_full_corpus_search_alread
 @pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_runs_when_full_corpus_search_used_other_params() -> None:
-    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    af = build_search_filter(_user(), [1, 2], PACK_SELECTION)
     work = _fallback_work(af, rag=_fallback_rag(), full_corpus_searches={("query", 40, 0.7, 0.3)})
     found = Document(page_content="x")
 
@@ -501,7 +498,7 @@ async def test_legal_rerank_fallback_runs_when_full_corpus_search_used_other_par
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_searches_full_question_after_decomposition() -> None:
     """Sub-queries fell back to the full corpus, but the original question never ran there."""
-    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    af = build_search_filter(_user(), [1, 2], PACK_SELECTION)
     rag = _fallback_rag()
     rag.features.decomposition_enabled = True
     work = _fallback_work(af, rag=rag, fetch_k=10, effective_dense_weight=0.7, effective_sparse_weight=0.3)
@@ -545,20 +542,17 @@ async def test_legal_rerank_fallback_searches_full_question_after_decomposition(
         ({"chunk_index": 2}, False),
         ({"chunk_index": 4}, False),
         ({"document_id": 8}, False),
-        ({"act_version_id": 10}, False),
         ({"page": 9}, False),
         ({"section": "Another section"}, False),
         ({"content_type": "table"}, False),
         ({"parent_units": [{"content": "Different conditions"}]}, False),
     ],
 )
-def test_plain_text_run_keeps_document_version_position_and_pages(
+def test_plain_text_run_keeps_document_position_and_pages(
     candidate: dict[str, object],
     expected: bool,
 ) -> None:
-    anchor = Document(
-        page_content="anchor", metadata={"document_id": 7, "act_version_id": 9, "chunk_index": 2, "page": 4}
-    )
+    anchor = Document(page_content="anchor", metadata={"document_id": 7, "chunk_index": 2, "page": 4})
     other = Document(page_content="neighbor", metadata={**anchor.metadata, "chunk_index": 3, **candidate})
     assert same_text_run(anchor, other) is expected
 
@@ -569,9 +563,7 @@ async def test_general_expansion_accepts_only_immediate_same_document_neighbors(
     enumerate_cases: bool,
 ) -> None:
     user = UserContext(user_id=12, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
-    anchor = Document(
-        page_content="anchor", metadata={"document_id": 7, "act_version_id": 9, "chunk_index": 2, "page": 4}
-    )
+    anchor = Document(page_content="anchor", metadata={"document_id": 7, "chunk_index": 2, "page": 4})
     neighbors = [
         ChunkRecord(
             chunk_id=1,
@@ -579,7 +571,6 @@ async def test_general_expansion_accepts_only_immediate_same_document_neighbors(
             filename="guide.pdf",
             content="permitted neighbor",
             chunk_index=3,
-            act_version_id=9,
             context_metadata={"page": 5},
         ),
         ChunkRecord(
@@ -588,16 +579,14 @@ async def test_general_expansion_accepts_only_immediate_same_document_neighbors(
             filename="other.pdf",
             content="foreign neighbor",
             chunk_index=3,
-            act_version_id=9,
             context_metadata={"page": 5},
         ),
         ChunkRecord(
             chunk_id=3,
-            document_id=7,
-            filename="guide.pdf",
-            content="other edition",
+            document_id=9,
+            filename="other-edition.pdf",
+            content="other document",
             chunk_index=1,
-            act_version_id=8,
             context_metadata={"page": 4},
         ),
         ChunkRecord(
@@ -606,7 +595,6 @@ async def test_general_expansion_accepts_only_immediate_same_document_neighbors(
             filename="guide.pdf",
             content="distant page",
             chunk_index=1,
-            act_version_id=9,
             context_metadata={"page": 9},
         ),
     ]
@@ -664,8 +652,7 @@ async def test_neighbor_sql_applies_search_acl_and_document_scope(
                     content=f"neighbor {index}",
                     visibility=visibility,
                     owner_id=12,
-                    act_version_id=9,
-                    effective_from=date(2025, 1, 1),
+                    pack_metadata={"edition": 9},
                 )
                 for index in (1, 3)
             ]
@@ -713,9 +700,7 @@ async def test_parent_scope_sql_applies_search_acl(
     user = UserContext(user_id=viewer, user_kind=UserKind.INTERNAL, user_role=role)
 
     with parent_scope_repository(visibility) as repository:
-        results = await repository.get_parent_context(
-            DOCUMENT_ID, POINT, user=user, act_version_id=ACT_VERSION_ID, max_chars=70
-        )
+        results = await repository.get_parent_context(DOCUMENT_ID, POINT, user=user, max_chars=70)
 
     if allowed:
         assert [row.chunk_index for row in results] == [0, 1, 2]
@@ -731,9 +716,7 @@ async def test_parent_scope_sql_climbs_while_the_ancestor_fits() -> None:
     with parent_scope_repository("internal_private") as repository:
 
         async def indexes(node_id: str, max_chars: int) -> list[int]:
-            rows = await repository.get_parent_context(
-                DOCUMENT_ID, node_id, user=user, act_version_id=ACT_VERSION_ID, max_chars=max_chars
-            )
+            rows = await repository.get_parent_context(DOCUMENT_ID, node_id, user=user, max_chars=max_chars)
             return [row.chunk_index for row in rows]
 
         # Real body sizes: point 26, article 61, chapter 84 characters.
@@ -753,9 +736,7 @@ async def test_parent_scope_sql_measures_current_bodies_not_stored_size() -> Non
     nodes = tuple((*node[:6], stale.get(node[0], node[6])) for node in NODES)
 
     with parent_scope_repository("internal_private", nodes=nodes) as repository:
-        results = await repository.get_parent_context(
-            DOCUMENT_ID, POINT, user=user, act_version_id=ACT_VERSION_ID, max_chars=70
-        )
+        results = await repository.get_parent_context(DOCUMENT_ID, POINT, user=user, max_chars=70)
 
     assert [row.chunk_index for row in results] == [0, 1, 2]
 
@@ -770,30 +751,22 @@ async def test_parent_scope_sql_never_returns_a_truncated_parent() -> None:
     )
 
     with parent_scope_repository("internal_private", nodes=nodes) as repository:
-        nearest = await repository.get_parent_context(
-            DOCUMENT_ID, POINT, user=user, act_version_id=ACT_VERSION_ID, max_chars=1000
-        )
-        oversized = await repository.get_parent_context(
-            DOCUMENT_ID, ARTICLE, user=user, act_version_id=ACT_VERSION_ID, max_chars=1000
-        )
+        nearest = await repository.get_parent_context(DOCUMENT_ID, POINT, user=user, max_chars=1000)
+        oversized = await repository.get_parent_context(DOCUMENT_ID, ARTICLE, user=user, max_chars=1000)
 
     assert [row.chunk_index for row in nearest] == [2]
     assert oversized == []
 
 
 @pytest.mark.asyncio
-async def test_parent_scope_sql_stays_in_document_and_edition() -> None:
+async def test_parent_scope_sql_stays_in_document() -> None:
     user = UserContext(user_id=OWNER_ID, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
 
     with parent_scope_repository("internal_private") as repository:
-        other_edition = await repository.get_parent_context(
-            DOCUMENT_ID, ARTICLE, user=user, act_version_id=ACT_VERSION_ID + 1, max_chars=1000
-        )
-        foreign = await repository.get_parent_context(
-            FOREIGN_DOCUMENT_ID, ARTICLE, user=user, act_version_id=None, max_chars=1000
-        )
+        own = await repository.get_parent_context(DOCUMENT_ID, ARTICLE, user=user, max_chars=1000)
+        foreign = await repository.get_parent_context(FOREIGN_DOCUMENT_ID, ARTICLE, user=user, max_chars=1000)
 
-    assert other_edition == []
+    assert {row.document_id for row in own} == {DOCUMENT_ID}
     assert [row.document_id for row in foreign] == [FOREIGN_DOCUMENT_ID]
 
 
@@ -803,9 +776,7 @@ async def test_parent_scope_sql_stops_at_a_missing_ancestor() -> None:
     nodes = tuple(node for node in NODES if node[0] != ARTICLE)
 
     with parent_scope_repository("internal_private", nodes=nodes) as repository:
-        results = await repository.get_parent_context(
-            DOCUMENT_ID, POINT, user=user, act_version_id=ACT_VERSION_ID, max_chars=1000
-        )
+        results = await repository.get_parent_context(DOCUMENT_ID, POINT, user=user, max_chars=1000)
 
     assert [row.chunk_index for row in results] == [2]
 
@@ -818,14 +789,12 @@ async def test_parent_expansion_passes_request_user_and_keeps_order_near_anchor(
         metadata={
             "document_id": DOCUMENT_ID,
             "chunk_index": 2,
-            "act_version_id": ACT_VERSION_ID,
             "section": "Статья 1 > 2.",
             "parent_node_id": POINT,
         },
     )
     records = [
-        ChunkRecord(index + 1, DOCUMENT_ID, "law.docx", content, index, act_version_id=ACT_VERSION_ID)
-        for index, _, content in CHUNKS[:4]
+        ChunkRecord(index + 1, DOCUMENT_ID, "law.docx", content, index) for index, _, content in CHUNKS[:4]
     ]
     search = SimpleNamespace(
         get_parent_context=AsyncMock(return_value=records),
@@ -838,7 +807,7 @@ async def test_parent_expansion_passes_request_user_and_keeps_order_near_anchor(
 
     kwargs = search.get_parent_context.call_args.kwargs
     assert kwargs["user"] is user
-    assert kwargs["act_version_id"] == ACT_VERSION_ID
+    assert set(kwargs) == {"user", "max_chars"}
     assert kwargs["max_chars"] == 4500
     search.get_neighbors.assert_not_called()
     assert [doc.metadata["chunk_index"] for doc, _ in result] == [2, 1, 3, 0]

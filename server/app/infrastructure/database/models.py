@@ -373,6 +373,8 @@ class ActVersionModel(BaseModel):
     __tablename__ = "act_versions"
     __table_args__ = (
         Index("idx_act_versions_act_id", "act_id"),
+        # A document is exactly one edition; chunks inherit its metadata by document_id.
+        UniqueConstraint("document_id", name="ux_act_versions_document_id"),
         # Guarantee: an act cannot have two "current" versions at once
         Index(
             "ux_act_versions_one_current",
@@ -419,14 +421,10 @@ class ChunkModel(BaseModel):
             postgresql_ops={"content": "gin_trgm_ops"},
         ),
         Index("ix_chunks_edited_by", "edited_by", postgresql_where="edited_by IS NOT NULL"),
-        Index(
-            "idx_chunks_act_version_id",
-            "act_version_id",
-            postgresql_where="act_version_id IS NOT NULL",
-        ),
         CheckConstraint(
             "jsonb_typeof(context_metadata) = 'object'", name="chk_chunks_context_metadata_object"
         ),
+        CheckConstraint("jsonb_typeof(pack_metadata) = 'object'", name="chk_chunks_pack_metadata_object"),
     )
 
     document_id: Mapped[int] = mapped_column(
@@ -448,12 +446,10 @@ class ChunkModel(BaseModel):
     context_metadata: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
-    act_version_id: Mapped[int | None] = mapped_column(
-        ForeignKey("act_versions.id", ondelete="SET NULL"), nullable=True
+    # Owned and interpreted by the domain pack; the core stores and carries it.
+    pack_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
-    effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
-    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
-    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     section: Mapped[str | None] = mapped_column(Text, nullable=True)
     heading: Mapped[str | None] = mapped_column(String(500), nullable=True)
     heading_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -473,9 +469,6 @@ class DocumentNodeModel(BaseModel):
     __table_args__ = (UniqueConstraint("document_id", "node_id", name="ux_document_nodes_document_node"),)
 
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
-    act_version_id: Mapped[int | None] = mapped_column(
-        ForeignKey("act_versions.id", ondelete="SET NULL"), nullable=True
-    )
     node_id: Mapped[str] = mapped_column(Text, nullable=False)
     parent_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)

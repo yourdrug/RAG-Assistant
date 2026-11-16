@@ -169,7 +169,7 @@ INGEST_DOMAIN_AMBIGUOUS_TOTAL = Counter(
 
 RAG_TEMPORAL_VERSION_CONFLICT_TOTAL = Counter(
     "rag_temporal_version_conflict_total",
-    "Multiple act versions valid for the same as_of_date (data anomaly)",
+    "Requests where the domain pack dropped superseded candidates (e.g. older act editions)",
 )
 
 # ---------------------------------------------------------------------------

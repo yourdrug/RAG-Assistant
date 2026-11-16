@@ -10,6 +10,7 @@ from application.chunks.access import load_doc_for_add, load_doc_for_edit
 from application.chunks.dto import AddChunkResult, EditChunkResult
 from application.indexing import build_outbox_metadata
 from domain.ingestion.embed_text import build_embed_text, estimate_tokens
+from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.chunk import extract_chunk_context
 from domain.knowledge.enums import SourceType
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
@@ -168,10 +169,7 @@ class ChunkMutationService:
                 edited=True,
                 edited_at=now.isoformat(),
                 chunk_index=chunk.chunk_index,
-                act_version_id=chunk.act_version_id,
-                effective_from=chunk.effective_from.isoformat() if chunk.effective_from else None,
-                effective_to=chunk.effective_to.isoformat() if chunk.effective_to else None,
-                is_current=chunk.is_current,
+                pack_metadata=dict(chunk.pack_metadata),
                 **extract_chunk_context(chunk.context_metadata),
             )
             await uow.vector_outbox.enqueue(
@@ -234,10 +232,7 @@ class ChunkMutationService:
             # Read the edition inside the write transaction and hold its lock
             # until both the SQL chunk and vector outbox snapshot are committed.
             version = await uow.act_versions.get_by_document_id(document_id, for_update=True)
-            act_version_id = version.id if version else None
-            effective_from = version.effective_from if version else None
-            effective_to = version.effective_to if version else None
-            is_current = version.is_current if version else True
+            pack_metadata = edition_metadata(version) if version else {}
 
             max_index = await chunks.get_max_chunk_index(document_id)
             next_index = max_index + 1
@@ -265,10 +260,7 @@ class ChunkMutationService:
                     context_metadata=context_metadata,
                     embed_text=embed_text,
                     doc_title=doc_title,
-                    act_version_id=act_version_id,
-                    effective_from=effective_from,
-                    effective_to=effective_to,
-                    is_current=is_current,
+                    pack_metadata=pack_metadata,
                 ),
             )
             metadata = build_outbox_metadata(
@@ -281,11 +273,7 @@ class ChunkMutationService:
                 content_hash=new_hash,
                 manual=True,
                 chunk_index=next_index,
-                act_version_id=act_version_id,
-                act_id=version.act_id if version else None,
-                effective_from=effective_from.isoformat() if effective_from else None,
-                effective_to=effective_to.isoformat() if effective_to else None,
-                is_current=is_current,
+                pack_metadata=pack_metadata,
             )
             optional = {"page": page, "section": section, "doc_title": doc_title}
             metadata.update({key: value for key, value in optional.items() if value is not None})

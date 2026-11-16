@@ -157,6 +157,7 @@ class MLContainer:
         uow_factory: UnitOfWorkFactory,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsAdapter | None = None,
+        domain_pack: DomainPack = NEUTRAL_PACK,
     ) -> None:
 
         self.file_storage = LazyStorage(settings, settings)
@@ -179,7 +180,10 @@ class MLContainer:
             rag_service=None,
             runner=BenchmarkExecutor(
                 self.ml_clients,
-                annotation_validator=AnnotationValidator(ChunkSearchAdapter(uow_factory)),
+                annotation_validator=AnnotationValidator(
+                    ChunkSearchAdapter(uow_factory),
+                    chunk_selection=domain_pack.evidence_profile.chunk_selection,
+                ),
             ),
         )
         self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
@@ -389,6 +393,7 @@ class InfrastructureContainer:
             uow_factory=self.db.uow,
             domain_registry=self.domain_registry,
             domain_settings=self.domain_settings,
+            domain_pack=self.domain_pack,
         )
         self.services.init()
         self.init_rate_limit()

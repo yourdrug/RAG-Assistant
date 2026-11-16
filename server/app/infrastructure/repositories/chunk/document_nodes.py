@@ -19,9 +19,7 @@ class SQLAlchemyDocumentNodeRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def replace_document_nodes(
-        self, document_id: int, act_version_id: int | None, nodes: list[DocumentNode]
-    ) -> None:
+    async def replace_document_nodes(self, document_id: int, nodes: list[DocumentNode]) -> None:
         """Replace inside the chunk transaction; the caller holds the document chunk lock."""
         await self._session.execute(
             delete(DocumentNodeModel).where(DocumentNodeModel.document_id == document_id)
@@ -35,7 +33,6 @@ class SQLAlchemyDocumentNodeRepository:
             [
                 {
                     "document_id": document_id,
-                    "act_version_id": act_version_id,
                     "node_id": node.node_id,
                     "parent_id": node.parent_id,
                     "kind": node.kind[:32],

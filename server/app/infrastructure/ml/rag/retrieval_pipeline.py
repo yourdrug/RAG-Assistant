@@ -13,7 +13,11 @@ from domain.knowledge.enums import SearchMode
 from domain.rag.classification import extract_exact_references, should_enumerate_cases
 from domain.rag.ranking import evidence_identity
 from infrastructure.domain_profile.answer_policy import policy_for
-from infrastructure.metrics.metrics import RAG_DECOMPOSED_TOTAL, RAG_STAGE_DURATION
+from infrastructure.metrics.metrics import (
+    RAG_DECOMPOSED_TOTAL,
+    RAG_STAGE_DURATION,
+    RAG_TEMPORAL_VERSION_CONFLICT_TOTAL,
+)
 from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.benchmark_evidence import (
     active_evidence,
@@ -28,7 +32,7 @@ from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 from infrastructure.ml.rag.document_access import filter_documents, filter_scored_documents
 from infrastructure.ml.rag.generation_budget import prepare_generation_budget
-from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors, resolve_temporal_conflicts
+from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors
 from infrastructure.ml.rag.rag_prompts import decompose_question
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, filter_scope_candidates, rerank_documents
 from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
@@ -154,6 +158,7 @@ async def run_exact_probes(
     """
     results: list[ChunkRecord] = []
     failures = 0
+    selection = current_evidence_profile().chunk_selection(ctx.as_of_date)
 
     for reference in references:
         try:
@@ -164,7 +169,7 @@ async def run_exact_probes(
                     limit=EXACT_SEARCH_LIMIT,
                     mode=SearchMode.PROVISION.value,
                     document_ids=document_ids,
-                    as_of_date=ctx.as_of_date,
+                    selection=selection,
                 )
             )
         except Exception:
@@ -471,8 +476,12 @@ MIN_DECOMPOSITION_PARTS = 2
 
 def retained_temporal_candidates(docs: list[tuple[LCDocument, float]]) -> list[tuple[LCDocument, float]]:
     before_temporal = docs
-    docs = resolve_temporal_conflicts(docs)
+    docs = current_evidence_profile().resolve_conflicts(docs)
     selected_ids = {id(doc) for doc, _ in docs}
+
+    if len(selected_ids) < len(before_temporal):
+        RAG_TEMPORAL_VERSION_CONFLICT_TOTAL.inc()
+
     capture_exclusions(
         [
             exclusion_record(item, ExclusionReason.TEMPORAL_CONFLICT, "temporal")

@@ -109,7 +109,7 @@ class ActVersioningService:
             existing = await uow.act_versions.get_by_document_id(document_id, for_update=True)
 
             if existing is None:
-                return VersioningResult(plan.domain_metadata, None, None, plan.effective_from, plan.warning)
+                return VersioningResult(plan.domain_metadata, plan.warning)
 
             version = existing
         else:
@@ -122,15 +122,7 @@ class ActVersioningService:
                 date_confidence=plan.date_confidence,
             )
 
-        return VersioningResult(
-            plan.domain_metadata,
-            version.id,
-            version.act_id,
-            version.effective_from,
-            None,
-            effective_to=version.effective_to,
-            is_current=version.is_current,
-        )
+        return VersioningResult.for_version(plan.domain_metadata, version)
 
     async def list_pending_review(self) -> list[ActVersion]:
         return await self._queries.list_pending_review()
@@ -172,26 +164,14 @@ class ActVersioningService:
         failure indexing continues, but the warning must surface in the
         document's warning_message, not vanish.
         """
-        empty = VersioningResult(
-            domain_metadata=None,
-            act_version_id=None,
-            act_id=None,
-            effective_from=None,
-            warning=None,
-        )
+        empty = VersioningResult()
         plan = await self.prepare_document_versioning(profile, full_text)
 
         if plan is None:
             return empty
 
         if plan.warning:
-            return VersioningResult(
-                domain_metadata=plan.domain_metadata,
-                act_version_id=None,
-                act_id=None,
-                effective_from=plan.effective_from,
-                warning=plan.warning,
-            )
+            return VersioningResult(plan.domain_metadata, plan.warning)
 
         try:
             version = await self.handle_versioned_upload(
@@ -201,15 +181,7 @@ class ActVersioningService:
                 plan.effective_from,
                 plan.date_confidence,
             )
-            return VersioningResult(
-                domain_metadata=plan.domain_metadata,
-                act_version_id=version.id,
-                act_id=version.act_id,
-                effective_from=version.effective_from,
-                warning=None,
-                effective_to=version.effective_to,
-                is_current=version.is_current,
-            )
+            return VersioningResult.for_version(plan.domain_metadata, version)
         except Exception as e:
             log.warning("Versioning failed for doc %d: %s", document_id, e, exc_info=True)
-            return VersioningResult(None, None, None, None, f"Версионирование не выполнено: {e}")
+            return VersioningResult(None, f"Версионирование не выполнено: {e}")

@@ -235,7 +235,9 @@ class ApplicationContainer:
     def init_catalog(self, infra: InfrastructureContainer) -> None:
         uow = require(infra.db.uow_factory, "uow_factory")
         fs = require(infra.ml.file_storage, "file_storage")
-        self.search_service = SearchService(uow_factory=uow)
+        self.search_service = SearchService(
+            uow_factory=uow, chunk_selection=infra.domain_pack.evidence_profile.chunk_selection
+        )
         self.group_service = GroupService(uow_factory=uow)
         self.assignment_service = AssignmentService(uow_factory=uow)
         self.quality_service = QualityService(uow_factory=uow)

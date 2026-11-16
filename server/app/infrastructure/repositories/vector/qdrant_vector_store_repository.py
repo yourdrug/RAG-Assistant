@@ -10,6 +10,7 @@ from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from config import VectorStoreSection, process_section
+from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from infrastructure.corpus.snapshot import collection_for, pin_corpus_call
 from infrastructure.ml.clients.factories import create_embeddings, create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
@@ -207,21 +208,17 @@ class QdrantVectorStoreRepository:
 
     @pin_corpus_call
     @retry_on_transient
-    async def update_metadata_by_act_version(
-        self, act_version_id: int, metadata_updates: dict[str, Any]
-    ) -> None:
-        """Update metadata for all points matching a given act_version_id."""
+    async def set_pack_metadata_by_document_id(self, document_id: int, pack_metadata: dict[str, Any]) -> None:
+        """Replace the pack-owned metadata of every point of a document."""
         client = self.get_qdrant_client()
 
         def update() -> None:
             self.patch_metadata(
                 client,
                 Filter(
-                    must=[
-                        FieldCondition(key="metadata.act_version_id", match=MatchValue(value=act_version_id))
-                    ]
+                    must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
                 ),
-                metadata_updates,
+                {PACK_METADATA_KEY: pack_metadata},
             )
 
         await asyncio.to_thread(update)

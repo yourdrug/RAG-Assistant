@@ -29,7 +29,7 @@ from domain.identity.user import User
 from domain.identity.user_context import CuratorScope, UserContext
 from domain.knowledge.document import Document
 from domain.rag.context import RagContext
-from tests.document_node_sql import ACT_VERSION_ID, DOCUMENT_ID, POINT, parent_scope_repository
+from tests.document_node_sql import DOCUMENT_ID, POINT, parent_scope_repository
 from tests.fakes import FakeMLClientRegistry, require_present
 
 
@@ -182,9 +182,7 @@ class TestCuratorAssignedClients:
         doc = SimpleNamespace(visibility="client_private", owner_id=owner_id, group_id=None)
 
         with parent_scope_repository("client_private", owner_id=owner_id) as repository:
-            rows = await repository.get_parent_context(
-                DOCUMENT_ID, POINT, user=ctx, act_version_id=ACT_VERSION_ID, max_chars=70
-            )
+            rows = await repository.get_parent_context(DOCUMENT_ID, POINT, user=ctx, max_chars=70)
 
         assert bool(rows) is is_in_search_scope(cast("Document", doc), ctx)
         assert bool(rows) is (role == UserRole.CURATOR and owner_id in managed)
@@ -601,6 +599,7 @@ class TestRagServiceCuratorScope:
         assert isinstance(f.should, list)
         assert len(f.should) >= 3
 
+    @pytest.mark.generic_evidence
     def test_rag_init_state_integration(self) -> None:
         """RagService._init_state with CuratorScope calls build_qdrant_filter with managed-ids."""
 

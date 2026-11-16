@@ -38,12 +38,13 @@ from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from datetime import date
 
     from sqlalchemy.sql import Select
     from sqlalchemy.sql.elements import (
         ClauseElement,
     )
+
+    from domain.knowledge.pack_metadata import MetadataCondition
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +74,7 @@ async def capture(
     mode: str,
     document_id: int | None,
     *,
-    as_of_date: date | None = None,
+    selection: MetadataCondition | None = None,
 ) -> Select[Any]:
 
     session = CaptureSession()
@@ -84,9 +85,7 @@ async def capture(
         user_role=UserRole(user.get("role", "user")),
         group_ids=tuple(group_ids),
     )
-    await repo.search_substring(
-        query, ctx, limit=20, mode=mode, document_id=document_id, as_of_date=as_of_date
-    )
+    await repo.search_substring(query, ctx, limit=20, mode=mode, document_id=document_id, selection=selection)
     assert session.captured is not None, "statement was not executed"
     return session.captured
 

@@ -16,6 +16,9 @@ from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.repositories.chunk.chunk_search import SQLAlchemyChunkSearchRepository
 
 
+pytestmark = pytest.mark.generic_evidence
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "question,reference",
@@ -46,7 +49,7 @@ async def test_exact_probe_extracts_reference_and_preserves_document_acl_and_dat
         limit=5,
         mode=SearchMode.PROVISION.value,
         document_ids=[42],
-        as_of_date=ctx.as_of_date,
+        selection=None,
     )
     assert candidates[-1].page_content == match.content
     assert candidates[-1].metadata["document_id"] == 42

@@ -18,11 +18,12 @@ from config import settings
 from domain.identity.roles import UserKind
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
+from domain.knowledge.pack_metadata import AnyOf, Equals, Missing
 from infrastructure.bm25.stemmer import stem_token
 from infrastructure.bm25.tokenizer import tokenize, tokenize_raw
 from infrastructure.ml.rag import rag_retrieval
 from infrastructure.ml.rag.rag_config import build_rag_settings
-from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
+from infrastructure.repositories.vector.acl import build_qdrant_filter, build_search_filter
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from infrastructure.repositories.vector.qdrant_vector_store_repository import QdrantVectorStoreRepository
 from infrastructure.repositories.vector.sparse_vectors import (
@@ -60,7 +61,7 @@ def point(
     visibility: str = "internal_public",
     owner_id: int | None = None,
     group_id: int | None = None,
-    is_current: bool = True,
+    in_scope: bool | None = None,
     text: str = "порядок маркировки товаров",
 ) -> models.PointStruct:
     return models.PointStruct(
@@ -74,9 +75,8 @@ def point(
                 "visibility": visibility,
                 "owner_id": owner_id,
                 "group_id": group_id,
-                "is_current": is_current,
                 "source": "old.pdf",
-                "act_version_id": 17,
+                "pack_metadata": {} if in_scope is None else {"in_scope": in_scope},
                 "heading": "Порядок",
             },
         },
@@ -113,13 +113,14 @@ def test_sparse_filters_before_top_k(
             point(3, 30, visibility="internal_private", owner_id=6),
             point(4, 40, visibility="internal_group", group_id=7),
             point(5, 50, visibility="client_private", owner_id=5),
-            point(6, 60, is_current=False),
+            point(6, 60, in_scope=False),
         ],
     )
-    scope = with_temporal_filter(build_qdrant_filter({"id": uid, "kind": kind, "role": role}, groups), None)
+    # A pack selection narrows the same pre-top-k scope; it never widens access.
+    selection = AnyOf((Missing("in_scope"), Equals("in_scope", value=True)))
+    scope = build_search_filter({"id": uid, "kind": kind, "role": role}, groups, selection)
     hits = rag_retrieval.search_sparse_points(sparse_client, "маркировка", 20, scope)
     assert {hit.id for hit in hits} == expected
-    assert all((hit.payload or {})["metadata"]["is_current"] for hit in hits)
     assert len(rag_retrieval.search_sparse_points(sparse_client, "маркировка", 1, scope)) == 1
 
 
@@ -312,7 +313,7 @@ async def test_hybrid_limits_and_errors(monkeypatch: pytest.MonkeyPatch) -> None
         ("delete_by_ids", ([1],), "delete"),
         ("set_document_id_by_source", ("old.pdf", 10), "set_payload"),
         ("update_filename_by_document_id", (10, "new.pdf"), "set_payload"),
-        ("update_metadata_by_act_version", (17, {"is_current": False}), "set_payload"),
+        ("set_pack_metadata_by_document_id", (10, {"edition": 2}), "set_payload"),
     ],
 )
 async def test_payload_mutation_retry_stays_in_one_corpus_snapshot(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
@@ -54,6 +54,7 @@ def make_context() -> dict[str, Any]:
     }
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> None:  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
     models: list[Any] = []
@@ -141,16 +142,14 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> No
     assert search.get_neighbors.call_args.kwargs["user"] is user
 
 
-def test_stale_context_cannot_override_acl_identity_or_version_state() -> None:
+def test_stale_context_cannot_override_acl_identity_or_pack_state() -> None:
     poisoned = {
         **make_context(),
         "source": "other.pdf",
         "document_id": 999,
         "visibility": DocumentVisibility.INTERNAL_PUBLIC.value,
         "owner_id": 99,
-        "is_current": True,
-        "effective_from": "1990-01-01",
-        "act_version_id": 999,
+        "pack_metadata": {"edition": 999},
     }
     result = ChunkRecord(
         chunk_id=1,
@@ -160,9 +159,7 @@ def test_stale_context_cannot_override_acl_identity_or_version_state() -> None:
         chunk_index=3,
         visibility=DocumentVisibility.INTERNAL_PRIVATE,
         owner_id=12,
-        act_version_id=9,
-        effective_from=date(2025, 1, 1),
-        is_current=False,
+        pack_metadata={"edition": 9, "valid_from": "2025-01-01"},
         context_metadata=poisoned,
     )
     metadata = chunk_result_metadata(result)
@@ -170,9 +167,7 @@ def test_stale_context_cannot_override_acl_identity_or_version_state() -> None:
     assert metadata["owner_id"] == 12
     assert metadata["document_id"] == 7
     assert metadata["source"] == "rules.pdf"
-    assert metadata["act_version_id"] == 9
-    assert metadata["effective_from"] == "2025-01-01"
-    assert metadata["is_current"] is False
+    assert metadata["pack_metadata"] == {"edition": 9, "valid_from": "2025-01-01"}
     assert metadata["parent_units"] == poisoned["parent_units"]
     poisoned["parent_units"][0]["content"] = "Modified later"
     assert metadata["parent_units"][0]["content"] != "Modified later"
@@ -204,9 +199,7 @@ async def test_bulk_chunk_records_keep_fields_defaults_and_isolate_context() -> 
         "rules.pdf",
         DocumentVisibility.INTERNAL_PRIVATE.value,
         [chunk, ChunkInsert("second")],
-        options=ChunkInsertOptions(
-            owner_id=12, act_version_id=9, effective_from=date(2025, 1, 1), is_current=False
-        ),
+        options=ChunkInsertOptions(owner_id=12, pack_metadata={"edition": 9}),
     )
     assert ids == [1, 2]
     saved, default = models
@@ -233,9 +226,7 @@ async def test_bulk_chunk_records_keep_fields_defaults_and_isolate_context() -> 
     for model in models:
         assert model.owner_id == 12
         assert model.visibility == DocumentVisibility.INTERNAL_PRIVATE.value
-        assert model.act_version_id == 9
-        assert model.effective_from == date(2025, 1, 1)
-        assert model.is_current is False
+        assert model.pack_metadata == {"edition": 9}
 
     context["parent_units"][0]["content"] = "changed"
     assert saved.context_metadata["parent_units"] == make_context()["parent_units"]
@@ -254,8 +245,7 @@ async def test_edit_keeps_scope_and_current_acl_in_vector_outbox() -> None:
     chunk = _make_chunk(
         context_metadata=context,
         section=context["section"],
-        act_version_id=9,
-        effective_from=date(2025, 1, 1),
+        pack_metadata={"edition": 9, "valid_from": "2025-01-01"},
     )
     doc = _make_doc(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_id=12)
     uow = _make_uow(doc=doc, chunk=chunk)
@@ -269,8 +259,7 @@ async def test_edit_keeps_scope_and_current_acl_in_vector_outbox() -> None:
     assert metadata["page"] == 4
     assert metadata["visibility"] == DocumentVisibility.INTERNAL_PRIVATE.value
     assert metadata["owner_id"] == 12
-    assert metadata["act_version_id"] == 9
-    assert metadata["effective_from"] == "2025-01-01"
+    assert metadata["pack_metadata"] == {"edition": 9, "valid_from": "2025-01-01"}
 
 
 @pytest.mark.asyncio
@@ -331,21 +320,18 @@ async def test_rename_preserves_chunk_metadata(versioned: bool) -> None:
         manual=True,
         edited_at=now,
         edited_by=1,
-        act_version_id=9 if versioned else None,
-        effective_from=date(2025, 1, 1) if versioned else None,
-        effective_to=date(2025, 12, 31) if versioned else None,
-        is_current=not versioned,
+        pack_metadata={"edition": 9} if versioned else {},
         heading="Applications",
         heading_level=2,
         content_type="text",
         doc_title="Rules",
         doc_type="decree",
-        context_metadata={**context, "owner_id": 999, "act_version_id": 999, "is_current": True},
+        context_metadata={**context, "owner_id": 999, "pack_metadata": {"edition": 999}},
     )
     h.uow.chunks.list_for_document = AsyncMock(return_value=([chunk], 1))
     await h.command.rename_document(doc.id, "new.pdf", 1, "user")
     entry = next(iter(h.uow.vector_outbox._entries.values()))
     assert entry.operation == "rename_document"
     assert entry.payload == {"document_id": doc.id, "filename": "new.pdf"}
-    assert chunk.context_metadata == {**context, "owner_id": 999, "act_version_id": 999, "is_current": True}
-    assert chunk.act_version_id == (9 if versioned else None)
+    assert chunk.context_metadata == {**context, "owner_id": 999, "pack_metadata": {"edition": 999}}
+    assert chunk.pack_metadata == ({"edition": 9} if versioned else {})

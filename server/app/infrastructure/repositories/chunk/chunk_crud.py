@@ -80,10 +80,6 @@ class SQLAlchemyChunkCrudRepository:
         group_id = options.group_id
         doc_domain = options.doc_domain
         domain_metadata = options.domain_metadata
-        act_version_id = options.act_version_id
-        effective_from = options.effective_from
-        effective_to = options.effective_to
-        is_current = options.is_current
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
 
         if not chunks:
@@ -102,10 +98,7 @@ class SQLAlchemyChunkCrudRepository:
                 group_id=group_id,
                 content_hash=chunk.content_hash,
                 domain_metadata=domain_metadata,
-                act_version_id=act_version_id,
-                effective_from=effective_from,
-                effective_to=effective_to,
-                is_current=is_current,
+                pack_metadata=dict(options.pack_metadata or {}),
                 section=chunk.section,
                 heading=chunk.heading,
                 heading_level=chunk.heading_level,
@@ -177,10 +170,6 @@ class SQLAlchemyChunkCrudRepository:
         manual = options.manual
         content_hash = options.content_hash
         context_metadata = options.context_metadata
-        act_version_id = options.act_version_id
-        effective_from = options.effective_from
-        effective_to = options.effective_to
-        is_current = options.is_current
         orm = ChunkModel(
             document_id=document_id,
             chunk_index=chunk_index,
@@ -195,10 +184,7 @@ class SQLAlchemyChunkCrudRepository:
             manual=manual,
             content_hash=content_hash,
             context_metadata=extract_chunk_context(context_metadata or {}),
-            act_version_id=act_version_id,
-            effective_from=effective_from,
-            effective_to=effective_to,
-            is_current=is_current,
+            pack_metadata=dict(options.pack_metadata or {}),
         )
         self._session.add(orm)
         try:

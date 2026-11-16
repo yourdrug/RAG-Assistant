@@ -21,6 +21,7 @@ class OutboxOperation(StrEnum):
     DELETE_BY_DOCUMENT = "delete_by_document"
     DELETE_CHUNKS = "delete_chunks"
     RENAME_DOCUMENT = "rename_document"
+    # Re-project the committed pack metadata of a document onto its points.
     UPDATE_METADATA = "update_metadata"
     SET_DOCUMENT_ID = "set_document_id"
 
@@ -142,6 +143,6 @@ class VectorIndexWriter(Protocol):
     async def delete_by_ids(self, ids: list[int]) -> None: ...
     async def set_document_id_by_source(self, source: str, document_id: int) -> None: ...
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> None: ...
-    async def update_metadata_by_act_version(
-        self, act_version_id: int, metadata_updates: dict[str, Any]
+    async def set_pack_metadata_by_document_id(
+        self, document_id: int, pack_metadata: dict[str, Any]
     ) -> None: ...

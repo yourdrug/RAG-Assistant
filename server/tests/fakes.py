@@ -84,6 +84,7 @@ if TYPE_CHECKING:
     from domain.knowledge.document import Document
     from domain.knowledge.document_nodes import DocumentNode
     from domain.knowledge.index_sync import VectorOutboxEntry
+    from domain.knowledge.pack_metadata import MetadataCondition
     from domain.knowledge.repositories.chunk import (
         ChunkInsertOptions,
         ManualChunkInsertOptions,
@@ -235,12 +236,10 @@ class FakeChunkRepository:
     def __init__(self) -> None:
         self._chunks: list[dict[str, Any]] = []
         self._next_id = 1
-        self.document_nodes: dict[int, tuple[int | None, list[DocumentNode]]] = {}
+        self.document_nodes: dict[int, list[DocumentNode]] = {}
 
-    async def replace_document_nodes(
-        self, document_id: int, act_version_id: int | None, nodes: list[DocumentNode]
-    ) -> None:
-        self.document_nodes[document_id] = (act_version_id, list(nodes))
+    async def replace_document_nodes(self, document_id: int, nodes: list[DocumentNode]) -> None:
+        self.document_nodes[document_id] = list(nodes)
 
     async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
         del for_update
@@ -271,10 +270,6 @@ class FakeChunkRepository:
         group_id = options.group_id
         doc_domain = options.doc_domain
         domain_metadata = options.domain_metadata
-        act_version_id = options.act_version_id
-        effective_from = options.effective_from
-        effective_to = options.effective_to
-        is_current = options.is_current
         self._chunks = [c for c in self._chunks if c["document_id"] != document_id]
         ids = []
 
@@ -288,10 +283,7 @@ class FakeChunkRepository:
                     "content": chunk.content,
                     "embed_text": chunk.embed_text,
                     "domain_metadata": domain_metadata,
-                    "act_version_id": act_version_id,
-                    "effective_from": effective_from,
-                    "effective_to": effective_to,
-                    "is_current": is_current,
+                    "pack_metadata": dict(options.pack_metadata or {}),
                     "filename": filename,
                     "visibility": visibility,
                     "doc_domain": doc_domain,
@@ -306,28 +298,22 @@ class FakeChunkRepository:
 
         return ids
 
-    async def set_current_by_act_version_ids(self, act_version_ids: list[int], *, is_current: bool) -> int:
+    async def set_pack_metadata(self, document_id: int, pack_metadata: dict[str, Any]) -> int:
         updated = 0
 
         for c in self._chunks:
-            if c.get("act_version_id") in act_version_ids:
-                c["is_current"] = is_current
+            if c["document_id"] == document_id:
+                c["pack_metadata"] = dict(pack_metadata)
                 updated += 1
 
         return updated
 
-    async def update_temporal_by_act_version_id(
-        self, act_version_id: int, effective_from: date | None, effective_to: date | None
-    ) -> int:
-        updated = 0
-
-        for c in self._chunks:
-            if c.get("act_version_id") == act_version_id:
-                c["effective_from"] = effective_from
-                c["effective_to"] = effective_to
-                updated += 1
-
-        return updated
+    async def get_pack_metadata(self, document_id: int) -> dict[str, Any] | None:
+        rows = sorted(
+            (c for c in self._chunks if c["document_id"] == document_id),
+            key=lambda c: c.get("chunk_index", 0),
+        )
+        return dict(rows[0].get("pack_metadata") or {}) if rows else None
 
     async def search_substring(
         self,
@@ -337,10 +323,10 @@ class FakeChunkRepository:
         limit: int = 20,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
-        as_of_date: date | None = None,
+        selection: MetadataCondition | None = None,
         document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
-        del query, user, limit, mode, document_id, as_of_date, document_ids
+        del query, user, limit, mode, document_id, selection, document_ids
         return []
 
     async def search_substring_page(
@@ -352,9 +338,9 @@ class FakeChunkRepository:
         offset: int = 0,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
-        as_of_date: date | None = None,
+        selection: MetadataCondition | None = None,
     ) -> tuple[list[ChunkRecord], int]:
-        del query, user, limit, offset, mode, document_id, as_of_date
+        del query, user, limit, offset, mode, document_id, selection
         return [], 0
 
     async def list_for_document(
@@ -378,6 +364,7 @@ class FakeChunkRepository:
                 owner_id=c.get("owner_id"),
                 group_id=c.get("group_id"),
                 content_hash=c.get("content_hash"),
+                pack_metadata=c.get("pack_metadata") or {},
                 context_metadata=c.get("context_metadata", {}),
             )
             for c in rows
@@ -512,6 +499,7 @@ class FakeChunkRepository:
                 "content_hash": options.content_hash,
                 "context_metadata": options.context_metadata or {},
                 "embed_text": options.embed_text,
+                "pack_metadata": dict(options.pack_metadata or {}),
             }
         )
         return chunk_id
@@ -571,7 +559,6 @@ class FakeChunkRepository:
         node_id: str,
         *,
         user: UserContext,
-        act_version_id: int | None,
         max_chars: int,
     ) -> list[ChunkRecord]:
         msg = "Parent retrieval requires a dedicated ACL-aware test repository"

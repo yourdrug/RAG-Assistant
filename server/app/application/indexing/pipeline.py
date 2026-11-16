@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
 import logging
 from typing import TYPE_CHECKING, Unpack
 
@@ -15,12 +14,13 @@ from domain.knowledge.chunk import ChunkInsert, extract_chunk_context
 from domain.knowledge.document_nodes import NODE_PATH_KEY, build_document_nodes
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
+from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from domain.shared.hashing import content_hash
 
 
 if TYPE_CHECKING:
-    from application.indexing.dto import ChunkProcessingOptions, ChunkWriteOptions, VersionMetadataOptions
+    from application.indexing.dto import ChunkProcessingOptions, ChunkWriteOptions, DocumentMetadataOptions
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.registry import DomainProfileRegistry
@@ -101,24 +101,6 @@ def build_outbox_metadata(
     return base
 
 
-def build_version_metadata(versioning: VersionMetadataOptions) -> dict[str, object]:
-    act_version_id = versioning.get("act_version_id")
-    act_id = versioning.get("act_id")
-    effective_from = versioning.get("effective_from")
-    effective_to = versioning.get("effective_to")
-    temporal_metadata: dict[str, object] = {
-        key: value
-        for key, value in (("act_version_id", act_version_id), ("act_id", act_id))
-        if value is not None
-    }
-
-    for key, temporal in (("effective_from", effective_from), ("effective_to", effective_to)):
-        if temporal is not None:
-            temporal_metadata[key] = temporal.isoformat() if isinstance(temporal, date) else temporal
-
-    return temporal_metadata
-
-
 def enrich_chunks_metadata(
     chunks: list[RawDocument],
     document_id: int,
@@ -127,14 +109,14 @@ def enrich_chunks_metadata(
     group_id: int | None,
     *,
     doc_domain: str,
-    **versioning: Unpack[VersionMetadataOptions],
+    **document_metadata: Unpack[DocumentMetadataOptions],
 ) -> None:
     """Обогащает metadata каждого чанка стандартными полями.
 
     Вызывать ПОСЛЕ split и ПЕРЕД process_chunks.
     """
-    domain_metadata = versioning.get("domain_metadata")
-    temporal_metadata = build_version_metadata(versioning)
+    domain_metadata = document_metadata.get("domain_metadata")
+    pack_metadata = dict(document_metadata.get("pack_metadata") or {})
 
     for rc in chunks:
         meta = {
@@ -143,7 +125,6 @@ def enrich_chunks_metadata(
             "owner_id": owner_id,
             "group_id": group_id,
             "doc_domain": doc_domain,
-            "is_current": versioning.get("is_current", True),
         }
 
         if domain_metadata:
@@ -160,7 +141,9 @@ def enrich_chunks_metadata(
             if merged:
                 meta["domain_metadata"] = merged
 
-        meta.update(temporal_metadata)
+        if pack_metadata:
+            meta[PACK_METADATA_KEY] = dict(pack_metadata)
+
         rc.metadata.update(meta)
 
 
@@ -205,23 +188,6 @@ async def process_chunks(
         await process_chunks_in_uow(uow, document_id, filename, chunks, visibility, **write_options)
 
 
-def parse_meta_datetime(value: object) -> date | None:
-    if isinstance(value, datetime):
-        return value.date()
-
-    if isinstance(value, date) or value is None:
-        return value
-
-    try:
-        parsed = date.fromisoformat(str(value))
-    except ValueError:
-        try:
-            parsed = datetime.fromisoformat(str(value)).date()
-        except ValueError:
-            parsed = None
-    return parsed
-
-
 async def process_chunks_in_uow(
     uow: UnitOfWork,
     document_id: int,
@@ -232,7 +198,7 @@ async def process_chunks_in_uow(
 ) -> None:
     replaced_ids = await uow.chunks.get_ids_by_document_id(document_id, for_update=True)
     # 1. Bulk insert → получаем chunk_ids
-    # Doc-level versioning fields live identically on every chunk's metadata.
+    # Doc-level domain and pack metadata live identically on every chunk's metadata.
     first_meta = chunks[0].metadata if chunks else {}
     chunk_ids = await uow.chunks.bulk_insert(
         document_id=document_id,
@@ -258,17 +224,13 @@ async def process_chunks_in_uow(
             group_id=options["group_id"],
             doc_domain=options["doc_domain"],
             domain_metadata=first_meta.get("domain_metadata"),
-            act_version_id=first_meta.get("act_version_id"),
-            effective_from=parse_meta_datetime(first_meta.get("effective_from")),
-            effective_to=parse_meta_datetime(first_meta.get("effective_to")),
-            is_current=first_meta.get("is_current", True),
+            pack_metadata=dict(first_meta.get(PACK_METADATA_KEY) or {}),
         ),
     )
 
     # Parent scopes are replaced with the chunks: their ranges are these chunk indexes.
     await uow.chunks.replace_document_nodes(
         document_id,
-        first_meta.get("act_version_id"),
         build_document_nodes([(rc.page_content, rc.metadata) for rc in chunks]),
     )
 

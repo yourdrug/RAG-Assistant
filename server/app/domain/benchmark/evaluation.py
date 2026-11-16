@@ -75,10 +75,7 @@ DUPLICATE_SUFFIX_RE = re.compile(r"\s*\(\d+\)(?=\.[^.]+$)")
 
 
 def fragment_identity_matches(fragment: dict[str, Any], metadata: dict[str, Any]) -> bool:
-    return all(
-        field not in fragment or str(fragment[field]) == str(metadata.get(field))
-        for field in ("document_id", "act_version_id")
-    )
+    return "document_id" not in fragment or str(fragment["document_id"]) == str(metadata.get("document_id"))
 
 
 def fragment_pages_match(expected: list[Any], metadata: dict[str, Any]) -> bool:

@@ -3,6 +3,7 @@
 from typing import Any
 
 from domain.knowledge.chunk import ChunkRecord, extract_chunk_context
+from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from domain.shared.hashing import content_hash
 
 
@@ -25,10 +26,9 @@ def chunk_result_metadata(chunk: ChunkRecord) -> dict[str, Any]:
         owner_id=chunk.owner_id,
         group_id=chunk.group_id,
         doc_domain=chunk.doc_domain,
-        act_id=chunk.act_id,
-        act_version_id=chunk.act_version_id,
-        effective_from=chunk.effective_from.isoformat() if chunk.effective_from else None,
-        effective_to=chunk.effective_to.isoformat() if chunk.effective_to else None,
-        is_current=chunk.is_current,
     )
+
+    if chunk.pack_metadata:
+        metadata[PACK_METADATA_KEY] = dict(chunk.pack_metadata)
+
     return metadata

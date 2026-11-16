@@ -2,25 +2,32 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypedDict
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, TypedDict
+
+from domain.knowledge.acts.edition_metadata import edition_metadata
 
 
 if TYPE_CHECKING:
     from datetime import date
 
     from domain.ingestion.profiles.types import ReferenceMatch
+    from domain.knowledge.acts.models import ActVersion
 
 
 @dataclass(frozen=True)
 class VersioningResult:
-    domain_metadata: dict[str, str | list[str]] | None
-    act_version_id: int | None
-    act_id: int | None
-    effective_from: date | None
-    warning: str | None
-    effective_to: date | None = None
-    is_current: bool = True
+    domain_metadata: dict[str, str | list[str]] | None = None
+    warning: str | None = None
+    act_id: int | None = None
+    # Edition metadata every chunk of the document carries (empty: not an edition).
+    pack_metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def for_version(
+        cls, domain_metadata: dict[str, str | list[str]] | None, version: ActVersion
+    ) -> VersioningResult:
+        return cls(domain_metadata, None, version.act_id, edition_metadata(version))
 
 
 @dataclass(frozen=True)

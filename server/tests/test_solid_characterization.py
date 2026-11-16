@@ -194,12 +194,12 @@ async def test_chunk_bulk_replacement_keeps_acl_and_metadata_in_shared_session()
             ChunkInsert(content="first", content_hash="hash1", section="A"),
             ChunkInsert(content="second", content_hash="hash2", section="B"),
         ],
-        options=ChunkInsertOptions(group_id=3, act_version_id=5),
+        options=ChunkInsertOptions(group_id=3, pack_metadata={"edition": 5}),
     )
     assert ids == [10, 11]
-    assert [(m.document_id, m.group_id, m.visibility, m.act_version_id) for m in added] == [
-        (7, 3, "internal_group", 5),
-        (7, 3, "internal_group", 5),
+    assert [(m.document_id, m.group_id, m.visibility, m.pack_metadata) for m in added] == [
+        (7, 3, "internal_group", {"edition": 5}),
+        (7, 3, "internal_group", {"edition": 5}),
     ]
     assert [(m.chunk_index, m.content_hash, m.section) for m in added] == [
         (0, "hash1", "A"),

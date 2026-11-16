@@ -6,30 +6,20 @@ into Qdrant Filter objects. All business logic lives in domain/knowledge/access_
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from qdrant_client.models import (
-    DatetimeRange,
-    FieldCondition,
-    Filter,
-    IsEmptyCondition,
-    MatchAny,
-    MatchValue,
-    PayloadField,
-)
+from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.access_control import get_visibility_conditions
+from infrastructure.repositories.vector.pack_selection import pack_selection_condition
 
 
 if TYPE_CHECKING:
-    from datetime import date
+    from qdrant_client.models import Condition
 
-    from qdrant_client.models import (
-        Condition,
-    )
+    from domain.knowledge.pack_metadata import MetadataCondition
 
 
 def build_qdrant_filter(
@@ -104,63 +94,19 @@ def with_domain_filter(access_filter: Filter | None, doc_domain: str) -> Filter:
     return Filter(must=[domain_condition])
 
 
-def with_temporal_filter(access_filter: Filter | None, as_of_date: date | None) -> Filter:
-    """Add temporal filtering for versioned documents.
-
-    Current queries use today's date; historical queries use the requested date.
-    Intervals are half-open: effective_from <= date < effective_to. Current
-    undated chunks pass, including payloads with omitted date keys.
-
-    Args:
-        access_filter: existing ACL filter (may be empty)
-        as_of_date: date to filter by, or None for current state
-
-    """
-    # Use the same interval logic for current and historical queries. A future
-    # edition must become current on its effective date without an ingestion job.
-    # IsEmptyCondition matches both absent and explicit-null payload keys.
-    effective_date = as_of_date or datetime.now().astimezone().date()
-    temporal_condition = Filter(
-        must=[
-            Filter(
-                should=[
-                    IsEmptyCondition(is_empty=PayloadField(key="metadata.effective_from")),
-                    FieldCondition(
-                        key="metadata.effective_from",
-                        range=DatetimeRange(lte=effective_date),
-                    ),
-                ]
-            ),
-            Filter(
-                should=[
-                    IsEmptyCondition(is_empty=PayloadField(key="metadata.effective_to")),
-                    FieldCondition(
-                        key="metadata.effective_to",
-                        range=DatetimeRange(gt=effective_date),
-                    ),
-                ]
-            ),
-            Filter(
-                should=[
-                    FieldCondition(key="metadata.is_current", match=MatchValue(value=True)),
-                    Filter(must_not=[IsEmptyCondition(is_empty=PayloadField(key="metadata.effective_from"))]),
-                    Filter(must_not=[IsEmptyCondition(is_empty=PayloadField(key="metadata.effective_to"))]),
-                ]
-            ),
-        ]
-    )
-
-    if access_filter is not None:
-        return Filter(must=[access_filter, temporal_condition])
-
-    return Filter(must=[temporal_condition])
-
-
 def build_search_filter(
     user: UserContext | dict[str, Any],
     group_ids: list[int],
-    as_of_date: date | None = None,
+    selection: MetadataCondition | None = None,
     **managed: list[int] | None,
 ) -> Filter:
-    """Canonical Qdrant search scope: visibility and effective edition date."""
-    return with_temporal_filter(build_qdrant_filter(user, group_ids, **managed), as_of_date)
+    """Canonical Qdrant search scope: visibility AND the pack selection.
+
+    The selection only narrows the documents considered; access is decided by visibility.
+    """
+    access_filter = build_qdrant_filter(user, group_ids, **managed)
+
+    if selection is None:
+        return access_filter
+
+    return Filter(must=[access_filter, pack_selection_condition(selection)])

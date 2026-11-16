@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 
 from langchain_core.documents import Document
 
+from domain.knowledge.acts.edition_metadata import edition_id
 from domain.knowledge.enums import PageContentType
+from infrastructure.domain_packs.belarus_law.evidence.editions import edition_of
 from infrastructure.domain_packs.belarus_law.evidence.links import (
     link_modes,
     link_seed_priority,
@@ -63,7 +65,7 @@ async def enrich_linked_context(
         ):
             continue
 
-        identity = (document_id, metadata.get("act_version_id"), index)
+        identity = (document_id, edition_of(metadata), index)
 
         if identity in recovered or lookups >= MAX_LINK_LOOKUPS:
             continue
@@ -82,7 +84,7 @@ async def enrich_linked_context(
         doc = original_doc
         result_identity = (
             doc.metadata.get("document_id"),
-            doc.metadata.get("act_version_id"),
+            edition_of(doc.metadata),
             doc.metadata.get("chunk_index"),
         )
         recovered_scope = recovered.get(result_identity)
@@ -99,15 +101,16 @@ def recover_local_scopes(
 ) -> dict[tuple[int | None, int | None, int | None], str]:
     metadata = doc.metadata
     document_id = metadata.get("document_id")
+    edition = edition_of(metadata)
     local = [
         Document(page_content=neighbor.content, metadata=chunk_result_metadata(neighbor))
         for neighbor in neighbors
-        if neighbor.document_id == document_id and neighbor.act_version_id == metadata.get("act_version_id")
+        if neighbor.document_id == document_id and edition_id(neighbor.pack_metadata) == edition
     ]
     local.sort(key=lambda item: item.metadata["chunk_index"])
     scopes = replacement_scopes(local) if is_table else procedure_scopes(local)
 
-    return {(document_id, metadata.get("act_version_id"), index): scope for index, scope in scopes.items()}
+    return {(document_id, edition, index): scope for index, scope in scopes.items()}
 
 
 def attach_recovered_scope(doc: Document, recovered_scope: str | None) -> Document:

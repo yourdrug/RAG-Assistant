@@ -5,7 +5,7 @@ from typing import Protocol, runtime_checkable
 from domain.knowledge.repositories.chunk import (
     ChunkCorpusRepository,
     ChunkCrudRepository,
-    ChunkVersioningRepository,
+    ChunkPackMetadataRepository,
     DocumentNodeRepository,
 )
 from domain.rag.ports import ChunkRetrievalRepository, ChunkSearchPageRepository
@@ -17,7 +17,7 @@ class ChunkRepository(
     ChunkCorpusRepository,
     ChunkRetrievalRepository,
     ChunkSearchPageRepository,
-    ChunkVersioningRepository,
+    ChunkPackMetadataRepository,
     DocumentNodeRepository,
     Protocol,
 ):

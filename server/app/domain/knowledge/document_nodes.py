@@ -3,7 +3,7 @@
 A node id is the document-local path of ancestor tokens: ``kind:number`` or ``kind:<label hash>``
 joined by ``/``, with ``#N`` for the N-th separate occurrence of the same token under one parent.
 It does not depend on character offsets, so re-splitting the same file yields the same ids.
-Storage qualifies it with ``document_id`` and ``act_version_id``.
+Storage qualifies it with ``document_id``.
 """
 
 from __future__ import annotations

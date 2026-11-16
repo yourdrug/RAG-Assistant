@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from application.act_versioning import ActVersioningService
 from domain.ingestion.profiles.types import ReferenceMatch
+from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.acts.models import ActVersion, RegulatoryAct
 from domain.knowledge.document import Document
 from domain.knowledge.index_sync import OutboxOperation
@@ -125,7 +126,7 @@ async def test_handle_versioned_upload_unsets_previous_current_and_syncs_chunks(
         ActVersion(id=None, act_id=act.id, document_id=10, is_current=True, date_source="manual")
     )
     uow.fake_chunks._chunks.append(
-        {"id": 1, "document_id": 10, "act_version_id": old_version.id, "is_current": True}
+        {"id": 1, "document_id": 10, "pack_metadata": edition_metadata(old_version)}
     )
 
     new_version = await service.handle_versioned_upload(
@@ -140,8 +141,8 @@ async def test_handle_versioned_upload_unsets_previous_current_and_syncs_chunks(
     current_flags = {v.id: v.is_current for v in versions}
     assert current_flags[old_version.id] is False
     assert current_flags[new_version.id] is True
-    # Denormalized chunk flag flipped too
-    assert uow.fake_chunks._chunks[0]["is_current"] is False
+    # Denormalized chunk metadata flipped too
+    assert uow.fake_chunks._chunks[0]["pack_metadata"]["is_current"] is False
 
 
 @pytest.mark.asyncio
@@ -176,9 +177,7 @@ async def test_update_version_sets_manual_and_enqueues_qdrant_sync() -> None:
         effective_date=date(2026, 1, 1),
         date_confidence=0.9,
     )
-    uow.fake_chunks._chunks.append(
-        {"id": 1, "document_id": 1, "act_version_id": version.id, "effective_from": None}
-    )
+    uow.fake_chunks._chunks.append({"id": 1, "document_id": 1, "pack_metadata": edition_metadata(version)})
 
     before_outbox = len(uow.fake_vector_outbox._entries)
     await service.update_version(
@@ -192,8 +191,8 @@ async def test_update_version_sets_manual_and_enqueues_qdrant_sync() -> None:
     assert require_present(updated).date_source == "manual"
     assert require_present(updated).verified_by == 42
     # Postgres chunks synced in the same transaction
-    assert uow.fake_chunks._chunks[0]["effective_from"] == date(2026, 2, 1)
-    assert uow.fake_chunks._chunks[0]["effective_to"] == date(2027, 1, 1)
+    assert uow.fake_chunks._chunks[0]["pack_metadata"]["effective_from"] == "2026-02-01"
+    assert uow.fake_chunks._chunks[0]["pack_metadata"]["effective_to"] == "2027-01-01"
     # Qdrant payload sync queued via outbox, without re-embedding
     entries = list(uow.fake_vector_outbox._entries.values())[before_outbox:]
     assert any(e.operation == OutboxOperation.UPDATE_METADATA for e in entries)
@@ -225,13 +224,13 @@ async def test_process_document_versioning_full_flow() -> None:
     result = await service.process_document_versioning(profile, document_id=5, full_text=text)
 
     assert result.warning is None
-    assert result.act_version_id is not None
+    assert result.pack_metadata["act_version_id"] is not None
     assert result.act_id is not None
     assert require_present(result.domain_metadata)["decree_number"] == "42"
     # Russian month phrase parsed; confidence 0.9 >= 0.85 → trusted date
     # reaches the filterable effective_from field
-    assert result.effective_from == date(2026, 6, 1)
-    version = await factory._uow.fake_act_versions.get_by_id(result.act_version_id)
+    assert result.pack_metadata["effective_from"] == "2026-06-01"
+    version = await factory._uow.fake_act_versions.get_by_id(result.pack_metadata["act_version_id"])
     assert require_present(version).date_source == "extracted_trusted"
 
 
@@ -245,8 +244,10 @@ async def test_process_document_versioning_low_confidence_date_not_filterable() 
     text = "УКАЗ № 7 от 5 мая 2026 г.\nПОСТАНОВЛЯЮ:\n1. Пункт.\n" * 2
     result = await service.process_document_versioning(profile, document_id=6, full_text=text)
 
-    assert result.effective_from is None
-    version = await factory._uow.fake_act_versions.get_by_id(require_present(result.act_version_id))
+    assert result.pack_metadata["effective_from"] is None
+    version = await factory._uow.fake_act_versions.get_by_id(
+        require_present(result.pack_metadata["act_version_id"])
+    )
     assert require_present(version).effective_from is None
     assert require_present(version).date_source == "extracted"
     # Still lands in the manual review queue (no trusted date, no act number)
@@ -261,13 +262,7 @@ async def test_process_document_versioning_skips_unversioned_profile() -> None:
     result = await service.process_document_versioning(
         GeneralDomainProfile(), document_id=1, full_text="text"
     )
-    assert result == VersioningResult(
-        domain_metadata=None,
-        act_version_id=None,
-        act_id=None,
-        effective_from=None,
-        warning=None,
-    )
+    assert result == VersioningResult()
 
 
 @pytest.mark.asyncio
@@ -298,12 +293,7 @@ async def test_date_correction_rebuilds_chain_chunks_and_outbox(
         )
         versions.append(version)
         uow.fake_chunks._chunks.append(
-            {
-                "act_version_id": version.id,
-                "is_current": version.is_current,
-                "effective_from": version.effective_from,
-                "effective_to": version.effective_to,
-            }
+            {"document_id": document_id, "pack_metadata": edition_metadata(version)}
         )
 
     before = len(uow.fake_vector_outbox._entries)
@@ -314,20 +304,15 @@ async def test_date_correction_rebuilds_chain_chunks_and_outbox(
         require_present(version).document_id for version in stored if require_present(version).is_current
     ] == [current_document]
     entries = list(uow.fake_vector_outbox._entries.values())[before:]
-    assert {entry.aggregate_id for entry in entries} >= {versions[0].id, versions[1].id}
+    assert {entry.aggregate_id for entry in entries} >= {versions[0].document_id, versions[1].document_id}
 
     for stored_version, chunk in zip(stored, uow.fake_chunks._chunks, strict=True):
-        assert chunk["effective_from"] == require_present(stored_version).effective_from
-        assert chunk["effective_to"] == require_present(stored_version).effective_to
-        assert chunk["is_current"] == require_present(stored_version).is_current
+        assert chunk["pack_metadata"] == edition_metadata(require_present(stored_version))
 
     for entry in entries:
-        version = require_present(await uow.fake_act_versions.get_by_id(entry.aggregate_id))
         assert entry.operation == OutboxOperation.UPDATE_METADATA
-        assert entry.payload["effective_to"] == (
-            version.effective_to.isoformat() if version.effective_to else None
-        )
-        assert entry.payload["is_current"] == version.is_current
+        assert entry.aggregate_type == "document"
+        assert set(entry.payload["related_document_ids"]) == {1, 2, 3}
 
     if new_start == date(2026, 1, 1):
         # The reported historical query now resolves v1 instead of a gap.
@@ -371,12 +356,7 @@ async def test_date_correction_outbox_failure_rolls_back_whole_chain(monkeypatch
         )
         versions.append(version)
         uow.fake_chunks._chunks.append(
-            {
-                "act_version_id": version.id,
-                "is_current": version.is_current,
-                "effective_from": version.effective_from,
-                "effective_to": version.effective_to,
-            }
+            {"document_id": document_id, "pack_metadata": edition_metadata(version)}
         )
 
     original = deepcopy(
@@ -427,12 +407,7 @@ async def test_relink_rebuilds_both_timelines_atomically(  # noqa: C901, PLR0915
         )
         versions.append(version)
         uow.fake_chunks._chunks.append(
-            {
-                "act_version_id": version.id,
-                "is_current": version.is_current,
-                "effective_from": version.effective_from,
-                "effective_to": version.effective_to,
-            }
+            {"document_id": document_id, "pack_metadata": edition_metadata(version)}
         )
 
     source, moved, target = versions
@@ -492,13 +467,14 @@ async def test_relink_rebuilds_both_timelines_atomically(  # noqa: C901, PLR0915
         assert require_present(stored_target).effective_to == date(2025, 1, 1)
 
     for chunk in uow.fake_chunks._chunks:
-        version = require_present(await uow.fake_act_versions.get_by_id(chunk["act_version_id"]))
-        assert chunk["is_current"] == version.is_current
-        assert chunk["effective_to"] == version.effective_to
+        version = require_present(await uow.fake_act_versions.get_by_document_id(chunk["document_id"]))
+        assert chunk["pack_metadata"] == edition_metadata(version)
 
     entries = list(uow.fake_vector_outbox._entries.values())[before:]
     assert {entry.aggregate_id for entry in entries} == (
-        {source.id, moved.id, target.id} if transfer else {source.id, moved.id}
+        {source.document_id, moved.document_id, target.document_id}
+        if transfer
+        else {source.document_id, moved.document_id}
     )
 
 

@@ -75,34 +75,28 @@ def test_enrich_merges_doc_level_refs_without_clobbering_chunk_level() -> None:
         group_id=None,
         doc_domain="decree",
         domain_metadata={"decree_number": "123", "decree_date": "1 января 2026 г.", "point": "doc"},
-        act_version_id=55,
-        act_id=9,
-        effective_from=__import__("datetime").date(2026, 1, 1),
+        pack_metadata={"act_version_id": 55, "act_id": 9},
     )
 
     for chunk in chunks:
         dm = chunk.metadata["domain_metadata"]
         assert dm["decree_number"] == "123"
-        assert chunk.metadata["act_version_id"] == 55
-        assert chunk.metadata["act_id"] == 9
+        assert chunk.metadata["pack_metadata"] == {"act_version_id": 55, "act_id": 9}
 
     # A chunk-level key is not overwritten by the doc-level value
     point_chunks = [c for c in chunks if "point" in c.metadata.get("domain_metadata", {})]
     assert point_chunks, "point refs must exist on chunk level"
 
 
-def test_process_chunks_persists_versioning_columns(fake_uow_factory: FakeUnitOfWorkFactory) -> None:
-    """The denormalized columns must actually reach Postgres bulk_insert."""
+def test_process_chunks_persists_pack_metadata(fake_uow_factory: FakeUnitOfWorkFactory) -> None:
+    """Document-level domain and pack metadata must actually reach Postgres bulk_insert."""
 
     chunks = [
         RawDocument(
             page_content="1. Пункт первый.",
             metadata={
                 "domain_metadata": {"decree_number": "5"},
-                "act_version_id": 3,
-                "act_id": 8,
-                "effective_from": "2026-01-01",
-                "is_current": True,
+                "pack_metadata": {"act_version_id": 3, "effective_from": "2026-01-01"},
             },
         )
     ]
@@ -121,7 +115,5 @@ def test_process_chunks_persists_versioning_columns(fake_uow_factory: FakeUnitOf
         )
     )
     stored = uow.fake_chunks._chunks[0]
-    assert stored["act_version_id"] == 3
+    assert stored["pack_metadata"] == {"act_version_id": 3, "effective_from": "2026-01-01"}
     assert stored["domain_metadata"] == {"decree_number": "5"}
-    assert stored["is_current"] is True
-    assert stored["effective_from"] is not None

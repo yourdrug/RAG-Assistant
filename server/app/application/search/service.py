@@ -9,17 +9,28 @@ from domain.knowledge.enums import SearchMode
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import date
+
     from application.uow import UnitOfWorkFactory
     from domain.identity.user_context import UserContext
     from domain.knowledge.chunk import ChunkRecord
+    from domain.knowledge.pack_metadata import MetadataCondition
+
+    type ChunkSelection = Callable[[date | None], MetadataCondition | None]
 
 
 class SearchService:
     def __init__(
-        self, uow_factory: UnitOfWorkFactory, user_ctx_factory: UserContextFactory | None = None
+        self,
+        uow_factory: UnitOfWorkFactory,
+        user_ctx_factory: UserContextFactory | None = None,
+        chunk_selection: ChunkSelection | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._user_ctx_factory = user_ctx_factory or UserContextFactory()
+        # The domain pack's selection (e.g. editions in force today); None keeps all chunks.
+        self._chunk_selection = chunk_selection
 
     async def exact_search(
         self,
@@ -40,4 +51,5 @@ class SearchService:
                 offset=offset,
                 mode=mode,
                 document_id=document_id,
+                selection=self._chunk_selection(None) if self._chunk_selection is not None else None,
             )

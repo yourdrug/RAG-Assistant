@@ -192,6 +192,7 @@ class TestRerankDocuments:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.generic_evidence
 class TestExtractSources:
     def test_dedup_same_source(self) -> None:
         docs = [

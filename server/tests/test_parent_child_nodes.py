@@ -225,7 +225,7 @@ def test_appendix_root_is_a_separate_top_level_scope() -> None:
 async def test_pipeline_replaces_nodes_with_chunks_and_drops_transient_path() -> None:
     metadata = [{"parent_units": [unit("article", "1")]}, {"parent_units": [unit("article", "2")]}]
     chunks = [
-        RawDocument(f"body {i}", {**item, **node, "act_version_id": 5})
+        RawDocument(f"body {i}", {**item, **node})
         for i, (item, node) in enumerate(
             zip(metadata, assign_chunk_nodes([(m, None) for m in metadata]), strict=True)
         )
@@ -248,8 +248,8 @@ async def test_pipeline_replaces_nodes_with_chunks_and_drops_transient_path() ->
         doc_domain="legal",
     )
 
-    document_id, act_version_id, nodes = uow.chunks.replace_document_nodes.await_args.args
-    assert (document_id, act_version_id) == (9, 5)
+    document_id, nodes = uow.chunks.replace_document_nodes.await_args.args
+    assert document_id == 9
     assert [(item.node_id, item.chunk_start) for item in nodes] == [("article:1", 0), ("article:2", 1)]
     inserted = uow.chunks.bulk_insert.await_args.kwargs["chunks"]
     assert [item.context_metadata[PARENT_NODE_ID_KEY] for item in inserted] == ["article:1", "article:2"]

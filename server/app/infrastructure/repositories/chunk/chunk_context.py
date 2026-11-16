@@ -145,22 +145,18 @@ class SQLAlchemyChunkContextRepository:
         node_id: str,
         *,
         user: UserContext,
-        act_version_id: int | None,
         max_chars: int,
     ) -> list[ChunkRecord]:
         """Chunks of the largest fitting ancestor scope, read only through the search ACL.
 
-        Nodes are visible only when the user can read a chunk of the same document and edition
+        Nodes are visible only when the user can read a chunk of the same document
         (``for_list=False``: ADMIN does not reach CLIENT_PRIVATE). Empty when no scope fits.
         """
         if not node_id or max_chars <= 0:
             return []
 
         acl_clauses = search_acl(user)
-        visible_chunk = [
-            ChunkModel.document_id == document_id,
-            ChunkModel.act_version_id.is_not_distinct_from(act_version_id),
-        ]
+        visible_chunk = [ChunkModel.document_id == document_id]
 
         if acl_clauses:
             visible_chunk.append(or_(*acl_clauses))
@@ -168,7 +164,6 @@ class SQLAlchemyChunkContextRepository:
         chain = node_ancestry(node_id)
         stmt = select(DocumentNodeModel).where(
             DocumentNodeModel.document_id == document_id,
-            DocumentNodeModel.act_version_id.is_not_distinct_from(act_version_id),
             DocumentNodeModel.node_id.in_(chain),
             select(ChunkModel.id).where(*visible_chunk).exists(),
         )

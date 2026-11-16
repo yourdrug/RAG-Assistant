@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Protocol, override
+from typing import TYPE_CHECKING, Any, Protocol, override
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
+    from datetime import date
 
     from langchain_core.documents import Document
 
     from domain.identity.user_context import UserContext
+    from domain.knowledge.pack_metadata import MetadataCondition
     from domain.rag.context import RagContext
     from domain.rag.evidence.assessment import EvidenceAssessment
     from domain.rag.ports import ChunkRetrievalRepository
@@ -37,6 +39,18 @@ class EvidenceProfile(Protocol):
 
     @property
     def max_focus_chars(self) -> int: ...
+
+    def chunk_selection(self, as_of_date: date | None) -> MetadataCondition | None:
+        """Pack selection applied with ACL before top-k in every store; ``None`` keeps all."""
+        ...
+
+    def resolve_conflicts(self, docs: list[tuple[Document, float]]) -> list[tuple[Document, float]]:
+        """Drop candidates superseded by another retrieved candidate (e.g. older editions)."""
+        ...
+
+    def source_fields(self, metadata: Mapping[str, Any]) -> dict[str, str]:
+        """Pack fields shown with a cited source."""
+        ...
 
     def reading_rules(self, question: str) -> list[str]: ...
 
@@ -93,6 +107,18 @@ class GenericEvidenceProfile(EvidenceProfile):
     @property
     def max_focus_chars(self) -> int:
         return DEFAULT_FOCUS_CHARS
+
+    @override
+    def chunk_selection(self, as_of_date: date | None) -> MetadataCondition | None:
+        return None
+
+    @override
+    def resolve_conflicts(self, docs: list[tuple[Document, float]]) -> list[tuple[Document, float]]:
+        return docs
+
+    @override
+    def source_fields(self, metadata: Mapping[str, Any]) -> dict[str, str]:
+        return {}
 
     @override
     def reading_rules(self, question: str) -> list[str]:

@@ -155,14 +155,14 @@ def test_empty_missing_legacy_and_invalid_are_distinct() -> None:
     )
 
 
-def test_equivalent_sources_count_once_and_version_is_enforced() -> None:
+def test_equivalent_sources_count_once_and_document_is_enforced() -> None:
     annotations = validate_annotations(
         {
             "expected_fragments": [
                 {
                     "alternatives": [
                         FRAGMENTS[0],
-                        {"source": "other.pdf", "text": "Equivalent fact", "act_version_id": 3},
+                        {"source": "other.pdf", "text": "Equivalent fact", "document_id": 3},
                     ]
                 }
             ]
@@ -178,7 +178,7 @@ def test_equivalent_sources_count_once_and_version_is_enforced() -> None:
                         "documents": [
                             {
                                 "content": "Equivalent fact",
-                                "metadata": {"source": "other.pdf", "act_version_id": 3},
+                                "metadata": {"source": "other.pdf", "document_id": 3},
                             }
                         ],
                     }
@@ -190,7 +190,7 @@ def test_equivalent_sources_count_once_and_version_is_enforced() -> None:
         evaluate_stage_evidence(annotations, evidence, "")["attempts"][0]["stages"]["candidates"]["coverage"]
         == 1
     )
-    evidence["attempts"][0]["stages"]["candidates"]["documents"][0]["metadata"]["act_version_id"] = 4
+    evidence["attempts"][0]["stages"]["candidates"]["documents"][0]["metadata"]["document_id"] = 4
     assert (
         evaluate_stage_evidence(annotations, evidence, "")["attempts"][0]["stages"]["candidates"]["coverage"]
         == 0

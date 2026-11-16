@@ -15,7 +15,6 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 import pytest
 
@@ -28,7 +27,7 @@ from domain.rag.context import RagContext
 from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
 from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER
-from infrastructure.ml.rag.rag_postprocess import apply_citation_filter, resolve_temporal_conflicts
+from infrastructure.ml.rag.rag_postprocess import apply_citation_filter
 from infrastructure.ml.rag.rag_steps import RagOperations
 from tests.test_rag_pipeline import make_rag
 
@@ -559,24 +558,3 @@ class TestStreamHelperMethods:
         sources = [{"source": "a.pdf"}]
         result = apply_citation_filter(rag, "answer", sources)
         assert result == sources
-
-    def test_resolve_temporal_conflicts_no_conflicts(self) -> None:
-
-        doc1 = Document(page_content="", metadata={"source": "a.pdf", "document_id": 1})
-        doc2 = Document(page_content="", metadata={"source": "b.pdf"})
-        docs = [(doc1, 0.9), (doc2, 0.8)]
-        result = resolve_temporal_conflicts(docs)
-        assert len(result) == 2
-
-    def test_resolve_temporal_conflicts_keeps_latest(self) -> None:
-
-        doc_old = Document(
-            page_content="", metadata={"act_id": 1, "act_version_id": 1, "effective_from": "2020-01-01"}
-        )
-        doc_new = Document(
-            page_content="", metadata={"act_id": 1, "act_version_id": 2, "effective_from": "2024-01-01"}
-        )
-        docs = [(doc_old, 0.9), (doc_new, 0.8)]
-        result = resolve_temporal_conflicts(docs)
-        assert len(result) == 1
-        assert result[0][0].metadata["act_version_id"] == 2

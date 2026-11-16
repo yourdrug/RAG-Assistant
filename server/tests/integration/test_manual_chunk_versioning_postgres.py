@@ -19,6 +19,7 @@ from application.act_versioning import ActVersioningService
 from application.chunks import ChunkMutationService
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
+from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from infrastructure.database.models import (
@@ -28,6 +29,7 @@ from infrastructure.database.models import (
     RegulatoryActModel,
     VectorStoreOutboxModel,
 )
+from infrastructure.domain_packs.belarus_law.evidence.editions import edition_selection
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.repositories.misc.sqlalchemy_act_version_repository import SQLAlchemyActVersionRepository
 from infrastructure.uow_factory import UnitOfWorkFactory
@@ -75,26 +77,23 @@ async def test_manual_chunk_round_trip_and_later_version_updates(pg_engine: Asyn
         repo = SQLAlchemyChunkRepository(session)
         chunk = await repo.get_by_id(result.id)
         assert chunk is not None
-        assert chunk.act_version_id == version_id
-        assert chunk.effective_from == date(2020, 1, 1)
-        assert chunk.effective_to == date(2024, 1, 1)
-        assert chunk.is_current is False
+        assert_archived_metadata(chunk.pack_metadata, version_id)
         entry = (await session.execute(select(VectorStoreOutboxModel))).scalar_one()
-        assert_archived_metadata(entry.payload["points"][0]["metadata"], version_id)
-        assert await repo.search_substring("regulatory", user) == []
-        historical = await repo.search_substring("regulatory", user, as_of_date=date(2022, 1, 1))
+        assert_archived_metadata(entry.payload["points"][0]["metadata"]["pack_metadata"], version_id)
+        assert await repo.search_substring("regulatory", user, selection=edition_selection(None)) == []
+        historical = await repo.search_substring(
+            "regulatory", user, selection=edition_selection(date(2022, 1, 1))
+        )
         assert [item.chunk_id for item in historical] == [result.id]
     async with sessions.begin() as session:
-        # Same projection updates used by the version review/timeline services.
+        # Same projection update used by the version review/timeline services.
         repo = SQLAlchemyChunkRepository(session)
-        assert await repo.set_current_by_act_version_ids([version_id], is_current=True) == 1
-        assert await repo.update_temporal_by_act_version_id(version_id, date(2021, 1, 1), None) == 1
+        reopened = ActVersion(version_id, None, document_id, date(2021, 1, 1), None, is_current=True)
+        assert await repo.set_pack_metadata(document_id, edition_metadata(reopened)) == 1
     async with sessions() as session:
         chunk = await SQLAlchemyChunkRepository(session).get_by_id(result.id)
         assert chunk is not None
-        assert chunk.is_current is True
-        assert chunk.effective_from == date(2021, 1, 1)
-        assert chunk.effective_to is None
+        assert chunk.pack_metadata == edition_metadata(reopened)
 
 
 async def test_outbox_failure_rolls_back_manual_chunk_and_document_stats(pg_engine: AsyncEngine) -> None:
@@ -175,10 +174,7 @@ async def seed_linked_timeline(sessions: async_sessionmaker[AsyncSession]) -> tu
                     chunk_index=0,
                     content="Regulatory timeline passage",
                     visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
-                    act_version_id=version.id,
-                    effective_from=version.effective_from,
-                    effective_to=version.effective_to,
-                    is_current=version.is_current,
+                    pack_metadata=edition_metadata(version),
                 )
             )
             ids.append(version.id)
@@ -202,9 +198,11 @@ async def test_date_correction_updates_postgres_chain_and_search(
         assert versions[0].is_current == (new_start > date(2026, 6, 1))
         assert versions[1].is_current != versions[0].is_current
         historical = await SQLAlchemyChunkRepository(session).search_substring(
-            "timeline", UserContext(1, UserKind.INTERNAL, UserRole.ADMIN), as_of_date=date(2025, 6, 1)
+            "timeline",
+            UserContext(1, UserKind.INTERNAL, UserRole.ADMIN),
+            selection=edition_selection(date(2025, 6, 1)),
         )
-        assert [chunk.act_version_id for chunk in historical] == [ids[0]]
+        assert [chunk.pack_metadata["act_version_id"] for chunk in historical] == [ids[0]]
         assert await session.scalar(select(func.count()).select_from(VectorStoreOutboxModel)) == 2
 
 

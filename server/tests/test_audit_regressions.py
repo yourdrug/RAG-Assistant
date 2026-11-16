@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
@@ -19,12 +18,14 @@ from config import get_request_settings, settings
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
+from domain.knowledge.pack_metadata import Missing
 from domain.rag.context import RagContext
 from domain.runtime.jobs import JobType
 from infrastructure.benchmark.sweep.data import SweepDataSource
 from infrastructure.ml.cache.keys import CacheKeyBuilder
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.clients.managed_llm import ManagedLLM
+from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile, evidence_profile_scope
 from infrastructure.ml.rag.rag_steps import RagOperations
 from infrastructure.repositories.vector.acl import build_search_filter
 from infrastructure.worker import queue
@@ -34,7 +35,11 @@ from tests.fakes import FakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from qdrant_client.models import Filter
+
+    from domain.knowledge.pack_metadata import MetadataCondition
 
 
 @pytest.mark.asyncio
@@ -100,23 +105,24 @@ async def test_distinct_jobs_have_distinct_deliveries_and_duplicate_is_reported(
 
 
 @pytest.mark.asyncio
-async def test_sweep_dense_and_sparse_share_production_temporal_scope() -> None:
-    today = date.today()  # noqa: DTZ011 — the production temporal contract uses local dates.
-    metadata = {
-        "visibility": DocumentVisibility.INTERNAL_PUBLIC.value,
-        "is_current": True,
-    }
+async def test_sweep_dense_and_sparse_share_production_pack_selection() -> None:
+    class HidingProfile(GenericEvidenceProfile):
+        def chunk_selection(self, as_of_date: date | None) -> MetadataCondition | None:
+            del as_of_date
+            return Missing("hidden")
+
+    metadata: dict[str, Any] = {"visibility": DocumentVisibility.INTERNAL_PUBLIC.value}
     points = [
         SimpleNamespace(id=1, score=1.0, payload={"page_content": "evidence", "metadata": metadata}),
         SimpleNamespace(
             id=2,
             score=1.0,
-            payload={"page_content": "expired", "metadata": {**metadata, "effective_to": today.isoformat()}},
+            payload={"page_content": "expired", "metadata": {**metadata, "pack_metadata": {"hidden": True}}},
         ),
         SimpleNamespace(
             id=3,
             score=1.0,
-            payload={"page_content": "future", "metadata": {**metadata, "effective_from": "2099-01-01"}},
+            payload={"page_content": "future", "metadata": {**metadata, "pack_metadata": {"hidden": True}}},
         ),
         SimpleNamespace(
             id=4,
@@ -137,13 +143,16 @@ async def test_sweep_dense_and_sparse_share_production_temporal_scope() -> None:
     clients = MagicMock()
     clients.qdrant_client.return_value = SimpleNamespace(search=search)
     clients.embeddings.return_value = SimpleNamespace(embed_query_sync=lambda _query: [0.1])
-    dense, sparse, candidates = await SweepDataSource(MagicMock(), clients).cache_candidates(
-        [{"question": "evidence"}], 10
-    )
+    with evidence_profile_scope(HidingProfile()):
+        dense, sparse, candidates = await SweepDataSource(MagicMock(), clients).cache_candidates(
+            [{"question": "evidence"}], 10
+        )
     assert set(candidates) == {"1"}
     assert [key for key, *_ in dense["evidence"]] == ["1"]
     assert [key for key, _ in sparse["evidence"]] == ["1"]
-    production = build_search_filter({"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}, [])
+    production = build_search_filter(
+        {"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}, [], Missing("hidden")
+    )
     assert filters == [production, production]
 
 

@@ -72,14 +72,10 @@ def render_selected_docs[ItemT: Document | tuple[Document, float]](
 
     for citation_id, group in enumerate(group_by_document(docs), start=1):
 
-        def position_key(item: ItemT) -> tuple[bool, int, int]:
+        def position_key(item: ItemT) -> tuple[bool, int]:
             doc = item[0] if isinstance(item, tuple) else item
             index = doc.metadata.get("chunk_index")
-            return (
-                not isinstance(index, int),
-                int(doc.metadata.get("act_version_id") or 0) if isinstance(index, int) else 0,
-                index if isinstance(index, int) else 0,
-            )
+            return (not isinstance(index, int), index if isinstance(index, int) else 0)
 
         ordered_group = sorted(group, key=position_key)
         scopes: set[str] = set()
@@ -103,7 +99,6 @@ def render_selected_docs[ItemT: Document | tuple[Document, float]](
                 and previous.metadata.get("chunk_index") == doc.metadata["chunk_index"] - 1
                 and doc.metadata.get("document_id") is not None
                 and doc.metadata.get("document_id") == previous.metadata.get("document_id")
-                and doc.metadata.get("act_version_id") == previous.metadata.get("act_version_id")
             ):
                 display.page_content = body[chunk_overlap_length(previous_body, body) :]
 

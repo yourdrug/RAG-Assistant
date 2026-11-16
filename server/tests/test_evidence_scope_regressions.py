@@ -40,7 +40,6 @@ from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
     "changed",
     [
         {"document_id": 2},
-        {"act_version_id": 2},
         {"section": "Existing clients"},
         {"parent_units": [{"content": "Only for existing clients."}]},
         {"parent_units": [{"content": "Only for new clients.", "heading": "Other condition"}]},
@@ -50,7 +49,6 @@ from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 def test_early_deduplication_keeps_distinct_evidence(changed: dict[str, Any]) -> None:
     metadata = {
         "document_id": 1,
-        "act_version_id": 1,
         "section": "New clients",
         "parent_units": [{"content": "Only for new clients."}],
     }
@@ -217,19 +215,18 @@ async def test_overfull_candidate_pool_does_not_disable_useful_neighbors(*, stru
 async def test_plain_text_neighbors_cannot_cross_source_edition_or_parent_scope() -> None:
     seed = Document(
         page_content="Requirement.",
-        metadata={"document_id": 1, "chunk_index": 1, "act_version_id": 5},
+        metadata={"document_id": 1, "chunk_index": 1},
     )
     neighbors = [
-        ChunkRecord(2, 2, "other.md", "Other source", 2, act_version_id=5),
-        ChunkRecord(3, 1, "rules.md", "Other edition", 2, act_version_id=4),
-        ChunkRecord(4, 1, "rules.md", "Distant chunk", 4, act_version_id=5),
+        ChunkRecord(2, 2, "other.md", "Other source", 2),
+        ChunkRecord(3, 3, "rules-2020.md", "Other edition", 2),
+        ChunkRecord(4, 1, "rules.md", "Distant chunk", 4),
         ChunkRecord(
             5,
             1,
             "rules.md",
             "Other scope",
             2,
-            act_version_id=5,
             context_metadata={"parent_units": [{"content": "Other condition."}]},
         ),
     ]

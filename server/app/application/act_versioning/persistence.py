@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.acts.timeline import ActVersionTimeline
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.shared.exceptions import EntityNotFoundError
@@ -13,7 +14,7 @@ from domain.shared.exceptions import EntityNotFoundError
 if TYPE_CHECKING:
     from application.uow import UnitOfWork
     from domain.knowledge.acts.models import ActVersion
-    from domain.knowledge.repositories.chunk import ChunkVersioningRepository
+    from domain.knowledge.repositories.chunk import ChunkPackMetadataRepository
 
 
 class ActVersionPersistence:
@@ -40,32 +41,26 @@ class ActVersionPersistence:
     async def save_changes(
         self, timeline: ActVersionTimeline, versions: tuple[ActVersion, ...], *, edited_id: int | None = None
     ) -> None:
-        for version in timeline.changed_versions(versions, edited_id=edited_id):
-            await self.save(version)
+        # Answers citing any edition of the act may change when one edition moves.
+        related = sorted({version.document_id for version in (*timeline.versions, *versions)})
 
-    async def save(self, version: ActVersion) -> None:
+        for version in timeline.changed_versions(versions, edited_id=edited_id):
+            await self.save(version, related_document_ids=related)
+
+    async def save(self, version: ActVersion, *, related_document_ids: list[int] | None = None) -> None:
         # Persist a version and both search projections in one transaction.
         if version.id is None:
             message = "Persisted act version has no ID"
             raise RuntimeError(message)
 
         await self.uow.act_versions.update(version)
-        chunks: ChunkVersioningRepository = self.uow.chunks
-        await chunks.set_current_by_act_version_ids([version.id], is_current=version.is_current)
-        await chunks.update_temporal_by_act_version_id(
-            version.id, effective_from=version.effective_from, effective_to=version.effective_to
-        )
+        chunks: ChunkPackMetadataRepository = self.uow.chunks
+        await chunks.set_pack_metadata(version.document_id, edition_metadata(version))
         await self.uow.vector_outbox.enqueue(
             VectorOutboxEntry(
                 operation=OutboxOperation.UPDATE_METADATA,
-                aggregate_type="act_version",
-                aggregate_id=version.id,
-                payload={
-                    "act_version_id": version.id,
-                    "act_id": version.act_id,
-                    "is_current": version.is_current,
-                    "effective_from": version.effective_from.isoformat() if version.effective_from else None,
-                    "effective_to": version.effective_to.isoformat() if version.effective_to else None,
-                },
+                aggregate_type="document",
+                aggregate_id=version.document_id,
+                payload={"related_document_ids": related_document_ids or [version.document_id]},
             )
         )

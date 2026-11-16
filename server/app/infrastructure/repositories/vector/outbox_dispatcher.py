@@ -7,6 +7,7 @@ Idempotent: upsert overwrites by deterministic chunk_id, delete on missing is no
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import socket
 from typing import TYPE_CHECKING, Any
@@ -15,6 +16,7 @@ import uuid
 from config import JobsSection, MLProviderSection, process_section
 from domain.knowledge.chunk import Chunk
 from domain.knowledge.index_sync import OutboxOperation
+from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from domain.shared.hashing import content_hash
 from infrastructure.utils.async_tasks import finish_owned_task
 
@@ -163,10 +165,7 @@ class OutboxDispatcher:
         elif operation == OutboxOperation.DELETE_CHUNKS:
             await self._vector_store.delete_by_ids(entry.payload["chunk_ids"])
         elif operation == OutboxOperation.UPDATE_METADATA:
-            await self._apply_version_metadata(
-                entry.payload["act_version_id"],
-                {k: v for k, v in entry.payload.items() if k != "act_version_id"},
-            )
+            await self._apply_pack_metadata(entry.aggregate_id, entry.payload.get("related_document_ids", []))
         elif operation == OutboxOperation.SET_DOCUMENT_ID:
             # Legacy jobs: upserts carry document IDs. A source-wide patch would
             # steal points belonging to another assignment of the same source.
@@ -187,28 +186,32 @@ class OutboxDispatcher:
             doc = await uow.documents.get_by_id(document_id)
             return doc is not None
 
-    async def _apply_version_metadata(self, version_id: int, fallback: dict[str, Any]) -> None:
+    async def _apply_pack_metadata(self, document_id: int, related_document_ids: list[int]) -> None:
         """Apply committed state, even when an old outbox entry is retried late."""
-        metadata = fallback
-        document_ids: list[int] = []
+        async with self._uow_factory.document_index_lock(document_id):
+            await self.project_pack_metadata(document_id)
+
+        # The pack names documents whose answers depend on this change (e.g. other editions).
+        others = [item for item in related_document_ids if item != document_id]
+
+        if self._cache_invalidator is not None and others:
+            await self._cache_invalidator.invalidate_by_document_ids(others, raise_on_error=True)
+
+    async def project_pack_metadata(self, document_id: int, *, unless_in: set[str] | None = None) -> None:
+        """Copy committed SQL pack metadata to the points; the caller holds the document lock.
+
+        ``unless_in`` skips the write when the points already carry exactly this state.
+        """
         async with self._uow_factory.create(master=True) as uow:
-            version = await uow.act_versions.get_by_id(version_id)
+            pack_metadata = await uow.chunks.get_pack_metadata(document_id)
 
-            if version is not None:
-                metadata = {
-                    "act_id": version.act_id,
-                    "is_current": version.is_current,
-                    "effective_from": version.effective_from.isoformat() if version.effective_from else None,
-                    "effective_to": version.effective_to.isoformat() if version.effective_to else None,
-                }
-                versions = await uow.act_versions.list_by_act(version.act_id) if version.act_id else [version]
-                document_ids = list({item.document_id for item in versions})
+        if pack_metadata is None:
+            return
 
-        if metadata:
-            await self._vector_store.update_metadata_by_act_version(version_id, metadata)
+        if unless_in is not None and unless_in == {json.dumps(pack_metadata, sort_keys=True)}:
+            return
 
-        if self._cache_invalidator is not None and document_ids:
-            await self._cache_invalidator.invalidate_by_document_ids(document_ids, raise_on_error=True)
+        await self._vector_store.set_pack_metadata_by_document_id(document_id, pack_metadata)
 
     async def current_chunks(self, document_id: int, chunk_ids: list[int]) -> dict[int, ChunkRecord]:
         async with self._uow_factory.create(master=True) as uow:
@@ -270,6 +273,7 @@ class OutboxDispatcher:
                     **p["metadata"],
                     "chunk_id": p["chunk_id"],
                     "content_hash": content_hash(current[p["chunk_id"]].content),
+                    PACK_METADATA_KEY: dict(current[p["chunk_id"]].pack_metadata),
                 },
             )
             for p in points
@@ -289,13 +293,10 @@ class OutboxDispatcher:
 
         # A rename may commit while embeddings are running. Refresh its payload last.
         await self.refresh_document_filename(document_id)
-        # Another ingestion/review may have changed the edition while embedding
-        # was running. Do not leave the snapshot in this upsert as the final state.
-        version_ids = {chunk.metadata.get("act_version_id") for chunk in chunks}
-
-        for version_id in version_ids:
-            if version_id is not None:
-                await self._apply_version_metadata(version_id, {})
+        # A pack may have changed the document metadata while embedding was running.
+        # Do not leave the snapshot in this upsert as the final state.
+        uploaded = {json.dumps(chunk.metadata.get(PACK_METADATA_KEY), sort_keys=True) for chunk in chunks}
+        await self.project_pack_metadata(document_id, unless_in=uploaded)
 
     async def reconcile_stuck_documents(self) -> int:
         """Find documents stuck in 'indexing' with no pending outbox entries and mark them done.

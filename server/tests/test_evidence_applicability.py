@@ -116,7 +116,7 @@ def test_missing_actor_does_not_confirm_timing_for_requested_provider() -> None:
         metadata={
             "source": "Постановление N 71.docx",
             "document_id": 71,
-            "act_version_id": 1,
+            "pack_metadata": {"act_version_id": 1},
             "citation_id": 1,
         },
     )
@@ -195,7 +195,7 @@ def test_mixed_table_versions_cannot_confirm_value() -> None:
                 metadata={
                     "source": "Постановление N 58.docx",
                     "document_id": 58,
-                    "act_version_id": version,
+                    "pack_metadata": {"act_version_id": version},
                     "citation_id": version,
                 },
             ),

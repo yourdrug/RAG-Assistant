@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Any, override
 
 from domain.rag.act_references import act_focused_queries, extract_act_numbers
 from infrastructure.domain_packs.belarus_law.evidence import (
     applicable_context,
+    editions,
     field_evidence,
     focus,
     grounded_response,
@@ -19,9 +20,13 @@ from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from datetime import date
+
     from langchain_core.documents import Document
 
     from domain.identity.user_context import UserContext
+    from domain.knowledge.pack_metadata import MetadataCondition
     from domain.rag.context import RagContext
     from domain.rag.evidence.assessment import EvidenceAssessment
     from domain.rag.ports import ChunkRetrievalRepository
@@ -38,6 +43,18 @@ class BelarusEvidenceProfile(GenericEvidenceProfile):
     @override
     def max_focus_chars(self) -> int:
         return focus.MAX_FOCUS_CHARS
+
+    @override
+    def chunk_selection(self, as_of_date: date | None) -> MetadataCondition | None:
+        return editions.edition_selection(as_of_date)
+
+    @override
+    def resolve_conflicts(self, docs: list[tuple[Document, float]]) -> list[tuple[Document, float]]:
+        return editions.resolve_edition_conflicts(docs)
+
+    @override
+    def source_fields(self, metadata: Mapping[str, Any]) -> dict[str, str]:
+        return editions.edition_source_fields(metadata)
 
     @override
     def reading_rules(self, question: str) -> list[str]:

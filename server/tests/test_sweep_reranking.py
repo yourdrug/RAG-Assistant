@@ -21,6 +21,7 @@ from infrastructure.ml.rag.langchain_mapping import chunk_value
 from tests.fakes import FakeUnitOfWorkFactory
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_sweep_candidates_forward_acl_to_qdrant_sparse() -> None:
     visibilities = list(DocumentVisibility)

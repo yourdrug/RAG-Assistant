@@ -51,7 +51,7 @@ async def persist_document_result(
 ) -> VersioningResult | None:
     """Commit version, chunks, replacement and outbox together, then invalidate answers."""
     document_id = command.document_id
-    versioning = VersioningResult(None, None, None, None, None)
+    versioning = VersioningResult()
     storage_deletes: list[str] = []
     async with uow_factory.create(master=True) as uow:
         if await lock_document_for_persist(uow, command) is None:
@@ -77,11 +77,7 @@ async def persist_document_result(
             command.group_id,
             doc_domain=command.doc_domain,
             domain_metadata=versioning.domain_metadata,
-            act_version_id=versioning.act_version_id,
-            act_id=versioning.act_id,
-            effective_from=versioning.effective_from,
-            effective_to=versioning.effective_to,
-            is_current=versioning.is_current,
+            pack_metadata=versioning.pack_metadata,
         )
 
         await process_chunks(

@@ -3,7 +3,9 @@
 import re
 from typing import Any
 
+from domain.knowledge.acts.edition_metadata import edition_id
 from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.pack_metadata import pack_metadata_of
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.ranking import RetrievalDocument
 from infrastructure.domain_packs.belarus_law.evidence.applicability import (
@@ -15,8 +17,8 @@ from infrastructure.domain_packs.belarus_law.evidence.predicates import listed_g
 
 
 def same_version(chunk: ChunkRecord, metadata: dict[str, Any]) -> bool:
-    return chunk.document_id == metadata.get("document_id") and chunk.act_version_id == metadata.get(
-        "act_version_id"
+    return chunk.document_id == metadata.get("document_id") and edition_id(chunk.pack_metadata) == edition_id(
+        pack_metadata_of(metadata)
     )
 
 

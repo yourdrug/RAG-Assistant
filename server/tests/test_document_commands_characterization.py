@@ -21,6 +21,7 @@ from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
 from application.identity import UserContextFactory
 from domain.identity.roles import UserRole
+from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
@@ -219,10 +220,7 @@ async def seed_act_timeline(
                 owner_id=1,
                 group_id=None,
                 doc_domain="legal",
-                act_version_id=version.id,
-                effective_from=version.effective_from,
-                effective_to=version.effective_to,
-                is_current=version.is_current,
+                pack_metadata=edition_metadata(version),
             ),
         )
 
@@ -252,13 +250,12 @@ async def test_delete_reconnects_act_timeline_and_search_projections(deleted_ind
     assert survivors[-1].effective_to is None
     assert survivors[0].effective_to == survivors[1].effective_from
     changed = survivors[0] if deleted_index == 1 else survivors[-1]
-    chunk = next(c for c in h.uow.chunks._chunks if c["act_version_id"] == changed.id)
-    assert chunk["is_current"] == changed.is_current
-    assert chunk["effective_to"] == changed.effective_to
+    chunk = next(c for c in h.uow.chunks._chunks if c["document_id"] == changed.document_id)
+    assert chunk["pack_metadata"] == edition_metadata(changed)
     entries = list(h.uow.vector_outbox._entries.values())
     assert entries[0].operation == "delete_by_document"
     assert entries[1].operation == "update_metadata"
-    assert entries[1].payload["act_version_id"] == changed.id
+    assert (entries[1].aggregate_type, entries[1].aggregate_id) == ("document", changed.document_id)
     h.storage.delete_file.assert_awaited_once_with("old-key")
 
 

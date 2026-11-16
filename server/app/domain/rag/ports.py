@@ -10,10 +10,10 @@ from domain.knowledge.enums import SearchMode
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import date
 
     from domain.identity.user_context import UserContext
     from domain.knowledge.chunk import ChunkRecord
+    from domain.knowledge.pack_metadata import MetadataCondition
 
 
 @runtime_checkable
@@ -28,7 +28,7 @@ class ChunkSearchRepository(Protocol):
         limit: int = 20,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
-        as_of_date: date | None = None,
+        selection: MetadataCondition | None = None,
         document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]: ...
 
@@ -46,7 +46,7 @@ class ChunkSearchPageRepository(Protocol):
         offset: int = 0,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
-        as_of_date: date | None = None,
+        selection: MetadataCondition | None = None,
     ) -> tuple[list[ChunkRecord], int]: ...
 
 
@@ -82,7 +82,6 @@ class ChunkContextRepository(Protocol):
         node_id: str,
         *,
         user: UserContext,
-        act_version_id: int | None,
         max_chars: int,
     ) -> list[ChunkRecord]:
         """Chunks of the largest ancestor of ``node_id`` within ``max_chars``, under search ACL."""

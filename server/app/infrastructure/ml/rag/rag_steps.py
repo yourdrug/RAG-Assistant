@@ -319,7 +319,12 @@ class RagOperations:
             ctx=ctx,
             user=user,
             access_filter=access_filter,
-            retrieval_filter=build_search_filter(user, list(ctx.user_group_ids), ctx.as_of_date, **managed),
+            retrieval_filter=build_search_filter(
+                user,
+                list(ctx.user_group_ids),
+                current_evidence_profile().chunk_selection(ctx.as_of_date),
+                **managed,
+            ),
             req_id=request.request_id,
             visibility_conditions=get_visibility_conditions(
                 UserKind(ctx.user_kind),

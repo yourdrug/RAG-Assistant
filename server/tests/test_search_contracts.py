@@ -58,6 +58,7 @@ async def test_search_refreshes_scope_and_preserves_page(role: UserRole) -> None
         limit=2,
         offset=4,
         document_id=5,
+        selection=None,
         mode=SearchMode.EXACT.value,
     )
     assert result == ([], 7)

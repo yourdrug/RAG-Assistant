@@ -40,7 +40,7 @@ ANNOTATION_FIELDS = frozenset(
     }
 )
 REQUIREMENT_FIELDS = ("required_facts", "required_conditions", "answer_facts", "answer_conditions")
-FRAGMENT_FIELDS = frozenset({"source", "text", "pages", "section", "document_id", "act_version_id", "anchor"})
+FRAGMENT_FIELDS = frozenset({"source", "text", "pages", "section", "document_id", "anchor"})
 
 
 def nonempty(value: object) -> bool:

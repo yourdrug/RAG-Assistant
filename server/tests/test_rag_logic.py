@@ -105,6 +105,7 @@ class TestFormatDocs:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.generic_evidence
 class TestExtractSources:
     def test_single_source_single_page(self) -> None:
         docs = [_doc("t", "a.pdf", page=1)]

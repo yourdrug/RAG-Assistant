@@ -37,7 +37,7 @@ def source_chunk(index: int, text: str, table_id: str | None = None, version: in
         chunk_index=index,
         filename="Постановление N 71.docx",
         content=text,
-        act_version_id=version,
+        pack_metadata={"act_version_id": version},
         content_type=PageContentType.TABLE.value if table_id else None,
         context_metadata={"table_id": table_id} if table_id else {},
     )
@@ -51,7 +51,7 @@ async def test_table_scope_requires_contiguous_matching_table_and_version(mutati
         metadata={
             "source": "Постановление N 71.docx",
             "document_id": 1,
-            "act_version_id": 1,
+            "pack_metadata": {"act_version_id": 1},
             "chunk_index": 12,
             "table_id": "table-2",
             "content_type": PageContentType.TABLE.value,
@@ -66,7 +66,7 @@ async def test_table_scope_requires_contiguous_matching_table_and_version(mutati
     if mutation == "gap":
         neighbors.pop(1)
     elif mutation == "version":
-        neighbors[0].act_version_id = 2
+        neighbors[0].pack_metadata = {"act_version_id": 2}
     elif mutation == "other_table":
         neighbors[1].context_metadata["table_id"] = "table-3"
 
@@ -86,7 +86,7 @@ async def test_timing_reference_requires_definition_and_appendix_in_same_version
         metadata={
             "source": "Постановление N 71.docx",
             "document_id": 1,
-            "act_version_id": 1,
+            "pack_metadata": {"act_version_id": 1},
             "chunk_index": 4,
             "citation_id": 1,
         },
@@ -109,7 +109,7 @@ async def test_amendment_target_link_is_explicit_and_same_version(version: int) 
         metadata={
             "source": "Постановление N 71.docx",
             "document_id": 1,
-            "act_version_id": 1,
+            "pack_metadata": {"act_version_id": 1},
             "chunk_index": 20,
             "citation_id": 1,
         },

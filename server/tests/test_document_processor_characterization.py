@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import date
 import threading
 from types import SimpleNamespace
@@ -241,13 +242,12 @@ class VanishingDocumentRepository(RecordingDocumentRepository):
 
 
 class FakeActVersioningService(ActVersioningService):
-    def __init__(self, result: VersioningResult | None = None) -> None:
+    def __init__(self, result: VersioningResult | None = None, version: ActVersion | None = None) -> None:
         self.calls: list[dict[str, Any]] = []
         self.invalidated_acts: list[int] = []
         self.invalidated_documents: list[int] = []
-        self._result = result or VersioningResult(
-            domain_metadata=None, act_version_id=None, act_id=None, effective_from=None, warning=None
-        )
+        self._result = result or VersioningResult()
+        self._version = version
 
     async def prepare_document_versioning(self, profile: Any, full_text: str) -> VersioningPlan | None:
         self.calls.append({"profile": profile, "full_text": full_text})
@@ -255,21 +255,17 @@ class FakeActVersioningService(ActVersioningService):
         if self._result.domain_metadata is None and self._result.warning is None:
             return None
 
+        effective_from = self._version.effective_from if self._version else None
         return VersioningPlan(
-            [], self._result.domain_metadata, None, self._result.effective_from, None, self._result.warning
+            [], self._result.domain_metadata, None, effective_from, None, self._result.warning
         )
 
     async def create_version_in_uow(
         self, uow: object, profile: object, document_id: int, extracted_refs: object, **kwargs: Any
     ) -> ActVersion:
-        _ = uow, profile, document_id, extracted_refs, kwargs
-        return ActVersion(
-            document_id=document_id,
-            id=self._result.act_version_id,
-            act_id=self._result.act_id,
-            effective_from=self._result.effective_from,
-            effective_to=self._result.effective_to,
-            is_current=self._result.is_current,
+        _ = uow, profile, extracted_refs, kwargs
+        return replace(
+            self._version or ActVersion(id=None, act_id=None, document_id=0), document_id=document_id
         )
 
     async def invalidate_act_answers(self, act_id: int) -> None:
@@ -625,13 +621,8 @@ async def test_replace_versioned_keeps_old_document(tmp_path: Path) -> None:
         ),
     )
     act_versioning = FakeActVersioningService(
-        VersioningResult(
-            domain_metadata={"act_number": "42"},
-            act_version_id=7,
-            act_id=3,
-            effective_from=date(2026, 1, 1),
-            warning=None,
-        )
+        VersioningResult(domain_metadata={"act_number": "42"}),
+        ActVersion(id=7, act_id=3, document_id=0, effective_from=date(2026, 1, 1)),
     )
     h = build_harness(tmp_path, registry=registry, act_versioning=act_versioning)
     old = await seed_document(h.repo, filename="old.pdf", source_path="uploads/old.pdf")
@@ -727,12 +718,9 @@ async def test_versioning_warning_and_metadata_enrichment(tmp_path: Path) -> Non
     )
     act_versioning = FakeActVersioningService(
         VersioningResult(
-            domain_metadata={"act_number": "42"},
-            act_version_id=7,
-            act_id=3,
-            effective_from=date(2026, 1, 1),
-            warning="Не удалось определить дату вступления в силу",
-        )
+            domain_metadata={"act_number": "42"}, warning="Не удалось определить дату вступления в силу"
+        ),
+        ActVersion(id=7, act_id=3, document_id=0, effective_from=date(2026, 1, 1)),
     )
     h = build_harness(tmp_path, pdf_report=report, registry=registry, act_versioning=act_versioning)
     doc = await seed_document(h.repo, filename="scan.pdf", source_path="uploads/scan.pdf")
@@ -751,10 +739,9 @@ async def test_versioning_warning_and_metadata_enrichment(tmp_path: Path) -> Non
 
     points = upsert_points(h.uow)
 
+    # Failed extraction without an existing edition does not attach edition metadata.
     for p in points:
-        assert "act_version_id" not in p["metadata"]
-        assert "act_id" not in p["metadata"]
-        assert p["metadata"]["effective_from"] == "2026-01-01"
+        assert "pack_metadata" not in p["metadata"]
         assert p["metadata"]["domain_metadata"] == {"act_number": "42"}
 
     assert act_versioning.calls[0]["profile"] is registry.get("legal")
@@ -844,13 +831,13 @@ async def test_prepared_version_commits_with_chunks_before_cache_invalidation(  
         cast("AsyncMock", service.invalidate_document_answers).assert_awaited_once_with(doc.id)
         assert events == ["invalidate"]
         assert h.repo.status_calls[-1]["warning"] == warning
-        assert all("act_version_id" not in p["metadata"] for p in points)
+        assert all("pack_metadata" not in p["metadata"] for p in points)
     else:
         assert events == ["version", "invalidate"]
         cast("AsyncMock", service.invalidate_act_answers).assert_awaited_once_with(3)
-        assert all(p["metadata"]["act_version_id"] == 7 for p in points)
-        assert all(p["metadata"]["effective_to"] == "2027-01-01" for p in points)
-        assert all(p["metadata"]["is_current"] is False for p in points)
+        assert all(p["metadata"]["pack_metadata"]["act_version_id"] == 7 for p in points)
+        assert all(p["metadata"]["pack_metadata"]["effective_to"] == "2027-01-01" for p in points)
+        assert all(p["metadata"]["pack_metadata"]["is_current"] is False for p in points)
 
 
 @pytest.mark.asyncio

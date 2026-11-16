@@ -13,6 +13,7 @@ from domain.knowledge.access_control import get_visibility_conditions
 from infrastructure.benchmark.sweep.candidates import cache_candidates
 from infrastructure.benchmark.sweep.reranking import cache_reranker_scores
 from infrastructure.ml.clients import factories
+from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.langchain_mapping import chunk_value
 from infrastructure.repositories.vector.acl import build_search_filter
 
@@ -36,7 +37,9 @@ class SweepDataSource:
         self, questions: list[dict[str, Any]], max_fetch_k: int
     ) -> tuple[DenseCache, SparseCache, CandidateCache]:
         access_filter = build_search_filter(
-            user={"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}, group_ids=[]
+            user={"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN},
+            group_ids=[],
+            selection=current_evidence_profile().chunk_selection(None),
         )
         dense, sparse, candidates = await cache_candidates(
             questions,

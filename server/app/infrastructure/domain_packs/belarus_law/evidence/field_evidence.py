@@ -9,6 +9,7 @@ from langchain_core.documents import Document
 
 from domain.knowledge.enums import PageContentType, SearchMode
 from domain.shared.hashing import content_hash
+from infrastructure.domain_packs.belarus_law.evidence.editions import edition_selection
 from infrastructure.domain_packs.belarus_law.evidence.focus import matching_field_rows, requested_fields
 from infrastructure.domain_packs.belarus_law.evidence.predicates import table_message_matches
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
@@ -27,7 +28,7 @@ MAX_FIELD_MATCHES = 32
 async def augment_field_candidates(
     question: str, candidates: list[Document], chunk_search: ChunkRetrievalRepository | None, ctx: RagContext
 ) -> list[Document]:
-    """Search only already-retrieved documents through ACL/temporal SQL search.
+    """Search only already-retrieved documents through ACL and edition-filtered SQL search.
 
     Results are candidates, still subject to authoritative document access,
     reranker thresholds and final prompt budgeting. Never fabricate a value.
@@ -53,7 +54,7 @@ async def augment_field_candidates(
                     limit=MAX_FIELD_MATCHES,
                     mode=SearchMode.ICONTAINS.value,
                     document_id=document_id,
-                    as_of_date=ctx.as_of_date,
+                    selection=edition_selection(ctx.as_of_date),
                 )
             except Exception:
                 log.warning("Field lookup failed for document_id=%s", document_id, exc_info=True)

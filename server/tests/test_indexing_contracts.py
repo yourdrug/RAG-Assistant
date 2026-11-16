@@ -1,13 +1,11 @@
 """Shared indexing exports, transaction ownership and metadata compatibility."""
 
-from datetime import UTC, date, datetime
 import importlib
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from application import indexing
-from application.indexing.pipeline import parse_meta_datetime
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import VectorOutboxEntry
@@ -45,21 +43,6 @@ def test_public_classification_exports_share_canonical_objects(
     assert getattr(importlib.import_module(public), name) is getattr(
         importlib.import_module(implementation), name
     )
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        (None, None),
-        (date(2026, 1, 2), date(2026, 1, 2)),
-        (datetime(2026, 1, 2, 12, tzinfo=UTC), date(2026, 1, 2)),
-        ("2026-01-02", date(2026, 1, 2)),
-        ("2026-01-02T12:30:00+03:00", date(2026, 1, 2)),
-        ("invalid", None),
-    ],
-)
-def test_temporal_metadata_normalizes_to_date(value: object, expected: date | None) -> None:
-    assert parse_meta_datetime(value) == expected
 
 
 @pytest.mark.asyncio
@@ -121,7 +104,7 @@ async def test_existing_uow_keeps_transaction_ownership_and_projection_order(set
     )
 
 
-def test_version_enrichment_preserves_chunk_references_and_acl() -> None:
+def test_document_enrichment_copies_opaque_pack_metadata_and_keeps_acl() -> None:
     chunks = [RawDocument("text", {"owner_id": 99, "domain_metadata": {"point": "chunk"}})]
     indexing.enrich_chunks_metadata(
         chunks,
@@ -131,11 +114,7 @@ def test_version_enrichment_preserves_chunk_references_and_acl() -> None:
         7,
         doc_domain="legal",
         domain_metadata={"point": "document", "number": "5"},
-        act_version_id=2,
-        act_id=3,
-        effective_from=date(2026, 1, 2),
-        effective_to="2026-02-01",
-        is_current=False,
+        pack_metadata={"edition": 2, "valid_from": "2026-01-02"},
     )
     assert chunks[0].metadata == {
         "document_id": 1,
@@ -144,9 +123,13 @@ def test_version_enrichment_preserves_chunk_references_and_acl() -> None:
         "group_id": 7,
         "doc_domain": "legal",
         "domain_metadata": {"point": "chunk", "number": "5"},
-        "act_version_id": 2,
-        "act_id": 3,
-        "effective_from": "2026-01-02",
-        "effective_to": "2026-02-01",
-        "is_current": False,
+        "pack_metadata": {"edition": 2, "valid_from": "2026-01-02"},
     }
+
+
+def test_document_without_pack_metadata_carries_no_pack_key() -> None:
+    chunks = [RawDocument("text", {})]
+    indexing.enrich_chunks_metadata(
+        chunks, 1, DocumentVisibility.INTERNAL_PUBLIC.value, None, None, doc_domain="general"
+    )
+    assert "pack_metadata" not in chunks[0].metadata

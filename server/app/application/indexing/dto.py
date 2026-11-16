@@ -2,7 +2,6 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date
 from typing import NotRequired, TypedDict
 
 from application.uow import UnitOfWork
@@ -28,13 +27,10 @@ class DomainClassification:
         return ",".join(sorted(k for k in self.candidate_scores if not k.startswith("__"))) or self.domain_key
 
 
-class VersionMetadataOptions(TypedDict, total=False):
+class DocumentMetadataOptions(TypedDict, total=False):
     domain_metadata: Mapping[str, object] | None
-    act_version_id: int | None
-    act_id: int | None
-    effective_from: date | str | None
-    effective_to: date | str | None
-    is_current: bool
+    # Pack-owned document metadata copied to every chunk; the core does not interpret it.
+    pack_metadata: Mapping[str, object] | None
 
 
 class ChunkWriteOptions(TypedDict):

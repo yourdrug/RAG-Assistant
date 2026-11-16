@@ -68,9 +68,16 @@ async def test_retry_reauthorizes_and_reranks_complementary_evidence(
 
 
 @pytest.mark.asyncio
-async def test_retry_resolves_conflicting_versions_after_pooling(monkeypatch: pytest.MonkeyPatch) -> None:
-    old = fragment("old obligation", act_id=7, act_version_id=1, effective_from="2020-01-01")
-    new = fragment("new obligation", 2, act_id=7, act_version_id=2, effective_from="2025-01-01")
+async def test_retry_applies_pack_conflict_rules_after_pooling(monkeypatch: pytest.MonkeyPatch) -> None:
+    class SupersedingProfile(GenericEvidenceProfile):
+        """A pack whose newer document supersedes the older one only when both are pooled."""
+
+        def resolve_conflicts(self, docs: list[tuple[Document, float]]) -> list[tuple[Document, float]]:
+            pooled = {doc.metadata["pack_metadata"]["rank"] for doc, _ in docs}
+            return [item for item in docs if item[0].metadata["pack_metadata"]["rank"] == max(pooled)]
+
+    old = fragment("old obligation", pack_metadata={"rank": 1})
+    new = fragment("new obligation", 2, pack_metadata={"rank": 2})
     monkeypatch.setattr(
         retrieval_pipeline,
         "retrieve_with_decomposition",
@@ -85,9 +92,10 @@ async def test_retry_resolves_conflicting_versions_after_pooling(monkeypatch: py
     request = RagRequest(
         "original", (), replace(CTX, as_of_date=date(2026, 1, 1)), make_rag(), 0, "test", "model"
     )
-    with evidence_profile_scope(GenericEvidenceProfile()):
+    with evidence_profile_scope(SupersedingProfile()):
         first = await ops.retrieve(PreparedQuery(request, "original"))
         second = await ops.retrieve(replace(first.prepared, query="refinement"), previous=first)
+    assert [item.chunk.content for item in first.documents] == ["old obligation"]
     assert [item.chunk.content for item in second.documents] == ["new obligation"]
 
 
@@ -121,11 +129,11 @@ def test_context_packs_a_bounded_block_and_other_document() -> None:
 
 @pytest.mark.asyncio
 async def test_text_neighbors_complete_only_same_provision_without_enumeration() -> None:
-    anchor = fragment("categories:", section="point 1", chunk_index=4, act_version_id=2)
+    anchor = fragment("categories:", section="point 1", chunk_index=4)
     matches = [
-        ChunkRecord(5, 1, "rules", "continuation", 5, section="point 1", act_version_id=2),
-        ChunkRecord(6, 1, "rules", "different rule", 6, section="point 2", act_version_id=2),
-        ChunkRecord(7, 1, "rules", "older version", 5, section="point 1", act_version_id=1),
+        ChunkRecord(5, 1, "rules", "continuation", 5, section="point 1"),
+        ChunkRecord(6, 1, "rules", "different rule", 6, section="point 2"),
+        ChunkRecord(7, 2, "older edition", "older version", 5, section="point 1"),
     ]
     search = SimpleNamespace(get_neighbors=AsyncMock(return_value=matches))
     result = await fetch_context_neighbors(

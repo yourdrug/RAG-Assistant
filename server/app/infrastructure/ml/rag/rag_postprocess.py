@@ -1,4 +1,4 @@
-"""RAG post-processing — relevance gate, rejection, temporal conflicts, neighbor enrichment.
+"""RAG post-processing — relevance gate, rejection, neighbor enrichment.
 
 Extracted from RagService to isolate post-processing logic from pipeline orchestration.
 """
@@ -6,7 +6,6 @@ Extracted from RagService to isolate post-processing logic from pipeline orchest
 from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import date as _date
 import logging
 import re
 import time
@@ -28,7 +27,6 @@ from domain.rag.settings import RagSettings
 from infrastructure.metrics.metrics import (
     RAG_RELEVANCE_GATE_TOTAL,
     RAG_STAGE_DURATION,
-    RAG_TEMPORAL_VERSION_CONFLICT_TOTAL,
     record_rag_answer,
 )
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
@@ -103,57 +101,6 @@ async def reject_not_relevant(
     yield SourcesEvent(sources=[], confidence=None)
 
 
-def resolve_temporal_conflicts(docs: list[tuple[Document, float]]) -> list[tuple[Document, float]]:
-    """Keep all retrieved chunks from the newest eligible version of each act."""
-    versions_by_act: dict[int, list[tuple[Document, float, _date]]] = {}
-    non_versioned: list[tuple[Document, float]] = []
-
-    for doc, score in docs:
-        act_id = doc.metadata.get("act_id")
-        act_version_id = doc.metadata.get("act_version_id")
-
-        if act_id is None or act_version_id is None:
-            non_versioned.append((doc, score))
-            continue
-
-        effective_from = effective_from_for(doc)
-
-        versions_by_act.setdefault(act_id, []).append((doc, score, effective_from))
-
-    resolved = list(non_versioned)
-
-    for act_id, versions in versions_by_act.items():
-        if len(versions) == 1:
-            resolved.append(versions[0][:2])
-            continue
-
-        versions_by_id: dict[int, list[tuple[Document, float, _date]]] = {}
-
-        for item in versions:
-            version_id = item[0].metadata["act_version_id"]
-            versions_by_id.setdefault(version_id, []).append(item)
-
-        if len(versions_by_id) == 1:
-            resolved.extend((doc, score) for doc, score, _ in versions)
-            continue
-
-        best_version = max(
-            versions_by_id.values(),
-            key=lambda chunks: (chunks[0][2], chunks[0][0].metadata["act_version_id"]),
-        )
-        resolved.extend((doc, score) for doc, score, _ in best_version)
-        dropped = len(versions) - len(best_version)
-        RAG_TEMPORAL_VERSION_CONFLICT_TOTAL.inc()
-        log.warning(
-            "Temporal conflict act_id=%d: kept version with effective_from=%s, dropped %d older versions",
-            act_id,
-            best_version[0][2],
-            dropped,
-        )
-
-    return resolved
-
-
 def apply_citation_filter(
     rag: RagSettings, full_answer: str, sources: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -178,7 +125,7 @@ class ParentScopes:
     """Parent scopes already expanded in one request and the size one may have."""
 
     max_chars: int
-    seen: set[tuple[int, int | None, int, int]] = field(default_factory=set)
+    seen: set[tuple[int, int, int]] = field(default_factory=set)
 
 
 async def fetch_context_neighbors(  # noqa: PLR0913 - one request scope per expansion kind
@@ -245,17 +192,16 @@ async def fetch_parent_scope(
         return None
 
     document_id = doc.metadata["document_id"]
-    act_version_id = doc.metadata.get("act_version_id")
     chunk_index = doc.metadata["chunk_index"]
     records = await chunk_search.get_parent_context(
-        document_id, node_id, user=user, act_version_id=act_version_id, max_chars=parents.max_chars
+        document_id, node_id, user=user, max_chars=parents.max_chars
     )
 
     if not records:
         return None
 
     # Records are ordered by chunk_index; their range identifies the selected ancestor.
-    scope = (document_id, act_version_id, records[0].chunk_index, records[-1].chunk_index)
+    scope = (document_id, records[0].chunk_index, records[-1].chunk_index)
 
     if scope in parents.seen:
         return []
@@ -394,18 +340,6 @@ def mark_partial_answer(answer: str) -> str:
         answer,
         flags=re.IGNORECASE,
     )
-
-
-def effective_from_for(doc: Document) -> _date:
-    effective_from = doc.metadata.get("effective_from") or _date.min
-
-    if isinstance(effective_from, str):
-        try:
-            effective_from = _date.fromisoformat(effective_from)
-        except ValueError:
-            effective_from = _date.min
-
-    return effective_from
 
 
 async def fetch_table_context(

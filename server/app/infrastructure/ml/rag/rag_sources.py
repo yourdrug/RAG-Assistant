@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.document_sources import document_identity
 from infrastructure.ml.rag.utils import clean_source_name as _clean_source_name
 
@@ -101,16 +102,11 @@ def _collect_source_metadata(doc: RetrievalDocument, score: float | None) -> tup
 
     domain_meta = doc.metadata.get("domain_metadata") or {}
     act_number = domain_meta.get("decree_number") or domain_meta.get("act_number")
-    effective_from = doc.metadata.get("effective_from")
-    effective_to = doc.metadata.get("effective_to")
+    pack_fields = current_evidence_profile().source_fields(doc.metadata)
     act_info: dict[str, Any] | None = None
 
-    if act_number or effective_from or effective_to:
-        act_info = {
-            "act_number": act_number,
-            "effective_from": effective_from,
-            "effective_to": effective_to,
-        }
+    if act_number or pack_fields:
+        act_info = {"act_number": act_number, **pack_fields}
 
     acc = SourceAccumulator(
         pages=pages_set,
@@ -171,9 +167,7 @@ def _apply_act_info(entry: dict[str, Any], act_info: dict[str, Any] | None) -> N
     if not act_info:
         return
 
-    for key in ("act_number", "effective_from", "effective_to"):
-        if act_info.get(key):
-            entry[key] = act_info[key]
+    entry.update({key: value for key, value in act_info.items() if value})
 
 
 def _filter_sources_by_min_score(

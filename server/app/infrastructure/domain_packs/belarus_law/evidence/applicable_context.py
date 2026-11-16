@@ -10,6 +10,7 @@ from domain.identity.user_context import UserContext
 from domain.knowledge.enums import PageContentType, SearchMode
 from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.domain_packs.belarus_law.evidence.applicability import act_numbers, normalize_act_number
+from infrastructure.domain_packs.belarus_law.evidence.editions import edition_of
 from infrastructure.domain_packs.belarus_law.evidence.focus import matching_field_rows, requested_fields
 from infrastructure.domain_packs.belarus_law.evidence.predicates import (
     listed_goods_polarities,
@@ -172,7 +173,7 @@ async def enrich_amendment_scope(
 
     for doc, _ in docs:
         metadata = doc.metadata
-        identity = (metadata.get("document_id"), metadata.get("act_version_id"))
+        identity = (metadata.get("document_id"), edition_of(metadata))
 
         if not all(identity) or identity in links or len(links) >= MAX_AMENDMENT_LOOKUPS:
             continue
@@ -208,7 +209,7 @@ async def enrich_amendment_scope(
 
     for original_doc, score in docs:
         doc = original_doc
-        target = links.get((doc.metadata.get("document_id"), doc.metadata.get("act_version_id")))
+        target = links.get((doc.metadata.get("document_id"), edition_of(doc.metadata)))
 
         doc = attach_amendment_targets(doc, target)
 

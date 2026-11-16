@@ -11,7 +11,7 @@ from domain.knowledge.enums import GENERAL_DOMAIN_KEY, DocumentVisibility, Domai
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-    from datetime import date, datetime
+    from datetime import datetime
 
 
 @dataclass
@@ -67,7 +67,7 @@ CHUNK_CONTEXT_FIELDS = frozenset(
 
 
 def extract_chunk_context(metadata: Mapping[str, Any]) -> dict[str, Any]:
-    """Copy interpretation fields, excluding identity, ACL and temporal state."""
+    """Copy interpretation fields, excluding identity, ACL and pack-owned state."""
     return {key: deepcopy(value) for key, value in metadata.items() if key in CHUNK_CONTEXT_FIELDS}
 
 
@@ -111,11 +111,7 @@ class ChunkRecord:
     content_type: str | None = None
     doc_title: str | None = None
     doc_type: str | None = None
-    act_version_id: int | None = None
-    act_id: int | None = None
-    effective_from: date | None = None
-    effective_to: date | None = None
-    is_current: bool = True
+    pack_metadata: dict[str, Any] = field(default_factory=dict)
     context_metadata: dict[str, Any] = field(default_factory=dict)
     embed_text: str | None = None
 

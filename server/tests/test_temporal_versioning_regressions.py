@@ -12,6 +12,7 @@ from langchain.schema import Document as SearchDocument
 import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, Filter, PointStruct, VectorParams
+from sqlalchemy.dialects import postgresql
 
 from application.act_versioning import ActVersioningService, service as act_versioning_service
 from application.documents.dto import PersistDocumentCommand, PreparedDocumentVersioning
@@ -22,6 +23,7 @@ from domain.identity.roles import UserKind
 from domain.identity.user_context import UserContext
 from domain.ingestion.profiles.types import ReferenceMatch
 from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility
@@ -30,17 +32,20 @@ from domain.shared.dates import parse_date_guess
 from domain.shared.exceptions import ValidationError
 from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
 from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
+from infrastructure.domain_packs.belarus_law.evidence.editions import (
+    edition_selection,
+    resolve_edition_conflicts,
+)
 from infrastructure.ml.rag import rag_steps
-from infrastructure.ml.rag.rag_postprocess import resolve_temporal_conflicts
 from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
-from infrastructure.repositories.vector.acl import with_temporal_filter
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+from infrastructure.repositories.vector.pack_selection import pack_selection_condition
 from presentation.api.routes.admin_act_versions import list_act_versions
 from presentation.api.routes.chat import format_sse_event
 from presentation.api.schemas.chat import ChatRequest
 from tests.fakes import FakeUnitOfWorkFactory, require_present
 from tests.rag_stage_fixtures import check_cache
-from tests.test_chunk_search_acl import capture, eval_tree, where_tree
+from tests.test_chunk_search_acl import capture
 from tests.test_rag_pipeline import make_rag
 
 
@@ -148,9 +153,9 @@ async def test_backfilled_and_future_versions_keep_chronological_intervals_and_s
         put_document(factory, document_id)
 
     old = await upload(service, 1, date(2020, 1, 1))
-    factory._uow.fake_chunks._chunks.append({"act_version_id": old.id, "is_current": True})
+    factory._uow.fake_chunks._chunks.append({"document_id": 1, "pack_metadata": edition_metadata(old)})
     newest = await upload(service, 2, date(2024, 1, 1))
-    factory._uow.fake_chunks._chunks.append({"act_version_id": newest.id, "is_current": True})
+    factory._uow.fake_chunks._chunks.append({"document_id": 2, "pack_metadata": edition_metadata(newest)})
     backfilled = await upload(service, 3, date(2022, 1, 1))
     future = await upload(service, 4, date(2099, 1, 1))
     old = require_present(await factory._uow.fake_act_versions.get_by_id(require_present(old.id)))
@@ -164,7 +169,8 @@ async def test_backfilled_and_future_versions_keep_chronological_intervals_and_s
     assert newest.is_current
     assert not backfilled.is_current
     assert not future.is_current
-    assert factory._uow.fake_chunks._chunks[0]["is_current"] is False
+    assert factory._uow.fake_chunks._chunks[0]["pack_metadata"]["is_current"] is False
+    assert factory._uow.fake_chunks._chunks[1]["pack_metadata"]["effective_to"] == "2099-01-01"
     assert set(cache.invalidate_by_document_ids.call_args.args[0]) == {1, 2, 3, 4}
 
 
@@ -226,6 +232,7 @@ async def test_explicit_null_clears_dates_and_unlink_invalidates_document_cache(
     factory, service, cache = system()
     put_document(factory, 1)
     version = await upload(service, 1, date(2020, 1, 1))
+    factory._uow.fake_chunks._chunks.append({"document_id": 1, "pack_metadata": edition_metadata(version)})
     await service.update_version(require_present(version.id), effective_to=date(2025, 1, 1))
     await service.update_version(
         require_present(version.id),
@@ -238,8 +245,15 @@ async def test_explicit_null_clears_dates_and_unlink_invalidates_document_cache(
     assert require_present(stored).effective_to is None
     assert require_present(stored).act_id is None
     entry = list(factory._uow.fake_vector_outbox._entries.values())[-1]
-    assert entry.payload["effective_from"] is None
-    assert entry.payload["effective_to"] is None
+    assert (entry.operation, entry.aggregate_type, entry.aggregate_id) == (
+        OutboxOperation.UPDATE_METADATA,
+        "document",
+        1,
+    )
+    chunk_metadata = factory._uow.fake_chunks._chunks[-1]["pack_metadata"]
+    assert chunk_metadata["effective_from"] is None
+    assert chunk_metadata["effective_to"] is None
+    assert chunk_metadata["act_id"] is None
     cache.invalidate_by_document_ids.assert_any_await([1])
 
 
@@ -287,22 +301,21 @@ async def test_persistence_uses_trusted_dates_and_propagates_backfilled_interval
 
     await upload(service, 1, date(2024, 1, 1))
     result = await persist(factory, service, 2, "УКАЗ №5 от 1 января 2020 г.\nВступает в силу с 01.01.2022.")
-    assert result.effective_to == date(2024, 1, 1)
-    assert result.is_current is False
+    assert result.pack_metadata["effective_to"] == "2024-01-01"
+    assert result.pack_metadata["is_current"] is False
     chunk = factory._uow.fake_chunks._chunks[-1]
-    assert chunk["effective_to"] == date(2024, 1, 1)
-    assert chunk["is_current"] is False
+    assert chunk["pack_metadata"] == result.pack_metadata
     result = await persist(factory, service, 3, "УКАЗ №9 от 1 января 2020 г.\nПОСТАНОВЛЯЮ:\n1. Пункт.")
-    version = await factory._uow.fake_act_versions.get_by_id(result.act_version_id)
+    version = await factory._uow.fake_act_versions.get_by_id(result.pack_metadata["act_version_id"])
     assert require_present(version).effective_from is None
-    assert factory._uow.fake_chunks._chunks[-1]["effective_from"] is None
+    assert factory._uow.fake_chunks._chunks[-1]["pack_metadata"]["effective_from"] is None
 
 
 def test_real_qdrant_engine_handles_missing_null_and_half_open_date_bounds() -> None:
     client = QdrantClient(":memory:")
     try:
         client.create_collection("versions", vectors_config=VectorParams(size=1, distance=Distance.COSINE))
-        metadata = [
+        metadata: list[dict[str, Any]] = [
             {"is_current": True},
             {"is_current": True, "effective_from": None, "effective_to": None},
             {"is_current": False},
@@ -313,7 +326,9 @@ def test_real_qdrant_engine_handles_missing_null_and_half_open_date_bounds() -> 
         client.upsert(
             "versions",
             points=[
-                PointStruct(id=i, vector=[1.0], payload={"metadata": meta})
+                PointStruct(
+                    id=i, vector=[1.0], payload={"metadata": {"pack_metadata": {"act_version_id": i, **meta}}}
+                )
                 for i, meta in enumerate(metadata, 1)
             ],
         )
@@ -324,7 +339,8 @@ def test_real_qdrant_engine_handles_missing_null_and_half_open_date_bounds() -> 
             (date(2099, 1, 1), {1, 2, 6}),
             (None, {1, 2, 5}),
         ]:
-            points, _ = client.scroll("versions", scroll_filter=with_temporal_filter(Filter(), as_of_date))
+            selection = Filter(must=[pack_selection_condition(edition_selection(as_of_date))])
+            points, _ = client.scroll("versions", scroll_filter=selection)
             assert {point.id for point in points} == expected
     finally:
         client.close()
@@ -332,16 +348,17 @@ def test_real_qdrant_engine_handles_missing_null_and_half_open_date_bounds() -> 
 
 def test_all_chunks_of_selected_edition_survive_with_mixed_date_types() -> None:
     old = SearchDocument(
-        page_content="old", metadata={"act_id": 1, "act_version_id": 1, "effective_from": date(2020, 1, 1)}
+        page_content="old",
+        metadata={"pack_metadata": {"act_id": 1, "act_version_id": 1, "effective_from": date(2020, 1, 1)}},
     )
     newer = [
         SearchDocument(
             page_content=f"new {i}",
-            metadata={"act_id": 1, "act_version_id": 2, "effective_from": "2024-01-01"},
+            metadata={"pack_metadata": {"act_id": 1, "act_version_id": 2, "effective_from": "2024-01-01"}},
         )
         for i in range(3)
     ]
-    result = resolve_temporal_conflicts([(old, 0.99)] + [(doc, 0.8) for doc in newer])
+    result = resolve_edition_conflicts([(old, 0.99)] + [(doc, 0.8) for doc in newer])
     assert [doc.page_content for doc, _ in result] == [doc.page_content for doc in newer]
 
 
@@ -349,36 +366,39 @@ def test_all_chunks_of_selected_edition_survive_with_mixed_date_types() -> None:
 async def test_delayed_outbox_metadata_uses_latest_state_and_invalidates_cache() -> None:
     factory, service, cache = system()
     put_document(factory, 1)
+    put_document(factory, 2)
     version = await upload(service, 1, date(2020, 1, 1))
+    factory._uow.fake_chunks._chunks.append({"document_id": 1, "pack_metadata": edition_metadata(version)})
     await service.update_version(require_present(version.id), effective_from=date(2024, 1, 1))
-    vector_store = SimpleNamespace(update_metadata_by_act_version=AsyncMock())
+    vector_store = SimpleNamespace(set_pack_metadata_by_document_id=AsyncMock())
     dispatcher = OutboxDispatcher(factory, vector_store, cache)
-    await dispatcher._apply_version_metadata(require_present(version.id), {"effective_from": "2020-01-01"})
-    metadata = vector_store.update_metadata_by_act_version.call_args.args[1]
+    cache.invalidate_by_document_ids.reset_mock()
+    # A late retry of the projection still applies the committed SQL state.
+    await dispatcher._apply_pack_metadata(1, [1, 2])
+    document_id, metadata = vector_store.set_pack_metadata_by_document_id.call_args.args
+    assert document_id == 1
     assert metadata["effective_from"] == "2024-01-01"
-    cache.invalidate_by_document_ids.assert_any_await([1])
+    cache.invalidate_by_document_ids.assert_awaited_once_with([2], raise_on_error=True)
+    entries = [
+        entry
+        for entry in factory._uow.fake_vector_outbox._entries.values()
+        if entry.operation == "update_metadata"
+    ]
+    assert entries
+    assert all(entry.aggregate_type == "document" and entry.aggregate_id == 1 for entry in entries)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["exact", "icontains"])
-async def test_sql_search_enforces_dates_without_weakening_acl(mode: str) -> None:
-    stmt = await capture("rules", {"id": 1, "kind": "internal"}, [], mode, None, as_of_date=date(2024, 1, 1))
-    tree = where_tree(stmt)
-    row = {
-        "content": " rules ",
-        "visibility": "internal_public",
-        "is_current": False,
-        "effective_from": date(2020, 1, 1),
-        "effective_to": date(2024, 1, 1),
-    }
-    assert not eval_tree(tree, row, "rules")
-    row.update(effective_from=date(2024, 1, 1), effective_to=None)
-    assert eval_tree(tree, row, "rules")
-    row.update(visibility="internal_private", owner_id=9)
-    assert not eval_tree(tree, row, "rules")
-    sql = str(stmt.compile())
-    assert "LEFT OUTER JOIN act_versions" in sql
-    assert "act_versions.act_id" in sql
+async def test_sql_search_applies_edition_selection_with_acl(mode: str) -> None:
+    stmt = await capture(
+        "rules", {"id": 1, "kind": "internal"}, [], mode, None, selection=edition_selection(date(2024, 1, 1))
+    )
+    dialect = postgresql.dialect()  # type: ignore[no-untyped-call]  # SQLAlchemy exposes an untyped dialect constructor.
+    sql = str(stmt.compile(dialect=dialect))
+    assert "chunks.pack_metadata" in sql
+    assert "chunks.visibility" in sql
+    assert "act_versions" not in sql
 
 
 @pytest.mark.asyncio
@@ -389,10 +409,7 @@ async def test_exact_candidates_include_temporal_metadata_and_request_date() -> 
         filename="rules.rtf",
         content="rules",
         chunk_index=0,
-        act_id=4,
-        act_version_id=6,
-        effective_from=date(2024, 1, 1),
-        is_current=False,
+        pack_metadata={"act_id": 4, "act_version_id": 6, "effective_from": "2024-01-01", "is_current": False},
     )
     search = SimpleNamespace(search_substring=AsyncMock(return_value=[result]))
     candidates: list[Any] = [SearchDocument(page_content="seed", metadata={"document_id": 2})]
@@ -403,10 +420,10 @@ async def test_exact_candidates_include_temporal_metadata_and_request_date() -> 
         cast("RagContext", SimpleNamespace(as_of_date=date(2024, 1, 1))),
         search,
     )
-    assert search.search_substring.call_args.kwargs["as_of_date"] == date(2024, 1, 1)
-    assert candidates[-1].metadata["act_id"] == 4
-    assert candidates[-1].metadata["act_version_id"] == 6
-    assert candidates[-1].metadata["effective_from"] == "2024-01-01"
+    assert search.search_substring.call_args.kwargs["selection"] == edition_selection(date(2024, 1, 1))
+    assert candidates[-1].metadata["pack_metadata"]["act_id"] == 4
+    assert candidates[-1].metadata["pack_metadata"]["act_version_id"] == 6
+    assert candidates[-1].metadata["pack_metadata"]["effective_from"] == "2024-01-01"
 
 
 @pytest.mark.asyncio
@@ -577,5 +594,5 @@ async def test_prepared_edition_and_chunks_share_transaction(  # noqa: PLR0915 -
         versions = await uow.fake_act_versions.list_by_act(require_present(original.act_id))
         created = next(v for v in versions if v.document_id == 2)
         assert created.effective_from == date(2024, 1, 1)
-        assert uow.fake_chunks._chunks[-1]["act_version_id"] == created.id
+        assert uow.fake_chunks._chunks[-1]["pack_metadata"]["act_version_id"] == created.id
         cache.invalidate_by_document_ids.assert_awaited_once()

@@ -2,33 +2,33 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from domain.knowledge.enums import SearchMode
 from domain.knowledge.repositories.chunk import (
     DEFAULT_CHUNK_INSERT_OPTIONS,
     DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
-    ChunkInsertOptions,
-    ManualChunkInsertOptions,
 )
 from infrastructure.repositories.chunk.chunk_context import SQLAlchemyChunkContextRepository
 from infrastructure.repositories.chunk.chunk_corpus import SQLAlchemyChunkCorpusRepository
 from infrastructure.repositories.chunk.chunk_crud import SQLAlchemyChunkCrudRepository
+from infrastructure.repositories.chunk.chunk_pack_metadata import SQLAlchemyChunkPackMetadataRepository
 from infrastructure.repositories.chunk.chunk_search import SQLAlchemyChunkSearchRepository
-from infrastructure.repositories.chunk.chunk_versioning import SQLAlchemyChunkVersioningRepository
 from infrastructure.repositories.chunk.document_nodes import SQLAlchemyDocumentNodeRepository
 
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
-    from datetime import date, datetime
+    from datetime import datetime
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from domain.identity.user_context import UserContext
     from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
     from domain.knowledge.document_nodes import DocumentNode
+    from domain.knowledge.pack_metadata import MetadataCondition
+    from domain.knowledge.repositories.chunk import ChunkInsertOptions, ManualChunkInsertOptions
     from domain.shared.pagination import CursorPage
 
 
@@ -37,14 +37,12 @@ class SQLAlchemyChunkRepository:
         self._crud = SQLAlchemyChunkCrudRepository(session)
         self._corpus = SQLAlchemyChunkCorpusRepository(session)
         self._context = SQLAlchemyChunkContextRepository(session)
-        self._versioning = SQLAlchemyChunkVersioningRepository(session)
+        self._pack_metadata = SQLAlchemyChunkPackMetadataRepository(session)
         self._search = SQLAlchemyChunkSearchRepository(session)
         self._nodes = SQLAlchemyDocumentNodeRepository(session)
 
-    async def replace_document_nodes(
-        self, document_id: int, act_version_id: int | None, nodes: list[DocumentNode]
-    ) -> None:
-        await self._nodes.replace_document_nodes(document_id, act_version_id, nodes)
+    async def replace_document_nodes(self, document_id: int, nodes: list[DocumentNode]) -> None:
+        await self._nodes.replace_document_nodes(document_id, nodes)
 
     async def get_parent_context(
         self,
@@ -52,12 +50,9 @@ class SQLAlchemyChunkRepository:
         node_id: str,
         *,
         user: UserContext,
-        act_version_id: int | None,
         max_chars: int,
     ) -> list[ChunkRecord]:
-        return await self._context.get_parent_context(
-            document_id, node_id, user=user, act_version_id=act_version_id, max_chars=max_chars
-        )
+        return await self._context.get_parent_context(document_id, node_id, user=user, max_chars=max_chars)
 
     async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
         return await self._crud.get_ids_by_document_id(document_id, for_update=for_update)
@@ -70,29 +65,8 @@ class SQLAlchemyChunkRepository:
         chunks: list[ChunkInsert],
         options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
     ) -> list[int]:
-        owner_id = options.owner_id
-        group_id = options.group_id
-        doc_domain = options.doc_domain
-        domain_metadata = options.domain_metadata
-        act_version_id = options.act_version_id
-        effective_from = options.effective_from
-        effective_to = options.effective_to
-        is_current = options.is_current
         return await self._crud.bulk_insert(
-            document_id=document_id,
-            filename=filename,
-            visibility=visibility,
-            chunks=chunks,
-            options=ChunkInsertOptions(
-                owner_id=owner_id,
-                group_id=group_id,
-                doc_domain=doc_domain,
-                domain_metadata=domain_metadata,
-                act_version_id=act_version_id,
-                effective_from=effective_from,
-                effective_to=effective_to,
-                is_current=is_current,
-            ),
+            document_id=document_id, filename=filename, visibility=visibility, chunks=chunks, options=options
         )
 
     async def get_by_id(self, chunk_id: int) -> ChunkRecord | None:
@@ -134,15 +108,6 @@ class SQLAlchemyChunkRepository:
         doc_domain: str,
         options: ManualChunkInsertOptions = DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
     ) -> int:
-        owner_id = options.owner_id
-        group_id = options.group_id
-        manual = options.manual
-        content_hash = options.content_hash
-        context_metadata = options.context_metadata
-        act_version_id = options.act_version_id
-        effective_from = options.effective_from
-        effective_to = options.effective_to
-        is_current = options.is_current
         return await self._crud.insert_one(
             document_id=document_id,
             chunk_index=chunk_index,
@@ -150,24 +115,14 @@ class SQLAlchemyChunkRepository:
             filename=filename,
             visibility=visibility,
             doc_domain=doc_domain,
-            options=ManualChunkInsertOptions(
-                owner_id=owner_id,
-                group_id=group_id,
-                manual=manual,
-                content_hash=content_hash,
-                context_metadata=context_metadata,
-                act_version_id=act_version_id,
-                effective_from=effective_from,
-                effective_to=effective_to,
-                is_current=is_current,
-            ),
+            options=options,
         )
 
     async def delete_one(self, chunk_id: int) -> None:
         return await self._crud.delete_one(chunk_id=chunk_id)
 
     async def delete_by_document_id(self, document_id: int) -> None:
-        await self._nodes.replace_document_nodes(document_id, None, [])
+        await self._nodes.replace_document_nodes(document_id, [])
         return await self._crud.delete_by_document_id(document_id=document_id)
 
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
@@ -251,17 +206,11 @@ class SQLAlchemyChunkRepository:
             row_end=row_end,
         )
 
-    async def set_current_by_act_version_ids(self, act_version_ids: list[int], *, is_current: bool) -> int:
-        return await self._versioning.set_current_by_act_version_ids(
-            act_version_ids=act_version_ids, is_current=is_current
-        )
+    async def set_pack_metadata(self, document_id: int, pack_metadata: dict[str, Any]) -> int:
+        return await self._pack_metadata.set_pack_metadata(document_id, pack_metadata)
 
-    async def update_temporal_by_act_version_id(
-        self, act_version_id: int, effective_from: date | None, effective_to: date | None
-    ) -> int:
-        return await self._versioning.update_temporal_by_act_version_id(
-            act_version_id=act_version_id, effective_from=effective_from, effective_to=effective_to
-        )
+    async def get_pack_metadata(self, document_id: int) -> dict[str, Any] | None:
+        return await self._pack_metadata.get_pack_metadata(document_id)
 
     async def search_substring(
         self,
@@ -271,7 +220,7 @@ class SQLAlchemyChunkRepository:
         limit: int = 20,
         mode: str = "exact",
         document_id: int | None = None,
-        as_of_date: date | None = None,
+        selection: MetadataCondition | None = None,
         document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
         return await self._search.search_substring(
@@ -280,7 +229,7 @@ class SQLAlchemyChunkRepository:
             limit=limit,
             mode=mode,
             document_id=document_id,
-            as_of_date=as_of_date,
+            selection=selection,
             document_ids=document_ids,
         )
 
@@ -293,7 +242,7 @@ class SQLAlchemyChunkRepository:
         offset: int = 0,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
-        as_of_date: date | None = None,
+        selection: MetadataCondition | None = None,
     ) -> tuple[list[ChunkRecord], int]:
         return await self._search.search_substring_page(
             query=query,
@@ -302,5 +251,5 @@ class SQLAlchemyChunkRepository:
             offset=offset,
             mode=mode,
             document_id=document_id,
-            as_of_date=as_of_date,
+            selection=selection,
         )

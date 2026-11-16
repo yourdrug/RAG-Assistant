@@ -46,21 +46,17 @@ def test_breadcrumb_keeps_specific_unit_in_header_and_prefix() -> None:
     assert "Статья 31" in context_prefix(doc.metadata, 550)
 
 
-@pytest.mark.parametrize(
-    "indices,versions,count", [((4, 5), (1, 1), 1), ((3, 5), (1, 1), 2), ((4, 5), (1, 2), 2)]
-)
-def test_order_overlap_and_version_boundaries(
-    indices: tuple[int, int], versions: tuple[int, int], count: int
-) -> None:
+@pytest.mark.parametrize("indices,count", [((4, 5), 1), ((3, 5), 2)])
+def test_order_and_overlap_of_adjacent_chunks(indices: tuple[int, int], count: int) -> None:
     shared = "Общий фрагмент, который должен встретиться только один раз."
     docs = [
         Document(
             page_content="Начало " + shared,
-            metadata={"document_id": 1, "chunk_index": indices[0], "act_version_id": versions[0]},
+            metadata={"document_id": 1, "chunk_index": indices[0]},
         ),
         Document(
             page_content=shared + " Конец",
-            metadata={"document_id": 1, "chunk_index": indices[1], "act_version_id": versions[1]},
+            metadata={"document_id": 1, "chunk_index": indices[1]},
         ),
     ]
     context, selected = render_selected_docs(list(reversed(docs)))

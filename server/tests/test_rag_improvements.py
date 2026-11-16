@@ -89,6 +89,7 @@ def state_for(docs: list[tuple[Document, float]], **kwargs: Any) -> SimpleNamesp
     )
 
 
+@pytest.mark.generic_evidence
 def test_prompt_groups_fragments_by_document_and_sources_keep_the_same_numbers() -> None:
     docs = [
         (doc("First condition", 10), 0.9),
@@ -109,6 +110,7 @@ def test_prompt_groups_fragments_by_document_and_sources_keep_the_same_numbers()
     assert filter_cited_documents("Условие согласно [999].", selected) == []
 
 
+@pytest.mark.generic_evidence
 def test_source_identity_does_not_merge_same_basename_without_document_ids() -> None:
     docs = [
         Document(page_content="A", metadata={"source": "a/rules.pdf"}),
@@ -256,6 +258,7 @@ def test_exact_token_counter_is_applied_to_the_complete_formatted_prompt() -> No
     assert len(messages[0].content) > 1000
 
 
+@pytest.mark.generic_evidence
 def test_all_search_paths_can_receive_the_full_curator_snapshot() -> None:
     scope = CuratorScope(managed_internal_ids=(10,), managed_group_ids=(20,), managed_client_ids=(30,))
     ctx = RagContext(

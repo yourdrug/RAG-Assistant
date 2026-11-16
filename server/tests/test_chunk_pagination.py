@@ -1,6 +1,6 @@
 """Cursor listing keeps the same complete records as ordinary listing."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -41,10 +41,7 @@ async def test_cursor_listing_preserves_metadata_and_page_boundaries(direction: 
             content_type="text",
             doc_title="Rules",
             doc_type="decree",
-            act_version_id=9,
-            effective_from=date(2025, 1, 1),
-            effective_to=date(2025, 12, 31),
-            is_current=False,
+            pack_metadata={"edition": 9},
             context_metadata={"page": 4, "parent_units": [{"content": "Only legal entities."}]},
         )
         for index in range(3)

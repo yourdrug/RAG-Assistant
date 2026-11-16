@@ -51,8 +51,9 @@ async def test_reranker_retains_distinct_provision_without_changing_thresholds()
 
 def test_scope_tables_and_unstructured_chunks_are_not_collapsed() -> None:
     docs = [
-        provision("a", "point 2", act_version_id=1),
-        provision("b", "point 2", act_version_id=2),
+        # Editions are separate documents.
+        provision("a", "point 2", document_id=21),
+        provision("b", "point 2", document_id=24),
         provision("c", "point 2", document_id=23),
         provision("d", "point 2", table_id="table-1"),
         provision("e", "point 2", table_id="table-1"),

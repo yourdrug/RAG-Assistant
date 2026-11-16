@@ -437,17 +437,16 @@ def test_gold_anchor_locates_a_passage_split_across_chunks() -> None:
 
 
 def test_fragment_matches_authorized_inherited_scope_without_dense_text() -> None:
-    fragment = {"text": "Only organizations", "source": "rules.pdf", "document_id": 7, "act_version_id": 9}
+    fragment = {"text": "Only organizations", "source": "rules.pdf", "document_id": 7}
     doc = {
         "content": "Submit the application.",
         "scoped_content": "Only organizations\nSubmit the application.",
-        "metadata": {"source": "rules.pdf", "document_id": 7, "act_version_id": 9},
+        "metadata": {"source": "rules.pdf", "document_id": 7},
     }
     assert matches_fragment(fragment, doc)
     assert not matches_fragment(
         fragment, {key: value for key, value in doc.items() if key != "scoped_content"}
     )
-    assert not matches_fragment({**fragment, "act_version_id": 10}, doc)
     assert not matches_fragment({**fragment, "document_id": 8}, doc)
     assert not matches_fragment({**fragment, "source": "other.pdf"}, doc)
     dense_only = {"content": "body", "metadata": doc["metadata"], "embed_text": "Only organizations"}

@@ -253,11 +253,7 @@ class DocumentSyncService:
                 group_id,
                 doc_domain=chunk_domain,
                 domain_metadata=versioning.domain_metadata,
-                act_version_id=versioning.act_version_id,
-                act_id=versioning.act_id,
-                effective_from=versioning.effective_from,
-                effective_to=versioning.effective_to,
-                is_current=versioning.is_current,
+                pack_metadata=versioning.pack_metadata,
             )
 
             if versioning.warning:
@@ -327,13 +323,7 @@ class DocumentSyncService:
     async def prepare_versioning(
         self, fname: str, chunk_domain: str, full_text: str
     ) -> tuple[VersioningResult, VersioningPlan | None, DocumentProfile | None]:
-        versioning = VersioningResult(
-            domain_metadata=None,
-            act_version_id=None,
-            act_id=None,
-            effective_from=None,
-            warning=None,
-        )
+        versioning = VersioningResult()
         profile = self.get_profile(chunk_domain)
         versioning_plan = None
         act_versioning_service = self._act_versioning_service
@@ -342,13 +332,7 @@ class DocumentSyncService:
             versioning_plan = await act_versioning_service.prepare_document_versioning(profile, full_text)
 
             if versioning_plan is not None:
-                versioning = VersioningResult(
-                    versioning_plan.domain_metadata,
-                    None,
-                    None,
-                    versioning_plan.effective_from,
-                    versioning_plan.warning,
-                )
+                versioning = VersioningResult(versioning_plan.domain_metadata, versioning_plan.warning)
 
             if versioning.warning:
                 log.warning("Versioning warning for %s: %s", fname, versioning.warning)

@@ -32,7 +32,7 @@ def prioritize_distinct_provisions[ItemT: RetrievalDocument | tuple[RetrievalDoc
 
     Unscored retrieval keeps the diversity pass. Scored evidence can retain up
     to three chunks of a provision ahead of a substantially weaker provision.
-    Nearby scores still favor diversity; source and version boundaries are kept.
+    Nearby scores still favor diversity; document boundaries are kept.
     """
     seen = set()
     first: list[ItemT] = []
@@ -168,11 +168,11 @@ def provision_identity(doc: RetrievalDocument) -> tuple[object, ...] | None:
     if parts[-1] == SENTENCE_UNIT_KIND:
         parts = parts[:-1]
 
-    return (source, metadata.get("act_version_id"), tuple(parts)) if parts else None
+    return (source, tuple(parts)) if parts else None
 
 
 def same_evidence_block(anchor: RetrievalDocument, candidate: RetrievalDocument) -> bool:
-    """Recognize bounded continuations without crossing provisions or versions."""
+    """Recognize bounded continuations without crossing provisions or documents."""
     key = provision_identity(anchor)
 
     if key != provision_identity(candidate):
@@ -188,7 +188,7 @@ def same_evidence_block(anchor: RetrievalDocument, candidate: RetrievalDocument)
 
 
 def same_text_run(anchor: RetrievalDocument, candidate: RetrievalDocument) -> bool:
-    """Recognize immediate plain-text neighbors within one document and edition."""
+    """Recognize immediate plain-text neighbors within one document."""
     source = anchor.metadata.get("document_id")
     start = anchor.metadata.get("chunk_index")
     end = candidate.metadata.get("chunk_index")
@@ -196,7 +196,6 @@ def same_text_run(anchor: RetrievalDocument, candidate: RetrievalDocument) -> bo
     if (
         not source
         or source != candidate.metadata.get("document_id")
-        or anchor.metadata.get("act_version_id") != candidate.metadata.get("act_version_id")
         or any(
             doc.metadata.get("section")
             or doc.metadata.get("heading")
@@ -305,8 +304,6 @@ def evidence_identity(doc: RetrievalDocument) -> tuple[object, ...]:
     scope = {key: value for key, value in metadata.items() if key in CHUNK_CONTEXT_FIELDS}
     return (
         source,
-        metadata.get("act_id"),
-        metadata.get("act_version_id"),
         content_hash(doc.page_content),
         content_hash(json.dumps(scope, sort_keys=True, ensure_ascii=False, default=str)),
     )

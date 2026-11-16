@@ -28,10 +28,8 @@ from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_reranking import rerank_documents
 from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
-from infrastructure.repositories.vector.acl import (
-    build_qdrant_filter,
-    with_temporal_filter,
-)
+from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
+from infrastructure.repositories.vector.acl import build_search_filter
 from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
 
 
@@ -75,7 +73,7 @@ async def compare(cases: list[dict[str, Any]], user_id: int) -> dict[str, Any]:
     conditions = get_visibility_conditions(
         UserKind.INTERNAL, [], for_list=False, user_role=UserRole.ADMIN
     )
-    access_filter = with_temporal_filter(build_qdrant_filter(user, []), None)
+    access_filter = build_search_filter(user, [], current_evidence_profile().chunk_selection(None))
     report = {
         "experiment": "manual_act_queries",
         "acl_principal": {"user_id": user_id, "role": UserRole.ADMIN.value},

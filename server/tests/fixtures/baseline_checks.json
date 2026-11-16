@@ -30,6 +30,11 @@
     "CHECK ((jsonb_typeof(context_metadata) = 'object'::text))"
   ],
   [
+    "chunks",
+    "chk_chunks_pack_metadata_object",
+    "CHECK ((jsonb_typeof(pack_metadata) = 'object'::text))"
+  ],
+  [
     "corpus_control",
     "corpus_control_id_check",
     "CHECK ((id = 1))"

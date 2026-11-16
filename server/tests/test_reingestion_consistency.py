@@ -17,6 +17,7 @@ from application.indexing import process_chunks
 from application.ingestion import IngestionScope, SingleFileIngestionWorkflow
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility
@@ -446,10 +447,5 @@ async def test_reindex_keeps_act_version_dates_and_current_flag(
     assert points
 
     for point in points:
-        metadata = point["metadata"]
-        assert (metadata["act_version_id"], metadata["act_id"], metadata["is_current"]) == (
-            edition.id,
-            4,
-            False,
-        )
-        assert (metadata["effective_from"], metadata["effective_to"]) == ("2024-03-01", "2025-01-01")
+        assert point["metadata"]["pack_metadata"] == edition_metadata(edition)
+        assert point["metadata"]["pack_metadata"]["effective_from"] == "2024-03-01"
