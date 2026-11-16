@@ -10,7 +10,6 @@ from application.chunks.access import load_doc_for_add, load_doc_for_edit
 from application.chunks.dto import AddChunkResult, EditChunkResult
 from application.indexing import build_outbox_metadata
 from domain.ingestion.embed_text import build_embed_text, estimate_tokens
-from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.chunk import extract_chunk_context
 from domain.knowledge.enums import SourceType
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
@@ -21,6 +20,7 @@ from domain.shared.hashing import content_hash
 
 if TYPE_CHECKING:
     from application.chunks.ports.settings import ChunkSettingsPort
+    from application.indexing.pack_hooks import DocumentPackHooks
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.identity.roles import UserRole
@@ -44,10 +44,12 @@ class ChunkMutationService:
         *,
         cache_invalidator: CacheInvalidatorPort | None = None,
         token_counter: TokenCounter | None = None,
+        pack_hooks: DocumentPackHooks | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._settings = chunk_settings
         self._cache_invalidator = cache_invalidator
+        self._pack_hooks = pack_hooks
         # Dense context is budgeted in embedding tokens, exactly as at splitting.
         self._measure = token_counter.count if token_counter is not None else estimate_tokens
 
@@ -229,10 +231,10 @@ class ChunkMutationService:
 
             warning = await self.check_duplicate_content(uow, content, document_id)
 
-            # Read the edition inside the write transaction and hold its lock
-            # until both the SQL chunk and vector outbox snapshot are committed.
-            version = await uow.act_versions.get_by_document_id(document_id, for_update=True)
-            pack_metadata = edition_metadata(version) if version else {}
+            # The pack reads its document state inside the write transaction and holds
+            # its locks until both the SQL chunk and vector outbox snapshot are committed.
+            hooks = self._pack_hooks
+            pack_metadata = await hooks.chunk_metadata(uow, document_id) if hooks is not None else {}
 
             max_index = await chunks.get_max_chunk_index(document_id)
             next_index = max_index + 1

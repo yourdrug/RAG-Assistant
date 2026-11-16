@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, nullcontext
 from copy import deepcopy
-from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Self, Unpack
@@ -60,7 +59,6 @@ from domain.shared.pagination import CursorPage, encode_cursor
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Sequence
-    from datetime import date
     from types import TracebackType
 
     from application.ports.rate_limit import RateLimitPolicyName
@@ -77,7 +75,6 @@ if TYPE_CHECKING:
     from domain.identity.group import GroupInfo, GroupMemberInfo
     from domain.identity.user_context import UserContext
     from domain.ingestion.repositories import IngestionRegistryEntry
-    from domain.knowledge.acts.models import ActVersion, RegulatoryAct
     from domain.knowledge.chunk import (
         ChunkInsert,
     )
@@ -1340,89 +1337,6 @@ class FakeBenchmarkRunRepository:
         )
 
 
-class FakeRegulatoryActRepository:
-    def __init__(self) -> None:
-        self._acts: dict[int, RegulatoryAct] = {}
-        self._next_id = 1
-
-    async def find_by_type_and_number(
-        self,
-        act_type: str,
-        act_number: str | None,
-        act_date: date | None = None,
-        visibility_scope: str = "internal_public",
-    ) -> RegulatoryAct | None:
-        for act in self._acts.values():
-            if (
-                act.act_type == act_type
-                and act.act_number == act_number
-                and act.act_date == act_date
-                and act.visibility_scope == visibility_scope
-            ):
-                return act
-
-        return None
-
-    async def update_act_date(self, act_id: int, act_date: date) -> None:
-        self._acts[act_id].act_date = act_date
-
-    async def get_by_id(self, act_id: int) -> RegulatoryAct | None:
-        return self._acts.get(act_id)
-
-    async def save(self, act: RegulatoryAct) -> RegulatoryAct:
-        act.id = self._next_id
-        self._next_id += 1
-        self._acts[act.id] = act
-        return act
-
-    async def list_all(self) -> list[RegulatoryAct]:
-        return list(self._acts.values())
-
-
-class FakeActVersionRepository:
-    def __init__(self) -> None:
-        self._versions: dict[int, ActVersion] = {}
-        self._next_id = 1
-
-    async def create(self, version: ActVersion) -> ActVersion:
-        version = replace(version, id=self._next_id)
-        self._next_id += 1
-        self._versions[self._next_id - 1] = version
-        return version
-
-    async def get_by_id(self, version_id: int) -> ActVersion | None:
-        return self._versions.get(version_id)
-
-    async def get_by_document_id(self, document_id: int, *, for_update: bool = False) -> ActVersion | None:
-        del for_update
-
-        for v in self._versions.values():
-            if v.document_id == document_id:
-                return v
-
-        return None
-
-    async def unset_current(self, act_id: int) -> None:
-        for v in self._versions.values():
-            if v.act_id == act_id and v.is_current and v.id is not None:
-                self._versions[v.id] = replace(v, is_current=False)
-
-    async def list_by_act(self, act_id: int, *, for_update: bool = False) -> list[ActVersion]:
-        del for_update
-        return [v for v in self._versions.values() if v.act_id == act_id]
-
-    async def list_pending_review(self) -> list[ActVersion]:
-        return [v for v in self._versions.values() if v.date_source == "extracted" or v.act_id is None]
-
-    async def list_page(self, limit: int, offset: int) -> tuple[list[ActVersion], int]:
-        versions = sorted(self._versions.values(), key=lambda item: item.id or 0)
-        return versions[offset : offset + limit], len(versions)
-
-    async def update(self, version: ActVersion) -> None:
-        if version.id is not None and version.id in self._versions:
-            self._versions[version.id] = version
-
-
 class FakeAssignmentRepository:
     def __init__(self) -> None:
         self._user_assignments: dict[
@@ -1515,13 +1429,18 @@ class FakeUnitOfWork(UnitOfWork):
         self.fake_benchmark_sweeps = self.benchmark_sweeps = FakeBenchmarkSweepRepository()
         self.fake_benchmark_runs = self.benchmark_runs = FakeBenchmarkRunRepository()
         self.fake_vector_outbox = self.vector_outbox = FakeVectorOutboxRepository()
-        self.fake_regulatory_acts = self.regulatory_acts = FakeRegulatoryActRepository()
-        self.fake_act_versions = self.act_versions = FakeActVersionRepository()
         self.fake_assignments = self.assignments = FakeAssignmentRepository()
         self.fake_ingestion_registry = self.ingestion_registry = FakeIngestionRegistryRepository()
+        # Domain pack repositories; kept off the instance dict so rollback restores their
+        # repositories (registered as attributes by pack test fakes) in place.
+        self._pack_repositories: object | None = None
         self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
         self._committed = False
         self._rolled_back = False
+
+    @property
+    def pack_repositories(self) -> object | None:  # type: ignore[override]  # Read-only view of the snapshot-safe slot.
+        return self._pack_repositories
 
     def on_event(self, handler: Callable[[object], Coroutine[Any, Any, None]]) -> None:
         self._event_handlers.append(handler)
@@ -1587,6 +1506,7 @@ class FakeUnitOfWorkFactory(UnitOfWorkFactory):
                 setattr(uow, name, repository)
 
         uow._event_handlers = list(self._uow._event_handlers)
+        uow._pack_repositories = self._uow._pack_repositories
         try:
             async with uow:
                 yield uow

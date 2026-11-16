@@ -42,7 +42,7 @@ from application.identity import (
 )
 from application.jobs.service import JobService
 from application.search import SearchService
-from composition.service_providers import create_ingestion_service, create_rag_service
+from composition.service_providers import create_ingestion_service, create_pack_hooks, create_rag_service
 from composition.utils import missing_fields, require
 from config import AuthSection, process_section
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
@@ -170,6 +170,7 @@ class ApplicationContainer:
         fs = require(infra.ml.file_storage, "file_storage")
         api_key_provider = require(infra.services.api_key_provider, "api_key_provider")
         user_ctx_factory = UserContextFactory()
+        pack_hooks = create_pack_hooks(infra, uow)
         password_hasher = BCryptPasswordHasher()
         self.auth_service = AuthService(
             uow_factory=uow,
@@ -180,7 +181,7 @@ class ApplicationContainer:
         self.api_key_service = ApiKeyService(uow, api_key_provider)
         self.document_command_service = DocumentCommandService(
             upload_command=DocumentUploadCommand(uow, fs, user_ctx_factory),
-            delete_command=DocumentDeleteCommand(uow, fs, user_ctx_factory),
+            delete_command=DocumentDeleteCommand(uow, fs, user_ctx_factory, pack_hooks),
             rename_command=DocumentRenameCommand(uow, fs, user_ctx_factory),
         )
         self.document_deletion_jobs = DocumentDeletionJobs(
@@ -195,6 +196,7 @@ class ApplicationContainer:
             LiveChunkSettings(),
             cache_invalidator=infra.services.cache_invalidator,
             token_counter=infra.ml.token_counter,
+            pack_hooks=pack_hooks,
         )
         self.manual_document_service = ManualDocumentService(uow)
 

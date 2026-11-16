@@ -15,8 +15,8 @@ from domain.knowledge.access_control import (
     compute_owner_and_group,
     validate_document_visibility,
 )
-from domain.knowledge.acts.policy import same_document_scope
 from domain.knowledge.document import Document
+from domain.knowledge.document_scope import same_document_scope
 from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility, DomainKey
 from domain.runtime.jobs import BackgroundJob, JobType
 from domain.shared.exceptions import (

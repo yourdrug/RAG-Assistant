@@ -16,17 +16,12 @@ from application.documents.content import DocumentContentProcessor
 from application.documents.dto import PersistDocumentCommand
 from application.documents.persistence import persist_document_result
 from application.documents.processing_context import ProcessingContext
-from application.documents.versioning import prepare_processing_versioning
 from domain.knowledge.enums import DocumentStatus
 
 
 if TYPE_CHECKING:
-    from application.act_versioning import ActVersioningService
-    from application.documents.dto import (
-        DocumentProcessingDependencies,
-        PreparedDocumentVersioning,
-        ProcessDocumentCommand,
-    )
+    from application.documents.dto import DocumentProcessingDependencies, ProcessDocumentCommand
+    from application.indexing.pack_hooks import DocumentPackHooks, PreparedPackDocument
     from application.ports.file_storage import FileStorage
     from application.uow import UnitOfWorkFactory
     from domain.ingestion.ports import DomainSettingsPort
@@ -45,14 +40,14 @@ class DocumentProcessor:
         *,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsPort | None = None,
-        act_versioning_service: ActVersioningService | None = None,
+        pack_hooks: DocumentPackHooks | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._file_storage = file_storage
         self._metrics = dependencies.metrics
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
-        self._act_versioning_service = act_versioning_service
+        self._pack_hooks = pack_hooks
         self._content = DocumentContentProcessor(
             dependencies.document_parser,
             dependencies.document_splitter,
@@ -159,21 +154,19 @@ class DocumentProcessor:
             )
             ctx.raw_chunks = raw_chunks
 
-            prepared_versioning: PreparedDocumentVersioning | None = await prepare_processing_versioning(
-                classification.domain_key,
-                full_text,
-                domain_registry=self._domain_registry,
-                act_versioning_service=self._act_versioning_service,
+            hooks = self._pack_hooks
+            pack_document: PreparedPackDocument | None = (
+                await hooks.prepare(classification.domain_key, full_text) if hooks is not None else None
             )
 
-            if prepared_versioning is not None and prepared_versioning.plan.warning:
-                ctx.warnings.append(prepared_versioning.plan.warning)
+            if pack_document is not None and pack_document.warning:
+                ctx.warnings.append(pack_document.warning)
 
             if await self.get_document(document_id) is None:
                 log.info("Document %d was deleted during processing — aborting", document_id)
                 return
 
-            persisted_versioning = await persist_document_result(
+            persisted = await persist_document_result(
                 self._uow_factory,
                 PersistDocumentCommand(
                     document_id=document_id,
@@ -187,14 +180,14 @@ class DocumentProcessor:
                     warning_message=ctx.warning_message,
                     quality=content.quality,
                     storage_deletes=ctx.storage_deletes,
-                    versioning=prepared_versioning,
+                    pack_document=pack_document,
                     abort_on_manual_edits=command.reindex_snapshot is not None,
                 ),
                 domain_registry=self._domain_registry,
-                act_versioning_service=self._act_versioning_service,
+                pack_hooks=self._pack_hooks,
             )
 
-            if persisted_versioning is None:
+            if persisted is None:
                 return
 
             ctx.status = DocumentStatus.INDEXING

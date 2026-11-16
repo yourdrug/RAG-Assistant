@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from domain.knowledge.acts.models import ActVersion
+    from domain.domain_packs.belarus_law.acts.models import ActVersion
 
 
 ACT_VERSION_ID = "act_version_id"

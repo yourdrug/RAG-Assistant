@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypedDict
 
-from domain.knowledge.acts.edition_metadata import edition_metadata
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
 
 
 if TYPE_CHECKING:
     from datetime import date
 
+    from domain.domain_packs.belarus_law.acts.models import ActVersion
     from domain.ingestion.profiles.types import ReferenceMatch
-    from domain.knowledge.acts.models import ActVersion
 
 
 @dataclass(frozen=True)

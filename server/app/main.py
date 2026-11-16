@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from composition.cli.cli import cli
 from composition.container import Container
+from composition.domain_packs import selected_wiring
 from config import settings
 from domain.shared.exceptions import AppClientError, AppServerError
 from infrastructure.database.database import database
@@ -45,7 +46,6 @@ from presentation.api.exception_handlers import (
 from presentation.api.middleware.metrics import MetricsMiddleware
 from presentation.api.middleware.prometheus_setup import add_metrics_middleware
 from presentation.api.middleware.request_id import RequestIDMiddleware
-from presentation.api.routes.admin_act_versions import router as admin_act_versions_router
 from presentation.api.routes.admin_chat_logs import router as admin_chat_logs_router
 from presentation.api.routes.admin_config import router as admin_config_router
 from presentation.api.routes.admin_jobs import router as admin_jobs_router
@@ -227,11 +227,10 @@ class Application:
             admin_metrics_router,
             admin_quality_router,
             admin_logs_router,
-            admin_act_versions_router,
             curators_router,
         )
 
-        for router in routers:
+        for router in (*routers, *selected_wiring(settings.domain_pack).routers()):
             self.app.include_router(router)
 
 

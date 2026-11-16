@@ -6,8 +6,8 @@ from datetime import date
 from hypothesis import given, strategies as st
 import pytest
 
-from domain.knowledge.acts.models import ActVersion
-from domain.knowledge.acts.timeline import ActVersionTimeline
+from domain.domain_packs.belarus_law.acts.models import ActVersion
+from domain.domain_packs.belarus_law.acts.timeline import ActVersionTimeline
 
 
 @st.composite

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import date
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
@@ -21,8 +20,6 @@ from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
 from application.identity import UserContextFactory
 from domain.identity.roles import UserRole
-from domain.knowledge.acts.edition_metadata import edition_metadata
-from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
@@ -33,11 +30,13 @@ from tests.fakes import FakeUnitOfWorkFactory, require_present
 
 if TYPE_CHECKING:
     from application.documents import DocumentDTO
+    from application.indexing.pack_hooks import DocumentPackHooks
+    from tests.fakes import FakeUnitOfWork
 
 
 class TrackingFactory(FakeUnitOfWorkFactory):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, uow: FakeUnitOfWork | None = None) -> None:
+        super().__init__(uow)
         self.events: list[object] = []
         self.active = False
         self.commit = MagicMock()
@@ -59,8 +58,10 @@ class TrackingFactory(FakeUnitOfWorkFactory):
             self.active = False
 
 
-def harness() -> SimpleNamespace:
-    factory = TrackingFactory()
+def harness(
+    uow: FakeUnitOfWork | None = None, pack_hooks: DocumentPackHooks | None = None
+) -> SimpleNamespace:
+    factory = TrackingFactory(uow)
 
     async def upload(key: object, data: object) -> None:
         assert factory.active
@@ -82,7 +83,7 @@ def harness() -> SimpleNamespace:
     context_factory = UserContextFactory()
     command = DocumentCommandService(
         DocumentUploadCommand(factory, storage, context_factory),
-        DocumentDeleteCommand(factory, storage, context_factory),
+        DocumentDeleteCommand(factory, storage, context_factory, pack_hooks),
         DocumentRenameCommand(factory, storage, context_factory),
     )
     return SimpleNamespace(command=command, factory=factory, uow=factory._uow, storage=storage, bm25=bm25)
@@ -190,87 +191,6 @@ async def test_explicit_replacement_rejects_add_new_flag_and_active_target() -> 
     with pytest.raises(BusinessRuleViolationError, match="already being processed"):
         await upload(h, filename="other.pdf", replaces_document_id=old.id)
     h.storage.upload_file.assert_not_awaited()
-
-
-async def seed_act_timeline(
-    h: SimpleNamespace, deleted_index: int
-) -> tuple[list[Document], list[ActVersion]]:
-    docs = [await seed(h) for _ in range(3)]
-    starts = [date(2020, 1, 1), date(2021, 1, 1), date(2022, 1, 1)]
-    versions = []
-
-    for index, doc in enumerate(docs):
-        version = await h.uow.act_versions.create(
-            ActVersion(
-                id=None,
-                act_id=7,
-                document_id=require_present(doc.id),
-                effective_from=starts[index],
-                effective_to=starts[index + 1] if index < 2 else None,
-                is_current=index == 2,
-            )
-        )
-        versions.append(version)
-        await h.uow.chunks.bulk_insert(
-            document_id=doc.id,
-            filename=doc.filename,
-            visibility="internal_private",
-            chunks=[ChunkInsert(content="text", content_hash="hash")],
-            options=ChunkInsertOptions(
-                owner_id=1,
-                group_id=None,
-                doc_domain="legal",
-                pack_metadata=edition_metadata(version),
-            ),
-        )
-
-    original_delete = h.uow.documents.delete
-
-    async def cascade_delete(document_id: int) -> None:
-        await original_delete(document_id)
-        # Match the PostgreSQL foreign key cascade before a survivor is promoted.
-        h.uow.act_versions._versions.pop(versions[deleted_index].id)
-
-    h.uow.documents.delete = cascade_delete
-    h.uow.act_versions.list_by_act = AsyncMock(wraps=h.uow.act_versions.list_by_act)
-    return docs, versions
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("deleted_index", [1, 2])
-async def test_delete_reconnects_act_timeline_and_search_projections(deleted_index: int) -> None:
-    h = harness()
-    docs, _versions = await seed_act_timeline(h, deleted_index)
-
-    await h.command.delete_document(docs[deleted_index].id, 1, "user")
-    h.uow.act_versions.list_by_act.assert_awaited_once_with(7, for_update=True)
-    survivors = await h.uow.act_versions.list_by_act(7)
-    assert len(survivors) == 2
-    assert survivors[-1].is_current is True
-    assert survivors[-1].effective_to is None
-    assert survivors[0].effective_to == survivors[1].effective_from
-    changed = survivors[0] if deleted_index == 1 else survivors[-1]
-    chunk = next(c for c in h.uow.chunks._chunks if c["document_id"] == changed.document_id)
-    assert chunk["pack_metadata"] == edition_metadata(changed)
-    entries = list(h.uow.vector_outbox._entries.values())
-    assert entries[0].operation == "delete_by_document"
-    assert entries[1].operation == "update_metadata"
-    assert (entries[1].aggregate_type, entries[1].aggregate_id) == ("document", changed.document_id)
-    h.storage.delete_file.assert_awaited_once_with("old-key")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("deleted_index", [1, 2])
-async def test_failed_timeline_update_rolls_back_deletion(deleted_index: int) -> None:
-    h = harness()
-    docs, _versions = await seed_act_timeline(h, deleted_index)
-    h.uow.act_versions.update = AsyncMock(side_effect=RuntimeError("projection failure"))
-    with pytest.raises(RuntimeError, match="projection failure"):
-        await h.command.delete_document(docs[deleted_index].id, 1, "user")
-    assert await h.uow.documents.get_by_id(docs[deleted_index].id) is not None
-    assert len(await h.uow.act_versions.list_by_act(7)) == 3
-    assert h.uow.vector_outbox._entries == {}
-    h.storage.delete_file.assert_not_awaited()
 
 
 @pytest.mark.asyncio

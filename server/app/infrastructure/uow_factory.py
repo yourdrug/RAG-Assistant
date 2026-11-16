@@ -48,14 +48,8 @@ from infrastructure.repositories.document.sqlalchemy_document_repository import 
 from infrastructure.repositories.document.sqlalchemy_ingestion_registry_repository import (
     SQLAlchemyIngestionRegistryRepository,
 )
-from infrastructure.repositories.misc.sqlalchemy_act_version_repository import (
-    SQLAlchemyActVersionRepository,
-)
 from infrastructure.repositories.misc.sqlalchemy_background_job_repository import (
     SQLAlchemyBackgroundJobRepository,
-)
-from infrastructure.repositories.misc.sqlalchemy_regulatory_act_repository import (
-    SQLAlchemyRegulatoryActRepository,
 )
 from infrastructure.repositories.user.sqlalchemy_api_key_repository import (
     SQLAlchemyApiKeyRepository,
@@ -75,6 +69,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from infrastructure.database.database import DatabaseManager
+    from infrastructure.domain_profile.packs import PackRepositoriesFactory
     from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
 
 
@@ -85,10 +80,16 @@ class UnitOfWorkFactory:
     """
 
     def __init__(
-        self, database: DatabaseManager, config_broadcaster: PostgresConfigBroadcaster | None = None
+        self,
+        database: DatabaseManager,
+        config_broadcaster: PostgresConfigBroadcaster | None = None,
+        *,
+        pack_repositories: PackRepositoriesFactory | None = None,
     ) -> None:
         self._database = database
         self._config_broadcaster = config_broadcaster
+        # Builds the active domain pack's repositories over each UoW session.
+        self._pack_repositories = pack_repositories
 
     @asynccontextmanager
     async def ingestion_lock(self) -> AsyncGenerator[None, None]:
@@ -133,10 +134,9 @@ class UnitOfWorkFactory:
                 benchmark_sweeps=SQLAlchemyBenchmarkSweepRepository(session),
                 benchmark_runs=SQLAlchemyBenchmarkRunRepository(session),
                 vector_outbox=SQLAlchemyVectorOutboxRepository(session),
-                regulatory_acts=SQLAlchemyRegulatoryActRepository(session),
-                act_versions=SQLAlchemyActVersionRepository(session),
                 assignments=SQLAlchemyAssignmentRepository(session),
                 ingestion_registry=SQLAlchemyIngestionRegistryRepository(session),
+                pack_repositories=self._pack_repositories(session) if self._pack_repositories else None,
             ),
         )
 

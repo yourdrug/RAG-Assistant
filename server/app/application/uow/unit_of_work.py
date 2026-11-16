@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     )
     from domain.ingestion.repositories import IngestionRegistryRepository
     from domain.knowledge.index_sync import VectorOutboxRepository
-    from domain.knowledge.repositories.acts import ActVersionRepository, RegulatoryActRepository
     from domain.knowledge.repositories.document import DocumentRepository
     from domain.runtime.repositories import BackgroundJobRepository
 
@@ -51,10 +50,10 @@ class UnitOfWorkRepositories:
     benchmark_sweeps: BenchmarkSweepRepository
     benchmark_runs: BenchmarkRunRepository
     vector_outbox: VectorOutboxRepository
-    regulatory_acts: RegulatoryActRepository
-    act_versions: ActVersionRepository
     assignments: AssignmentRepository
     ingestion_registry: IngestionRegistryRepository
+    # Repositories of the active domain pack over the same session; the core never reads them.
+    pack_repositories: object | None = None
 
 
 class UnitOfWork(BaseUnitOfWork):
@@ -76,10 +75,9 @@ class UnitOfWork(BaseUnitOfWork):
         self.benchmark_sweeps = repositories.benchmark_sweeps
         self.benchmark_runs = repositories.benchmark_runs
         self.vector_outbox = repositories.vector_outbox
-        self.regulatory_acts = repositories.regulatory_acts
-        self.act_versions = repositories.act_versions
         self.assignments = repositories.assignments
         self.ingestion_registry = repositories.ingestion_registry
+        self.pack_repositories = repositories.pack_repositories
         self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
 
     def on_event(self, handler: Callable[[object], Coroutine[Any, Any, None]]) -> None:

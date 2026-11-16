@@ -374,9 +374,12 @@ layers = [
 name = "Core does not import domain packs; only Composition registers them"
 type = "forbidden"
 source_modules = ["domain", "application", "presentation", "infrastructure.*"]
-forbidden_modules = ["infrastructure.domain_packs"]
-# A pack imports its own modules; that is not the core importing it.
-ignore_imports = ["infrastructure.domain_packs.** -> infrastructure.domain_packs.**"]
+forbidden_modules = [
+    "domain.domain_packs", "application.domain_packs", "presentation.domain_packs",
+    "infrastructure.domain_packs",
+]
+# A pack imports its own modules in every layer; that is not the core importing it.
+ignore_imports = ["*.domain_packs.** -> *.domain_packs.**"]
 
 [[tool.importlinter.contracts]]
 name = "Domain packs are independent of each other"
@@ -384,10 +387,25 @@ type = "independence"
 modules = ["infrastructure.domain_packs.*"]
 
 [[tool.importlinter.contracts]]
+name = "Domain packs are independent of each other (Domain)"
+type = "independence"
+modules = ["domain.domain_packs.*"]
+
+[[tool.importlinter.contracts]]
+name = "Domain packs are independent of each other (Application)"
+type = "independence"
+modules = ["application.domain_packs.*"]
+
+[[tool.importlinter.contracts]]
+name = "Domain packs are independent of each other (Presentation)"
+type = "independence"
+modules = ["presentation.domain_packs.*"]
+
+[[tool.importlinter.contracts]]
 name = "Domain pack layers: dependencies point downwards inside a pack"
 type = "layers"
 containers = ["infrastructure.domain_packs.belarus_law"]
-layers = ["pack", "evidence", "domain"]
+layers = ["pack", "evidence | persistence", "domain"]
 
 [[tool.importlinter.contracts]]
 name = "Domain packs use only the core Domain and Infrastructure"
@@ -421,7 +439,7 @@ name = "Domain shared kernel is independent of contexts"
 type = "forbidden"
 source_modules = ["domain.shared"]
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.identity", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
+    "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.identity", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
 ]
 
 
@@ -430,7 +448,7 @@ name = "Domain identity depends only on shared"
 type = "forbidden"
 source_modules = ["domain.identity"]
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
+    "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
 ]
 
 
@@ -439,7 +457,7 @@ name = "Domain knowledge depends only on identity and shared"
 type = "forbidden"
 source_modules = ["domain.knowledge"]
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.ingestion", "domain.rag", "domain.runtime",
+    "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.ingestion", "domain.rag", "domain.runtime",
 ]
 
 
@@ -449,7 +467,7 @@ type = "forbidden"
 source_modules = ["domain.ingestion"]
 allow_indirect_imports = true
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.identity", "domain.rag", "domain.runtime",
+    "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.identity", "domain.rag", "domain.runtime",
 ]
 
 
@@ -458,7 +476,7 @@ name = "Domain RAG depends only on knowledge identity and shared"
 type = "forbidden"
 source_modules = ["domain.rag"]
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.ingestion", "domain.runtime",
+    "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.ingestion", "domain.runtime",
 ]
 
 
@@ -468,7 +486,7 @@ type = "forbidden"
 source_modules = ["domain.chat"]
 allow_indirect_imports = true
 forbidden_modules = [
-    "domain.benchmark", "domain.ingestion", "domain.knowledge", "domain.runtime",
+    "domain.domain_packs", "domain.benchmark", "domain.ingestion", "domain.knowledge", "domain.runtime",
 ]
 
 
@@ -477,7 +495,7 @@ name = "Domain benchmark depends only on shared"
 type = "forbidden"
 source_modules = ["domain.benchmark"]
 forbidden_modules = [
-    "domain.chat", "domain.identity", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
+    "domain.domain_packs", "domain.chat", "domain.identity", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
 ]
 
 
@@ -487,7 +505,7 @@ type = "forbidden"
 source_modules = ["domain.runtime"]
 allow_indirect_imports = true
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.identity", "domain.ingestion", "domain.rag",
+    "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.identity", "domain.ingestion", "domain.rag",
 ]
 
 
@@ -511,7 +529,7 @@ allow_indirect_imports = true
 # Allowed features: runtime.
 forbidden_modules = [
     "application.admin", "application.benchmark",
-    "application.act_versioning", "application.identity", "application.chat",
+    "application.domain_packs", "application.identity", "application.chat",
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.ports",
@@ -525,7 +543,7 @@ source_modules = ["application.admin"]
 allow_indirect_imports = true
 # Allowed features: uow, runtime.
 forbidden_modules = [
-    "application.benchmark", "application.act_versioning",
+    "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
@@ -544,7 +562,7 @@ source_modules = ["application.benchmark"]
 allow_indirect_imports = true
 # Allowed features: admin, chat, uow.
 forbidden_modules = [
-    "application.act_versioning", "application.identity",
+    "application.domain_packs", "application.identity",
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.ports",
@@ -557,23 +575,23 @@ ignore_imports = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "Act versioning: declared application dependencies"
+name = "Domain packs (Application): declared application dependencies"
 type = "forbidden"
-source_modules = ["application.act_versioning"]
+source_modules = ["application.domain_packs"]
 allow_indirect_imports = true
-# Allowed features: uow.
+# Allowed features: uow, indexing (the document pack hooks it implements).
 forbidden_modules = [
     "application.admin", "application.benchmark",
     "application.identity", "application.chat", "application.search",
-    "application.indexing", "application.documents", "application.chunks",
+    "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
     "application.rag", "application.runtime",
 ]
 # Only these shared ports are part of this feature boundary.
 ignore_imports = [
-    "application.act_versioning.answers -> application.ports.cache_invalidator",
-    "application.act_versioning.service -> application.ports.cache_invalidator",
+    "application.domain_packs.*.act_versioning.answers -> application.ports.cache_invalidator",
+    "application.domain_packs.*.act_versioning.service -> application.ports.cache_invalidator",
 ]
 
 [[tool.importlinter.contracts]]
@@ -584,7 +602,7 @@ allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
     "application.admin", "application.benchmark",
-    "application.act_versioning", "application.chat", "application.search",
+    "application.domain_packs", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
@@ -599,7 +617,7 @@ allow_indirect_imports = true
 # Allowed features: identity, uow, rag.
 forbidden_modules = [
     "application.admin", "application.benchmark",
-    "application.act_versioning", "application.search", "application.indexing",
+    "application.domain_packs", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
     "application.health", "application.jobs", "application.ports",
     "application.runtime",
@@ -613,7 +631,7 @@ allow_indirect_imports = true
 # Allowed features: identity, uow.
 forbidden_modules = [
     "application.admin", "application.benchmark",
-    "application.act_versioning", "application.chat", "application.indexing",
+    "application.domain_packs", "application.chat", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
     "application.health", "application.jobs", "application.ports",
     "application.rag", "application.runtime",
@@ -627,7 +645,7 @@ allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
     "application.admin", "application.benchmark",
-    "application.act_versioning", "application.identity", "application.chat",
+    "application.domain_packs", "application.identity", "application.chat",
     "application.search", "application.documents", "application.chunks",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
@@ -639,9 +657,9 @@ name = "Documents: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.documents"]
 allow_indirect_imports = true
-# Allowed features: act_versioning, identity, indexing, ingestion, uow.
+# Allowed features: identity, indexing, ingestion, uow.
 forbidden_modules = [
-    "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark", "application.domain_packs",
     "application.chat", "application.search", "application.chunks",
     "application.health", "application.jobs", "application.ports",
     "application.rag", "application.runtime",
@@ -666,7 +684,7 @@ allow_indirect_imports = true
 # Allowed features: documents, identity, indexing, uow.
 forbidden_modules = [
     "application.admin", "application.benchmark",
-    "application.act_versioning", "application.chat", "application.search",
+    "application.domain_packs", "application.chat", "application.search",
     "application.ingestion", "application.health", "application.jobs",
     "application.ports",
     "application.rag", "application.runtime",
@@ -681,15 +699,15 @@ name = "Ingestion: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.ingestion"]
 allow_indirect_imports = true
-# Allowed features: act_versioning, indexing, uow.
+# Allowed features: indexing, uow.
 forbidden_modules = [
-    "application.admin", "application.benchmark",
+    "application.admin", "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search",
     "application.documents", "application.chunks", "application.health",
     "application.jobs", "application.ports",
     "application.rag", "application.runtime",
 ]
-# Shared deletion preserves edition timelines; the remaining exceptions are storage ports.
+# Shared deletion runs the pack's deletion hook; the remaining exceptions are storage ports.
 ignore_imports = [
     "application.ingestion.sync -> application.documents.delete",
     "application.ingestion.loader -> application.ports.file_storage",
@@ -705,7 +723,7 @@ source_modules = ["application.health"]
 allow_indirect_imports = true
 # Allowed features: admin, uow, runtime.
 forbidden_modules = [
-    "application.benchmark", "application.act_versioning",
+    "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
     "application.ingestion", "application.jobs", "application.ports",
@@ -720,7 +738,7 @@ allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
     "application.admin", "application.benchmark",
-    "application.act_versioning", "application.identity", "application.chat",
+    "application.domain_packs", "application.identity", "application.chat",
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
     "application.ports",
@@ -735,7 +753,7 @@ allow_indirect_imports = true
 # Allowed features: none.
 forbidden_modules = [
     "application.uow", "application.admin",
-    "application.benchmark", "application.act_versioning", "application.identity",
+    "application.benchmark", "application.domain_packs", "application.identity",
     "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
     "application.health", "application.jobs",
@@ -830,7 +848,7 @@ source_modules = ["application.rag"]
 allow_indirect_imports = true
 # Runtime configuration contracts remain available to RAG.
 forbidden_modules = [
-    "application.admin", "application.benchmark", "application.act_versioning",
+    "application.admin", "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.uow", "application.ports",
@@ -844,7 +862,7 @@ type = "forbidden"
 source_modules = ["application.runtime"]
 allow_indirect_imports = true
 forbidden_modules = [
-    "application.admin", "application.benchmark", "application.act_versioning",
+    "application.admin", "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.uow", "application.ports", "application.rag",

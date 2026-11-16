@@ -1,7 +1,7 @@
 """DocumentSyncService -- two-phase DB sync for CLI ingestion.
 
 Phase 1: resolve/create document rows (single committed transaction).
-Phase 2: per document -- versioning + chunks + outbox (one transaction).
+Phase 2: per document -- pack state + chunks + outbox (one transaction).
 
 Extracted from IngestionService to isolate the Postgres sync concern.
 """
@@ -12,9 +12,9 @@ import logging
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Unpack
 
-from application.act_versioning import VersioningResult
 from application.documents.delete import delete_document_in_uow
 from application.indexing import enrich_chunks_metadata, process_chunks, tag_chunks
+from application.indexing.pack_hooks import apply_pack_document
 from application.ingestion.profiles import get_domain_profile
 from domain.identity.roles import UserKind
 from domain.ingestion.raw_document import RawDocument
@@ -26,8 +26,8 @@ from domain.shared.exceptions import EntityNotFoundError, ValidationError
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from application.act_versioning import ActVersioningService, VersioningPlan
     from application.indexing.contextualization import ChunkContextualization
+    from application.indexing.pack_hooks import DocumentPackHooks, PreparedPackDocument
     from application.ingestion.dto import RegistryRecord, SyncOneDocumentOptions
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.ingestion.ports import DomainSettingsPort
@@ -43,14 +43,14 @@ class DocumentSyncService:
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
-        act_versioning_service: ActVersioningService | None = None,
+        pack_hooks: DocumentPackHooks | None = None,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsPort | None = None,
         contextualization: ChunkContextualization | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._contextualization = contextualization
-        self._act_versioning_service = act_versioning_service
+        self._pack_hooks = pack_hooks
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
 
@@ -81,7 +81,7 @@ class DocumentSyncService:
 
         Two phases: resolve document rows, then persist each document atomically:
           Phase 1: resolve/create document rows (committed).
-          Phase 2: per document -- versioning + chunks + outbox (one transaction).
+          Phase 2: per document -- pack state + chunks + outbox (one transaction).
         """
         del source_chars  # Chunk persistence computes document statistics.
         full_text_by_source = full_text_by_source or {}
@@ -105,20 +105,20 @@ class DocumentSyncService:
             [chunks_by_source[info["source"]] for info in documents_to_sync.values()]
         )
 
-        # Finish version preparation before creating or changing any documents.
-        prepared = {}
+        # Finish pack preparation before creating or changing any documents.
+        prepared: dict[str, PreparedPackDocument | None] = {}
 
         for key, info in documents_to_sync.items():
             source = info["source"]
             domain = chunks_by_source[source][0].metadata.get("doc_domain", DocDomain.GENERAL.value)
-            prepared[key] = await self.prepare_versioning(key, domain, full_text_by_source.get(source, ""))
+            prepared[key] = await self.prepare_pack_document(key, domain, full_text_by_source.get(source, ""))
 
         # --- Phase 1: document rows (single committed transaction) ---
         doc_ids = await self.ensure_document_rows(
             documents_to_sync, visibility=visibility, group_id=group_id, owner_id=owner_id
         )
 
-        # --- Phase 2: versioning + chunks + outbox (per document) ---
+        # --- Phase 2: pack state + chunks + outbox (per document) ---
         for fname, info in documents_to_sync.items():
             ids = doc_ids.get(fname)
 
@@ -137,8 +137,7 @@ class DocumentSyncService:
                     doc_id=doc_id,
                     src=src,
                     file_chunks=file_chunks,
-                    prepared=prepared[fname],
-                    full_text=full_text_by_source.get(src, ""),
+                    pack_document=prepared[fname],
                     visibility=visibility,
                     owner_id=owner_id,
                     group_id=group_id,
@@ -198,18 +197,13 @@ class DocumentSyncService:
         src: str,
         file_chunks: list[RawDocument],
         *,
-        prepared: tuple[VersioningResult, VersioningPlan | None, DocumentProfile | None] | None = None,
+        pack_document: PreparedPackDocument | None,
         **options: Unpack[SyncOneDocumentOptions],
     ) -> None:
-        """Persist version state, chunks and outbox together for one document."""
-        full_text = options["full_text"]
+        """Persist pack state, chunks and outbox together for one document."""
+        del options  # ACL comes from the locked document row, not from the caller.
         first_chunk = file_chunks[0]
         chunk_domain = first_chunk.metadata.get("doc_domain", DocDomain.GENERAL.value)
-
-        versioning, versioning_plan, profile = prepared or await self.prepare_versioning(
-            fname, chunk_domain, full_text
-        )
-        act_versioning_service = self._act_versioning_service
 
         async with self._uow_factory.create(master=True) as uow:
             document = await uow.documents.get_by_id(doc_id, for_update=True)
@@ -236,14 +230,7 @@ class DocumentSyncService:
                 client_id=owner_id if visibility == DocumentVisibility.CLIENT_PRIVATE else None,
             )
 
-            if versioning_plan is not None:
-                if act_versioning_service is None or profile is None:
-                    msg = "Versioning plan exists without an act versioning service"
-                    raise RuntimeError(msg)
-
-                versioning = await act_versioning_service.apply_versioning_plan(
-                    uow, profile, doc_id, versioning_plan
-                )
+            applied = await apply_pack_document(self._pack_hooks, uow, doc_id, pack_document)
 
             enrich_chunks_metadata(
                 raw_chunks,
@@ -252,15 +239,15 @@ class DocumentSyncService:
                 owner_id,
                 group_id,
                 doc_domain=chunk_domain,
-                domain_metadata=versioning.domain_metadata,
-                pack_metadata=versioning.pack_metadata,
+                domain_metadata=applied.domain_metadata,
+                pack_metadata=applied.pack_metadata,
             )
 
-            if versioning.warning:
+            if applied.warning:
                 await uow.documents.update_status(
                     doc_id,
                     status=None,
-                    warning=versioning.warning,
+                    warning=applied.warning,
                 )
 
             await uow.documents.set_source_path(
@@ -279,11 +266,8 @@ class DocumentSyncService:
                 _existing_uow=uow,
             )
 
-        if act_versioning_service is not None:
-            if versioning.act_id is not None:
-                await act_versioning_service.invalidate_act_answers(versioning.act_id)
-            else:
-                await act_versioning_service.invalidate_document_answers(doc_id)
+        if self._pack_hooks is not None:
+            await self._pack_hooks.after_commit(doc_id, applied)
 
     async def delete_missing_sources(self, prefix: str, current_keys: set[str]) -> None:
         """Prune only ingestion sources; SQL, timeline and outbox commit together."""
@@ -297,7 +281,7 @@ class DocumentSyncService:
                 locked = await uow.documents.get_by_id(document.id, for_update=True)
 
                 if locked is not None and locked.ingestion_key == document.ingestion_key:
-                    await delete_document_in_uow(uow, document.id)
+                    await delete_document_in_uow(uow, document.id, self._pack_hooks)
 
             entries = await uow.ingestion_registry.list_all()
 
@@ -320,21 +304,15 @@ class DocumentSyncService:
                 msg = "client_id must be a user with kind='client'"
                 raise ValidationError(msg)
 
-    async def prepare_versioning(
+    async def prepare_pack_document(
         self, fname: str, chunk_domain: str, full_text: str
-    ) -> tuple[VersioningResult, VersioningPlan | None, DocumentProfile | None]:
-        versioning = VersioningResult()
-        profile = self.get_profile(chunk_domain)
-        versioning_plan = None
-        act_versioning_service = self._act_versioning_service
+    ) -> PreparedPackDocument | None:
+        if self._pack_hooks is None:
+            return None
 
-        if act_versioning_service is not None and profile is not None:
-            versioning_plan = await act_versioning_service.prepare_document_versioning(profile, full_text)
+        prepared = await self._pack_hooks.prepare(chunk_domain, full_text)
 
-            if versioning_plan is not None:
-                versioning = VersioningResult(versioning_plan.domain_metadata, versioning_plan.warning)
+        if prepared is not None and prepared.warning:
+            log.warning("Domain pack warning for %s: %s", fname, prepared.warning)
 
-            if versioning.warning:
-                log.warning("Versioning warning for %s: %s", fname, versioning.warning)
-
-        return versioning, versioning_plan, profile
+        return prepared

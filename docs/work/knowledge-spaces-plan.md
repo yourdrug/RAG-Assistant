@@ -20,7 +20,7 @@
 |---|---|
 | 1. Ядро без `belarus` по умолчанию | готов (ветка `feat/domain-packs`) |
 | 2. Реестр пакетов, пакет права | готов (ветка `feat/domain-packs`) |
-| 3. Редакции актов — в пакет права | не начат |
+| 3. Редакции актов — в пакет права | готов (ветка `feat/domain-packs`) |
 | 4. Пространства знаний | не начат |
 | 5. `client_public` и назначение клиентов | не начат |
 | 6. Пакеты поддержки и внутреннего ресурса | не начат |
@@ -106,8 +106,23 @@ import-linter держит слои внутри пакета (`pack` → `evide
 **Тесты.** `test_act_versioning*.py`, `test_act_version_timeline*.py` (переезжают с пакетом),
 `test_ingestion_acl_consistency.py`, `test_retrieval_acl.py`, `test_bm25_acl.py`.
 
-**Открытый вопрос.** Нужен ли фильтр по метаданным пакета на стороне Qdrant (например,
-«только действующая редакция») или достаточно постобработки пакетом.
+**Решения.**
+- Метаданные пакета — непрозрачный `pack_metadata` (JSONB `chunks.pack_metadata`,
+  `metadata.pack_metadata` в payload); значение общее для всех чанков документа.
+- Фильтр от пакета: `EvidenceProfile.chunk_selection(as_of_date)` возвращает нейтральное условие
+  `MetadataCondition` (`domain/knowledge/pack_metadata.py`), которое ядро одинаково переводит
+  в Qdrant и SQL и применяет вместе с ACL до top-k. Это условие выборки, не ACL.
+  `resolve_conflicts` и `source_fields` — постобработка и поля источников пакета.
+- Редакция — это документ, поэтому сравнения по `act_version_id` в ранжировании, рендеринге
+  и раскрытии родителей заменены на `document_id`.
+- Код пакета разнесён по слоям: `domain|application|presentation|infrastructure/domain_packs/<pack>/`
+  и `composition/domain_packs/<pack>.py`. Ядро вызывает пакет через порт
+  `application/indexing/pack_hooks.py::DocumentPackHooks` (подготовка, запись в транзакции,
+  эффекты после коммита, метаданные ручного чанка, удаление) и `UnitOfWork.pack_repositories`;
+  маршруты пакета монтирует Composition. ORM-модели пакета Alembic находит сам
+  (`infrastructure.domain_packs.<pack>.persistence.models`).
+- Критерий «`grep act_version_id` вне пакета права пуст» читается как «вне каталогов
+  `domain_packs/` и миграций».
 
 ## Этап 4. Пространства знаний
 

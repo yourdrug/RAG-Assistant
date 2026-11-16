@@ -9,6 +9,7 @@ from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainPr
 from infrastructure.domain_packs.belarus_law.domain.doc_types import DOC_TYPE_KEYWORDS
 from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
+from infrastructure.domain_packs.belarus_law.persistence.repositories import sql_act_repositories
 from infrastructure.domain_profile.packs import DomainPack, general_profile
 
 
@@ -21,4 +22,5 @@ BELARUS_LAW_PACK = DomainPack(
     evidence_profile=BelarusEvidenceProfile(),
     doc_type_keywords=DOC_TYPE_KEYWORDS,
     benchmark_sets=(BENCHMARKS_DIR / "benchmark-questions-v2.json", BENCHMARKS_DIR / "chunking"),
+    repositories=sql_act_repositories,
 )

@@ -5,18 +5,35 @@ from __future__ import annotations
 from datetime import date
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.dialects import postgresql
 
+from application.domain_packs.belarus_law.act_versioning.document_hooks import ActEditionHooks
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
+from domain.domain_packs.belarus_law.acts.models import ActVersion
+from domain.domain_packs.belarus_law.acts.repositories import ActRepositories
 from domain.identity.roles import UserRole
-from domain.knowledge.acts.edition_metadata import edition_metadata
-from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.index_sync import OutboxOperation
+from infrastructure.domain_packs.belarus_law.persistence.act_versions import SQLAlchemyActVersionRepository
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
-from infrastructure.repositories.misc.sqlalchemy_act_version_repository import SQLAlchemyActVersionRepository
 from tests.test_chunk_service import _make_service, _make_uow
+
+
+if TYPE_CHECKING:
+    from application.chunks import ChunkMutationService
+
+
+def edition_uow(version: ActVersion | None = None, error: Exception | None = None) -> AsyncMock:
+    uow = _make_uow()
+    act_versions = SimpleNamespace(get_by_document_id=AsyncMock(return_value=version, side_effect=error))
+    uow.pack_repositories = ActRepositories(regulatory_acts=MagicMock(), act_versions=act_versions)
+    return uow
+
+
+def edition_service(uow: AsyncMock) -> ChunkMutationService:
+    return _make_service(uow, pack_hooks=ActEditionHooks(MagicMock(), MagicMock()))
 
 
 if TYPE_CHECKING:
@@ -41,16 +58,15 @@ async def test_add_chunk_inherits_edition_in_sql_model_and_outbox(version: ActVe
         models[0].id = 20
 
     session = SimpleNamespace(add=models.append, flush=AsyncMock(side_effect=flush))
-    uow = _make_uow()
-    uow.act_versions.get_by_document_id.return_value = version
+    uow = edition_uow(version)
     # Exercise the composed repository and actual ORM construction, not just
     # the arguments sent by the service to a mocked insert_one.
     uow.chunks.insert_one = SQLAlchemyChunkRepository(cast("AsyncSession", session)).insert_one
-    result = await _make_service(uow).add_chunk(
+    result = await edition_service(uow).add_chunk(
         1, "A manually added regulatory passage. " * 8, 100, UserRole.ADMIN, page=3, section="Rules"
     )
 
-    uow.act_versions.get_by_document_id.assert_awaited_once_with(1, for_update=True)
+    uow.pack_repositories.act_versions.get_by_document_id.assert_awaited_once_with(1, for_update=True)
     expected = edition_metadata(version) if version else {}
     model = models[0]
     assert model.pack_metadata == expected
@@ -68,9 +84,8 @@ async def test_add_chunk_inherits_edition_in_sql_model_and_outbox(version: ActVe
 
 @pytest.mark.asyncio
 async def test_edition_read_failure_aborts_manual_chunk_creation() -> None:
-    uow = _make_uow()
-    uow.act_versions.get_by_document_id.side_effect = OSError("edition read failed")
-    service = _make_service(uow)
+    uow = edition_uow(error=OSError("edition read failed"))
+    service = edition_service(uow)
     with pytest.raises(OSError, match="edition read failed"):
         await service.add_chunk(1, "A manual passage. " * 20, 100, UserRole.ADMIN)
     uow.chunks.insert_one.assert_not_awaited()

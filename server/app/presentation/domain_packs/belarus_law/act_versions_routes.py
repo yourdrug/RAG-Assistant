@@ -5,26 +5,35 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
-from application.act_versioning import ActVersioningService
+from application.domain_packs.belarus_law.act_versioning import ActVersioningService
 from application.ports.rate_limit import RateLimitPolicyName
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.dependencies import create_act_versioning_service
+from presentation.api.dependencies import create_container, get_or_raise
 from presentation.api.rate_limit import rate_limit
-from presentation.api.schemas import (
+from presentation.api.schemas import CurrentUser
+from presentation.domain_packs.belarus_law.act_versions_schemas import (
+    ActSummary,
     ActVersionListResponse,
     ActVersionReviewItem,
     ActVersionUpdateRequest,
     ActVersionUpdateResponse,
-    CurrentUser,
 )
-from presentation.api.schemas.admin_act_versions import ActSummary
 
 
 logger = logging.getLogger("default")
 
 router = APIRouter(tags=["admin-act-versions"])
+
+
+def create_act_versioning_service(request: Request) -> ActVersioningService:
+    infrastructure = create_container(request).infrastructure
+    return ActVersioningService(
+        uow_factory=get_or_raise(infrastructure.db.uow_factory, "uow_factory"),
+        settings=get_or_raise(infrastructure.domain_settings, "domain_settings"),
+        cache_invalidator=infrastructure.services.cache_invalidator,
+    )
 
 
 @router.get("/admin/act-versions", response_model=ActVersionListResponse)

@@ -263,7 +263,6 @@ async def test_chunk_vectors_are_deferred_to_outbox(
         ),
         documents=SimpleNamespace(set_has_manual_edits=AsyncMock()),
         vector_outbox=SimpleNamespace(enqueue=AsyncMock()),
-        act_versions=SimpleNamespace(get_by_document_id=AsyncMock(return_value=None)),
     )
 
     class Transaction:

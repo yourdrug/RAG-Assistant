@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from domain.ingestion.doc_type import DocTypeKeywords
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.protocol import DocumentProfile
@@ -26,6 +28,8 @@ if TYPE_CHECKING:
 
 
 type DocumentProfileFactory = Callable[[DomainSettingsPort | None], DocumentProfile]
+# Pack-owned repositories over one unit-of-work session (the core stores them opaquely).
+type PackRepositoriesFactory = Callable[[AsyncSession], object]
 
 
 NEUTRAL_PACK_KEY = "generic"
@@ -40,6 +44,7 @@ class DomainPack:
     evidence_profile: EvidenceProfile
     doc_type_keywords: DocTypeKeywords = ()
     benchmark_sets: tuple[Path, ...] = ()
+    repositories: PackRepositoriesFactory | None = None
 
     def build_profiles(self, settings: DomainSettingsPort | None) -> list[DocumentProfile]:
         return [factory(settings) for factory in self.document_profiles]

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import logging
 from typing import TYPE_CHECKING
 
-from application.act_versioning.persistence import ActVersionPersistence
 from application.indexing import enqueue_delete_by_document
 from domain.identity.roles import UserKind
 from domain.knowledge.access_control import check_ownership
@@ -15,6 +13,7 @@ from domain.shared.exceptions import EntityNotFoundError
 
 if TYPE_CHECKING:
     from application.identity import UserContextFactory
+    from application.indexing.pack_hooks import DocumentPackHooks
     from application.ports.file_storage import FileStorage
     from application.uow import UnitOfWork, UnitOfWorkFactory
 
@@ -22,23 +21,20 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 
-async def delete_document_in_uow(uow: UnitOfWork, document_id: int) -> None:
-    """Delete a document and reconnect its act timeline in the same transaction."""
-    version = await uow.act_versions.get_by_document_id(document_id)
-    persistence = ActVersionPersistence(uow)
-    timeline = None
+async def delete_document_in_uow(
+    uow: UnitOfWork, document_id: int, pack_hooks: DocumentPackHooks | None = None
+) -> None:
+    """Delete a document; the pack keeps its own state consistent in the same transaction."""
 
-    if version is not None and version.act_id is not None and version.id is not None:
-        version, timeline = await persistence.load(version.id)
+    async def delete() -> None:
+        await enqueue_delete_by_document(uow, document_id)
+        await uow.conversations.clear_summaries_referencing(document_id)
+        await uow.documents.delete(document_id)
 
-    await enqueue_delete_by_document(uow, document_id)
-    await uow.conversations.clear_summaries_referencing(document_id)
-    # The cascade removes the current edition before another can be promoted.
-    await uow.documents.delete(document_id)
-
-    if timeline is not None and version is not None and version.id is not None:
-        remaining = timeline.remove(version.id, today=datetime.now(UTC).astimezone().date())
-        await persistence.save_changes(timeline, remaining.versions)
+    if pack_hooks is None:
+        await delete()
+    else:
+        await pack_hooks.delete_document(uow, document_id, delete)
 
 
 class DocumentDeleteCommand:
@@ -49,10 +45,12 @@ class DocumentDeleteCommand:
         uow_factory: UnitOfWorkFactory,
         file_storage: FileStorage,
         user_ctx_factory: UserContextFactory,
+        pack_hooks: DocumentPackHooks | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._file_storage = file_storage
         self._user_ctx_factory = user_ctx_factory
+        self._pack_hooks = pack_hooks
 
     async def execute(
         self, document_id: int, user_id: int, user_role: str, user_kind: str = UserKind.INTERNAL
@@ -68,7 +66,7 @@ class DocumentDeleteCommand:
             check_ownership(doc, ctx, "delete")
             # Ingestion owns shared source objects, rather than individual assignments.
             source_path = doc.source_path if doc.ingestion_key is None else None
-            await delete_document_in_uow(uow, document_id)
+            await delete_document_in_uow(uow, document_id, self._pack_hooks)
 
         if source_path:
             try:

@@ -56,7 +56,14 @@ for _key, _val in _TEST_DEFAULTS.items():
 
 
 # Modules whose import makes a test module a test of the Belarusian law pack.
-LAW_PACK_MODULES = ("infrastructure.domain_packs", "tests.law_pack")
+LAW_PACK_MODULES = (
+    "domain.domain_packs",
+    "application.domain_packs",
+    "presentation.domain_packs",
+    "infrastructure.domain_packs",
+    "composition.domain_packs.belarus_law",
+    "tests.law_pack",
+)
 LAW_PACK_PLUGIN = "tests.law_pack_plugin"
 # Why the law pack is not importable in this run; None when it is.
 law_pack_import_error: ImportError | None = None

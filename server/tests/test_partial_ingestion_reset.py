@@ -284,7 +284,7 @@ async def test_preparation_failure_does_not_change_documents_or_chunks(
     elif failure == "split":
         env.loader._splitter.split = MagicMock(return_value=[])
     else:
-        env.sync.prepare_versioning = AsyncMock(side_effect=ValueError("versioning failed"))
+        env.sync.prepare_pack_document = AsyncMock(side_effect=ValueError("versioning failed"))
 
     with pytest.raises((ValueError, OSError)):
         await env.service.run_full("docs/", reset=True)

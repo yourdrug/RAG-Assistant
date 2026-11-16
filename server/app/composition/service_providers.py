@@ -12,7 +12,6 @@ from contextlib import asynccontextmanager
 import logging
 from typing import TYPE_CHECKING, Any
 
-from application.act_versioning import ActVersioningService
 from application.benchmark.sweep import SweepBenchmarkDependencies, SweepEngine
 from application.benchmark.sweep_evaluation import SweepFullEvaluator
 from application.documents import DocumentProcessor
@@ -58,6 +57,7 @@ if TYPE_CHECKING:
     from application.benchmark.sweep_ports import SweepSearchStrategy, SweepSettingsPort
     from application.chat import PIIRedactorPort
     from application.documents import DocumentAccessPort
+    from application.indexing.pack_hooks import DocumentPackHooks
     from application.ports.ml_clients import MLClientPort
     from application.uow.factory import UnitOfWorkFactory
     from composition.infrastructure import InfrastructureContainer
@@ -133,6 +133,21 @@ def create_chunk_contextualization(infra: InfrastructureContainer) -> ChunkConte
     )
 
 
+def create_pack_hooks(infra: InfrastructureContainer, uow: UnitOfWorkFactory) -> DocumentPackHooks | None:
+    """The active domain pack's document lifecycle hooks; ``None`` for packs without them."""
+    factory = infra.pack_wiring.document_hooks
+
+    if factory is None:
+        return None
+
+    return factory(
+        uow,
+        require(infra.domain_registry, "domain_registry"),
+        require(infra.domain_settings, "domain_settings"),
+        infra.services.cache_invalidator,
+    )
+
+
 def create_ingestion_service(
     infra: InfrastructureContainer,
     uow_factory: UnitOfWorkFactory | None = None,
@@ -148,23 +163,13 @@ def create_ingestion_service(
         "uow_factory",
     )
 
-    act_versioning = None
-
-    if infra.domain_registry is not None and infra.domain_settings is not None:
-        # Unified versioning: CLI ingestion creates act versions the same way
-        # the API upload path does (TZ section 8.4)
-        act_versioning = ActVersioningService(
-            uow_factory=uow,
-            settings=infra.domain_settings,
-            cache_invalidator=infra.services.cache_invalidator,
-        )
-
     file_storage = require(infra.ml.file_storage, "file_storage")
 
     registry = IngestionRegistry(uow, file_storage)
     sync = DocumentSyncService(
         uow,
-        act_versioning,
+        # CLI ingestion records pack state the same way the API upload path does.
+        create_pack_hooks(infra, uow),
         infra.domain_registry,
         infra.domain_settings,
         contextualization=create_chunk_contextualization(infra),
@@ -210,15 +215,6 @@ def create_document_processor(
         "uow_factory",
     )
 
-    act_versioning = None
-
-    if infra.domain_registry is not None:
-        act_versioning = ActVersioningService(
-            uow_factory=uow,
-            settings=require(infra.domain_settings, "domain_settings"),
-            cache_invalidator=infra.services.cache_invalidator,
-        )
-
     return DocumentProcessor(
         uow_factory=uow,
         file_storage=require(infra.ml.file_storage, "file_storage"),
@@ -235,7 +231,7 @@ def create_document_processor(
         ),
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,
-        act_versioning_service=act_versioning,
+        pack_hooks=create_pack_hooks(infra, uow),
     )
 
 

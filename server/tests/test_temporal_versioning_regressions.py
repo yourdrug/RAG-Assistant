@@ -14,16 +14,20 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, Filter, PointStruct, VectorParams
 from sqlalchemy.dialects import postgresql
 
-from application.act_versioning import ActVersioningService, service as act_versioning_service
-from application.documents.dto import PersistDocumentCommand, PreparedDocumentVersioning
+from application.documents.dto import PersistDocumentCommand
 from application.documents.persistence import persist_document_result
+from application.domain_packs.belarus_law.act_versioning import (
+    ActVersioningService,
+    service as act_versioning_service,
+)
+from application.domain_packs.belarus_law.act_versioning.document_hooks import ActEditionHooks
 from application.ingestion import DocumentSyncService
 from application.rag.stream_events import MetaEvent
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
 from domain.identity.roles import UserKind
 from domain.identity.user_context import UserContext
 from domain.ingestion.profiles.types import ReferenceMatch
 from domain.ingestion.raw_document import RawDocument
-from domain.knowledge.acts.edition_metadata import edition_metadata
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility
@@ -40,18 +44,19 @@ from infrastructure.ml.rag import rag_steps
 from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from infrastructure.repositories.vector.pack_selection import pack_selection_condition
-from presentation.api.routes.admin_act_versions import list_act_versions
 from presentation.api.routes.chat import format_sse_event
 from presentation.api.schemas.chat import ChatRequest
-from tests.fakes import FakeUnitOfWorkFactory, require_present
+from presentation.domain_packs.belarus_law.act_versions_routes import list_act_versions
+from tests.fakes import require_present
+from tests.law_pack import LawFakeUnitOfWorkFactory
 from tests.rag_stage_fixtures import check_cache
 from tests.test_chunk_search_acl import capture
 from tests.test_rag_pipeline import make_rag
 
 
 if TYPE_CHECKING:
+    from domain.domain_packs.belarus_law.acts.models import ActVersion
     from domain.ingestion.profiles.registry import DomainProfileRegistry
-    from domain.knowledge.acts.models import ActVersion
     from domain.knowledge.index_sync import VectorOutboxEntry
     from domain.rag.context import RagContext
     from presentation.api.schemas.auth import CurrentUser
@@ -63,15 +68,15 @@ class Settings:
         return "0.85" if key == "effective_date_auto_trust_threshold" else "0"
 
 
-def system() -> tuple[FakeUnitOfWorkFactory, ActVersioningService, SimpleNamespace]:
-    factory = FakeUnitOfWorkFactory()
+def system() -> tuple[LawFakeUnitOfWorkFactory, ActVersioningService, SimpleNamespace]:
+    factory = LawFakeUnitOfWorkFactory()
     cache = SimpleNamespace(invalidate_by_document_ids=AsyncMock(return_value=1))
     service = ActVersioningService(factory, Settings(), cache)
     return factory, service, cache
 
 
 def put_document(
-    factory: FakeUnitOfWorkFactory,
+    factory: LawFakeUnitOfWorkFactory,
     document_id: int,
     visibility: str = "internal_public",
     owner_id: int | None = None,
@@ -266,11 +271,15 @@ async def test_invalid_interval_is_rejected() -> None:
         await service.update_version(require_present(version.id), effective_to=date(2019, 1, 1))
 
 
-async def persist(
-    factory: FakeUnitOfWorkFactory, service: ActVersioningService, document_id: int, text: str
-) -> Any:
+def decree_hooks(service: ActVersioningService) -> ActEditionHooks:
     profile = DecreeDomainProfile(settings=Settings())
-    plan = await service.prepare_document_versioning(profile, text)
+    return ActEditionHooks(service, cast("DomainProfileRegistry", SimpleNamespace(get=lambda _key: profile)))
+
+
+async def persist(
+    factory: LawFakeUnitOfWorkFactory, service: ActVersioningService, document_id: int, text: str
+) -> Any:
+    hooks = decree_hooks(service)
     return await persist_document_result(
         factory,
         PersistDocumentCommand(
@@ -285,10 +294,10 @@ async def persist(
             warning_message=None,
             quality=None,
             storage_deletes=[],
-            versioning=PreparedDocumentVersioning(plan, profile) if plan is not None else None,
+            pack_document=await hooks.prepare("decree", text),
         ),
         domain_registry=None,
-        act_versioning_service=service,
+        pack_hooks=hooks,
     )
 
 
@@ -562,16 +571,14 @@ async def test_prepared_edition_and_chunks_share_transaction(  # noqa: PLR0915 -
             await persist(factory, service, 2, text)
             return
 
-        profile = DecreeDomainProfile(settings=Settings())
-        sync = DocumentSyncService(
-            factory, service, cast("DomainProfileRegistry", SimpleNamespace(get=lambda _key: profile))
-        )
+        hooks = decree_hooks(service)
+        sync = DocumentSyncService(factory, hooks)
         await sync.sync_one_document(
             "2.rtf",
             2,
             "s3://docs/2.rtf",
-            [RawDocument(page_content=text, metadata={"doc_domain": profile.key})],
-            full_text=text,
+            [RawDocument(page_content=text, metadata={"doc_domain": "decree"})],
+            pack_document=await sync.prepare_pack_document("2.rtf", "decree", text),
             visibility=DocumentVisibility.INTERNAL_PUBLIC,
             owner_id=None,
             group_id=None,

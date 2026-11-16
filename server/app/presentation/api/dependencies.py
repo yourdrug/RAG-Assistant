@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Annotated, cast
 
 from fastapi import Depends, HTTPException, Request
 
-from application.act_versioning import ActVersioningService
 from application.admin import ConfigMaskerPort, CorpusControlPort, LogBufferPort
 from application.benchmark import BenchmarkExportService, BenchmarkHistoryPort
 from application.documents import DocumentDeletionJobs, PreviewCache, PreviewStrategyFactoryPort
@@ -266,22 +265,6 @@ def create_idempotency_store(request: Request) -> IdempotencyStorePort:
 def create_benchmark_history_port(request: Request) -> BenchmarkHistoryPort:
     return get_or_raise(
         create_container(request).infrastructure.services.benchmark_history, "BenchmarkHistoryPort"
-    )
-
-
-def create_act_versioning_service(request: Request) -> ActVersioningService:
-
-    c = create_container(request)
-    domain_settings = c.infrastructure.domain_settings
-
-    if domain_settings is None:
-        message = "domain_settings not initialized"
-        raise ValueError(message)
-
-    return ActVersioningService(
-        uow_factory=get_or_raise(c.infrastructure.db.uow_factory, "uow_factory"),
-        settings=domain_settings,
-        cache_invalidator=c.infrastructure.services.cache_invalidator,
     )
 
 

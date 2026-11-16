@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
 import threading
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -11,20 +10,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from application.act_versioning import ActVersioningService
 from application.benchmark.sweep_ports import SweepCancelled
 from composition.service_providers import build_sweep_engine
 from config import get_setting, settings_overrides
 from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep
 from domain.identity.roles import UserKind
 from domain.identity.user_context import UserContext
-from domain.knowledge.acts.models import ActVersion
 from domain.rag.context import RagContext
 from domain.shared.exceptions import ValidationError
 from infrastructure.benchmark.evaluation.answer_generators import RagBenchmarkGenerator
 from infrastructure.benchmark.evaluation.runner import run_benchmark_async
 from infrastructure.benchmark.judging import context_judge, judge
-from tests.fakes import FakeUnitOfWorkFactory, require_present
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -183,42 +180,3 @@ def test_context_judge_uses_same_explicit_model(monkeypatch: pytest.MonkeyPatch)
     )
     assert result["context_precision"] == 8.0
     assert all(call.args[2] == "requested-model" for call in score.call_args_list)
-
-
-@pytest.mark.asyncio
-async def test_version_update_rolls_back_rows_and_skips_cache_when_outbox_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-
-    factory = FakeUnitOfWorkFactory()
-    cache = SimpleNamespace(invalidate_by_document_ids=AsyncMock())
-    service = ActVersioningService(factory, SimpleNamespace(), cache)
-    version = await factory._uow.fake_act_versions.create(
-        ActVersion(
-            id=None,
-            act_id=None,
-            document_id=1,
-            effective_from=date(2024, 1, 1),
-            date_source="extracted",
-        )
-    )
-    factory._uow.fake_chunks._chunks.append(
-        {
-            "id": 1,
-            "document_id": 1,
-            "act_version_id": version.id,
-            "is_current": True,
-            "effective_from": date(2024, 1, 1),
-        }
-    )
-    monkeypatch.setattr(
-        factory._uow.fake_vector_outbox, "enqueue", AsyncMock(side_effect=RuntimeError("outbox failed"))
-    )
-    with pytest.raises(RuntimeError, match="outbox failed"):
-        await service.update_version(require_present(version.id), effective_from=date(2025, 1, 1))
-    restored = await factory._uow.fake_act_versions.get_by_id(require_present(version.id))
-    assert require_present(restored).effective_from == date(2024, 1, 1)
-    assert require_present(restored).date_source == "extracted"
-    assert factory._uow.fake_chunks._chunks[0]["effective_from"] == date(2024, 1, 1)
-    assert factory._uow._rolled_back
-    cache.invalidate_by_document_ids.assert_not_awaited()

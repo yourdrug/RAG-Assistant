@@ -5,8 +5,8 @@ from datetime import date
 
 import pytest
 
-from domain.knowledge.acts.models import ActVersion
-from domain.knowledge.acts.timeline import ActVersionTimeline
+from domain.domain_packs.belarus_law.acts.models import ActVersion
+from domain.domain_packs.belarus_law.acts.timeline import ActVersionTimeline
 from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 

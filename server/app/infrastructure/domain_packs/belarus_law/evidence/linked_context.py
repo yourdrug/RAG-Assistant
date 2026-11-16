@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.documents import Document
 
-from domain.knowledge.acts.edition_metadata import edition_id
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_id
 from domain.knowledge.enums import PageContentType
 from infrastructure.domain_packs.belarus_law.evidence.editions import edition_of
 from infrastructure.domain_packs.belarus_law.evidence.links import (

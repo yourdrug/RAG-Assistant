@@ -3,7 +3,7 @@
 import re
 from typing import Any
 
-from domain.knowledge.acts.edition_metadata import edition_id
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_id
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.pack_metadata import pack_metadata_of
 from domain.rag.evidence.context import content_with_parent_scope

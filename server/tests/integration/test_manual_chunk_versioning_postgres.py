@@ -13,25 +13,22 @@ import pytest
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from tests.integration.uow import SessionDatabase, session_factory
+from tests.integration.uow import SessionDatabase
 
-from application.act_versioning import ActVersioningService
 from application.chunks import ChunkMutationService
+from application.domain_packs.belarus_law.act_versioning import ActVersioningService
+from application.domain_packs.belarus_law.act_versioning.document_hooks import ActEditionHooks
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
+from domain.domain_packs.belarus_law.acts.models import ActVersion
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.knowledge.acts.edition_metadata import edition_metadata
-from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
-from infrastructure.database.models import (
-    ActVersionModel,
-    ChunkModel,
-    DocumentModel,
-    RegulatoryActModel,
-    VectorStoreOutboxModel,
-)
+from infrastructure.database.models import ChunkModel, DocumentModel, VectorStoreOutboxModel
 from infrastructure.domain_packs.belarus_law.evidence.editions import edition_selection
+from infrastructure.domain_packs.belarus_law.persistence.act_versions import SQLAlchemyActVersionRepository
+from infrastructure.domain_packs.belarus_law.persistence.models import ActVersionModel, RegulatoryActModel
+from infrastructure.domain_packs.belarus_law.persistence.repositories import sql_act_repositories
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
-from infrastructure.repositories.misc.sqlalchemy_act_version_repository import SQLAlchemyActVersionRepository
 from infrastructure.uow_factory import UnitOfWorkFactory
 
 
@@ -64,13 +61,18 @@ async def seed_edition(sessions: async_sessionmaker[AsyncSession]) -> tuple[int,
 
 
 def make_factory(sessions: async_sessionmaker[AsyncSession]) -> UnitOfWorkFactory:
-    return session_factory(sessions)
+    return UnitOfWorkFactory(SessionDatabase(sessions), pack_repositories=sql_act_repositories)
+
+
+def edition_chunks(factory: UnitOfWorkFactory) -> ChunkMutationService:
+    hooks = ActEditionHooks(MagicMock(), MagicMock())
+    return ChunkMutationService(factory, SimpleNamespace(chunk_size=100), pack_hooks=hooks)
 
 
 async def test_manual_chunk_round_trip_and_later_version_updates(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     document_id, version_id = await seed_edition(sessions)
-    service = ChunkMutationService(make_factory(sessions), SimpleNamespace(chunk_size=100))
+    service = edition_chunks(make_factory(sessions))
     result = await service.add_chunk(document_id, "Manual regulatory passage. " * 4, 1, UserRole.ADMIN)
     user = UserContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     async with sessions() as session:
@@ -118,7 +120,9 @@ async def test_outbox_failure_rolls_back_manual_chunk_and_document_stats(pg_engi
                 yield uow
 
     index = MagicMock()
-    service = ChunkMutationService(FailingFactory(SessionDatabase(sessions)), SimpleNamespace(chunk_size=100))
+    service = edition_chunks(
+        FailingFactory(SessionDatabase(sessions), pack_repositories=sql_act_repositories)
+    )
     with pytest.raises(RuntimeError, match="outbox failed"):
         await service.add_chunk(document_id, "Manual regulatory passage. " * 4, 1, UserRole.ADMIN)
     async with sessions() as session:

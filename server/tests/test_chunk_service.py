@@ -21,6 +21,7 @@ from domain.shared.hashing import content_hash
 
 if TYPE_CHECKING:
     from application.chunks import ChunkSettingsPort
+    from application.indexing.pack_hooks import DocumentPackHooks
     from application.ports.cache_invalidator import CacheInvalidatorPort
 
 
@@ -99,7 +100,6 @@ def _make_uow(doc: Document | None = None, chunk: ChunkRecord | None = None, max
     uow.documents.set_has_manual_edits = AsyncMock()
     uow.documents.update_chunk_stats = AsyncMock()
     uow.vector_outbox.enqueue = AsyncMock()
-    uow.act_versions.get_by_document_id = AsyncMock(return_value=None)
     return uow
 
 
@@ -108,6 +108,7 @@ def _make_service(
     *,
     chunk_settings: ChunkSettingsPort | None = None,
     cache_invalidator: CacheInvalidatorPort | None = None,
+    pack_hooks: DocumentPackHooks | None = None,
 ) -> ChunkMutationService:
     factory = MagicMock()
     factory.create.return_value = AsyncMock(
@@ -119,6 +120,7 @@ def _make_service(
         factory,
         chunk_settings if chunk_settings is not None else FakeChunkSettings(),
         cache_invalidator=cache_invalidator,
+        pack_hooks=pack_hooks,
     )
 
 

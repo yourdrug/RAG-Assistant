@@ -182,7 +182,9 @@ async def test_factory_binds_all_repositories_to_selected_session(master: bool) 
         for field in fields(UnitOfWorkRepositories):
             repository = getattr(uow, field.name)
 
-            if field.name == "chunks":
+            if field.name == "pack_repositories":
+                assert repository is None
+            elif field.name == "chunks":
                 assert all(part._session is session for part in vars(repository).values())
             else:
                 assert any(value is session for value in vars(repository).values())
@@ -190,6 +192,23 @@ async def test_factory_binds_all_repositories_to_selected_session(master: bool) 
     database.get_session.assert_called_once_with(master=master)
     session.commit.assert_awaited_once()
     session.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_factory_builds_pack_repositories_over_the_uow_session() -> None:
+    session = MagicMock(spec=RecordingSession)
+    database = MagicMock()
+    database.get_session.return_value = session
+    built: list[object] = []
+
+    def pack_repositories(bound: object) -> object:
+        built.append(bound)
+        return {"session": bound}
+
+    async with SQLAlchemyUnitOfWorkFactory(database, pack_repositories=pack_repositories).create() as uow:
+        assert uow.pack_repositories == {"session": session}
+
+    assert built == [session]
     session.rollback.assert_not_awaited()
 
 

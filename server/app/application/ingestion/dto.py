@@ -55,7 +55,6 @@ class RegistryRecord(TypedDict):
 
 
 class SyncOneDocumentOptions(TypedDict):
-    full_text: str
     visibility: DocumentVisibility
     owner_id: int | None
     group_id: int | None

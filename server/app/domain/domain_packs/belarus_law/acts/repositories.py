@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
     from datetime import date
 
-    from domain.knowledge.acts.models import ActVersion, RegulatoryAct
+    from domain.domain_packs.belarus_law.acts.models import ActVersion, RegulatoryAct
 
 
 @runtime_checkable
@@ -38,3 +39,11 @@ class RegulatoryActRepository(Protocol):
     async def get_by_id(self, act_id: int) -> RegulatoryAct | None: ...
     async def save(self, act: RegulatoryAct) -> RegulatoryAct: ...
     async def list_all(self) -> list[RegulatoryAct]: ...
+
+
+@dataclass(frozen=True)
+class ActRepositories:
+    """Law pack repositories sharing the unit of work's transaction."""
+
+    regulatory_acts: RegulatoryActRepository
+    act_versions: ActVersionRepository

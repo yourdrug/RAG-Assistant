@@ -4,13 +4,6 @@ Re-exports all classes so that ``from presentation.api.schemas import X``
 continues to work after the split into per-domain modules.
 """
 
-from presentation.api.schemas.admin_act_versions import (
-    ActSummary,
-    ActVersionListResponse,
-    ActVersionReviewItem,
-    ActVersionUpdateRequest,
-    ActVersionUpdateResponse,
-)
 from presentation.api.schemas.admin_config import (
     ConfigParamResponse,
     ConfigParamUpdateRequest,
@@ -126,12 +119,6 @@ from presentation.api.schemas.validators import FileContent, SafeRelativePath
 
 
 __all__ = [
-    # admin_act_versions
-    "ActSummary",
-    "ActVersionListResponse",
-    "ActVersionReviewItem",
-    "ActVersionUpdateRequest",
-    "ActVersionUpdateResponse",
     # api_keys
     "ApiKeyCreateRequest",
     "ApiKeyCreateResponse",

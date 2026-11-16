@@ -23,8 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from application.runtime.config import ConfigParameterChanged, ConfigValueType
 from composition.application import ApplicationContainer
 from composition.container import Container
+from composition.domain_packs import PackWiring
 from composition.infrastructure import InfrastructureContainer
-from composition.service_providers import create_document_processor
+from composition.service_providers import create_pack_hooks
 from composition.utils import ContainerNotInitializedError
 from config import settings
 from domain.ingestion.profiles.registry import DomainProfileRegistry
@@ -407,8 +408,18 @@ def test_ocr_cache_reacts_to_validated_configuration(monkeypatch: pytest.MonkeyP
         ocr.get_paddle_ocr.cache_clear()
 
 
-def test_document_processor_requires_settings_when_domain_registry_is_present() -> None:
-    infra = InfrastructureContainer(domain_registry=DomainProfileRegistry())
+def test_pack_document_hooks_require_domain_settings() -> None:
+    hooks = MagicMock()
+    infra = InfrastructureContainer(
+        domain_registry=DomainProfileRegistry(), pack_wiring=PackWiring(document_hooks=hooks)
+    )
 
     with pytest.raises(ContainerNotInitializedError, match="domain_settings not initialized"):
-        create_document_processor(infra, FakeUnitOfWorkFactory())
+        create_pack_hooks(infra, FakeUnitOfWorkFactory())
+
+    hooks.assert_not_called()
+
+
+def test_neutral_pack_has_no_document_hooks() -> None:
+    infra = InfrastructureContainer(domain_registry=DomainProfileRegistry())
+    assert create_pack_hooks(infra, FakeUnitOfWorkFactory()) is None

@@ -93,14 +93,14 @@ def _make_service(**overrides: Any) -> IngestionService:
         "uow_factory": FakeUnitOfWorkFactory(),
         "domain_registry": None,
         "domain_settings": None,
-        "act_versioning_service": None,
+        "pack_hooks": None,
     }
     defaults.update(overrides)
     uow_factory = defaults["uow_factory"] or FakeUnitOfWorkFactory()
     registry = IngestionRegistry(uow_factory, defaults["file_storage"])
     sync = DocumentSyncService(
         uow_factory,
-        defaults["act_versioning_service"],
+        defaults["pack_hooks"],
         defaults["domain_registry"],
         defaults["domain_settings"],
     )

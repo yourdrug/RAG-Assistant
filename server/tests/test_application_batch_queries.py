@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from application.act_versioning import ActVersionQueries
 from application.documents import DocumentQueryService
+from application.domain_packs.belarus_law.act_versioning import ActVersionQueries
 from application.ingestion import (
     DocumentSyncService,
     IngestionRegistry,

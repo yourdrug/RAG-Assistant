@@ -7,16 +7,17 @@ from datetime import UTC, datetime
 import logging
 from typing import TYPE_CHECKING, Unpack
 
-from application.act_versioning.persistence import ActVersionPersistence
+from application.domain_packs.belarus_law.act_versioning.persistence import ActVersionPersistence
+from application.domain_packs.belarus_law.act_versioning.repositories import act_repositories
+from domain.domain_packs.belarus_law.acts.models import ActVersion, RegulatoryAct
+from domain.domain_packs.belarus_law.acts.timeline import ActVersionTimeline
 from domain.ingestion.references import (
     extract_act_number,
 )
-from domain.knowledge.acts.models import ActVersion, RegulatoryAct
-from domain.knowledge.acts.policy import (
+from domain.knowledge.document_scope import (
     document_scope_key,
     same_document_scope,
 )
-from domain.knowledge.acts.timeline import ActVersionTimeline
 from domain.knowledge.enums import DocumentVisibility
 from domain.shared.dates import parse_date_guess
 from domain.shared.exceptions import EntityNotFoundError, ValidationError
@@ -26,9 +27,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import date
 
-    from application.act_versioning.answers import ActVersionAnswerInvalidator
-    from application.act_versioning.dto import VersionUpdateOptions
-    from application.act_versioning.planner import ActVersionPlanner
+    from application.domain_packs.belarus_law.act_versioning.answers import ActVersionAnswerInvalidator
+    from application.domain_packs.belarus_law.act_versioning.dto import VersionUpdateOptions
+    from application.domain_packs.belarus_law.act_versioning.planner import ActVersionPlanner
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.profiles.types import ReferenceMatch
@@ -91,12 +92,12 @@ class ActVersionCommands:
             ),
             None,
         )
-        existing = await uow.regulatory_acts.find_by_type_and_number(
+        existing = await act_repositories(uow).regulatory_acts.find_by_type_and_number(
             act_type, act_number, signing_date, visibility_scope
         )
 
         if existing is None and signing_date is not None:
-            legacy = await uow.regulatory_acts.find_by_type_and_number(
+            legacy = await act_repositories(uow).regulatory_acts.find_by_type_and_number(
                 act_type, act_number, None, visibility_scope
             )
 
@@ -105,7 +106,7 @@ class ActVersionCommands:
                     message = "Persisted regulatory act has no ID"
                     raise RuntimeError(message)
 
-                await uow.regulatory_acts.update_act_date(legacy.id, signing_date)
+                await act_repositories(uow).regulatory_acts.update_act_date(legacy.id, signing_date)
                 legacy.act_date = signing_date
                 existing = legacy
 
@@ -119,7 +120,7 @@ class ActVersionCommands:
                 title += f" от {ref.value}"
                 break
 
-        return await uow.regulatory_acts.save(
+        return await act_repositories(uow).regulatory_acts.save(
             RegulatoryAct(
                 id=None,
                 act_type=act_type,
@@ -169,7 +170,9 @@ class ActVersionCommands:
         date_confidence: float | None = None,
     ) -> ActVersion:
         """Create a version using the caller's transaction."""
-        existing_version = await uow.act_versions.get_by_document_id(document_id, for_update=True)
+        existing_version = await act_repositories(uow).act_versions.get_by_document_id(
+            document_id, for_update=True
+        )
 
         if existing_version is not None:
             return existing_version
@@ -189,7 +192,7 @@ class ActVersionCommands:
             act = await self.find_or_create_act_in_uow(uow, profile.key, act_number, extracted_refs, scope)
 
         if act is not None and act.id is not None:
-            previous = await uow.act_versions.list_by_act(act.id, for_update=True)
+            previous = await act_repositories(uow).act_versions.list_by_act(act.id, for_update=True)
             new_doc = await uow.documents.get_by_id(document_id)
             previous_docs = [await uow.documents.get_by_id(v.document_id) for v in previous]
             same_scope = new_doc is not None and all(
@@ -222,7 +225,7 @@ class ActVersionCommands:
             date_source=date_source,
             date_confidence=date_confidence,
         )
-        created = await uow.act_versions.create(version)
+        created = await act_repositories(uow).act_versions.create(version)
 
         if act is None:
             log.info(
@@ -368,13 +371,13 @@ class ActVersionCommands:
                 ),
             )
 
-        target_act = await uow.regulatory_acts.get_by_id(version.act_id)
+        target_act = await act_repositories(uow).regulatory_acts.get_by_id(version.act_id)
 
         if target_act is None:
             entity = "RegulatoryAct"
             raise EntityNotFoundError(entity, version.act_id)
 
-        versions = await uow.act_versions.list_by_act(version.act_id, for_update=True)
+        versions = await act_repositories(uow).act_versions.list_by_act(version.act_id, for_update=True)
         previous = [item for item in versions if item.id != version.id]
         document = await uow.documents.get_by_id(version.document_id)
 

@@ -6,12 +6,13 @@ from copy import deepcopy
 from datetime import date
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 import pytest
 
-from application.act_versioning import VersioningResult
+from application.domain_packs.belarus_law.act_versioning import VersioningResult
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
@@ -21,14 +22,14 @@ from tests.fakes import require_present
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 
-from application.act_versioning import ActVersioningService
+from application.domain_packs.belarus_law.act_versioning import ActVersioningService
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
+from domain.domain_packs.belarus_law.acts.models import ActVersion, RegulatoryAct
 from domain.ingestion.profiles.types import ReferenceMatch
-from domain.knowledge.acts.edition_metadata import edition_metadata
-from domain.knowledge.acts.models import ActVersion, RegulatoryAct
 from domain.knowledge.document import Document
 from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.exceptions import EntityNotFoundError
-from tests.fakes import FakeUnitOfWorkFactory
+from tests.law_pack import LawFakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -53,8 +54,8 @@ def decree_profile() -> DecreeDomainProfile:
     return DecreeDomainProfile(settings=FakeSettings())
 
 
-def make_service(threshold: str = "0.85") -> tuple[ActVersioningService, FakeUnitOfWorkFactory]:
-    factory = FakeUnitOfWorkFactory()
+def make_service(threshold: str = "0.85") -> tuple[ActVersioningService, LawFakeUnitOfWorkFactory]:
+    factory = LawFakeUnitOfWorkFactory()
     return ActVersioningService(uow_factory=factory, settings=FakeSettings(threshold)), factory
 
 
@@ -523,3 +524,36 @@ async def test_relinking_expired_version_to_empty_act_never_marks_it_current() -
     stored = await uow.fake_act_versions.get_by_id(require_present(version.id))
     assert require_present(stored).effective_to == date(2025, 1, 1)
     assert not require_present(stored).is_current
+
+
+@pytest.mark.asyncio
+async def test_version_update_rolls_back_rows_and_skips_cache_when_outbox_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+
+    factory = LawFakeUnitOfWorkFactory()
+    cache = SimpleNamespace(invalidate_by_document_ids=AsyncMock())
+    service = ActVersioningService(factory, SimpleNamespace(), cache)
+    version = await factory._uow.fake_act_versions.create(
+        ActVersion(
+            id=None,
+            act_id=None,
+            document_id=1,
+            effective_from=date(2024, 1, 1),
+            date_source="extracted",
+        )
+    )
+    factory._uow.fake_chunks._chunks.append(
+        {"id": 1, "document_id": 1, "pack_metadata": edition_metadata(version)}
+    )
+    monkeypatch.setattr(
+        factory._uow.fake_vector_outbox, "enqueue", AsyncMock(side_effect=RuntimeError("outbox failed"))
+    )
+    with pytest.raises(RuntimeError, match="outbox failed"):
+        await service.update_version(require_present(version.id), effective_from=date(2025, 1, 1))
+    restored = await factory._uow.fake_act_versions.get_by_id(require_present(version.id))
+    assert require_present(restored).effective_from == date(2024, 1, 1)
+    assert require_present(restored).date_source == "extracted"
+    assert factory._uow.fake_chunks._chunks[0]["pack_metadata"]["effective_from"] == "2024-01-01"
+    assert factory._uow._rolled_back
+    cache.invalidate_by_document_ids.assert_not_awaited()

@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select, update
 
-from domain.knowledge.acts.models import ActVersion
-from infrastructure.database.models import ActVersionModel, DocumentModel, RegulatoryActModel
+from domain.domain_packs.belarus_law.acts.models import ActVersion
+from infrastructure.database.models import DocumentModel
+from infrastructure.domain_packs.belarus_law.persistence.models import ActVersionModel, RegulatoryActModel
 
 
 if TYPE_CHECKING:

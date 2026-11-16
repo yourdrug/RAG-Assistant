@@ -11,14 +11,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from application.act_versioning import ActVersioningService
 from application.documents.dto import ProcessDocumentCommand
+from application.domain_packs.belarus_law.act_versioning import ActVersioningService
+from application.domain_packs.belarus_law.act_versioning.document_hooks import ActEditionHooks
 from application.indexing import process_chunks
 from application.ingestion import IngestionScope, SingleFileIngestionWorkflow
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
+from domain.domain_packs.belarus_law.acts.models import ActVersion
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
-from domain.knowledge.acts.edition_metadata import edition_metadata
-from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
@@ -27,6 +28,7 @@ from domain.shared.hashing import content_hash
 from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from tests.fakes import FakeUnitOfWorkFactory
+from tests.law_pack import LawFakeUnitOfWorkFactory
 from tests.test_document_processor_characterization import build_harness, seed_document
 
 
@@ -402,10 +404,9 @@ async def test_reindex_keeps_act_version_dates_and_current_flag(
         tmp_path,
         docs=[RawDocument(page_content=DECREE_TEXT)],
         registry=registry,
-        act_versioning=None,
+        uow_factory=(factory := LawFakeUnitOfWorkFactory()),
+        pack_hooks=ActEditionHooks(ActVersioningService(factory, VersioningSettings()), registry),
     )
-    service = ActVersioningService(harness.uow_factory, VersioningSettings())
-    harness.processor._act_versioning_service = service
     document = await seed_document(harness.repo, status=DocumentStatus.DONE, doc_domain="decree")
     # An administrator-corrected, superseded edition: none of it matches the text.
     edition = await harness.uow.act_versions.create(

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from application.act_versioning.dto import ActSummary
+from application.domain_packs.belarus_law.act_versioning.dto import ActSummary
+from application.domain_packs.belarus_law.act_versioning.repositories import act_repositories
 
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
-    from domain.knowledge.acts.models import ActVersion
+    from domain.domain_packs.belarus_law.acts.models import ActVersion
 
 
 class ActVersionQueries:
@@ -19,18 +20,18 @@ class ActVersionQueries:
     async def list_pending_review(self) -> list[ActVersion]:
         """List versions needing manual review (not trusted, not linked)."""
         async with self._uow_factory.create() as uow:
-            return await uow.act_versions.list_pending_review()
+            return await act_repositories(uow).act_versions.list_pending_review()
 
     async def list_versions_page(self, limit: int, offset: int) -> tuple[list[ActVersion], int]:
         async with self._uow_factory.create() as uow:
-            return await uow.act_versions.list_page(limit, offset)
+            return await act_repositories(uow).act_versions.list_page(limit, offset)
 
     async def list_recent_acts(
         self, limit: int = 20, include_act_ids: set[int] | None = None
     ) -> list[ActSummary]:
         """Recent acts — linkage suggestions for versions pending manual review."""
         async with self._uow_factory.create() as uow:
-            acts = await uow.regulatory_acts.list_all()
+            acts = await act_repositories(uow).regulatory_acts.list_all()
         return [
             ActSummary(
                 id=a.id,

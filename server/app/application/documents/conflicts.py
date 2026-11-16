@@ -11,6 +11,7 @@ from domain.shared.exceptions import EntityNotFoundError
 
 
 if TYPE_CHECKING:
+    from application.indexing.pack_hooks import DocumentPackHooks
     from application.uow import UnitOfWork
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.knowledge.document import Document
@@ -49,6 +50,8 @@ async def apply_async_replacement(
     replace_id: int,
     doc_domain: str,
     storage_deletes: list[str],
+    *,
+    pack_hooks: DocumentPackHooks | None = None,
 ) -> None:
     """Delete the replaced document -- unless the domain is versioned.
 
@@ -69,7 +72,7 @@ async def apply_async_replacement(
     if old is None:
         return
 
-    await delete_document_in_uow(uow, replace_id)
+    await delete_document_in_uow(uow, replace_id, pack_hooks)
 
     if old.source_path and old.ingestion_key is None:
         storage_deletes.append(old.source_path)

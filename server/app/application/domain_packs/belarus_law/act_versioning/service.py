@@ -6,23 +6,28 @@ from datetime import UTC, datetime
 import logging
 from typing import TYPE_CHECKING, Unpack
 
-from application.act_versioning.answers import ActVersionAnswerInvalidator
-from application.act_versioning.commands import ActVersionCommands
-from application.act_versioning.dto import VersioningResult
-from application.act_versioning.planner import ActVersionPlanner
-from application.act_versioning.queries import ActVersionQueries
+from application.domain_packs.belarus_law.act_versioning.answers import ActVersionAnswerInvalidator
+from application.domain_packs.belarus_law.act_versioning.commands import ActVersionCommands
+from application.domain_packs.belarus_law.act_versioning.dto import VersioningResult
+from application.domain_packs.belarus_law.act_versioning.planner import ActVersionPlanner
+from application.domain_packs.belarus_law.act_versioning.queries import ActVersionQueries
+from application.domain_packs.belarus_law.act_versioning.repositories import act_repositories
 
 
 if TYPE_CHECKING:
     from datetime import date
 
-    from application.act_versioning.dto import ActSummary, VersioningPlan, VersionUpdateOptions
+    from application.domain_packs.belarus_law.act_versioning.dto import (
+        ActSummary,
+        VersioningPlan,
+        VersionUpdateOptions,
+    )
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
+    from domain.domain_packs.belarus_law.acts.models import ActVersion, RegulatoryAct
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.profiles.types import ReferenceMatch
-    from domain.knowledge.acts.models import ActVersion, RegulatoryAct
 
 
 log = logging.getLogger("default")
@@ -106,7 +111,9 @@ class ActVersioningService:
         if plan.warning:
             # Re-chunking must not detach chunks from an existing edition when
             # extraction fails this time; keep its dates and current flag.
-            existing = await uow.act_versions.get_by_document_id(document_id, for_update=True)
+            existing = await act_repositories(uow).act_versions.get_by_document_id(
+                document_id, for_update=True
+            )
 
             if existing is None:
                 return VersioningResult(plan.domain_metadata, plan.warning)

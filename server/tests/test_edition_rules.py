@@ -8,8 +8,8 @@ from typing import Any
 from langchain_core.documents import Document
 import pytest
 
-from domain.knowledge.acts.edition_metadata import edition_metadata
-from domain.knowledge.acts.models import ActVersion
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
+from domain.domain_packs.belarus_law.acts.models import ActVersion
 from domain.knowledge.pack_metadata import PACK_METADATA_KEY, matches
 from infrastructure.domain_packs.belarus_law.evidence.editions import (
     edition_selection,

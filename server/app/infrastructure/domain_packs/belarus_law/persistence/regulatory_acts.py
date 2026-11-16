@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from domain.knowledge.acts.models import RegulatoryAct
+from domain.domain_packs.belarus_law.acts.models import RegulatoryAct
 from domain.knowledge.enums import DocumentVisibility
-from infrastructure.database.models import RegulatoryActModel
+from infrastructure.domain_packs.belarus_law.persistence.models import RegulatoryActModel
 
 
 if TYPE_CHECKING:

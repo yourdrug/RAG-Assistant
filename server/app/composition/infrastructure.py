@@ -18,7 +18,7 @@ from prometheus_client import Counter
 from application.benchmark import BenchmarkService
 from application.documents import DocumentPreviewStrategy, PreviewCache
 from application.runtime.config import ConfigParameterChanged
-from composition.domain_packs import selected_pack
+from composition.domain_packs import NEUTRAL_WIRING, PackWiring, selected_pack, selected_wiring
 from composition.utils import missing_fields, require
 from config import settings
 from domain.ingestion.ports import DomainSettingsPort, TokenCounter
@@ -112,7 +112,7 @@ class DatabaseContainer:
     uow_factory: UnitOfWorkFactory | None = field(default=None)
     config_broadcaster: PostgresConfigBroadcaster | None = field(default=None)
 
-    def init(self, database_manager: object) -> None:
+    def init(self, database_manager: object, domain_pack: DomainPack = NEUTRAL_PACK) -> None:
 
         if not isinstance(database_manager, DatabaseManager):
             msg = f"Expected DatabaseManager, got {type(database_manager).__name__}"
@@ -123,6 +123,7 @@ class DatabaseContainer:
         self.uow_factory = UnitOfWorkFactory(
             database=database_manager,
             config_broadcaster=self.config_broadcaster,
+            pack_repositories=domain_pack.repositories,
         )
 
     @property
@@ -370,6 +371,7 @@ class InfrastructureContainer:
     domain_registry: DomainProfileRegistry | None = field(default=None, repr=False)
     domain_settings: DomainSettingsAdapter | None = field(default=None, repr=False)
     domain_pack: DomainPack = field(default=NEUTRAL_PACK, repr=False)
+    pack_wiring: PackWiring = field(default=NEUTRAL_WIRING, repr=False)
     rate_limit: DynamicRateLimiter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
     corpus_control: PostgresCorpusControl | None = field(default=None, repr=False)
@@ -384,11 +386,12 @@ class InfrastructureContainer:
         """
         # Domain profile registry — created first: ML parsing/splitting is domain-aware
         self.domain_pack = selected_pack(settings.domain_pack)
+        self.pack_wiring = selected_wiring(settings.domain_pack)
         self.domain_settings = DomainSettingsAdapter()
         self.domain_registry = DomainProfileRegistry()
         register_pack_profiles(self.domain_registry, self.domain_pack, self.domain_settings)
 
-        self.db.init(database_manager)
+        self.db.init(database_manager, self.domain_pack)
         self.ml.init(
             uow_factory=self.db.uow,
             domain_registry=self.domain_registry,

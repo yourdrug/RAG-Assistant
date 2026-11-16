@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from application.domain_packs.belarus_law.act_versioning.repositories import act_repositories
+
 
 if TYPE_CHECKING:
     from application.ports.cache_invalidator import CacheInvalidatorPort
@@ -22,7 +24,7 @@ class ActVersionAnswerInvalidator:
             return
 
         async with self._uow_factory.create(master=True) as uow:
-            versions = await uow.act_versions.list_by_act(act_id)
+            versions = await act_repositories(uow).act_versions.list_by_act(act_id)
             document_ids = list({v.document_id for v in versions})
 
         if document_ids:

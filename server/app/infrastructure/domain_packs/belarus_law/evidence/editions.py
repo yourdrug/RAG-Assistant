@@ -6,7 +6,7 @@ from datetime import date, datetime
 import logging
 from typing import TYPE_CHECKING, Any
 
-from domain.knowledge.acts.edition_metadata import (
+from domain.domain_packs.belarus_law.acts.edition_metadata import (
     ACT_ID,
     ACT_VERSION_ID,
     EFFECTIVE_FROM,

@@ -9,25 +9,61 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from application.act_versioning import ActVersioningService
+from application.domain_packs.belarus_law.act_versioning import ActVersioningService
 
 
 if TYPE_CHECKING:
-    from application.act_versioning import VersionUpdateOptions
+    from application.domain_packs.belarus_law.act_versioning import VersionUpdateOptions
 
 
 @pytest.mark.parametrize(
     "public,implementation,name",
     [
-        ("application.act_versioning", "application.act_versioning.dto", "VersioningPlan"),
-        ("application.act_versioning", "application.act_versioning.dto", "VersioningResult"),
-        ("application.act_versioning", "application.act_versioning.answers", "ActVersionAnswerInvalidator"),
-        ("application.act_versioning", "application.act_versioning.commands", "ActVersionCommands"),
-        ("application.act_versioning", "application.act_versioning.persistence", "ActVersionPersistence"),
-        ("application.act_versioning", "application.act_versioning.planner", "ActVersionPlanner"),
-        ("application.act_versioning", "application.act_versioning.queries", "ActVersionQueries"),
-        ("application.act_versioning", "application.act_versioning.dto", "ActSummary"),
-        ("application.act_versioning", "application.act_versioning.service", "ActVersioningService"),
+        (
+            "application.domain_packs.belarus_law.act_versioning",
+            "application.domain_packs.belarus_law.act_versioning.dto",
+            "VersioningPlan",
+        ),
+        (
+            "application.domain_packs.belarus_law.act_versioning",
+            "application.domain_packs.belarus_law.act_versioning.dto",
+            "VersioningResult",
+        ),
+        (
+            "application.domain_packs.belarus_law.act_versioning",
+            "application.domain_packs.belarus_law.act_versioning.answers",
+            "ActVersionAnswerInvalidator",
+        ),
+        (
+            "application.domain_packs.belarus_law.act_versioning",
+            "application.domain_packs.belarus_law.act_versioning.commands",
+            "ActVersionCommands",
+        ),
+        (
+            "application.domain_packs.belarus_law.act_versioning",
+            "application.domain_packs.belarus_law.act_versioning.persistence",
+            "ActVersionPersistence",
+        ),
+        (
+            "application.domain_packs.belarus_law.act_versioning",
+            "application.domain_packs.belarus_law.act_versioning.planner",
+            "ActVersionPlanner",
+        ),
+        (
+            "application.domain_packs.belarus_law.act_versioning",
+            "application.domain_packs.belarus_law.act_versioning.queries",
+            "ActVersionQueries",
+        ),
+        (
+            "application.domain_packs.belarus_law.act_versioning",
+            "application.domain_packs.belarus_law.act_versioning.dto",
+            "ActSummary",
+        ),
+        (
+            "application.domain_packs.belarus_law.act_versioning",
+            "application.domain_packs.belarus_law.act_versioning.service",
+            "ActVersioningService",
+        ),
     ],
 )
 def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:

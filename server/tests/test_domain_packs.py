@@ -32,18 +32,23 @@ APP_DIR = Path(__file__).resolve().parents[1] / "app"
 BLOCKED_PACKS_PROBE = """
 import importlib, importlib.abc, pkgutil, sys
 
-PACKS = "infrastructure.domain_packs"
+PACKS = ("domain.domain_packs", "application.domain_packs", "presentation.domain_packs",
+         "infrastructure.domain_packs")
+WIRING = "composition.domain_packs."
+
+def is_pack(name):
+    return name.startswith(WIRING) or any(name == pack or name.startswith(pack + ".") for pack in PACKS)
 
 class BlockPacks(importlib.abc.MetaPathFinder):
     def find_spec(self, name, path, target=None):
-        if name == PACKS or name.startswith(PACKS + "."):
+        if is_pack(name):
             raise ImportError("core imported a domain pack: " + name)
 
 sys.meta_path.insert(0, BlockPacks())
 
 for layer in ("domain", "application", "infrastructure", "presentation", "composition"):
     for module in pkgutil.walk_packages(importlib.import_module(layer).__path__, layer + "."):
-        if module.name == PACKS or module.name.startswith(PACKS + "."):
+        if is_pack(module.name):
             continue
 
         try:

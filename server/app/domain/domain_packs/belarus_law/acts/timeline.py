@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date
 
-from domain.knowledge.acts.models import ActVersion
+from domain.domain_packs.belarus_law.acts.models import ActVersion
 from domain.shared.exceptions import EntityNotFoundError
 
 

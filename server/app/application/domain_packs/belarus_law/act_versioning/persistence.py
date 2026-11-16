@@ -5,15 +5,16 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from domain.knowledge.acts.edition_metadata import edition_metadata
-from domain.knowledge.acts.timeline import ActVersionTimeline
+from application.domain_packs.belarus_law.act_versioning.repositories import act_repositories
+from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
+from domain.domain_packs.belarus_law.acts.timeline import ActVersionTimeline
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.shared.exceptions import EntityNotFoundError
 
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWork
-    from domain.knowledge.acts.models import ActVersion
+    from domain.domain_packs.belarus_law.acts.models import ActVersion
     from domain.knowledge.repositories.chunk import ChunkPackMetadataRepository
 
 
@@ -22,7 +23,7 @@ class ActVersionPersistence:
         self.uow = uow
 
     async def load(self, version_id: int) -> tuple[ActVersion, ActVersionTimeline]:
-        version = await self.uow.act_versions.get_by_id(version_id)
+        version = await act_repositories(self.uow).act_versions.get_by_id(version_id)
 
         if version is None:
             entity = "ActVersion"
@@ -31,7 +32,9 @@ class ActVersionPersistence:
         timeline = ActVersionTimeline()
 
         if version.act_id is not None:
-            versions = await self.uow.act_versions.list_by_act(version.act_id, for_update=True)
+            versions = await act_repositories(self.uow).act_versions.list_by_act(
+                version.act_id, for_update=True
+            )
             timeline = ActVersionTimeline(tuple(versions))
             # Resolve from the snapshot read after acquiring the aggregate lock.
             version = timeline.get_version(version_id)
@@ -53,7 +56,7 @@ class ActVersionPersistence:
             message = "Persisted act version has no ID"
             raise RuntimeError(message)
 
-        await self.uow.act_versions.update(version)
+        await act_repositories(self.uow).act_versions.update(version)
         chunks: ChunkPackMetadataRepository = self.uow.chunks
         await chunks.set_pack_metadata(version.document_id, edition_metadata(version))
         await self.uow.vector_outbox.enqueue(

@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from application.act_versioning import ActVersioningService
 from application.benchmark import BenchmarkRunService
+from application.domain_packs.belarus_law.act_versioning import ActVersioningService
 from domain.benchmark.run import BenchmarkRun
-from domain.knowledge.acts.models import ActVersion
-from presentation.api.routes.admin_act_versions import list_act_versions
+from domain.domain_packs.belarus_law.acts.models import ActVersion
 from presentation.api.routes.benchmark_admin import HistoryQuery, benchmark_history
 from presentation.api.schemas.auth import CurrentUser
-from tests.fakes import FakeUnitOfWorkFactory
+from presentation.domain_packs.belarus_law.act_versions_routes import list_act_versions
+from tests.law_pack import LawFakeUnitOfWorkFactory
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def admin() -> CurrentUser:
 async def test_benchmark_history_requires_persisted_id(
     run_id: int | None, admin: CurrentUser, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    service = BenchmarkRunService(FakeUnitOfWorkFactory())
+    service = BenchmarkRunService(LawFakeUnitOfWorkFactory())
     monkeypatch.setattr(service, "list", AsyncMock(return_value=([BenchmarkRun(id=run_id)], 1)))
 
     if run_id is None:
@@ -44,7 +44,7 @@ async def test_benchmark_history_requires_persisted_id(
 async def test_act_version_list_requires_persisted_id(
     version_id: int | None, review: str, admin: CurrentUser
 ) -> None:
-    factory = FakeUnitOfWorkFactory()
+    factory = LawFakeUnitOfWorkFactory()
     factory._uow.fake_act_versions._versions[42] = ActVersion(id=version_id, act_id=None, document_id=7)
     service = ActVersioningService(factory, MagicMock())
 

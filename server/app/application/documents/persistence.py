@@ -10,16 +10,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from application.act_versioning import VersioningResult
 from application.documents.conflicts import apply_async_replacement
 from application.indexing import enrich_chunks_metadata, process_chunks
+from application.indexing.pack_hooks import AppliedPackDocument, apply_pack_document
 from domain.knowledge.enums import DocumentStatus
 from domain.shared.exceptions import BusinessRuleViolationError
 
 
 if TYPE_CHECKING:
-    from application.act_versioning import ActVersioningService
     from application.documents.dto import PersistDocumentCommand
+    from application.indexing.pack_hooks import DocumentPackHooks
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.knowledge.document import Document
@@ -47,25 +47,18 @@ async def persist_document_result(
     command: PersistDocumentCommand,
     *,
     domain_registry: DomainProfileRegistry | None,
-    act_versioning_service: ActVersioningService | None,
-) -> VersioningResult | None:
-    """Commit version, chunks, replacement and outbox together, then invalidate answers."""
+    pack_hooks: DocumentPackHooks | None,
+) -> AppliedPackDocument | None:
+    """Commit pack state, chunks, replacement and outbox together, then run pack effects."""
     document_id = command.document_id
-    versioning = VersioningResult()
+    applied = AppliedPackDocument()
     storage_deletes: list[str] = []
     async with uow_factory.create(master=True) as uow:
         if await lock_document_for_persist(uow, command) is None:
             log.info("Document %d deleted before outbox enqueue — aborting", document_id)
             return None
 
-        if command.versioning is not None:
-            if act_versioning_service is None:
-                msg = "Versioning plan requires an act versioning service"
-                raise RuntimeError(msg)
-
-            versioning = await act_versioning_service.apply_versioning_plan(
-                uow, command.versioning.profile, document_id, command.versioning.plan
-            )
+        applied = await apply_pack_document(pack_hooks, uow, document_id, command.pack_document)
 
         await uow.documents.set_domain(document_id, command.doc_domain)
 
@@ -76,8 +69,8 @@ async def persist_document_result(
             command.owner_id,
             command.group_id,
             doc_domain=command.doc_domain,
-            domain_metadata=versioning.domain_metadata,
-            pack_metadata=versioning.pack_metadata,
+            domain_metadata=applied.domain_metadata,
+            pack_metadata=applied.pack_metadata,
         )
 
         await process_chunks(
@@ -95,7 +88,12 @@ async def persist_document_result(
 
         if command.replace_id is not None:
             await apply_async_replacement(
-                uow, domain_registry, command.replace_id, command.doc_domain, storage_deletes
+                uow,
+                domain_registry,
+                command.replace_id,
+                command.doc_domain,
+                storage_deletes,
+                pack_hooks=pack_hooks,
             )
 
         if command.warning_message:
@@ -109,10 +107,7 @@ async def persist_document_result(
     # Publish cleanup keys only after commit: a rollback must preserve old files.
     command.storage_deletes.extend(storage_deletes)
 
-    if act_versioning_service is not None:
-        if versioning.act_id is not None:
-            await act_versioning_service.invalidate_act_answers(versioning.act_id)
-        else:
-            await act_versioning_service.invalidate_document_answers(document_id)
+    if pack_hooks is not None:
+        await pack_hooks.after_commit(document_id, applied)
 
-    return versioning
+    return applied

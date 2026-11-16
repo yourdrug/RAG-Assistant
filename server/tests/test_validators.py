@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from pydantic import ValidationError
 import pytest
 
-from presentation.api.schemas.admin_act_versions import ActVersionUpdateRequest
 from presentation.api.schemas.validators import FileContent, _reject_unsafe_path
+from presentation.domain_packs.belarus_law.act_versions_schemas import ActVersionUpdateRequest
 
 
 # ---------------------------------------------------------------------------

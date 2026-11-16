@@ -15,6 +15,7 @@ from fastapi.routing import APIRoute
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from application.ports.rate_limit import RateLimitPolicyName
+from config import settings
 from main import create_application
 
 
@@ -52,7 +53,6 @@ _EXPECTED: dict[tuple[str, str], str] = {
     ("DELETE", "/admin/curators/{curator_id}/groups/{group_id}"): "write",
     ("PUT", "/admin/config/{key}"): "write",
     ("POST", "/admin/corpus/switch"): "write",
-    ("PATCH", "/admin/act-versions/{version_id}"): "write",
     ("POST", "/admin/documents/{document_id}/diagnose"): "write",
     ("POST", "/admin/documents/preview"): "write",
     ("POST", "/admin/documents/preview-ocr"): "write",
@@ -68,6 +68,12 @@ _EXPECTED: dict[tuple[str, str], str] = {
     ("POST", "/benchmark"): "benchmark",
     ("POST", "/admin/benchmark/sweep"): "benchmark",
     ("POST", "/admin/benchmark/runs/{run_id}/apply"): "benchmark",
+}
+
+
+# Routes a domain pack mounts when DOMAIN_PACK selects it.
+_PACK_EXPECTED: dict[str, dict[tuple[str, str], str]] = {
+    "belarus_law": {("PATCH", "/admin/act-versions/{version_id}"): "write"},
 }
 
 
@@ -97,7 +103,7 @@ def _marked_routes() -> dict[tuple[str, str], str]:
 class TestRouteCoverage:
     def test_marked_routes_match_expected_mapping(self) -> None:
         marked = _marked_routes()
-        assert marked == _EXPECTED
+        assert marked == {**_EXPECTED, **_PACK_EXPECTED.get(settings.domain_pack, {})}
 
     def test_health_endpoint_is_not_rate_limited(self) -> None:
         marked = _marked_routes()

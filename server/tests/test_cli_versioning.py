@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from application.act_versioning import ActVersioningService
+from application.domain_packs.belarus_law.act_versioning import ActVersioningService
+from application.domain_packs.belarus_law.act_versioning.document_hooks import ActEditionHooks
 from application.ingestion import (
     BatchIngestionWorkflow,
     DocumentSyncService,
@@ -28,7 +29,7 @@ from application.ingestion import (
 )
 from domain.ingestion.raw_document import RawDocument as Document
 from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
-from tests.fakes import FakeUnitOfWorkFactory
+from tests.law_pack import LawFakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -53,9 +54,9 @@ _DECREE_TEXT = (
 )
 
 
-def _make_service() -> tuple[IngestionService, FakeUnitOfWorkFactory, ActVersioningService]:
+def _make_service() -> tuple[IngestionService, LawFakeUnitOfWorkFactory, ActVersioningService]:
 
-    factory = FakeUnitOfWorkFactory()
+    factory = LawFakeUnitOfWorkFactory()
     versioning = ActVersioningService(uow_factory=factory, settings=FakeSettings())
     vector_store = MagicMock()
     vector_store.set_document_id_by_source = AsyncMock()
@@ -66,7 +67,7 @@ def _make_service() -> tuple[IngestionService, FakeUnitOfWorkFactory, ActVersion
     file_storage = MagicMock()
     settings = MagicMock(s3_bucket="test-bucket")
     ingestion_registry = IngestionRegistry(factory, file_storage)
-    sync = DocumentSyncService(factory, versioning, registry, FakeSettings())
+    sync = DocumentSyncService(factory, ActEditionHooks(versioning, registry), registry, FakeSettings())
     loader = S3DocumentLoader(
         file_storage,
         MagicMock(),

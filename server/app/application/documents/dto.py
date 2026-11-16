@@ -11,7 +11,6 @@ from domain.knowledge.enums import DocDomain, SourceType
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from application.act_versioning.dto import VersioningPlan
     from application.documents.ports.processing import (
         ContentExtractorPort,
         MetricsCollectorPort,
@@ -19,9 +18,9 @@ if TYPE_CHECKING:
         TextQualityAssessorPort,
     )
     from application.indexing.contextualization import ChunkContextualization
+    from application.indexing.pack_hooks import PreparedPackDocument
     from application.ingestion import DocumentParserPort, DocumentSplitterPort
     from domain.ingestion.preview import PDFQualityReport
-    from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.raw_document import RawDocument
     from domain.knowledge.document import Document
     from domain.knowledge.enums import DocumentVisibility
@@ -125,12 +124,6 @@ class ProcessDocumentCommand:
     skip_persisted: bool = False
 
 
-@dataclass(frozen=True)
-class PreparedDocumentVersioning:
-    plan: VersioningPlan
-    profile: DocumentProfile
-
-
 @dataclass(frozen=True, kw_only=True)
 class PersistDocumentCommand:
     document_id: int
@@ -144,7 +137,7 @@ class PersistDocumentCommand:
     warning_message: str | None
     quality: PDFQualityReport | None
     storage_deletes: list[str]
-    versioning: PreparedDocumentVersioning | None = None
+    pack_document: PreparedPackDocument | None = None
     abort_on_manual_edits: bool = False
 
 

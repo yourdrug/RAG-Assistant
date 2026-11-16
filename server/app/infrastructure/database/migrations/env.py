@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import importlib.util
 import logging
 from logging.config import fileConfig
+import pkgutil
 from typing import TYPE_CHECKING
 
 from alembic import context
@@ -23,9 +25,26 @@ config = context.config
 target_metadata = Base.metadata
 
 
+PACK_MODELS = "persistence.models"
+
+
+def pack_model_modules() -> tuple[str, ...]:
+    """ORM models of every domain pack in the repository: the schema is installation-wide."""
+    try:
+        packs = importlib.import_module("infrastructure.domain_packs")
+    except ModuleNotFoundError:
+        return ()
+
+    return tuple(
+        f"{packs.__name__}.{pack.name}.{PACK_MODELS}"
+        for pack in pkgutil.iter_modules(packs.__path__)
+        if pack.ispkg and importlib.util.find_spec(f"{packs.__name__}.{pack.name}.persistence") is not None
+    )
+
+
 def load_model_modules() -> None:
     """Import ORM model modules so Alembic autogenerate can detect them."""
-    model_modules: tuple[str, ...] = ("infrastructure.database.models",)
+    model_modules: tuple[str, ...] = ("infrastructure.database.models", *pack_model_modules())
 
     for model_module in model_modules:
         try:

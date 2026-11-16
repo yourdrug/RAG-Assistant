@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from application.act_versioning.dto import VersioningPlan
+from application.domain_packs.belarus_law.act_versioning.dto import VersioningPlan
 from domain.ingestion.profiles.types import refs_to_metadata
 
 
