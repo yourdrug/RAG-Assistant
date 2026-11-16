@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from domain.ingestion.profiles.registry import DomainProfileRegistry
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from packs.belarus_law.pack import BELARUS_LAW_PACK
 
 
 def law_settings() -> DomainSettingsAdapter:

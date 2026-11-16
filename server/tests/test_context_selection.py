@@ -131,6 +131,7 @@ def test_cyrillic_context_and_messages_share_the_same_estimate() -> None:
     assert context == ""
 
 
+@pytest.mark.generic_evidence
 def test_pipeline_keeps_high_score_from_another_section_with_full_prompt_counter() -> None:
     docs = [
         (doc("Primary evidence " * 40, 1), 0.99),
@@ -166,6 +167,7 @@ def test_pipeline_keeps_high_score_from_another_section_with_full_prompt_counter
     assert all("citation_id" not in d.metadata for d, _ in docs)
 
 
+@pytest.mark.generic_evidence
 def test_no_fitting_block_preserves_exclusion_before_raising() -> None:
     state = state_for([(doc("Very large block " * 10000, 1), 0.99)])
     evidence = BenchmarkEvidence()
@@ -179,6 +181,7 @@ def test_no_fitting_block_preserves_exclusion_before_raising() -> None:
     assert evidence.exclusions[0]["reason"] == ExclusionReason.OVERSIZED_BLOCK
 
 
+@pytest.mark.generic_evidence
 def test_repeated_builds_of_one_result_pack_context_once_and_still_capture() -> None:
     state = state_for([(doc("Primary evidence " * 20, 1), 0.9), (doc("Amendment rule " * 20, 2), 0.8)])
     result = retrieval_result(state)
@@ -203,6 +206,7 @@ def test_repeated_builds_of_one_result_pack_context_once_and_still_capture() -> 
     assert evidence.prompt_budget["input_tokens"] == final.budget.input_tokens
 
 
+@pytest.mark.generic_evidence
 def test_context_is_repacked_for_another_result_or_counter() -> None:
     state = state_for([(doc("Primary evidence " * 20, 1), 0.9)])
     operations = RagOperations(MagicMock(), document_access=MagicMock())
@@ -219,6 +223,7 @@ def test_context_is_repacked_for_another_result_or_counter() -> None:
     assert other_counter.call_count > 0
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_reranker_threshold_and_dedup_diagnostics_survive_prompt_capture() -> None:
     docs = [doc("Best", 1), doc("Below score gap", 2), doc("Below minimum", 3)]

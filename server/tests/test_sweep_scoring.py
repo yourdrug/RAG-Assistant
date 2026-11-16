@@ -194,6 +194,7 @@ async def test_sampled_reranker_trials_respect_llm_budget(
     assert run.await_count == 1
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.parametrize("parameter", ["rerank_min_score", "rerank_score_gap_ratio"])
 def test_reranking_precedes_top_k_and_filters(parameter: str) -> None:
     docs = [
@@ -210,6 +211,7 @@ def test_reranking_precedes_top_k_and_filters(parameter: str) -> None:
     assert score_documents(docs, annotations, rerank_scores=scores, top_k=1, **config)["avg_hit_rate"] == 0
 
 
+@pytest.mark.generic_evidence
 def test_reranking_respects_fetch_k_candidate_pool() -> None:
     docs = [
         Document(page_content="article 29", metadata={"source": "law.pdf"}),
@@ -227,6 +229,7 @@ def test_reranking_respects_fetch_k_candidate_pool() -> None:
     assert metrics["avg_hit_rate"] == 0
 
 
+@pytest.mark.generic_evidence
 def test_phase_a_uses_effective_runtime_threshold_defaults() -> None:
     docs = [Document(page_content="article 17", metadata={"source": "law.pdf"})]
     annotations = {"expected_fragments": [{"source": "law.pdf", "text": "article 17"}]}

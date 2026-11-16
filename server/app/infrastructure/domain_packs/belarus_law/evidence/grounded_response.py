@@ -6,7 +6,7 @@ import re
 from domain.rag.evidence.assessment import EvidenceAssessment, EvidenceFragment, EvidenceStatus
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.ranking import RetrievalDocument
-from packs.belarus_law.infrastructure.evidence.applicability import (
+from infrastructure.domain_packs.belarus_law.evidence.applicability import (
     act_numbers,
     evidence_conflicts,
     procedure_assessment,
@@ -14,12 +14,12 @@ from packs.belarus_law.infrastructure.evidence.applicability import (
     timing_assessment,
     timing_question,
 )
-from packs.belarus_law.infrastructure.evidence.focus import (
+from infrastructure.domain_packs.belarus_law.evidence.focus import (
     evidence_reading_map,
     matching_field_rows,
     requested_fields,
 )
-from packs.belarus_law.infrastructure.evidence.predicates import table_scope_confirmed
+from infrastructure.domain_packs.belarus_law.evidence.predicates import table_scope_confirmed
 
 
 def missing_field_response(context: str, question: str) -> str | None:

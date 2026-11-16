@@ -45,7 +45,7 @@ def prepare_snapshot(runs, dataset, run_id, ids, diagnostic_ids, git_commit=None
     from infrastructure.ml.evidence_profiles.profiles import evidence_profile_scope
     from infrastructure.ml.rag.evidence_focus import format_generation_messages
     from infrastructure.ml.rag.rag_prompts import build_prompt
-    from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile
+    from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
 
     run = next((run for run in runs if run["id"] == run_id), None)
     if run is None:

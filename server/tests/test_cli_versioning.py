@@ -27,7 +27,7 @@ from application.ingestion import (
     SingleFileIngestionWorkflow,
 )
 from domain.ingestion.raw_document import RawDocument as Document
-from packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
 from tests.fakes import FakeUnitOfWorkFactory
 
 

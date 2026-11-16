@@ -27,19 +27,24 @@ from infrastructure.ml.rag.rag_steps import RagOperations
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
 
-# Imports every core module while any ``packs`` import raises; prints the modules that needed a pack.
+# Imports every core module while any domain pack import raises; prints the modules that needed one.
 BLOCKED_PACKS_PROBE = """
 import importlib, importlib.abc, pkgutil, sys
 
+PACKS = "infrastructure.domain_packs"
+
 class BlockPacks(importlib.abc.MetaPathFinder):
     def find_spec(self, name, path, target=None):
-        if name == "packs" or name.startswith("packs."):
+        if name == PACKS or name.startswith(PACKS + "."):
             raise ImportError("core imported a domain pack: " + name)
 
 sys.meta_path.insert(0, BlockPacks())
 
 for layer in ("domain", "application", "infrastructure", "presentation"):
     for module in pkgutil.walk_packages(importlib.import_module(layer).__path__, layer + "."):
+        if module.name == PACKS or module.name.startswith(PACKS + "."):
+            continue
+
         try:
             importlib.import_module(module.name)
         except Exception as exc:  # Optional backends (surya, alembic env) fail for unrelated reasons.

@@ -248,6 +248,7 @@ class TestE2EInjectionNeutralization:
             assert "<" not in msg.content
             assert ">" not in msg.content
 
+    @pytest.mark.generic_evidence
     def test_full_prompt_assembly(self) -> None:
 
         prompt = build_prompt("narrow")
@@ -273,6 +274,7 @@ class TestE2EInjectionNeutralization:
 
 
 class TestSummaryInjectionDefense:
+    @pytest.mark.generic_evidence
     def test_summary_with_template_braces(self) -> None:
 
         summary = 'Injected {__import__("os")}'
@@ -281,6 +283,7 @@ class TestSummaryInjectionDefense:
         # Must not raise, and braces should be literal
         assert messages is not None
 
+    @pytest.mark.generic_evidence
     def test_summary_role_is_not_system(self) -> None:
 
         summary = "Previous conversation summary"

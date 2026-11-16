@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from application.runtime.errors import ConfigurationError
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile.packs import NEUTRAL_PACK, DomainPack
-from packs.belarus_law.pack import BELARUS_LAW_PACK
 
 
 DOMAIN_PACKS: dict[str, DomainPack] = {pack.key: pack for pack in (NEUTRAL_PACK, BELARUS_LAW_PACK)}

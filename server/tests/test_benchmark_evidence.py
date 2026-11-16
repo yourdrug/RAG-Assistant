@@ -299,6 +299,7 @@ def test_annotation_copy_does_not_mutate_dataset() -> None:
     assert annotations["expected_fragments"][0]["text"] == FRAGMENT["text"]
 
 
+@pytest.mark.generic_evidence
 def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval() -> None:
 
     raw = [(Document(page_content="Submit application", metadata={"source": "rules.pdf"}), 0.9)]

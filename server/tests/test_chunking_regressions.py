@@ -19,6 +19,8 @@ from application.ingestion import FileMeta, S3DocumentLoader, SplitContext
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocDomain, PageContentType
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
@@ -28,8 +30,6 @@ from infrastructure.ml.ingestion.format_tree import DocumentTreeBuilder
 from infrastructure.ml.ingestion.markdown import extract_date_from_filename
 from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 if TYPE_CHECKING:

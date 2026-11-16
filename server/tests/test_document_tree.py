@@ -13,6 +13,8 @@ from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.text_budget import split_words
 from domain.ingestion.tree_packer import ChunkDraft, pack_tree
 from domain.knowledge.enums import PageContentType
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.amendment_context import attach_table_replacement_scope
 from infrastructure.ml.ingestion.format_tree import (
@@ -22,8 +24,6 @@ from infrastructure.ml.ingestion.format_tree import (
 )
 from infrastructure.ml.ingestion.sections import ParsedFormat, Section
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 def test_format_tree_round_trip_preserves_blocks_and_page_metadata() -> None:

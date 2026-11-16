@@ -9,7 +9,7 @@ from domain.rag.evidence.assessment import (
     EvidenceFragment,
     EvidenceStatus,
 )
-from packs.belarus_law.infrastructure.evidence.predicates import listed_goods_polarities
+from infrastructure.domain_packs.belarus_law.evidence.predicates import listed_goods_polarities
 
 
 ACT_NUMBER_RE = re.compile(r"(?:\bN|№)\s*(\d+(?:[/\-]\d+)*)", re.IGNORECASE)

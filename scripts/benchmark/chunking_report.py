@@ -57,7 +57,7 @@ from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.tokenization import build_token_counter
-from packs.belarus_law.pack import BELARUS_LAW_PACK, BENCHMARKS_DIR
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK, BENCHMARKS_DIR
 
 
 log = logging.getLogger("chunking_report")

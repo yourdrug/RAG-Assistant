@@ -16,14 +16,14 @@ from domain.identity.user_context import UserContext
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.rag.evidence.assessment import EvidenceStatus
-from infrastructure.ml.rag.rag_config import build_rag_settings
-from packs.belarus_law.infrastructure.evidence.grounded_response import (
+from infrastructure.domain_packs.belarus_law.evidence.grounded_response import (
     extractive_procedure_response,
     extractive_table_comparison_response,
     extractive_timing_response,
     missing_field_response,
     scoped_evidence_response,
 )
+from infrastructure.ml.rag.rag_config import build_rag_settings
 from tests.rag_stage_fixtures import (
     build_context as step_build_context,
     generate as step_generate,

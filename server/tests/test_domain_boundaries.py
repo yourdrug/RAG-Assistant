@@ -7,6 +7,7 @@ import asyncio
 import contextvars
 from graphlib import TopologicalSorter
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,6 +24,8 @@ from domain.rag import RagContext
 from domain.rag.guardrails.injection import has_blocking_injection, has_flagged_injection
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 from domain.shared.profile_policy import AnswerPolicy
+from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.answer_policy import classify_query_domain, policy_for
 from infrastructure.domain_profile.packs import NEUTRAL_PACK
@@ -36,8 +39,10 @@ from infrastructure.ml.evidence_profiles.profiles import (
 )
 from infrastructure.ml.rag.prompts import build_system_prompt
 from infrastructure.ml.rag.rag_steps import RagOperations
-from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile
-from packs.belarus_law.pack import BELARUS_LAW_PACK
+
+
+if TYPE_CHECKING:
+    from infrastructure.ml.evidence_profiles.profiles import EvidenceProfile
 
 
 @pytest.mark.belarus
@@ -76,10 +81,10 @@ def test_domain_pack_defaults_to_neutral_rules() -> None:
 @pytest.mark.parametrize(
     "profile", [GenericEvidenceProfile(), BelarusEvidenceProfile()], ids=["generic", "belarus"]
 )
-async def test_live_request_uses_domain_pack_evidence_profile(profile: GenericEvidenceProfile) -> None:
+async def test_live_request_uses_domain_pack_evidence_profile(profile: EvidenceProfile) -> None:
     operations = RagOperations(MagicMock(), document_access=MagicMock(), evidence_profile=profile)
 
-    async def request_profile() -> object:
+    async def request_profile() -> EvidenceProfile:
         async with operations.corpus():
             return current_evidence_profile()
 

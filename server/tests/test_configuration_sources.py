@@ -15,8 +15,8 @@ from config.ownership import SettingOwnership, field_ownership, keys_owned_by
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure import initialization
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 from tests.fakes import FakeUnitOfWorkFactory
 from tests.law_pack import law_registry
 

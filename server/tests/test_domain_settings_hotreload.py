@@ -17,8 +17,8 @@ import pytest
 
 from application.admin import ConfigService
 from domain.ingestion.profiles.registry import DomainProfileRegistry
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from packs.belarus_law.domain.decree import DecreeDomainProfile
 from tests.fakes import FakeUnitOfWorkFactory
 
 

@@ -21,11 +21,11 @@ from domain.shared.exceptions import ValidationError
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.judging import grouped_judge
+from infrastructure.domain_packs.belarus_law.pack import BENCHMARKS_DIR
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
-from packs.belarus_law.pack import BENCHMARKS_DIR
 from presentation.api.helpers import question_create_to_dto, question_to_response
 from presentation.api.routes.benchmark_admin import export_questions
 from presentation.api.schemas.benchmark import BenchmarkQuestionsImportRequest

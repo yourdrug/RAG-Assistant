@@ -10,7 +10,7 @@ and the operative-part marker.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from striprtf.striprtf import rtf_to_text
 
@@ -34,11 +34,11 @@ def parse_decree_rtf(
     profile: OperativePartProfile,
     settings: DomainSettingsPort,
     token_counter: TokenCounter | None = None,
-) -> tuple[list[SplitUnit], dict[str, Any]]:
+) -> tuple[list[SplitUnit], dict[str, str]]:
     """Parse a decree RTF into split units + document-level header metadata."""
     raw = rtf_to_text(file_path.read_text(encoding="utf-8", errors="replace"))
 
-    doc_metadata: dict[str, Any] = dict(profile.header_requisites(raw[:_HEADER_ZONE_CHARS]))
+    doc_metadata = profile.header_requisites(raw[:_HEADER_ZONE_CHARS])
     split_span = profile.operative_part_span(raw)
     max_tokens = profile.chunking_policy(settings).max_tokens
     counter = token_counter or build_token_counter(process_section(ChunkingSection).embed_tokenizer_path)

@@ -12,9 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from typing import TYPE_CHECKING
 
 from domain.ingestion.profiles.registry import DomainProfileRegistry
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
-from packs.belarus_law.domain.decree import DecreeDomainProfile
 
 
 if TYPE_CHECKING:

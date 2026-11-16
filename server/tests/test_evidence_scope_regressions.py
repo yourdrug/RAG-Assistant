@@ -85,6 +85,7 @@ def test_equal_filenames_in_different_paths_are_different_sources() -> None:
     assert deduplicate_docs(docs) == deduplicate_candidates(docs) == merge_evidence_candidates(docs) == docs
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_dense_and_reranker_keep_parent_conditions_while_sparse_indexes_body() -> None:
     condition = ("Only for dangerous goods transportation. " + "A complete prerequisite. " * 60).strip()

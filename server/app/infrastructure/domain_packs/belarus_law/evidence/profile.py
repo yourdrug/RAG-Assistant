@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, override
 
 from domain.rag.act_references import act_focused_queries, extract_act_numbers
-from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile
-from packs.belarus_law.infrastructure.evidence import (
+from infrastructure.domain_packs.belarus_law.evidence import (
     applicable_context,
     field_evidence,
     focus,
@@ -16,6 +15,7 @@ from packs.belarus_law.infrastructure.evidence import (
     queries,
     reading,
 )
+from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile
 
 
 if TYPE_CHECKING:

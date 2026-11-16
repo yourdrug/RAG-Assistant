@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING
 from langchain_core.documents import Document
 
 from domain.knowledge.enums import PageContentType
-from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from packs.belarus_law.infrastructure.evidence.links import (
+from infrastructure.domain_packs.belarus_law.evidence.links import (
     link_modes,
     link_seed_priority,
     procedure_scopes,
     replacement_scopes,
 )
+from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 
 
 if TYPE_CHECKING:

@@ -26,10 +26,10 @@ from domain.knowledge.document_nodes import (
     within_chunk_limit,
 )
 from domain.knowledge.enums import DocumentVisibility
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
-from packs.belarus_law.pack import BELARUS_LAW_PACK
 from tests.chunking_fixtures import FIXTURES_DIR
 from tests.test_chunking_appendices import BODY, INSTRUCTION
 

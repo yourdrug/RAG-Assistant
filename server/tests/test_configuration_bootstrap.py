@@ -28,6 +28,9 @@ from infrastructure import initialization
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport
 from infrastructure.database.database import database
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import InProcessEventBus
@@ -35,9 +38,6 @@ from infrastructure.events.postgres_config_listener import PostgresConfigListene
 from infrastructure.ml.clients import managed_http
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.redis.redis_client import redis_client
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
-from packs.belarus_law.pack import BELARUS_LAW_PACK
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.dependencies import create_config_service
 from presentation.api.routes.admin_config import router

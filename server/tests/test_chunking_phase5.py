@@ -23,6 +23,9 @@ from domain.ingestion.tree_packer import select_structural_units
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.answer_policy import classify_query_domain, policy_for
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
@@ -32,9 +35,6 @@ from infrastructure.ml.ingestion.registry import FormatContext, pdf_sections
 from infrastructure.ml.ingestion.splitting import classify_content_shape
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.repositories.vector.acl import build_qdrant_filter, with_domain_filter
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
-from packs.belarus_law.pack import BELARUS_LAW_PACK
 from tests.chunking_fixtures import ChunkingFixture
 from tests.law_pack import law_registry
 

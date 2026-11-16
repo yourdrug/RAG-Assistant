@@ -58,17 +58,12 @@ cases = json.loads(DATASET.read_text(encoding="utf-8"))
 
 
 def select_cases(dataset="main"):
-    return [
-        c for c in cases
-        if c.get("dataset") == dataset and c.get("is_active", True)
-    ]
+    return [c for c in cases if c.get("dataset") == dataset and c.get("is_active", True)]
 
 
 def answer_type(case):
     ann = case.get("annotations", {})
-    return ann.get("answer_type") or (
-        "not_in_corpus" if ann.get("expected_refusal") else "factual"
-    )
+    return ann.get("answer_type") or ("not_in_corpus" if ann.get("expected_refusal") else "factual")
 
 
 def grade(case, rag_result, semantic_judge):
@@ -92,7 +87,7 @@ def grade(case, rag_result, semantic_judge):
         answer=rag_result["answer"],
         reference=case["expected_answer"],
         evidence=case["annotations"].get("gold_evidence")
-                 or case["annotations"].get("expected_fragments", []),
+        or case["annotations"].get("expected_fragments", []),
         retrieved=rag_result.get("retrieved_chunks", []),
         sources=case["annotations"].get("source_files", []),
     )
@@ -105,7 +100,8 @@ def report_by_type(results):
         buckets[result["answer_type"]].append(bool(result["passed"]))
     return {
         kind: {"passed": sum(vals), "total": len(vals), "accuracy": sum(vals) / len(vals)}
-        for kind, vals in buckets.items() if vals
+        for kind, vals in buckets.items()
+        if vals
     }
 ```
 

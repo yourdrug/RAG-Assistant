@@ -37,6 +37,7 @@ from tests.test_rag_pipeline import make_rag
         ("broad", True, True, "ed1b51e4b9cab1c0648d4c0e081969e61ffdb27734e62292cba362364d1ea207"),
     ],
 )
+@pytest.mark.generic_evidence
 def test_system_prompt_text_is_unchanged(
     breadth: str, enumerate_cases: bool, with_addendum: bool, expected_digest: str
 ) -> None:
@@ -57,6 +58,7 @@ def test_context_message_text_is_unchanged() -> None:
     assert template.format(context="данные").count("данные") == 2
 
 
+@pytest.mark.generic_evidence
 def test_empty_and_whitespace_addenda_keep_existing_behavior() -> None:
     assert build_system_prompt(domain_addendum="") == build_system_prompt()
     assert build_system_prompt(domain_addendum="  ").endswith(
@@ -64,6 +66,7 @@ def test_empty_and_whitespace_addenda_keep_existing_behavior() -> None:
     )
 
 
+@pytest.mark.generic_evidence
 def test_unknown_breadth_uses_narrow_prompt() -> None:
     assert build_system_prompt("unknown") == build_system_prompt(Breadth.NARROW)
 

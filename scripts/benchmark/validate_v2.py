@@ -16,7 +16,7 @@ BEHAVIORS = {
 # Legal benchmark set of the Belarusian law pack.
 DEFAULT_PATH = (
     Path(__file__).resolve().parents[2]
-    / "server/app/packs/belarus_law/benchmarks/benchmark-questions-v2.json"
+    / "server/app/infrastructure/domain_packs/belarus_law/benchmarks/benchmark-questions-v2.json"
 )
 
 

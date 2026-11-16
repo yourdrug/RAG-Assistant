@@ -258,6 +258,7 @@ class TestRerankDocuments:
     def _fake_reranker(self, scores: list[float]) -> SimpleNamespace:
         return SimpleNamespace(predict=lambda _pairs: scores)
 
+    @pytest.mark.generic_evidence
     def test_top_n_less_than_docs(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([0.1, 0.9, 0.5])
@@ -267,18 +268,21 @@ class TestRerankDocuments:
         assert result[0][0].page_content == "b"
         assert result[0][1] == 0.9
 
+    @pytest.mark.generic_evidence
     def test_top_n_greater_than_docs_returns_all(self) -> None:
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.5, 0.3])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=10, reranker=reranker))
         assert len(result) == 2
 
+    @pytest.mark.generic_evidence
     def test_equal_scores_preserve_original_order(self) -> None:
         docs = [_doc("first"), _doc("second")]
         reranker = self._fake_reranker([0.5, 0.5])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert [d.page_content for d, _ in result] == ["first", "second"]
 
+    @pytest.mark.generic_evidence
     def test_negative_scores_handled(self) -> None:
         docs = [_doc("bad"), _doc("worse")]
         reranker = self._fake_reranker([-0.8, -0.2])
@@ -289,18 +293,21 @@ class TestRerankDocuments:
         reranker = self._fake_reranker([])
         assert asyncio.run(rag_rr.rerank_documents("q", [], top_n=5, reranker=reranker)) == []
 
+    @pytest.mark.generic_evidence
     def test_single_doc_returns_single(self) -> None:
         docs = [_doc("only")]
         reranker = self._fake_reranker([0.7])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=5, reranker=reranker))
         assert len(result) == 1
 
+    @pytest.mark.generic_evidence
     def test_top_n_zero_returns_empty(self) -> None:
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.9, 0.1])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=0, reranker=reranker))
         assert result == []
 
+    @pytest.mark.generic_evidence
     def test_min_score_filters_low_scores(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([0.9, 0.3, 0.1])
@@ -308,6 +315,7 @@ class TestRerankDocuments:
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 
+    @pytest.mark.generic_evidence
     def test_score_gap_ratio_filters_far_from_top(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([1.0, 0.05, 0.01])
@@ -317,6 +325,7 @@ class TestRerankDocuments:
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 
+    @pytest.mark.generic_evidence
     def test_min_score_and_gap_ratio_combined(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([1.0, 0.8, 0.01])
@@ -1011,6 +1020,7 @@ class TestRerankSectionPrefix:
     def _fake_reranker(scores: list[float]) -> SimpleNamespace:
         return SimpleNamespace(predict=lambda _pairs: scores)
 
+    @pytest.mark.generic_evidence
     def test_reranker_receives_section_in_prefix(self) -> None:
         docs = [
             Document(
@@ -1039,6 +1049,7 @@ class TestRerankSectionPrefix:
         assert "gold rule" in captured_pairs[0][1]
         assert "silver rule" in captured_pairs[1][1]
 
+    @pytest.mark.generic_evidence
     def test_reranker_works_without_section(self) -> None:
         docs = [
             Document(page_content="text", metadata={"source": "a.pdf"}),

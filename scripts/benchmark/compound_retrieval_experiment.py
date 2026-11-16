@@ -23,6 +23,7 @@ from domain.knowledge.access_control import get_visibility_conditions
 from domain.rag.context import RagContext
 from domain.shared.hashing import content_hash
 from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.ml.evidence_profiles.profiles import evidence_profile_scope
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_reranking import rerank_documents
@@ -31,6 +32,7 @@ from infrastructure.repositories.vector.acl import (
     build_qdrant_filter,
     with_temporal_filter,
 )
+from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
 
 
 logger = logging.getLogger("default")
@@ -191,12 +193,14 @@ def main() -> None:
     parser.add_argument("--from-results", action="store_true")
     args = parser.parse_args()
     data = json.loads(args.input.read_text())
-    if args.from_results:
-        result = asyncio.run(balance_saved_results(data))
-    else:
-        if args.user_id is None:
-            parser.error("--user-id is required for live retrieval")
-        result = asyncio.run(compare(data["cases"], args.user_id))
+    if not args.from_results and args.user_id is None:
+        parser.error("--user-id is required for live retrieval")
+    # Cases come from the legal benchmark, so reranking uses the law pack's evidence rules.
+    with evidence_profile_scope(BelarusEvidenceProfile()):
+        if args.from_results:
+            result = asyncio.run(balance_saved_results(data))
+        else:
+            result = asyncio.run(compare(data["cases"], args.user_id))
     logger.warning(json.dumps(result, ensure_ascii=False, default=str))
 
 

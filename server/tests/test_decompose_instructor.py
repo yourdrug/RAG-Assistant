@@ -162,6 +162,7 @@ class TestDecomposeLegacyPath:
 
 
 class TestDecomposeCallerIntegration:
+    @pytest.mark.generic_evidence
     @pytest.mark.asyncio
     async def test_retrieval_passes_instructor_client(self) -> None:
         """Verify that retrieval_pipeline.py passes instructor_client to decompose_question."""

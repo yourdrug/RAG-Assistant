@@ -28,13 +28,13 @@ from domain.knowledge.enums import DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.dates import parse_date_guess
 from domain.shared.exceptions import ValidationError
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 from infrastructure.ml.rag import rag_steps
 from infrastructure.ml.rag.rag_postprocess import resolve_temporal_conflicts
 from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.repositories.vector.acl import with_temporal_filter
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
 from presentation.api.routes.admin_act_versions import list_act_versions
 from presentation.api.routes.chat import format_sse_event
 from presentation.api.schemas.chat import ChatRequest

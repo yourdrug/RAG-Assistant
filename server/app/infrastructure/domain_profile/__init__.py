@@ -1,6 +1,6 @@
 """Domain profile infrastructure: registry population, settings adapter, answer policies.
 
-Adding a domain = a new pack under ``packs/<name>/`` + one entry in the Composition
+Adding a domain = a new pack under ``infrastructure/domain_packs/<name>/`` + one entry in the Composition
 pack registry (``composition/domain_packs.py``); the core does not change.
 """
 

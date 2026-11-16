@@ -14,13 +14,13 @@ from composition.infrastructure import InfrastructureContainer
 from config import Settings
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.database.database import database
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.redis.redis_client import redis_client
-from packs.belarus_law.pack import BELARUS_LAW_PACK
 from tests.fakes import FakeUnitOfWorkFactory, require_present
 
 

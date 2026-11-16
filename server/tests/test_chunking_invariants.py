@@ -16,12 +16,12 @@ import pytest
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocumentVisibility, PageContentType
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.splitting import TreeChunkingAdapter
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.tokenization import build_token_counter
-from packs.belarus_law.pack import BELARUS_LAW_PACK
 from tests.chunking_fixtures import CHUNKING_FIXTURES, source_text
 
 

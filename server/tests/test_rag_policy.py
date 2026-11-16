@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
 
+import pytest
+
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
 from domain.rag.classification import (
@@ -305,18 +307,22 @@ class TestHasExactReference:
 class TestBuildSystemPrompt:
     """Business rule: prompt construction depends on breadth and context."""
 
+    @pytest.mark.generic_evidence
     def test_narrow_prompt_brief(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.NARROW)
         assert "КРАТКО" in prompt
 
+    @pytest.mark.generic_evidence
     def test_broad_prompt_detailed(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=True)
         assert "подпунктам" in prompt.lower() or "ПОДПУНКТАМ" in prompt
 
+    @pytest.mark.generic_evidence
     def test_broad_prompt_without_enumerate(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=False)
         assert "conditional_rules_expansion" not in prompt
 
+    @pytest.mark.generic_evidence
     def test_domain_addendum_appears_in_prompt(self) -> None:
         prompt = build_system_prompt(
             breadth=Breadth.NARROW,
@@ -325,10 +331,12 @@ class TestBuildSystemPrompt:
         assert "domain_specific_rules" in prompt
         assert "Обязательно указывай номер статьи/пункта." in prompt
 
+    @pytest.mark.generic_evidence
     def test_no_domain_addendum_no_domain_block(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.NARROW)
         assert "domain_specific_rules" not in prompt
 
+    @pytest.mark.generic_evidence
     def test_domain_addendum_overrides_generic_rules(self) -> None:
         prompt = build_system_prompt(
             breadth=Breadth.NARROW,
@@ -337,6 +345,7 @@ class TestBuildSystemPrompt:
         assert "Дополнительное правило домена" in prompt
         assert "domain_specific_rules" in prompt
 
+    @pytest.mark.generic_evidence
     def test_not_found_phrase_in_prompt(self) -> None:
         prompt = build_system_prompt()
         assert "Информация не найдена в документах" in prompt

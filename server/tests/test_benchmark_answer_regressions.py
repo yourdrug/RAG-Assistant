@@ -10,6 +10,8 @@ import pytest
 
 from domain.benchmark.evaluation import evaluate_evidence
 from domain.knowledge.chunk import ChunkRecord
+from infrastructure.domain_packs.belarus_law.evidence.grounded_response import amendment_field_response
+from infrastructure.domain_packs.belarus_law.evidence.queries import evidence_search_queries
 from infrastructure.metrics import metrics
 from infrastructure.ml.ingestion.act_identity import act_heading_title
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, act_title_with_subject
@@ -19,8 +21,6 @@ from infrastructure.ml.rag.prompt_blocks import is_not_found_answer
 from infrastructure.ml.rag.prompt_budget import estimate_text_tokens
 from infrastructure.ml.rag.prompts import build_system_prompt
 from infrastructure.ml.rag.rag_postprocess import mark_partial_answer
-from packs.belarus_law.infrastructure.evidence.grounded_response import amendment_field_response
-from packs.belarus_law.infrastructure.evidence.queries import evidence_search_queries
 
 
 pytestmark = pytest.mark.belarus

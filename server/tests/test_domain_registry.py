@@ -15,8 +15,8 @@ from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.registry import (
     DomainProfileRegistry,
 )
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 if TYPE_CHECKING:

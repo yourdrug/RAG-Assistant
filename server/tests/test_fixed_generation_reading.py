@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from domain.rag.breadth import Breadth
+from infrastructure.domain_packs.belarus_law.evidence.focus import reading_anchors
 from infrastructure.ml.rag.rag_prompts import build_prompt
-from packs.belarus_law.infrastructure.evidence.focus import reading_anchors
 
 
 pytestmark = pytest.mark.belarus

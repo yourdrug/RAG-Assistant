@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from domain.ingestion.profiles.contract import ContractDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.doc_types import DOC_TYPE_KEYWORDS
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
+from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
 from infrastructure.domain_profile.packs import DomainPack, general_profile
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.doc_types import DOC_TYPE_KEYWORDS
-from packs.belarus_law.domain.legal import LegalDomainProfile
-from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile
 
 
 BENCHMARKS_DIR = Path(__file__).resolve().parent / "benchmarks"

@@ -2,8 +2,8 @@
 
 import re
 
-from packs.belarus_law.infrastructure.evidence.predicates import table_scope_confirmed
-from packs.belarus_law.infrastructure.evidence.reading import (
+from infrastructure.domain_packs.belarus_law.evidence.predicates import table_scope_confirmed
+from infrastructure.domain_packs.belarus_law.evidence.reading import (
     ENUMERATION_READING_RULES,
     evidence_reading_rules,
 )

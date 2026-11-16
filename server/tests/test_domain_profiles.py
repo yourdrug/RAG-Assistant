@@ -16,10 +16,10 @@ from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.protocol import (
     DocumentProfile,
 )
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.rag.rag_prompts import domain_prompt_addendum
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
 from tests.law_pack import law_registry
 
 

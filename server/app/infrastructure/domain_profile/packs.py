@@ -2,8 +2,8 @@
 
 A domain pack bundles the rules of one subject area: document profiles (with their
 answer policies), evidence rules, document-type keywords, language and benchmark sets.
-Packs live under ``packs/<name>/`` and are registered explicitly by Composition; the
-core never imports a pack.
+Packs live under ``infrastructure/domain_packs/<name>/`` and are registered explicitly
+by Composition; the rest of the core never imports a pack.
 """
 
 from __future__ import annotations

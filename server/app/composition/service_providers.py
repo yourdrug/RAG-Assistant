@@ -43,6 +43,7 @@ from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentSplitter,
 )
 from infrastructure.ml.config.settings_adapters import LiveIngestionSettings
+from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile, evidence_profile_scope
 from infrastructure.ml.guardrails.text_quality_adapter import TextQualityAssessorAdapter
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer, RedisNoteCache
 from infrastructure.ml.rag.rag_steps import RagOperations
@@ -75,11 +76,16 @@ def build_sweep_engine(
     runtime: SweepSettingsPort | None = None,
     strategies: dict[str, Callable[[dict[str, Any]], SweepSearchStrategy]] | None = None,
     checkpoint_factory: Callable[[int], BenchmarkCheckpoints] | None = None,
+    evidence_profile: EvidenceProfile | None = None,
 ) -> SweepEngine:
+    # Sweep reranking reads evidence rules; the run uses the domain pack's profile (neutral by default).
+    profile = evidence_profile or GenericEvidenceProfile()
+
     @asynccontextmanager
     async def corpus() -> AsyncIterator[dict[str, Any]]:
-        async with benchmark_corpus(ml_clients) as snapshot:
-            yield corpus_metadata(snapshot)
+        with evidence_profile_scope(profile):
+            async with benchmark_corpus(ml_clients) as snapshot:
+                yield corpus_metadata(snapshot)
 
     runtime = runtime if runtime is not None else LiveSweepSettings()
     return SweepEngine(
@@ -94,13 +100,17 @@ def build_sweep_engine(
 
 
 def create_sweep_engine(infra: InfrastructureContainer) -> SweepEngine:
+    uow_factory = require(infra.db.uow_factory, "uow_factory")
+
+    def checkpoints(sweep_id: int) -> BenchmarkCheckpoints:
+        return DatabaseBenchmarkCheckpoints(uow_factory, sweep_id)
+
     return build_sweep_engine(
-        uow_factory=require(infra.db.uow_factory, "uow_factory"),
+        uow_factory=uow_factory,
         benchmark_service=require(infra.ml.benchmark_service, "benchmark_service"),
         ml_clients=require(infra.ml.ml_clients, "ml_clients"),
-        checkpoint_factory=lambda sweep_id: DatabaseBenchmarkCheckpoints(
-            require(infra.db.uow_factory, "uow_factory"), sweep_id
-        ),
+        checkpoint_factory=checkpoints,
+        evidence_profile=infra.domain_pack.evidence_profile,
     )
 
 

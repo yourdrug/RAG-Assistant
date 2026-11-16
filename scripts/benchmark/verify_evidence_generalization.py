@@ -13,8 +13,8 @@ from typing import Any
 
 from langchain_core.documents import Document
 
-from packs.belarus_law.infrastructure.evidence.focus import evidence_reading_map
-from packs.belarus_law.infrastructure.evidence.grounded_response import (
+from infrastructure.domain_packs.belarus_law.evidence.focus import evidence_reading_map
+from infrastructure.domain_packs.belarus_law.evidence.grounded_response import (
     extractive_procedure_response,
     extractive_table_comparison_response,
     extractive_timing_response,

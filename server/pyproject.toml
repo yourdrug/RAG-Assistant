@@ -349,7 +349,7 @@ ignore_missing_imports = true
 
 
 [tool.importlinter]
-root_packages = ["domain", "application", "infrastructure", "presentation", "composition", "packs"]
+root_packages = ["domain", "application", "infrastructure", "presentation", "composition"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
@@ -365,32 +365,35 @@ layers = [
 [[tool.importlinter.contracts]]
 name = "Core does not import domain packs; only Composition registers them"
 type = "forbidden"
-source_modules = ["domain", "application", "infrastructure", "presentation"]
-forbidden_modules = ["packs"]
+source_modules = ["domain", "application", "presentation", "infrastructure.*"]
+forbidden_modules = ["infrastructure.domain_packs"]
+# A pack imports its own modules; that is not the core importing it.
+ignore_imports = ["infrastructure.domain_packs.** -> infrastructure.domain_packs.**"]
 
 [[tool.importlinter.contracts]]
 name = "Domain packs are independent of each other"
 type = "independence"
-modules = ["packs.*"]
+modules = ["infrastructure.domain_packs.*"]
 
 [[tool.importlinter.contracts]]
 name = "Domain pack layers: dependencies point downwards inside a pack"
 type = "layers"
-containers = ["packs.belarus_law"]
-layers = ["pack", "infrastructure", "domain"]
+containers = ["infrastructure.domain_packs.belarus_law"]
+layers = ["pack", "evidence", "domain"]
 
 [[tool.importlinter.contracts]]
 name = "Domain packs use only the core Domain and Infrastructure"
 type = "forbidden"
-source_modules = ["packs"]
+source_modules = ["infrastructure.domain_packs"]
 forbidden_modules = ["application", "presentation", "composition"]
 
 [[tool.importlinter.contracts]]
 name = "Pack domain layers are independent of frameworks configuration and core infrastructure"
 type = "forbidden"
-source_modules = ["packs.*.domain"]
+source_modules = ["infrastructure.domain_packs.*.domain"]
 forbidden_modules = [
-    "infrastructure", "config", "fastapi", "starlette", "sqlalchemy", "pydantic", "pydantic_settings",
+    "infrastructure.ml", "infrastructure.domain_profile",
+    "config", "fastapi", "starlette", "sqlalchemy", "pydantic", "pydantic_settings",
     "httpx", "redis", "qdrant_client",
     "langchain", "langchain_core", "langchain_openai",
 ]
@@ -761,6 +764,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests requiring external services (deselect with '-m \"not integration\"')",
     "security: marks security-sensitive tests",
+    "generic_evidence: calls evidence-dependent helpers directly with the neutral evidence profile",
     "belarus: tests of the Belarusian law pack (core run without it: '-m \"not belarus\"')",
 ]
 
@@ -783,7 +787,7 @@ show_missing = true
 directory = ".coverage_report"
 
 [tool.deptry]
-known_first_party = ["application", "composition", "config", "domain", "infrastructure", "packs", "presentation", "shared"]
+known_first_party = ["application", "composition", "config", "domain", "infrastructure", "presentation", "shared"]
 extend_exclude = ["app/infrastructure/database/migrations", "tests", "tools", "scripts"]
 
 [tool.deptry.package_module_name_map]

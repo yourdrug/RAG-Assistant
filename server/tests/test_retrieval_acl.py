@@ -203,6 +203,7 @@ class TestResolveHashesACLFilter:
             asyncio.run(resolve_hashes_batch(["hash1"], None, ml))
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 @pytest.mark.parametrize("decomposition", [False, True])
 @pytest.mark.parametrize("sub_queries", [["query"], ["first query", "second query"]])
@@ -268,6 +269,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(
             assert call.kwargs["user_group_ids"] == [1, 2]
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter() -> None:
 
@@ -445,6 +447,7 @@ async def _rerank_with_fallback(
     return docs, search
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_resolves_temporal_conflicts() -> None:
     old = Document(
@@ -469,6 +472,7 @@ def _fallback_rag() -> MagicMock:
     return rag
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_skipped_when_same_full_corpus_search_already_ran() -> None:
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
@@ -480,6 +484,7 @@ async def test_legal_rerank_fallback_skipped_when_same_full_corpus_search_alread
     assert docs == []
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_runs_when_full_corpus_search_used_other_params() -> None:
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
@@ -492,6 +497,7 @@ async def test_legal_rerank_fallback_runs_when_full_corpus_search_used_other_par
     assert [doc for doc, _ in docs] == [found]
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_searches_full_question_after_decomposition() -> None:
     """Sub-queries fell back to the full corpus, but the original question never ran there."""

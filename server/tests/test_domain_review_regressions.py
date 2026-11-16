@@ -8,8 +8,8 @@ import pytest
 from domain.benchmark.evaluation import matches_fragment
 from domain.ingestion.profiles.base import extract_effective_date_generic
 from domain.rag.classification import explicit_question_date
+from infrastructure.domain_packs.belarus_law.evidence.reading import evidence_reading_rules
 from infrastructure.ml.rag.rag_prompts import build_prompt
-from packs.belarus_law.infrastructure.evidence.reading import evidence_reading_rules
 
 
 pytestmark = pytest.mark.belarus

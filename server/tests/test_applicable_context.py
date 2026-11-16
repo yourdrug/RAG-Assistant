@@ -14,8 +14,8 @@ from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.enums import PageContentType
 from domain.rag.context import RagContext
 from domain.rag.evidence.context import content_with_parent_scope
-from packs.belarus_law.infrastructure.evidence.applicable_context import enrich_applicable_context
-from packs.belarus_law.infrastructure.evidence.grounded_response import (
+from infrastructure.domain_packs.belarus_law.evidence.applicable_context import enrich_applicable_context
+from infrastructure.domain_packs.belarus_law.evidence.grounded_response import (
     extractive_timing_response,
     missing_field_response,
 )

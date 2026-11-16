@@ -9,9 +9,9 @@ from langchain_core.documents import Document
 
 from domain.knowledge.enums import PageContentType, SearchMode
 from domain.shared.hashing import content_hash
+from infrastructure.domain_packs.belarus_law.evidence.focus import matching_field_rows, requested_fields
+from infrastructure.domain_packs.belarus_law.evidence.predicates import table_message_matches
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from packs.belarus_law.infrastructure.evidence.focus import matching_field_rows, requested_fields
-from packs.belarus_law.infrastructure.evidence.predicates import table_message_matches
 
 
 if TYPE_CHECKING:

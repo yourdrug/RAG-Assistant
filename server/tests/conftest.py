@@ -56,7 +56,7 @@ for _key, _val in _TEST_DEFAULTS.items():
 
 
 # Modules whose import makes a test module a test of the Belarusian law pack.
-LAW_PACK_MODULES = ("packs", "tests.law_pack")
+LAW_PACK_MODULES = ("infrastructure.domain_packs", "tests.law_pack")
 
 
 @cache
@@ -98,9 +98,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 from domain.ingestion.profiles.registry import DomainProfileRegistry  # noqa: E402
+from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile  # noqa: E402
 from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile, evidence_profile_scope  # noqa: E402
 from infrastructure.resilience.circuit_breaker import init_breakers  # noqa: E402
-from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile  # noqa: E402
 from tests.law_pack import law_registry as build_law_registry  # noqa: E402
 
 
@@ -120,14 +120,20 @@ def reset_breakers_between_tests() -> Iterator[None]:
 
 @pytest.fixture(autouse=True)
 def selected_evidence_profile(request: pytest.FixtureRequest) -> Iterator[None]:
-    """Run like a live request: neutral rules unless the test opts into the law pack.
+    """Select evidence rules only where a test asks for them; no profile is selected otherwise.
 
-    ``@pytest.mark.belarus`` marks tests of the Belarusian law pack; ``-m "not belarus"``
-    runs the core suite without it.
+    Production code must select a profile itself (a request, a sweep, a script), so an
+    unscoped call fails here exactly as in production. ``@pytest.mark.generic_evidence``
+    calls profile-dependent helpers directly with neutral rules; ``@pytest.mark.belarus``
+    marks tests of the Belarusian law pack (``-m "not belarus"`` runs the core suite).
     """
-    profile = (
-        BelarusEvidenceProfile() if request.node.get_closest_marker("belarus") else GenericEvidenceProfile()
-    )
+    if request.node.get_closest_marker("belarus"):
+        profile: GenericEvidenceProfile = BelarusEvidenceProfile()
+    elif request.node.get_closest_marker("generic_evidence"):
+        profile = GenericEvidenceProfile()
+    else:
+        yield
+        return
 
     with evidence_profile_scope(profile):
         yield

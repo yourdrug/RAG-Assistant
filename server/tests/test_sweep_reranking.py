@@ -51,6 +51,7 @@ async def test_sweep_candidates_forward_acl_to_qdrant_sparse() -> None:
     assert client.search.call_args.kwargs["query_filter"] is not None
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_cache_scores_each_query_once_and_keeps_query_specific_scores() -> None:
     doc = Document(page_content="text", metadata={"source": "law.pdf", "heading": "Article 17"})
@@ -68,6 +69,7 @@ async def test_cache_scores_each_query_once_and_keeps_query_specific_scores() ->
     assert predict.call_args_list[1].args[0] == [("q2", "[law.pdf] (Article 17) text")]
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_cache_can_be_cancelled_between_queries() -> None:
     doc = Document(page_content="text")
@@ -85,6 +87,7 @@ async def test_cache_can_be_cancelled_between_queries() -> None:
     predict.assert_awaited_once()
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [RuntimeError("reranker unavailable"), asyncio.CancelledError()])
 async def test_owned_reranker_is_closed_and_failures_propagate(
@@ -102,6 +105,7 @@ async def test_owned_reranker_is_closed_and_failures_propagate(
     reranker.close.assert_awaited_once()
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 @pytest.mark.parametrize("injected_clients", [False, True])
 async def test_sparse_only_payload_is_available_for_reranking(

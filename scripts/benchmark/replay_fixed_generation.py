@@ -19,7 +19,7 @@ from domain.rag.breadth import Breadth
 from infrastructure.ml.evidence_profiles.profiles import evidence_profile_scope
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.rag_prompts import build_prompt
-from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile
+from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
 
 
 async def replay(snapshot: dict) -> dict:

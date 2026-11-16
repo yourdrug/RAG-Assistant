@@ -146,6 +146,7 @@ def test_sparse_ranks_compound_reference_above_permuted_number() -> None:
     assert index.search("пункт 3.2")[0][0] == 1
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.parametrize("breadth", ["narrow", "broad"])
 @pytest.mark.parametrize("with_history", [False, True])
 def test_shared_generation_budget_counts_actual_base_prompt(breadth: str, with_history: bool) -> None:

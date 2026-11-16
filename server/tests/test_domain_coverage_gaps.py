@@ -311,18 +311,22 @@ class TestConfigParameterValidate:
 
 
 class TestBuildSystemPrompt:
+    @pytest.mark.generic_evidence
     def test_narrow_prompt(self) -> None:
         prompt = build_system_prompt(Breadth.NARROW)
         assert "КРАТКО" in prompt
 
+    @pytest.mark.generic_evidence
     def test_broad_prompt(self) -> None:
         prompt = build_system_prompt(Breadth.BROAD)
         assert "РАЗВЁРНУТО" in prompt
 
+    @pytest.mark.generic_evidence
     def test_default_is_narrow(self) -> None:
         prompt = build_system_prompt()
         assert "КРАТКО" in prompt
 
+    @pytest.mark.generic_evidence
     def test_domain_addendum_appears(self) -> None:
         prompt = build_system_prompt(
             Breadth.NARROW,
@@ -331,6 +335,7 @@ class TestBuildSystemPrompt:
         assert "domain_specific_rules" in prompt
         assert "статьи/пункта" in prompt
 
+    @pytest.mark.generic_evidence
     def test_no_domain_addendum(self) -> None:
         prompt = build_system_prompt(Breadth.NARROW)
         assert "domain_specific_rules" not in prompt

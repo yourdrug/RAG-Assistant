@@ -23,8 +23,8 @@ from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from domain.shared.hashing import content_hash
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
-from packs.belarus_law.domain.decree import DecreeDomainProfile
 from tests.fakes import FakeUnitOfWorkFactory
 from tests.test_document_processor_characterization import build_harness, seed_document
 

@@ -33,6 +33,7 @@ def test_sparse_only_provision_survives_dense_repeated_section_at_same_budget() 
     assert candidates[:2] == [dense[0], target]
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_reranker_retains_distinct_provision_without_changing_thresholds() -> None:
     repeated = [provision(f"daily {i}", "point 2 > subpoint_num 2.3 > sentence") for i in range(13)]

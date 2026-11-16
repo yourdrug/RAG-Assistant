@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from langchain_core.documents import Document
+import pytest
 
 from config import settings
 from domain.rag.breadth import Breadth
@@ -145,6 +146,7 @@ class TestRerankDocuments:
     def _fake_reranker(scores: list[float]) -> SimpleNamespace:
         return SimpleNamespace(predict=lambda _pairs: scores)
 
+    @pytest.mark.generic_evidence
     def test_ordering_by_score(self) -> None:
         docs = [_doc("low"), _doc("mid"), _doc("high")]
         reranker = self._fake_reranker([0.1, 0.5, 0.9])
@@ -153,24 +155,28 @@ class TestRerankDocuments:
         assert result[1][0].page_content == "mid"
         assert result[2][0].page_content == "low"
 
+    @pytest.mark.generic_evidence
     def test_top_n_limits_output(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([0.9, 0.8, 0.7])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert len(result) == 2
 
+    @pytest.mark.generic_evidence
     def test_equal_scores_stable_order(self) -> None:
         docs = [_doc("first"), _doc("second")]
         reranker = self._fake_reranker([0.5, 0.5])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert len(result) == 2
 
+    @pytest.mark.generic_evidence
     def test_negative_scores(self) -> None:
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([-0.5, 0.1])
         result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert result[0][0].page_content == "b"
 
+    @pytest.mark.generic_evidence
     def test_gap_ratio_filter(self) -> None:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([1.0, 0.05, 0.01])
@@ -233,22 +239,27 @@ class TestExtractSources:
 
 
 class TestBuildSystemPrompt:
+    @pytest.mark.generic_evidence
     def test_broad_rule3_mentions_subpoints(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=True)
         assert "подпунктам" in prompt.lower() or "подпункт" in prompt.lower()
 
+    @pytest.mark.generic_evidence
     def test_broad_rule3_enumerates_conditions(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.BROAD)
         assert "ВСЕ случаи" in prompt or "все случаи" in prompt.lower()
 
+    @pytest.mark.generic_evidence
     def test_narrow_rule3_brief(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.NARROW)
         assert "КРАТКО" in prompt or "кратко" in prompt.lower()
 
+    @pytest.mark.generic_evidence
     def test_narrow_rule3_no_subpoints(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.NARROW)
         assert "подпунктам" not in prompt.lower()
 
+    @pytest.mark.generic_evidence
     def test_domain_addendum_appears(self) -> None:
         prompt = build_system_prompt(
             breadth=Breadth.NARROW,
@@ -256,6 +267,7 @@ class TestBuildSystemPrompt:
         )
         assert "статьи/пункта" in prompt
 
+    @pytest.mark.generic_evidence
     def test_domain_addendum_overrides_generic(self) -> None:
         prompt = build_system_prompt(
             breadth=Breadth.NARROW,
@@ -269,6 +281,7 @@ class TestBuildSystemPrompt:
         context_msg = build_context_message()
         assert "{context}" in context_msg
 
+    @pytest.mark.generic_evidence
     def test_rule13_out_of_domain(self) -> None:
         prompt = build_system_prompt(breadth=Breadth.NARROW)
         assert "программирования" in prompt.lower()

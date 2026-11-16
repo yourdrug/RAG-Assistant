@@ -57,6 +57,7 @@ async def test_phase_a_honors_query_scope_exclusions(sparse_only: bool, include_
     assert metrics["avg_mrr"] == int(include_matching)
 
 
+@pytest.mark.generic_evidence
 def test_phase_a_does_not_hide_missing_scores_for_eligible_candidates() -> None:
     doc = Document(page_content="Relevant evidence", metadata={"source": "law.pdf"})
     with pytest.raises(KeyError, match="eligible"):

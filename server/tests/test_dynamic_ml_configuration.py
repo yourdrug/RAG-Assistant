@@ -20,6 +20,8 @@ from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
 from config import Settings, settings
 from domain.rag.breadth import Breadth
 from domain.shared.exceptions import ValidationError
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.health import system_health_probe
@@ -30,8 +32,6 @@ from infrastructure.ml.config.provider_configuration import SettingsProviderConf
 from infrastructure.ml.rag import rag_retrieval
 from infrastructure.ml.rag.rag_prompts import condense_question
 from infrastructure.repositories.vector import qdrant_ops
-from packs.belarus_law.domain.legal import LegalDomainProfile
-from packs.belarus_law.pack import BELARUS_LAW_PACK
 from tests.fakes import FakeUnitOfWorkFactory
 from tests.law_pack import law_registry
 

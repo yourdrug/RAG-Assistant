@@ -95,6 +95,7 @@ def test_observed_losses_recovery_and_lexical_omission() -> None:
     assert result["first_observed_loss"]["3"]["to"] == "retained"
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_real_reranker_records_threshold_and_top_n_without_changing_results() -> None:
     docs = [doc for doc, _ in documents()]
@@ -275,6 +276,7 @@ def test_comparison_excludes_changed_annotations_and_averages_repetitions() -> N
     assert summarize_stage_tags(candidates)["by_tags"]["conditions"]["case_count"] == 3
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_pipeline_top_k_neighbor_recovery_acl_and_prompt_parity(
     monkeypatch: pytest.MonkeyPatch,

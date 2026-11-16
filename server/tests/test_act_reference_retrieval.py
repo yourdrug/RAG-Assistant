@@ -176,6 +176,7 @@ async def test_comparison_keeps_both_acts_within_top_n() -> None:
     assert len(ranked) == 4
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_sibling_sentences_of_one_provision_cannot_crowd_out_another_provision() -> None:
     """Benchmark case: eight sentence chunks of subpoint 2.3 hid subpoint 2.2."""

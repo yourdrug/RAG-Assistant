@@ -19,11 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from config import settings
 from domain.ingestion.profiles.registry import DomainProfileRegistry
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.initialization import build_defaults, seed_config_defaults, seed_domain_config_defaults
 from infrastructure.uow_factory import UnitOfWorkFactory
-from packs.belarus_law.pack import BELARUS_LAW_PACK
 from scripts import migrate
 
 

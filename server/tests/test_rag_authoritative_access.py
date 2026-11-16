@@ -138,6 +138,7 @@ async def test_cache_checks_all_dependencies_not_only_citations(
     assert await cache_is_accessible(cached, access, user) is expected
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 @pytest.mark.parametrize("deleted", [False, True])
 async def test_cache_hit_becomes_miss_without_redis_invalidation(
@@ -165,6 +166,7 @@ async def test_cache_hit_becomes_miss_without_redis_invalidation(
     assert not state.terminal
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_database_failure_never_emits_cached_answer(monkeypatch: pytest.MonkeyPatch) -> None:
 
@@ -182,6 +184,7 @@ async def test_database_failure_never_emits_cached_answer(monkeypatch: pytest.Mo
     assert not state.terminal
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_neighbor_expansion_cannot_reintroduce_forbidden_evidence(
     database_access: tuple[DocumentAccessService, FakeUnitOfWorkFactory], monkeypatch: pytest.MonkeyPatch

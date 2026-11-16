@@ -9,13 +9,13 @@ from config import ChunkingSection, process_section
 from domain.ingestion.embed_text import MAX_EMBED_TOKENS
 from domain.ingestion.raw_document import RawDocument
 from domain.ingestion.text_budget import overlap_tail, sentence_fragments
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.splitting import TreeChunkingAdapter, split_documents
 from infrastructure.ml.ingestion.text_chunks import text_tree_chunks
 from infrastructure.ml.langchain_document_parser import LangchainDocumentSplitter
 from infrastructure.ml.tokenization import CharEstimateTokenCounter, HfTokenCounter, build_token_counter
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
 from tests.law_pack import law_registry, law_settings
 
 

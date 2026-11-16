@@ -20,13 +20,13 @@ from domain.knowledge.enums import PageContentType
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.rag.exceptions import ContextBudgetExceededError
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.pdf import parse_pdf, pymupdf_table_to_markdown
 from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, format_docs, format_docs_with_selection
 from infrastructure.ml.tokenization import build_token_counter
-from packs.belarus_law.domain.decree import DecreeDomainProfile
 from presentation.api.routes.chat import chat_stream
 from presentation.api.schemas import ChatRequest, CurrentUser
 from tests.rag_stage_fixtures import build_context as step_build_context, stage_fixture

@@ -9,8 +9,8 @@ from domain.ingestion.boundary_validation import boundary_candidates, validate_c
 from domain.ingestion.profiles.patterns import POINT_RE, SUBPOINT_LETTER_RE, SUBPOINT_NUM_RE
 from domain.ingestion.profiles.types import BoundaryLevel
 from domain.ingestion.tree_packer import select_structural_units
-from packs.belarus_law.domain.decree import DecreeDomainProfile
-from packs.belarus_law.domain.legal import LegalDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 def accepted(

@@ -35,7 +35,7 @@ from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, render_selecte
 from infrastructure.ml.rag.rag_prompts import build_prompt, domain_prompt_addendum
 from infrastructure.ml.rag.rag_reranking import group_by_section
 from infrastructure.ml.rag.rag_steps import RagOperations
-from packs.belarus_law.infrastructure.evidence_profile import BelarusEvidenceProfile
+from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
 
 
 if TYPE_CHECKING:

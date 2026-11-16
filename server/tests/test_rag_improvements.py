@@ -114,6 +114,7 @@ def test_source_identity_does_not_merge_same_basename_without_document_ids() -> 
     assert [s["citation_id"] for s in sources] == [1, 2]
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_tei_sorted_response_selects_the_actually_relevant_document(
     monkeypatch: pytest.MonkeyPatch,
@@ -164,6 +165,7 @@ def test_tei_malformed_response_fails_instead_of_misranking(
         TEIRerankerClient.ordered_scores(response, 2)
 
 
+@pytest.mark.generic_evidence
 def test_complete_prompt_budget_trims_old_history_and_keeps_summary() -> None:
     ctx = RagContext(
         user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
@@ -183,12 +185,14 @@ def test_complete_prompt_budget_trims_old_history_and_keeps_summary() -> None:
     assert not state.history_messages
 
 
+@pytest.mark.generic_evidence
 def test_prompt_does_not_force_context_into_an_exhausted_window() -> None:
     state = state_for([(doc("Evidence", 1), 0.9)], rag=make_rag(llm_num_ctx_narrow=512))
     with pytest.raises(ContextBudgetExceededError):
         step_build_context(state, None)
 
 
+@pytest.mark.generic_evidence
 def test_exact_token_counter_is_applied_to_the_complete_formatted_prompt() -> None:
     state = state_for([(doc("Evidence", 1), 0.9)])
     counter = MagicMock(return_value=state.rag.llm_num_ctx_narrow)
@@ -308,6 +312,7 @@ async def test_late_generation_cannot_repopulate_cache_after_document_mutation(
     assert cached["answer"] == "new answer"
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_new_documents_and_config_changes_make_old_answers_miss(
     cache_redis: fakeredis.aioredis.FakeRedis, monkeypatch: pytest.MonkeyPatch
@@ -382,6 +387,7 @@ async def test_cache_invalidation_failure_keeps_outbox_pending_for_retry() -> No
     assert invalidator.invalidate_by_document_ids.await_count == 2
 
 
+@pytest.mark.generic_evidence
 @pytest.mark.asyncio
 async def test_split_answer_policies_preserve_cache_prompt_scope(
     cache_redis: fakeredis.aioredis.FakeRedis, monkeypatch: pytest.MonkeyPatch

@@ -9,8 +9,8 @@ from application.indexing.pipeline import classify_domain
 from domain.ingestion.doc_type import classify_doc_type
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
-from packs.belarus_law.domain.doc_types import DOC_TYPE_KEYWORDS
-from packs.belarus_law.domain.legal import LegalDomainProfile
+from infrastructure.domain_packs.belarus_law.domain.doc_types import DOC_TYPE_KEYWORDS
+from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 
 
 class ClassificationSettings:

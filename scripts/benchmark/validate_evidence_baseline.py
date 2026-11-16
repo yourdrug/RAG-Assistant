@@ -32,7 +32,7 @@ from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from infrastructure.ml.usage_capture import active_llm_usage, summarize_usage
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.resilience.circuit_breaker import init_breakers
-from packs.belarus_law.infrastructure.evidence.focus import EVIDENCE_POLICY_VERSION
+from infrastructure.domain_packs.belarus_law.evidence.focus import EVIDENCE_POLICY_VERSION
 
 
 log = logging.getLogger("default")
