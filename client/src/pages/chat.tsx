@@ -4,11 +4,13 @@ import { CalendarDays, MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
+import { defaultSpaceId, useConversations, useSpaces } from "@/shared/api/hooks";
 import { queryKeys } from "@/shared/api/query-keys";
 import type { ConversationHistoryResponse, Source } from "@/shared/api/types";
 import type { PipelineStage } from "@/shared/lib/sse";
 import { streamChat } from "@/shared/lib/sse";
 import { readTemporalDate, validIsoDate, writeTemporalDate } from "@/shared/lib/temporal-date";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { useAuthStore } from "@/stores/auth-store";
 import { ChatInput, type DepthOption } from "@/widgets/chat/chat-input";
 import { MessageBubble } from "@/widgets/chat/message-bubble";
@@ -51,6 +53,16 @@ export function ChatPage() {
   const streamingContentRef = useRef("");
   const hadChunksRef = useRef(false);
   const queryClient = useQueryClient();
+  const { data: spaces } = useSpaces();
+  const { data: conversations } = useConversations();
+  const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
+  // A conversation asks every question in the space of its first question.
+  const conversationSpaceId =
+    conversationId != null
+      ? (conversations?.conversations.find((c) => c.id === conversationId)?.space_id ?? null)
+      : null;
+  const spaceId = conversationSpaceId ?? spaceChoice ?? defaultSpaceId(spaces);
+  const needsSpace = conversationId == null && spaceId == null && (spaces?.length ?? 0) > 1;
 
   const scroll = useCallback(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), []);
   useEffect(() => {
@@ -155,7 +167,7 @@ export function ChatPage() {
   };
 
   const handleSend = async (question: string) => {
-    if (!question.trim() || isStreaming || !token) return;
+    if (!question.trim() || isStreaming || !token || needsSpace) return;
     setMessages((p) => [...p, { role: "user", content: question }]);
     setIsStreaming(true);
     setStreamingMsg("");
@@ -169,6 +181,7 @@ export function ChatPage() {
       token,
       depth,
       asOfDate: calendarDate,
+      spaceId: conversationId == null ? spaceId : null,
       onChunk: (text) => {
         hadChunksRef.current = true;
         streamingContentRef.current += text;
@@ -242,6 +255,27 @@ export function ChatPage() {
           <div className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
             <h1 className="font-semibold">Chat</h1>
+            {(spaces?.length ?? 0) > 1 && (
+              <Select
+                value={spaceId != null ? String(spaceId) : ""}
+                onValueChange={(v) => setSpaceChoice(Number(v))}
+                disabled={conversationId != null || isStreaming}
+              >
+                <SelectTrigger
+                  className="h-8 w-48"
+                  title="Questions are answered from the documents of this knowledge space"
+                >
+                  <SelectValue placeholder="Choose a space" />
+                </SelectTrigger>
+                <SelectContent>
+                  {spaces?.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {asOfDate && (
               <span
                 className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400"
@@ -279,7 +313,9 @@ export function ChatPage() {
                 <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground/50" />
                 <p className="text-lg font-medium text-muted-foreground">Start a conversation</p>
                 <p className="text-sm text-muted-foreground/70">
-                  Ask questions about your documents
+                  {needsSpace
+                    ? "Choose a knowledge space to ask in"
+                    : "Ask questions about your documents"}
                 </p>
               </div>
             </div>
@@ -312,7 +348,7 @@ export function ChatPage() {
         <ChatInput
           onSend={handleSend}
           onStop={handleStop}
-          disabled={isStreaming}
+          disabled={isStreaming || needsSpace}
           depth={depth}
           onDepthChange={setDepth}
           asOfDate={calendarDate}

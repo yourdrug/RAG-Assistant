@@ -13,7 +13,7 @@ from tests.test_document_commands_characterization import harness, seed, upload
 async def test_upload_commits_dispatch_payload_with_replacement_and_acl() -> None:
     h = harness()
     old = await seed(h)
-    dto = await upload(h, doc_domain="legal")
+    dto = await upload(h, doc_domain="general")
     jobs = list(h.uow.background_jobs.jobs.values())
     assert len(jobs) == 1
     job = jobs[0]
@@ -26,7 +26,7 @@ async def test_upload_commits_dispatch_payload_with_replacement_and_acl() -> Non
         "owner_id": 1,
         "group_id": None,
         "replace_id": old.id,
-        "doc_domain": "legal",
+        "doc_domain": "general",
         "principal_id": 1,
         "cost_principal": "user:1",
     }

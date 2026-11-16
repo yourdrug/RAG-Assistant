@@ -19,6 +19,9 @@ class ExactSearchRequest(BaseModel):
     limit: int = Field(20, ge=1, le=100)
     offset: int = Field(0, ge=0, description="Number of matching chunks to skip")
     document_id: int | None = Field(None, description="Filter by document ID (optional)")
+    space_id: int | None = Field(
+        None, description="Knowledge space to search; the document's or the only space when omitted"
+    )
 
 
 class ExactSearchResult(BaseModel):

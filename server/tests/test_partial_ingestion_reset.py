@@ -24,9 +24,44 @@ from domain.knowledge.chunk import Chunk
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocDomain, DocumentVisibility, SourceType
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
+from domain.knowledge.space import KnowledgeSpace
 from domain.runtime.jobs import BackgroundJob
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from tests.fakes import FakeUnitOfWorkFactory
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty", [False, True])
+async def test_reset_keeps_missing_sources_of_another_space(ingestion: SimpleNamespace, empty: bool) -> None:
+    env = ingestion
+    uow = env.factory._uow
+    uow.fake_knowledge_spaces._spaces[2] = KnowledgeSpace(id=2, name="Other", pack_key="generic")
+    await env.service.run_single("docs/sub/a.txt", space_id=1)
+    await env.service.run_single("docs/other/a.txt", space_id=2)
+    foreign = next(doc for doc in uow.documents._documents.values() if doc.space_id == 2)
+    foreign_chunks = [row.copy() for row in uow.chunks._chunks if row["document_id"] == foreign.id]
+    foreign_registry = (await env.registry.list_all())["docs/other/a.txt"]
+    missing = await uow.documents.save(
+        Document(filename="missing.txt", ingestion_key="docs/missing.txt", space_id=1)
+    )
+    await env.registry.upsert("docs/missing.txt", "old", "s3://bucket/docs/missing.txt", 0, chars=0)
+    env.files.pop("docs/other/a.txt")
+
+    if empty:
+        env.files.clear()
+
+    await env.service.run_full("docs/", reset=True, space_id=1)
+
+    assert await uow.documents.get_by_id(foreign.id) is not None
+    assert [row for row in uow.chunks._chunks if row["document_id"] == foreign.id] == foreign_chunks
+    assert (await env.registry.list_all())["docs/other/a.txt"] == foreign_registry
+    assert await uow.documents.get_by_id(missing.id) is None
+    assert "docs/missing.txt" not in await env.registry.list_all()
+    assert all(
+        entry.aggregate_id != foreign.id
+        for entry in uow.vector_outbox._entries.values()
+        if entry.operation == OutboxOperation.DELETE_BY_DOCUMENT
+    )
 
 
 @pytest.mark.asyncio

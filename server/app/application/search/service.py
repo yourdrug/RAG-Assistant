@@ -5,17 +5,19 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from application.identity import UserContextFactory
+from application.spaces.resolution import document_space, resolve_space
 from domain.knowledge.enums import SearchMode
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from datetime import date
 
-    from application.uow import UnitOfWorkFactory
+    from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.identity.user_context import UserContext
     from domain.knowledge.chunk import ChunkRecord
     from domain.knowledge.pack_metadata import MetadataCondition
+    from domain.knowledge.space import KnowledgeSpace
 
     type ChunkSelection = Callable[[date | None], MetadataCondition | None]
 
@@ -25,12 +27,12 @@ class SearchService:
         self,
         uow_factory: UnitOfWorkFactory,
         user_ctx_factory: UserContextFactory | None = None,
-        chunk_selection: ChunkSelection | None = None,
+        chunk_selections: Mapping[str, ChunkSelection] | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._user_ctx_factory = user_ctx_factory or UserContextFactory()
-        # The domain pack's selection (e.g. editions in force today); None keeps all chunks.
-        self._chunk_selection = chunk_selection
+        # Each pack's selection (e.g. editions in force today) by pack key; a missing key keeps all chunks.
+        self._chunk_selections = dict(chunk_selections or {})
 
     async def exact_search(
         self,
@@ -41,9 +43,17 @@ class SearchService:
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         offset: int = 0,
+        space_id: int | None = None,
     ) -> tuple[list[ChunkRecord], int]:
+        """Search one space: the given one, the space of ``document_id``, or the only space."""
         async with self._uow_factory.create() as uow:
             full_ctx = await self._user_ctx_factory.build(uow, user.user_id, user.user_kind, user.user_role)
+            space = await self.search_space(uow, space_id, document_id)
+
+            if space is None:
+                return [], 0
+
+            selection = self._chunk_selections.get(space.pack_key)
             return await uow.chunks.search_substring_page(
                 query=query,
                 user=full_ctx,
@@ -51,5 +61,17 @@ class SearchService:
                 offset=offset,
                 mode=mode,
                 document_id=document_id,
-                selection=self._chunk_selection(None) if self._chunk_selection is not None else None,
+                selection=selection(None) if selection is not None else None,
+                space_id=space.id,
             )
+
+    @staticmethod
+    async def search_space(
+        uow: UnitOfWork, space_id: int | None, document_id: int | None
+    ) -> KnowledgeSpace | None:
+        if space_id is None and document_id is not None:
+            document = await uow.documents.get_by_id(document_id)
+            # A missing document matches nothing; the search itself still applies ACL.
+            return await document_space(uow, document) if document is not None else None
+
+        return await resolve_space(uow, space_id)

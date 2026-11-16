@@ -257,12 +257,6 @@
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
-  "domain_pack": {
-    "annotation": "<class 'str'>",
-    "default": "'generic'",
-    "metadata": "[]",
-    "required": false
-  },
   "embed_batch_size": {
     "annotation": "<class 'int'>",
     "default": "32",

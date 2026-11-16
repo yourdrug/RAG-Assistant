@@ -51,6 +51,9 @@ from infrastructure.repositories.document.sqlalchemy_ingestion_registry_reposito
 from infrastructure.repositories.misc.sqlalchemy_background_job_repository import (
     SQLAlchemyBackgroundJobRepository,
 )
+from infrastructure.repositories.space.sqlalchemy_space_repository import (
+    SQLAlchemyKnowledgeSpaceRepository,
+)
 from infrastructure.repositories.user.sqlalchemy_api_key_repository import (
     SQLAlchemyApiKeyRepository,
 )
@@ -66,7 +69,7 @@ from infrastructure.repositories.user.sqlalchemy_user_repository import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Sequence
 
     from infrastructure.database.database import DatabaseManager
     from infrastructure.domain_profile.packs import PackRepositoriesFactory
@@ -84,12 +87,12 @@ class UnitOfWorkFactory:
         database: DatabaseManager,
         config_broadcaster: PostgresConfigBroadcaster | None = None,
         *,
-        pack_repositories: PackRepositoriesFactory | None = None,
+        pack_repositories: Sequence[PackRepositoriesFactory] = (),
     ) -> None:
         self._database = database
         self._config_broadcaster = config_broadcaster
-        # Builds the active domain pack's repositories over each UoW session.
-        self._pack_repositories = pack_repositories
+        # Build the loaded domain packs' repositories over each UoW session.
+        self._pack_repositories = tuple(pack_repositories)
 
     @asynccontextmanager
     async def ingestion_lock(self) -> AsyncGenerator[None, None]:
@@ -136,7 +139,8 @@ class UnitOfWorkFactory:
                 vector_outbox=SQLAlchemyVectorOutboxRepository(session),
                 assignments=SQLAlchemyAssignmentRepository(session),
                 ingestion_registry=SQLAlchemyIngestionRegistryRepository(session),
-                pack_repositories=self._pack_repositories(session) if self._pack_repositories else None,
+                knowledge_spaces=SQLAlchemyKnowledgeSpaceRepository(session),
+                pack_repositories=tuple(factory(session) for factory in self._pack_repositories),
             ),
         )
 

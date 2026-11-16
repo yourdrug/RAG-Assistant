@@ -6,7 +6,7 @@ import hashlib
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 
 from application.documents import (
     DocumentCommandService,
@@ -15,13 +15,11 @@ from application.documents import (
     DocumentQueryService,
 )
 from application.documents.dto import ClientInfo
-from application.ingestion.profiles import known_domains
 from application.ports.action_logger import ActionLoggerPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import UploadConfig
+from application.spaces import KnowledgeSpaceService
 from domain.identity.capabilities import Capability
-from domain.ingestion.profiles.general import GeneralDomainProfile
-from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.enums import DocumentVisibility
 from domain.runtime.jobs import BackgroundJobStatus
 from presentation.api.auth_dependencies import get_current_user, require_capability
@@ -32,9 +30,9 @@ from presentation.api.dependencies import (
     create_document_command_service,
     create_document_deletion_jobs,
     create_document_query_service,
-    create_domain_registry,
     create_idempotency_context,
     create_job_submission,
+    create_knowledge_space_service,
     create_upload_config,
 )
 from presentation.api.helpers import read_upload_with_limit, upload_and_enqueue
@@ -63,6 +61,8 @@ class DocumentUploadForm:
     rename_on_conflict: Annotated[bool, Form()] = False
     doc_domain: Annotated[str | None, Form()] = None
     replaces_document_id: Annotated[int | None, Form()] = None
+    # Knowledge space to fill; the only space when omitted.
+    space_id: Annotated[int | None, Form()] = None
 
 
 router = APIRouter(tags=["documents"])
@@ -82,27 +82,17 @@ async def list_uploadable_clients(
 async def list_document_domains(
     *,
     _current_user: Annotated[CurrentUser, Depends(get_current_user)],
-    registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
+    spaces: Annotated[KnowledgeSpaceService, Depends(create_knowledge_space_service)],
+    space_id: Annotated[int | None, Query(description="Knowledge space; the only space when omitted")] = None,
 ) -> list[DocumentDomainOption]:
-    """Document profiles of the active domain pack that an upload may request explicitly."""
-    profiles = registry.all() if registry is not None else [GeneralDomainProfile()]
+    """Document profiles of the space's pack that an upload may request explicitly."""
+    profiles = await spaces.document_profiles(space_id)
     return [DocumentDomainOption(key=profile.key, display_name=profile.display_name) for profile in profiles]
-
-
-def validate_upload_domain(
-    options: Annotated[DocumentUploadForm, Depends()],
-    registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
-) -> None:
-    """Accept only a document profile of the active domain pack."""
-    known = known_domains(registry)
-
-    if options.doc_domain is not None and options.doc_domain not in known:
-        raise HTTPException(status_code=400, detail=f"doc_domain must be one of: {', '.join(known)}")
 
 
 @router.post(
     "/documents",
-    dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD)), Depends(validate_upload_domain)],
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
 )
 async def upload_document(
     *,
@@ -135,6 +125,7 @@ async def upload_document(
             "rename_on_conflict": options.rename_on_conflict,
             "doc_domain": options.doc_domain,
             "replaces_document_id": options.replaces_document_id,
+            "space_id": options.space_id,
         },
     )
 
@@ -154,6 +145,7 @@ async def upload_document(
             rename_on_conflict=options.rename_on_conflict,
             doc_domain=options.doc_domain,
             replaces_document_id=options.replaces_document_id,
+            space_id=options.space_id,
             document_service=cmd,
             action_name="document.upload",
             log_fn=submission.log,
@@ -176,6 +168,7 @@ async def list_documents(
         int, Query(ge=1, le=1000, description="Page size (M-6: unbounded lists are forbidden)")
     ] = 200,
     offset: Annotated[int, Query(ge=0)] = 0,
+    space_id: Annotated[int | None, Query(description="Only documents of this knowledge space")] = None,
     current_user: Annotated[CurrentUser, Depends(require_capability(Capability.DOCUMENTS_VIEW))],
     query: Annotated[DocumentQueryService, Depends(create_document_query_service)],
 ) -> list[DocumentDTO]:
@@ -185,6 +178,7 @@ async def list_documents(
         user_role=current_user.role,
         limit=limit,
         offset=offset,
+        space_id=space_id,
     )
 
 

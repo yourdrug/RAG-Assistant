@@ -528,6 +528,7 @@ source_modules = ["application.uow"]
 allow_indirect_imports = true
 # Allowed features: runtime.
 forbidden_modules = [
+    "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.identity", "application.chat",
     "application.search", "application.indexing", "application.documents",
@@ -543,6 +544,7 @@ source_modules = ["application.admin"]
 allow_indirect_imports = true
 # Allowed features: uow, runtime.
 forbidden_modules = [
+    "application.spaces",
     "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
@@ -562,6 +564,7 @@ source_modules = ["application.benchmark"]
 allow_indirect_imports = true
 # Allowed features: admin, chat, uow.
 forbidden_modules = [
+    "application.spaces",
     "application.domain_packs", "application.identity",
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
@@ -581,6 +584,7 @@ source_modules = ["application.domain_packs"]
 allow_indirect_imports = true
 # Allowed features: uow, indexing (the document pack hooks it implements).
 forbidden_modules = [
+    "application.spaces",
     "application.admin", "application.benchmark",
     "application.identity", "application.chat", "application.search",
     "application.documents", "application.chunks",
@@ -601,6 +605,7 @@ source_modules = ["application.identity"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
+    "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
@@ -614,7 +619,7 @@ name = "Chat: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.chat"]
 allow_indirect_imports = true
-# Allowed features: identity, uow, rag.
+# Allowed features: spaces, identity, uow, rag.
 forbidden_modules = [
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.search", "application.indexing",
@@ -628,7 +633,7 @@ name = "Search: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.search"]
 allow_indirect_imports = true
-# Allowed features: identity, uow.
+# Allowed features: spaces, identity, uow.
 forbidden_modules = [
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.chat", "application.indexing",
@@ -644,6 +649,7 @@ source_modules = ["application.indexing"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
+    "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.identity", "application.chat",
     "application.search", "application.documents", "application.chunks",
@@ -657,7 +663,7 @@ name = "Documents: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.documents"]
 allow_indirect_imports = true
-# Allowed features: identity, indexing, ingestion, uow.
+# Allowed features: spaces, identity, indexing, ingestion, uow.
 forbidden_modules = [
     "application.admin", "application.benchmark", "application.domain_packs",
     "application.chat", "application.search", "application.chunks",
@@ -683,6 +689,7 @@ source_modules = ["application.chunks"]
 allow_indirect_imports = true
 # Allowed features: documents, identity, indexing, uow.
 forbidden_modules = [
+    "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.chat", "application.search",
     "application.ingestion", "application.health", "application.jobs",
@@ -699,7 +706,7 @@ name = "Ingestion: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.ingestion"]
 allow_indirect_imports = true
-# Allowed features: indexing, uow.
+# Allowed features: spaces, indexing, uow.
 forbidden_modules = [
     "application.admin", "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search",
@@ -723,6 +730,7 @@ source_modules = ["application.health"]
 allow_indirect_imports = true
 # Allowed features: admin, uow, runtime.
 forbidden_modules = [
+    "application.spaces",
     "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search",
     "application.indexing", "application.documents", "application.chunks",
@@ -737,11 +745,26 @@ source_modules = ["application.jobs"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
+    "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.identity", "application.chat",
     "application.search", "application.indexing", "application.documents",
     "application.chunks", "application.ingestion", "application.health",
     "application.ports",
+    "application.rag", "application.runtime",
+]
+
+[[tool.importlinter.contracts]]
+name = "Spaces: declared application dependencies"
+type = "forbidden"
+source_modules = ["application.spaces"]
+allow_indirect_imports = true
+# Allowed features: identity, indexing (the pack hooks a space chooses), uow.
+forbidden_modules = [
+    "application.admin", "application.benchmark",
+    "application.domain_packs", "application.chat", "application.search",
+    "application.documents", "application.chunks", "application.ingestion",
+    "application.health", "application.jobs", "application.ports",
     "application.rag", "application.runtime",
 ]
 
@@ -752,6 +775,7 @@ source_modules = ["application.ports"]
 allow_indirect_imports = true
 # Allowed features: none.
 forbidden_modules = [
+    "application.spaces",
     "application.uow", "application.admin",
     "application.benchmark", "application.domain_packs", "application.identity",
     "application.chat", "application.search", "application.indexing",
@@ -846,7 +870,7 @@ name = "RAG: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.rag"]
 allow_indirect_imports = true
-# Runtime configuration contracts remain available to RAG.
+# Runtime configuration contracts remain available to RAG; spaces choose a pack's RAG service.
 forbidden_modules = [
     "application.admin", "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search", "application.indexing",
@@ -866,4 +890,5 @@ forbidden_modules = [
     "application.identity", "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.uow", "application.ports", "application.rag",
+    "application.spaces",
 ]

@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from application.domain_packs.belarus_law.act_versioning.document_hooks import ActEditionHooks
+from application.indexing.pack_hooks import FixedPackHooks
 from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
 from domain.domain_packs.belarus_law.acts.models import ActVersion
 from domain.domain_packs.belarus_law.acts.repositories import ActRepositories
@@ -28,12 +29,12 @@ if TYPE_CHECKING:
 def edition_uow(version: ActVersion | None = None, error: Exception | None = None) -> AsyncMock:
     uow = _make_uow()
     act_versions = SimpleNamespace(get_by_document_id=AsyncMock(return_value=version, side_effect=error))
-    uow.pack_repositories = ActRepositories(regulatory_acts=MagicMock(), act_versions=act_versions)
+    uow.pack_repositories = (ActRepositories(regulatory_acts=MagicMock(), act_versions=act_versions),)
     return uow
 
 
 def edition_service(uow: AsyncMock) -> ChunkMutationService:
-    return _make_service(uow, pack_hooks=ActEditionHooks(MagicMock(), MagicMock()))
+    return _make_service(uow, pack_hooks=FixedPackHooks(ActEditionHooks(MagicMock(), MagicMock())))
 
 
 if TYPE_CHECKING:
@@ -66,7 +67,7 @@ async def test_add_chunk_inherits_edition_in_sql_model_and_outbox(version: ActVe
         1, "A manually added regulatory passage. " * 8, 100, UserRole.ADMIN, page=3, section="Rules"
     )
 
-    uow.pack_repositories.act_versions.get_by_document_id.assert_awaited_once_with(1, for_update=True)
+    uow.pack_repositories[0].act_versions.get_by_document_id.assert_awaited_once_with(1, for_update=True)
     expected = edition_metadata(version) if version else {}
     model = models[0]
     assert model.pack_metadata == expected

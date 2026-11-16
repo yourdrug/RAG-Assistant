@@ -40,6 +40,7 @@ async def list_conversations(
                 title=item.title,
                 created_at=item.creation_date,
                 message_count=item.message_count,
+                space_id=item.space_id,
             )
             for item in items
         ]

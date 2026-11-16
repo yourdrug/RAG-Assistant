@@ -13,11 +13,13 @@ import pytest
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 from tests.integration.uow import SessionDatabase
 
 from application.chunks import ChunkMutationService
 from application.domain_packs.belarus_law.act_versioning import ActVersioningService
 from application.domain_packs.belarus_law.act_versioning.document_hooks import ActEditionHooks
+from application.indexing.pack_hooks import FixedPackHooks
 from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metadata
 from domain.domain_packs.belarus_law.acts.models import ActVersion
 from domain.identity.roles import UserKind, UserRole
@@ -47,6 +49,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 async def seed_edition(sessions: async_sessionmaker[AsyncSession]) -> tuple[int, int]:
     async with sessions.begin() as session:
         doc = DocumentModel(
+            space_id=DEFAULT_SPACE_ID,
             filename="archived.pdf",
             visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
             status=DocumentStatus.DONE,
@@ -61,11 +64,11 @@ async def seed_edition(sessions: async_sessionmaker[AsyncSession]) -> tuple[int,
 
 
 def make_factory(sessions: async_sessionmaker[AsyncSession]) -> UnitOfWorkFactory:
-    return UnitOfWorkFactory(SessionDatabase(sessions), pack_repositories=sql_act_repositories)
+    return UnitOfWorkFactory(SessionDatabase(sessions), pack_repositories=[sql_act_repositories])
 
 
 def edition_chunks(factory: UnitOfWorkFactory) -> ChunkMutationService:
-    hooks = ActEditionHooks(MagicMock(), MagicMock())
+    hooks = FixedPackHooks(ActEditionHooks(MagicMock(), MagicMock()))
     return ChunkMutationService(factory, SimpleNamespace(chunk_size=100), pack_hooks=hooks)
 
 
@@ -121,7 +124,7 @@ async def test_outbox_failure_rolls_back_manual_chunk_and_document_stats(pg_engi
 
     index = MagicMock()
     service = edition_chunks(
-        FailingFactory(SessionDatabase(sessions), pack_repositories=sql_act_repositories)
+        FailingFactory(SessionDatabase(sessions), pack_repositories=[sql_act_repositories])
     )
     with pytest.raises(RuntimeError, match="outbox failed"):
         await service.add_chunk(document_id, "Manual regulatory passage. " * 4, 1, UserRole.ADMIN)
@@ -162,6 +165,7 @@ async def seed_linked_timeline(sessions: async_sessionmaker[AsyncSession]) -> tu
 
         for index, start in enumerate([date(2024, 1, 1), date(2025, 1, 1)]):
             doc = DocumentModel(
+                space_id=DEFAULT_SPACE_ID,
                 filename=f"timeline-{index}.pdf",
                 visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
                 status=DocumentStatus.DONE,
@@ -174,6 +178,7 @@ async def seed_linked_timeline(sessions: async_sessionmaker[AsyncSession]) -> tu
             assert version.id is not None
             session.add(
                 ChunkModel(
+                    space_id=DEFAULT_SPACE_ID,
                     document_id=doc.id,
                     chunk_index=0,
                     content="Regulatory timeline passage",

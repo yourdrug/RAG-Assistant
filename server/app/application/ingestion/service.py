@@ -40,7 +40,7 @@ class IngestionService:
         self._targets = targets
         self._uploads = uploads
 
-    async def run_full(
+    async def run_full(  # noqa: PLR0913 - keyword-only ingestion scope of one job
         self,
         docs_dir: str | None = None,
         *,
@@ -50,13 +50,14 @@ class IngestionService:
         group_id: int | None = None,
         client_id: int | None = None,
         job_id: int | None = None,
+        space_id: int | None = None,
     ) -> IngestStatusResult:
         resolved = self._targets.resolve_docs_dir(docs_dir or "docs/")
         async with self._registry.ingestion_lock():
             await self._batch.run(
                 resolved,
                 reset=reset,
-                scope=IngestionScope(domain, visibility, group_id, client_id),
+                scope=IngestionScope(domain, visibility, group_id, client_id, space_id),
                 job_id=job_id,
             )
         mode = "RESET selected prefix (preserve existing assignments)" if reset else "APPEND (new files only)"
@@ -71,6 +72,7 @@ class IngestionService:
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
+        space_id: int | None = None,
     ) -> IngestStatusResult:
         resolved = self._targets.resolve_ingest_target(file_path)
 
@@ -80,7 +82,7 @@ class IngestionService:
 
             await self._single_file.run(
                 resolved,
-                scope=IngestionScope(domain, visibility, group_id, client_id),
+                scope=IngestionScope(domain, visibility, group_id, client_id, space_id),
             )
         return IngestStatusResult(status="started", file=resolved, force=force)
 

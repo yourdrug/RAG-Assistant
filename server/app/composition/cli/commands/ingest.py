@@ -11,8 +11,8 @@ from typing import Annotated
 
 import typer
 
-from application.ingestion import IngestionService
 from application.ingestion.dto import IngestRegistryResult
+from application.ingestion.space_router import SpaceIngestionService
 from application.jobs.principal import job_principal
 from composition.infrastructure import InfrastructureContainer
 from composition.service_providers import create_ingestion_service
@@ -27,8 +27,8 @@ logger = logging.getLogger("cli")
 ingest_app = typer.Typer(help="Document indexing in Qdrant (S3 storage)")
 
 
-def create_service(infra: InfrastructureContainer) -> IngestionService:
-    """Create IngestionService with proper dependencies via composition."""
+def create_service(infra: InfrastructureContainer) -> SpaceIngestionService:
+    """Create the space-routed ingestion service via composition."""
     return create_ingestion_service(infra)
 
 
@@ -69,7 +69,7 @@ def ingest_run(
         ),
     ] = False,
     domain: Annotated[
-        str, typer.Option("--domain", help="Document domain: auto, legal, general")
+        str, typer.Option("--domain", help="Document profile of the space's pack, or auto")
     ] = DomainDetectionMode.AUTO.value,
     visibility: Annotated[
         str,
@@ -88,6 +88,10 @@ def ingest_run(
     client_id: Annotated[
         int | None, typer.Option("--client-id", help="Client ID (required if visibility=client_private)")
     ] = None,
+    space_id: Annotated[
+        int | None,
+        typer.Option("--space-id", help="Knowledge space of new documents (default: the only space)"),
+    ] = None,
 ) -> None:
     """Full indexing of documents from S3 bucket."""
     vis = DocumentVisibility.parse(visibility)
@@ -101,6 +105,7 @@ def ingest_run(
                 visibility=vis,
                 group_id=group_id,
                 client_id=client_id,
+                space_id=space_id,
             )
 
         asyncio.run(run_with_infrastructure(run_action))
@@ -117,7 +122,7 @@ def ingest_file(
         bool, typer.Option("--force", help="Reindex even if file is already in registry")
     ] = False,
     domain: Annotated[
-        str, typer.Option("--domain", help="Document domain: auto, legal, general")
+        str, typer.Option("--domain", help="Document profile of the space's pack, or auto")
     ] = DomainDetectionMode.AUTO.value,
     visibility: Annotated[
         str,
@@ -136,6 +141,10 @@ def ingest_file(
     client_id: Annotated[
         int | None, typer.Option("--client-id", help="Client ID (required if visibility=client_private)")
     ] = None,
+    space_id: Annotated[
+        int | None,
+        typer.Option("--space-id", help="Knowledge space of new documents (default: the only space)"),
+    ] = None,
 ) -> None:
     """Add a single file from S3 to existing collection."""
     vis = DocumentVisibility.parse(visibility)
@@ -144,7 +153,13 @@ def ingest_file(
         async def run_action(infra: InfrastructureContainer) -> None:
             service = create_service(infra)
             await service.run_single(
-                file_path, force=force, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
+                file_path,
+                force=force,
+                domain=domain,
+                visibility=vis,
+                group_id=group_id,
+                client_id=client_id,
+                space_id=space_id,
             )
 
         asyncio.run(run_with_infrastructure(run_action))

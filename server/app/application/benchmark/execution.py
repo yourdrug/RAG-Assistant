@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from application.benchmark.ports import BenchmarkCheckpoints
+    from domain.knowledge.space import SpaceRef
 
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,8 @@ class BenchmarkProgress(Protocol):
 class BenchmarkExecutionScope:
     evaluator: BenchmarkCasePort
     corpus_metadata: dict[str, Any]
+    # The space the benchmark questions are asked in.
+    space: SpaceRef | None = None
 
 
 def validate_questions(questions: object) -> None:
@@ -128,10 +131,13 @@ async def execute_benchmark(  # noqa: C901, PLR0913, PLR0915, PLR0917 — preser
 
     semaphore = asyncio.Semaphore(max_concurrent)
     completed = 0
-    ctx = RagContext(user=UserContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
     stack = AsyncExitStack()
     try:
         execution = await stack.enter_async_context(scope())
+        ctx = RagContext(
+            user=UserContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN),
+            space=execution.space,
+        )
         # Store only a hash of settings: credentials must never enter report files.
         identity = fingerprint(
             {

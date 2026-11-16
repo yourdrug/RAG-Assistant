@@ -8,26 +8,26 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
-from application.ingestion import IngestionPort, IngestionService
-from application.ingestion.profiles import ensure_known_domain
+from application.ingestion import IngestionPort
 from application.jobs.service import JobService
 from application.ports.idempotency_store import IdempotencyStorePort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import UploadConfig
-from domain.ingestion.profiles.registry import DomainProfileRegistry
+from application.spaces import KnowledgeSpaceService
 from domain.knowledge.enums import DocumentVisibility, DomainDetectionMode
+from domain.shared.exceptions import ValidationError
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import JobType
 from presentation.api.dependencies import (
     IdempotencyContext,
     JobSubmission,
-    create_domain_registry,
     create_idempotency_context,
     create_idempotency_store,
     create_ingest_service,
     create_ingestion_port,
     create_job_service,
     create_job_submission,
+    create_knowledge_space_service,
     create_upload_config,
     get_idempotency_key,
 )
@@ -52,31 +52,39 @@ logger = logging.getLogger("default")
 class IngestOptions:
     docs_dir: SafeRelativePath = "docs/"
     reset: bool = False
-    # Profile key of the active domain pack or ``auto``; IngestionService validates it.
+    # Profile key of the target space's pack or ``auto``.
     domain: str = DomainDetectionMode.AUTO.value
     visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC
     group_id: int | None = None
     client_id: int | None = None
+    # Knowledge space of new documents; the only space when omitted.
+    space_id: int | None = None
 
 
 @dataclass(kw_only=True)
 class IngestFileOptions:
     file_path: SafeRelativePath
     force: bool = False
-    # Profile key of the active domain pack or ``auto``; IngestionService validates it.
+    # Profile key of the target space's pack or ``auto``.
     domain: str = DomainDetectionMode.AUTO.value
     visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC
     group_id: int | None = None
     client_id: int | None = None
+    # Knowledge space of new documents; the only space when omitted.
+    space_id: int | None = None
 
 
 router = APIRouter(tags=["ingest"])
 
 
-def validate_ingest_domain(registry: DomainProfileRegistry | None, domain: str) -> None:
-    """Accept auto-detection or a document profile of the active domain pack."""
-    if domain != DomainDetectionMode.AUTO.value:
-        ensure_known_domain(registry, domain)
+async def validate_ingest_domain(spaces: KnowledgeSpaceService, space_id: int | None, domain: str) -> None:
+    """Resolve the target space; accept auto-detection or a document profile of the space's pack."""
+    profiles = await spaces.document_profiles(space_id)
+
+    if domain != DomainDetectionMode.AUTO.value and domain not in {profile.key for profile in profiles}:
+        known = ", ".join(profile.key for profile in profiles)
+        message = f"Unknown document domain {domain!r}; known: {known}"
+        raise ValidationError(message, errors={"domain": message})
 
 
 MAX_UPLOAD_FILES = 20
@@ -93,12 +101,12 @@ async def ingest_documents(
     request: Request,
     options: Annotated[IngestOptions, Depends()],
     admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[IngestionService, Depends(create_ingest_service)],
-    registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
+    service: Annotated[IngestionPort, Depends(create_ingest_service)],
+    spaces: Annotated[KnowledgeSpaceService, Depends(create_knowledge_space_service)],
     submission: Annotated[JobSubmission, Depends(create_job_submission)],
     idempotency: Annotated[IdempotencyContext, Depends(create_idempotency_context)],
 ) -> IngestStatusResponse:
-    validate_ingest_domain(registry, options.domain)
+    await validate_ingest_domain(spaces, options.space_id, options.domain)
 
     try:
         resolved = service.resolve_docs_dir(options.docs_dir)
@@ -117,6 +125,7 @@ async def ingest_documents(
             "visibility": options.visibility.value,
             "group_id": options.group_id,
             "client_id": options.client_id,
+            "space_id": options.space_id,
         },
     )
 
@@ -134,6 +143,7 @@ async def ingest_documents(
                 "visibility": options.visibility.value,
                 "group_id": options.group_id,
                 "client_id": options.client_id,
+                "space_id": options.space_id,
             },
         )
 
@@ -157,6 +167,7 @@ async def ingest_documents(
             visibility=options.visibility.value,
             group_id=options.group_id,
             client_id=options.client_id,
+            space_id=options.space_id,
         )
     except Exception:  # noqa: BLE001 — committed work remains available to the relay
         logger.warning("Ingestion delivery deferred: job_id=%d", job_id)
@@ -179,12 +190,12 @@ async def ingest_single_file(
     request: Request,
     options: Annotated[IngestFileOptions, Depends()],
     admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[IngestionService, Depends(create_ingest_service)],
-    registry: Annotated[DomainProfileRegistry | None, Depends(create_domain_registry)],
+    service: Annotated[IngestionPort, Depends(create_ingest_service)],
+    spaces: Annotated[KnowledgeSpaceService, Depends(create_knowledge_space_service)],
     submission: Annotated[JobSubmission, Depends(create_job_submission)],
     idempotency: Annotated[IdempotencyContext, Depends(create_idempotency_context)],
 ) -> IngestStatusResponse:
-    validate_ingest_domain(registry, options.domain)
+    await validate_ingest_domain(spaces, options.space_id, options.domain)
 
     try:
         resolved = service.resolve_ingest_target(options.file_path)
@@ -203,6 +214,7 @@ async def ingest_single_file(
             "visibility": options.visibility.value,
             "group_id": options.group_id,
             "client_id": options.client_id,
+            "space_id": options.space_id,
         },
     )
 
@@ -220,6 +232,7 @@ async def ingest_single_file(
                 "visibility": options.visibility.value,
                 "group_id": options.group_id,
                 "client_id": options.client_id,
+                "space_id": options.space_id,
             },
         )
 
@@ -242,6 +255,7 @@ async def ingest_single_file(
             visibility=options.visibility.value,
             group_id=options.group_id,
             client_id=options.client_id,
+            space_id=options.space_id,
             force=options.force,
         )
     except Exception:  # noqa: BLE001 — committed work remains available to the relay
@@ -255,7 +269,7 @@ async def ingest_single_file(
 async def get_ingest_registry(
     *,
     _admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[IngestionService, Depends(create_ingest_service)],
+    service: Annotated[IngestionPort, Depends(create_ingest_service)],
 ) -> IngestRegistryResponse:
     result = await service.get_registry()
     return IngestRegistryResponse(

@@ -23,8 +23,9 @@ async def test_baseline_reserves_filename_for_every_status(
     pg_engine: AsyncEngine, existing_status: DocumentStatus
 ) -> None:
     statement = text(
-        "INSERT INTO documents (filename, visibility, status) "
-        "VALUES ('report.pdf', 'internal_public', :status) RETURNING id"
+        "INSERT INTO documents (filename, visibility, status, space_id) "
+        "VALUES ('report.pdf', 'internal_public', :status, (SELECT min(id) FROM knowledge_spaces)) "
+        "RETURNING id"
     )
     async with pg_engine.begin() as connection:
         document_id = await connection.scalar(statement, {"status": existing_status.value})

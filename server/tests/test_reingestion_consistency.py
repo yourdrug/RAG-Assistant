@@ -173,7 +173,7 @@ async def test_delayed_old_upsert_cannot_restore_replaced_points(monkeypatch: py
     monkeypatch.setattr(
         factory._uow.documents,
         "get_by_id",
-        AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt")),
+        AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt", space_id=1)),
     )
     await index(factory, "old text")
     await index(factory, "new text")
@@ -208,7 +208,7 @@ async def test_replacement_during_upload_removes_inflight_old_points(monkeypatch
     monkeypatch.setattr(
         factory._uow.documents,
         "get_by_id",
-        AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt")),
+        AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt", space_id=1)),
     )
     await index(factory, "old text")
     old_entry = next(iter(factory._uow.fake_vector_outbox._entries.values()))
@@ -290,7 +290,7 @@ async def test_failed_inflight_cleanup_is_retried_even_after_document_deletion(
     monkeypatch.setattr(
         factory._uow.documents,
         "get_by_id",
-        AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt")),
+        AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt", space_id=1)),
     )
     await index(factory, "old text")
     entry = next(iter(factory._uow.fake_vector_outbox._entries.values()))

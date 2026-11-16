@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.documents import Document as LCDocument
 
 from application.benchmark import load_benchmark_questions
+from application.spaces import default_space
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from infrastructure.benchmark.sweep.candidates import cache_candidates
@@ -36,10 +37,13 @@ class SweepDataSource:
     async def cache_candidates(
         self, questions: list[dict[str, Any]], max_fetch_k: int
     ) -> tuple[DenseCache, SparseCache, CandidateCache]:
+        # A sweep searches the default space with its pack's rules (see build_sweep_engine).
+        space = await default_space(self._uow_factory)
         access_filter = build_search_filter(
             user={"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN},
             group_ids=[],
             selection=current_evidence_profile().chunk_selection(None),
+            space_id=space.id,
         )
         dense, sparse, candidates = await cache_candidates(
             questions,

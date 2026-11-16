@@ -59,6 +59,7 @@ class IngestScope(TypedDict):
     visibility: str
     group_id: int | None
     client_id: int | None
+    space_id: int | None
     reset: NotRequired[bool]
     force: NotRequired[bool]
     job_id: NotRequired[int]
@@ -70,6 +71,7 @@ class IngestRequest(TypedDict):
     visibility: NotRequired[str]
     group_id: NotRequired[int | None]
     client_id: NotRequired[int | None]
+    space_id: NotRequired[int | None]
 
 
 class FullIngestRequest(IngestRequest):
@@ -97,6 +99,7 @@ async def ingest_document_scope(
             visibility=vis,
             group_id=scope["group_id"],
             client_id=scope["client_id"],
+            space_id=scope["space_id"],
         )
     else:
         await service.run_full(
@@ -106,6 +109,7 @@ async def ingest_document_scope(
             visibility=vis,
             group_id=scope["group_id"],
             client_id=scope["client_id"],
+            space_id=scope["space_id"],
             job_id=scope.get("job_id"),
         )
 
@@ -122,6 +126,7 @@ async def run_full_ingest(ctx: dict[str, Any], **request: Unpack[FullIngestReque
         visibility=request.get("visibility", DocumentVisibility.INTERNAL_PUBLIC.value),
         group_id=request.get("group_id"),
         client_id=request.get("client_id"),
+        space_id=request.get("space_id"),
     )
 
 
@@ -136,6 +141,7 @@ async def run_single_ingest(ctx: dict[str, Any], **request: Unpack[SingleIngestR
         visibility=request.get("visibility", DocumentVisibility.INTERNAL_PUBLIC.value),
         group_id=request.get("group_id"),
         client_id=request.get("client_id"),
+        space_id=request.get("space_id"),
     )
 
 

@@ -37,7 +37,11 @@ class SQLAlchemyConversationRepository:
             return None
 
         return Conversation(
-            id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date, summary=orm.summary
+            id=orm.id,
+            user_id=orm.user_id,
+            creation_date=orm.creation_date,
+            summary=orm.summary,
+            space_id=orm.space_id,
         )
 
     async def get_for_update(self, conversation_id: int) -> Conversation | None:
@@ -50,7 +54,11 @@ class SQLAlchemyConversationRepository:
             return None
 
         return Conversation(
-            id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date, summary=orm.summary
+            id=orm.id,
+            user_id=orm.user_id,
+            creation_date=orm.creation_date,
+            summary=orm.summary,
+            space_id=orm.space_id,
         )
 
     async def save(self, conversation: Conversation) -> Conversation:
@@ -80,6 +88,23 @@ class SQLAlchemyConversationRepository:
                 return conv
 
         return await self.create(user_id)
+
+    async def assign_space(self, conversation_id: int, space_id: int) -> int:
+        """Serialize first-question bindings and return the space that won, even after a concurrent write."""
+        result = await self._db.execute(
+            update(ConversationModel)
+            .where(ConversationModel.id == conversation_id)
+            .values(space_id=func.coalesce(ConversationModel.space_id, space_id))
+            .returning(ConversationModel.space_id)
+        )
+        await self._db.flush()
+        bound_space_id = result.scalar_one()
+
+        if bound_space_id is None:
+            msg = "Conversation space assignment returned no space"
+            raise RuntimeError(msg)
+
+        return bound_space_id
 
     async def get_owner_id(self, conversation_id: int) -> int | None:
         result = await self._db.execute(
@@ -195,6 +220,7 @@ class SQLAlchemyConversationRepository:
                 ConversationModel.id,
                 ConversationModel.user_id,
                 ConversationModel.creation_date,
+                ConversationModel.space_id,
                 first_msg_sq.c.first_content,
                 func.coalesce(msg_count_sq.c.msg_count, 0).label("message_count"),
             )
@@ -213,6 +239,7 @@ class SQLAlchemyConversationRepository:
                 creation_date=row.creation_date,
                 title=row.first_content,
                 message_count=row.message_count,
+                space_id=row.space_id,
             )
             for row in result.all()
         ]

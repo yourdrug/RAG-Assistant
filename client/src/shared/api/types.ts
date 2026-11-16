@@ -50,6 +50,8 @@ export interface ChatRequest {
   question: string;
   conversation_id?: number | null;
   depth?: "narrow" | "broad" | null;
+  /** Knowledge space of the question; a conversation keeps the space of its first question. */
+  space_id?: number | null;
 }
 
 export interface ChatResponse {
@@ -98,6 +100,7 @@ export interface ConversationListItem {
   title?: string | null;
   created_at?: string | null;
   message_count: number;
+  space_id?: number | null;
 }
 
 export interface ConversationListResponse {
@@ -129,6 +132,7 @@ export interface DocumentResponse {
   visibility: DocumentVisibility;
   owner_id?: number | null;
   group_id?: number | null;
+  space_id?: number | null;
   status: DocumentStatus;
   doc_domain: DocumentDomain;
   source_type?: "file" | "manual";
@@ -246,6 +250,29 @@ export interface CreateGroupRequest {
 export interface GroupResponse {
   id: number;
   name: string;
+}
+
+// ─── Knowledge spaces ────────────────────────────────────────────────────────
+
+/** A space selects the searched documents and the pack's rules; it never grants access. */
+export interface KnowledgeSpace {
+  id: number;
+  name: string;
+  pack_key: string;
+  can_upload: boolean;
+  /** Groups admitted to fill the space; returned to ADMIN only. */
+  upload_group_ids?: number[] | null;
+}
+
+export interface CreateKnowledgeSpaceRequest {
+  name: string;
+  pack_key: string;
+  upload_group_ids: number[];
+}
+
+export interface UpdateKnowledgeSpaceRequest {
+  name?: string;
+  upload_group_ids?: number[];
 }
 
 export interface GroupMemberResponse {

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -21,17 +22,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 
 from application.runtime.config import ConfigParameterChanged, ConfigValueType
+from application.spaces import DomainPackNotLoadedError
 from composition.application import ApplicationContainer
 from composition.container import Container
-from composition.domain_packs import PackWiring
+from composition.domain_packs import NEUTRAL_WIRING, LoadedPack, PackWiring
 from composition.infrastructure import InfrastructureContainer
+from composition.pack_catalog import LoadedPackCatalog
 from composition.service_providers import create_pack_hooks
 from composition.utils import ContainerNotInitializedError
 from config import settings
+from domain.identity.roles import UserKind
+from domain.identity.user_context import UserContext
 from domain.ingestion.profiles.registry import DomainProfileRegistry
+from domain.knowledge.space import SpaceRef
+from domain.rag.context import RagContext
 from domain.shared.exceptions import ValidationError
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.database.database import DatabaseManager
+from infrastructure.domain_profile.packs import NEUTRAL_PACK, NEUTRAL_PACK_KEY
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 from infrastructure.ml.config.config_subscribers import audit_log_config_change
@@ -94,6 +102,7 @@ class TestApplicationContainer:
         monkeypatch.setattr("infrastructure.events.in_process_event_bus.event_bus", bus)
         container = Container()
         container.infrastructure = MagicMock()
+        container.infrastructure.pack_catalog = neutral_catalog()
         with patch("composition.application.create_ingestion_service", return_value=MagicMock()):
             container.application.init(container.infrastructure)
 
@@ -112,7 +121,8 @@ class TestApplicationContainer:
         container.infrastructure.configuration = configuration
 
         chat_redactor = require_present(container.application.chat_service)._pii_redactor
-        preparation = require_present(container.application.rag_service).preparation
+        neutral_space = RagContext(UserContext(1, UserKind.INTERNAL), space=SpaceRef(1, NEUTRAL_PACK_KEY))
+        preparation = require_present(container.application.rag_service).service(neutral_space).preparation
         rag_redactor = require_present(cast("RagOperations", preparation).pii_redactor)
         assert chat_redactor is rag_redactor
         text = "Контакт: private@example.com"
@@ -295,6 +305,7 @@ class TestChunkSearchAdapter:
             limit=10,
             mode="exact",
             selection=selection,
+            space_id=None,
             document_id=None,
             document_ids=None,
         )
@@ -408,18 +419,36 @@ def test_ocr_cache_reacts_to_validated_configuration(monkeypatch: pytest.MonkeyP
         ocr.get_paddle_ocr.cache_clear()
 
 
-def test_pack_document_hooks_require_domain_settings() -> None:
-    hooks = MagicMock()
-    infra = InfrastructureContainer(
-        domain_registry=DomainProfileRegistry(), pack_wiring=PackWiring(document_hooks=hooks)
+def neutral_catalog(**packs: LoadedPack) -> LoadedPackCatalog:
+    loaded = {NEUTRAL_PACK_KEY: LoadedPack(NEUTRAL_PACK, NEUTRAL_WIRING), **packs}
+    return LoadedPackCatalog(
+        loaded,
+        {key: DomainProfileRegistry() for key in loaded},
+        uow_factory=FakeUnitOfWorkFactory(),
+        domain_settings=MagicMock(),
+        cache_invalidator=None,
     )
 
-    with pytest.raises(ContainerNotInitializedError, match="domain_settings not initialized"):
-        create_pack_hooks(infra, FakeUnitOfWorkFactory())
 
-    hooks.assert_not_called()
+def test_pack_document_hooks_are_built_with_their_pack_profiles() -> None:
+    hooks = MagicMock()
+    law = replace(NEUTRAL_PACK, key="law")
+    catalog = neutral_catalog(law=LoadedPack(law, PackWiring(document_hooks=hooks)))
+    uow = FakeUnitOfWorkFactory()
+
+    assert catalog.build_hooks("law", uow) is hooks.return_value
+    hooks.assert_called_once_with(uow, catalog.domain_registry("law"), ANY, None)
 
 
 def test_neutral_pack_has_no_document_hooks() -> None:
-    infra = InfrastructureContainer(domain_registry=DomainProfileRegistry())
-    assert create_pack_hooks(infra, FakeUnitOfWorkFactory()) is None
+    assert neutral_catalog().build_hooks(NEUTRAL_PACK_KEY, FakeUnitOfWorkFactory()) is None
+
+
+def test_space_cannot_use_a_pack_that_is_not_loaded() -> None:
+    with pytest.raises(DomainPackNotLoadedError):
+        neutral_catalog().document_hooks("belarus_law")
+
+
+def test_create_pack_hooks_requires_an_initialized_catalog() -> None:
+    with pytest.raises(ContainerNotInitializedError, match="pack_catalog not initialized"):
+        create_pack_hooks(InfrastructureContainer(), FakeUnitOfWorkFactory())

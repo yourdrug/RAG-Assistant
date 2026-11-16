@@ -64,7 +64,17 @@ def test_cli_parses_ingestion_flags_and_preserves_scope(
     )
     result = CliRunner().invoke(
         cli.cli,
-        [*command, "--domain", "legal", "--visibility", "internal_group", "--group-id", "17"],
+        [
+            *command,
+            "--domain",
+            "legal",
+            "--visibility",
+            "internal_group",
+            "--group-id",
+            "17",
+            "--space-id",
+            "3",
+        ],
     )
 
     assert result.exit_code == 0, result.output
@@ -73,6 +83,7 @@ def test_cli_parses_ingestion_flags_and_preserves_scope(
         "visibility": DocumentVisibility.INTERNAL_GROUP,
         "group_id": 17,
         "client_id": None,
+        "space_id": 3,
     }
 
     if single:

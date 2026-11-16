@@ -118,6 +118,7 @@ class SingleFileIngestionWorkflow:
             visibility=scope.visibility,
             group_id=scope.group_id,
             client_id=scope.client_id,
+            space_id=scope.space_id,
         )
 
         # Record success only after sparse persistence, so failures remain retryable.

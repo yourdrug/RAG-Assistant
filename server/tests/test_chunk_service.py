@@ -15,13 +15,14 @@ from domain.knowledge.access_control import compute_owner_and_group
 from domain.knowledge.chunk import ChunkRecord, ChunkStats
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility, SourceType
+from domain.knowledge.space import KnowledgeSpace
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 from domain.shared.hashing import content_hash
 
 
 if TYPE_CHECKING:
     from application.chunks import ChunkSettingsPort
-    from application.indexing.pack_hooks import DocumentPackHooks
+    from application.indexing.pack_hooks import DocumentHooksResolver
     from application.ports.cache_invalidator import CacheInvalidatorPort
 
 
@@ -97,6 +98,10 @@ def _make_uow(doc: Document | None = None, chunk: ChunkRecord | None = None, max
     uow.chunks.update_content = AsyncMock()
     uow.chunks.delete_one = AsyncMock()
     uow.groups.get_user_group_ids = AsyncMock(return_value=[])
+    # The only space; group 900 is admitted to fill it.
+    space = KnowledgeSpace(id=1, name="Общее", pack_key="generic", upload_group_ids=frozenset({900}))
+    uow.knowledge_spaces.list_all = AsyncMock(return_value=[space])
+    uow.knowledge_spaces.get_by_id = AsyncMock(return_value=space)
     uow.documents.set_has_manual_edits = AsyncMock()
     uow.documents.update_chunk_stats = AsyncMock()
     uow.vector_outbox.enqueue = AsyncMock()
@@ -108,7 +113,7 @@ def _make_service(
     *,
     chunk_settings: ChunkSettingsPort | None = None,
     cache_invalidator: CacheInvalidatorPort | None = None,
-    pack_hooks: DocumentPackHooks | None = None,
+    pack_hooks: DocumentHooksResolver | None = None,
 ) -> ChunkMutationService:
     factory = MagicMock()
     factory.create.return_value = AsyncMock(
@@ -531,6 +536,7 @@ class TestCreateManualDocument:
     async def test_create_manual_document_user_cannot_publish_public(self) -> None:
         """Only admin can create internal_public documents."""
         uow = _make_uow()
+        uow.groups.get_user_group_ids = AsyncMock(return_value=[900])
         svc = make_manual_service(uow)
 
         with pytest.raises(BusinessRuleViolationError):
@@ -546,6 +552,7 @@ class TestCreateManualDocument:
     async def test_create_manual_document_group_requires_group_id(self) -> None:
         """Creating a group-visible document without group_id should fail."""
         uow = _make_uow()
+        uow.groups.get_user_group_ids = AsyncMock(return_value=[900])
         svc = make_manual_service(uow)
 
         with pytest.raises((ValidationError, BusinessRuleViolationError)):

@@ -2,10 +2,12 @@ import { FileText, Loader2, Upload } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import {
+  defaultSpaceId,
   useDocumentDomains,
   useDryRunOcr,
   useGroups,
   useIndexFromPreview,
+  useSpaces,
   useUploadableClients,
 } from "@/shared/api/hooks";
 import type { DocumentDomain, DocumentVisibility, DryRunResponse } from "@/shared/api/types";
@@ -25,7 +27,10 @@ export function DryRunActions({ result, onResultUpdate, onReset }: DryRunActions
   const indexFromPreview = useIndexFromPreview();
   const { data: groups } = useGroups();
   const { data: uploadableClients } = useUploadableClients();
-  const { data: documentDomains } = useDocumentDomains();
+  const { data: spaces } = useSpaces();
+  const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
+  const spaceId = spaceChoice ?? defaultSpaceId(spaces);
+  const { data: documentDomains } = useDocumentDomains(spaceId, spaceId != null);
   const user = useAuthStore((s) => s.user);
   const isClient = user?.kind === "client";
   const isAdmin = user?.role === "admin";
@@ -71,6 +76,7 @@ export function DryRunActions({ result, onResultUpdate, onReset }: DryRunActions
         groupId: indexVisibility === "internal_group" ? indexGroupId : undefined,
         clientId: indexVisibility === "client_private" ? indexClientId : undefined,
         docDomain: indexDocDomain === "auto" ? undefined : indexDocDomain,
+        spaceId,
       });
       toast.success(
         <span>
@@ -134,6 +140,27 @@ export function DryRunActions({ result, onResultUpdate, onReset }: DryRunActions
               This will upload and index <strong>{result.filename}</strong> through the standard
               ingestion pipeline.
             </p>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Knowledge Space</label>
+              <Select
+                value={spaceId != null ? String(spaceId) : ""}
+                onValueChange={(v) => {
+                  setSpaceChoice(Number(v));
+                  setIndexDocDomain("auto");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a space" />
+                </SelectTrigger>
+                <SelectContent>
+                  {spaces?.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>
+                      {s.name} ({s.pack_key})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Visibility</label>
               <Select
@@ -233,7 +260,7 @@ export function DryRunActions({ result, onResultUpdate, onReset }: DryRunActions
             <Button variant="outline" onClick={() => setShowIndexDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleIndex} disabled={indexFromPreview.isPending}>
+            <Button onClick={handleIndex} disabled={indexFromPreview.isPending || spaceId == null}>
               {indexFromPreview.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
               Index
             </Button>

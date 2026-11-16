@@ -36,6 +36,8 @@ class DocumentStatusUpdate(TypedDict, total=False):
 class DocumentFilter:
     user: UserContext
     pagination: Pagination = DEFAULT_DOCUMENT_PAGINATION
+    # Narrows the listing to one knowledge space; visibility still decides access.
+    space_id: int | None = None
 
 
 @runtime_checkable
@@ -71,10 +73,16 @@ class DocumentCrudRepository(Protocol):
         filename: str,
         group_id: int | None,
         *,
+        space_id: int | None = None,
         for_update: bool = False,
     ) -> Document | None: ...
     async def find_active_slots_by_filenames(
-        self, filenames: list[str], *, owner_id: int | None = None, group_id: int | None = None
+        self,
+        filenames: list[str],
+        *,
+        owner_id: int | None = None,
+        group_id: int | None = None,
+        space_id: int | None = None,
     ) -> list[Document]: ...
     async def list_visible(self, filters: DocumentFilter) -> list[Document]: ...
     async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]: ...

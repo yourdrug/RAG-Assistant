@@ -213,8 +213,12 @@ def build_substring_search_stmt(
     selection: MetadataCondition | None,
     *,
     limit: int | None = None,
+    space_id: int | None = None,
 ) -> Select[Any]:
-    """Share content, document, ACL and pack selection predicates across both consumers."""
+    """Share content, document, ACL, space and pack selection predicates across both consumers.
+
+    The space and pack selection narrow the documents considered; access is decided by ACL.
+    """
     acl_clauses = build_acl_clauses(
         user,
         user.group_ids,
@@ -227,14 +231,19 @@ def build_substring_search_stmt(
         SearchMode.PROVISION.value: build_provision_search_stmt,
     }
     builder = builders.get(mode, build_fuzzy_search_stmt)
-    return builder(query, acl_clauses, document_id, limit).where(pack_selection_clause(selection))
+    stmt = builder(query, acl_clauses, document_id, limit).where(pack_selection_clause(selection))
+
+    if space_id is not None:
+        stmt = stmt.where(ChunkModel.space_id == space_id)
+
+    return stmt
 
 
 class SQLAlchemyChunkSearchRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def search_substring(
+    async def search_substring(  # noqa: PLR0913 - keyword-only search scope options
         self,
         query: str,
         user: UserContext,
@@ -243,6 +252,7 @@ class SQLAlchemyChunkSearchRepository:
         mode: str = "exact",
         document_id: int | None = None,
         selection: MetadataCondition | None = None,
+        space_id: int | None = None,
         document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
         """Search chunks; ``document_ids`` runs one limited probe per document in a single query."""
@@ -252,14 +262,18 @@ class SQLAlchemyChunkSearchRepository:
         stmt: Select[Any] | CompoundSelect
 
         if document_ids is None:
-            stmt = build_substring_search_stmt(query, user, mode, document_id, selection, limit=limit)
+            stmt = build_substring_search_stmt(
+                query, user, mode, document_id, selection, limit=limit, space_id=space_id
+            )
         else:
             if document_id is not None:
                 message = "Pass either document_id or document_ids, not both"
                 raise ValueError(message)
 
             scoped = [
-                build_substring_search_stmt(query, user, mode, doc_id, selection, limit=limit)
+                build_substring_search_stmt(
+                    query, user, mode, doc_id, selection, limit=limit, space_id=space_id
+                )
                 for doc_id in dict.fromkeys(document_ids)
             ]
 
@@ -271,7 +285,7 @@ class SQLAlchemyChunkSearchRepository:
         result = await self._session.execute(stmt)
         return [row_to_search_result(row) for row in result.all()]
 
-    async def search_substring_page(
+    async def search_substring_page(  # noqa: PLR0913 - keyword-only search scope options
         self,
         query: str,
         user: UserContext,
@@ -281,6 +295,7 @@ class SQLAlchemyChunkSearchRepository:
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         selection: MetadataCondition | None = None,
+        space_id: int | None = None,
     ) -> tuple[list[ChunkRecord], int]:
         if len(query.strip()) < MIN_SUBSTRING_LENGTH:
             return [], 0
@@ -288,7 +303,7 @@ class SQLAlchemyChunkSearchRepository:
         # Materialize only matching IDs. Count and page use one database snapshot,
         # including empty pages beyond the last match, without buffering all content.
         matches = (
-            build_substring_search_stmt(query, user, mode, document_id, selection)
+            build_substring_search_stmt(query, user, mode, document_id, selection, space_id=space_id)
             .with_only_columns(ChunkModel.id)
             .order_by(None)
             .cte("matching_chunks")

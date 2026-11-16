@@ -19,9 +19,8 @@ class ActRepositoriesNotRegisteredError(RuntimeError):
 
 
 def act_repositories(uow: UnitOfWork) -> ActRepositories:
-    repositories = uow.pack_repositories
+    for repositories in uow.pack_repositories:
+        if isinstance(repositories, ActRepositories):
+            return repositories
 
-    if not isinstance(repositories, ActRepositories):
-        raise ActRepositoriesNotRegisteredError
-
-    return repositories
+    raise ActRepositoriesNotRegisteredError

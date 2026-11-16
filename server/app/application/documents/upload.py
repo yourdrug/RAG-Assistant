@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Unpack
 from application.documents.conflicts import resolve_upload_version_group
 from application.documents.dto import DocumentDTO
 from application.documents.utils import generate_storage_key, resolve_unique_filename
+from application.ingestion.profiles import ensure_known_domain
+from application.spaces.resolution import resolve_space
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import (
     check_ownership,
@@ -22,6 +24,7 @@ from domain.runtime.jobs import BackgroundJob, JobType
 from domain.shared.exceptions import (
     BusinessRuleViolationError,
     EntityNotFoundError,
+    PermissionDeniedError,
     UniqueConstraintError,
     ValidationError,
 )
@@ -31,10 +34,14 @@ if TYPE_CHECKING:
     from application.documents.dto import UploadOptions
     from application.identity import UserContextFactory
     from application.ports.file_storage import FileStorage
+    from application.spaces.ports import DomainPackCatalog
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.identity.user_context import UserContext
+    from domain.knowledge.space import KnowledgeSpace
 
 log = logging.getLogger("default")
+
+FILL_SPACE_PERMISSION = "knowledge_space.fill"
 
 
 class DocumentUploadCommand:
@@ -45,10 +52,12 @@ class DocumentUploadCommand:
         uow_factory: UnitOfWorkFactory,
         file_storage: FileStorage,
         user_ctx_factory: UserContextFactory,
+        pack_catalog: DomainPackCatalog,
     ) -> None:
         self._uow_factory = uow_factory
         self._file_storage = file_storage
         self._user_ctx_factory = user_ctx_factory
+        self._pack_catalog = pack_catalog
 
     async def resolve_effective_owner_id(
         self,
@@ -155,6 +164,7 @@ class DocumentUploadCommand:
 
         async with self._uow_factory.create(master=True) as uow:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
+            space = await self.resolve_target_space(uow, options.get("space_id"), ctx, doc_domain)
             await self.validate_scope(uow, vis, group_id, ctx)
             effective_owner_id = await self.resolve_effective_owner_id(
                 uow,
@@ -171,6 +181,7 @@ class DocumentUploadCommand:
                 visibility=vis,
                 owner_id=owner_id,
                 group_id=effective_group_id,
+                space_id=space.id,
                 doc_domain=DomainKey(doc_domain or DocDomain.GENERAL),
             )
             pending_replace_id = await self.prepare_upload_target(
@@ -234,7 +245,7 @@ class DocumentUploadCommand:
         replaces_document_id: int | None,
     ) -> int | None:
         existing = await uow.documents.find_active_slot(
-            doc.owner_id, doc.filename, doc.group_id, for_update=True
+            doc.owner_id, doc.filename, doc.group_id, space_id=doc.space_id, for_update=True
         )
         pending_replace_id = None
 
@@ -249,15 +260,32 @@ class DocumentUploadCommand:
                 check_ownership(existing, ctx, "replace")
 
                 if not same_document_scope(existing, doc):
-                    msg = "Replacement must have the same visibility scope"
+                    msg = "Replacement must have the same knowledge space and visibility scope"
                     raise BusinessRuleViolationError(msg)
 
         if existing:
             doc.filename = await resolve_unique_filename(
-                uow.documents, doc.owner_id, doc.group_id, doc.filename
+                uow.documents, doc.owner_id, doc.group_id, doc.filename, space_id=doc.space_id
             )
 
         return pending_replace_id
+
+    async def resolve_target_space(
+        self, uow: UnitOfWork, space_id: int | None, ctx: UserContext, doc_domain: str | None
+    ) -> KnowledgeSpace:
+        """The space being filled: only admitted groups may add or replace its documents."""
+        space = await resolve_space(uow, space_id)
+
+        if not space.can_be_filled_by(ctx):
+            raise PermissionDeniedError(FILL_SPACE_PERMISSION)
+
+        if doc_domain is not None:
+            # Classification runs among the profiles of the space's pack; so does an explicit choice.
+            ensure_known_domain(
+                self._pack_catalog.domain_registry(space.pack_key), doc_domain, field="doc_domain"
+            )
+
+        return space
 
     async def validate_scope(
         self, uow: UnitOfWork, vis: DocumentVisibility, group_id: int | None, ctx: UserContext

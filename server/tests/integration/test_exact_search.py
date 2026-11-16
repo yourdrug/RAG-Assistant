@@ -4,6 +4,7 @@ import secrets
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
@@ -37,13 +38,17 @@ async def test_exact_matches_boundaries_and_literals_with_acl(
         session.add(owner)
         await session.flush()
         doc = DocumentModel(
-            filename="literal.txt", visibility=DocumentVisibility.INTERNAL_PRIVATE.value, owner_id=owner.id
+            space_id=DEFAULT_SPACE_ID,
+            filename="literal.txt",
+            visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
+            owner_id=owner.id,
         )
         session.add(doc)
         await session.flush()
         contents = [query, f"{query.upper()} tail", f"head {query}", f"({query})", f"a{query}b", other]
         session.add_all(
             ChunkModel(
+                space_id=DEFAULT_SPACE_ID,
                 document_id=doc.id,
                 chunk_index=i,
                 content=content,

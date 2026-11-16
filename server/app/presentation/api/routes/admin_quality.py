@@ -72,8 +72,10 @@ class PreviewIndexForm:
     visibility: Annotated[str, Form()] = DocumentVisibility.INTERNAL_PUBLIC.value
     group_id: Annotated[int | None, Form()] = None
     client_id: Annotated[int | None, Form()] = None
-    # Profile key of the active domain pack; validated against its registry.
+    # Profile key of a loaded pack; the upload then requires a profile of the space's pack.
     doc_domain: Annotated[str | None, Form()] = None
+    # Knowledge space to fill; the only space when omitted.
+    space_id: Annotated[int | None, Form()] = None
 
 
 router = APIRouter(tags=["admin-quality"])
@@ -403,6 +405,7 @@ async def index_from_preview(
         user_role=admin.role,
         rename_on_conflict=False,
         doc_domain=options.doc_domain,
+        space_id=options.space_id,
         document_service=cmd,
         action_name="document.upload_from_preview",
         log_fn=submission.log,

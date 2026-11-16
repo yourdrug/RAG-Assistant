@@ -420,7 +420,9 @@ class TestRunFullIngestion:
         svc = _make_service()
         monkeypatch.setattr(svc._batch._sync, "delete_missing_sources", AsyncMock())
         await svc.run_full(docs_dir=docs_dir, reset=True)
-        cast("AsyncMock", svc._batch._sync.delete_missing_sources).assert_awaited_once_with("docs/", set())
+        cast("AsyncMock", svc._batch._sync.delete_missing_sources).assert_awaited_once_with(
+            "docs/", set(), space_id=None
+        )
         cast("AsyncMock", svc._batch._vector_store.ensure_collection).assert_awaited_once_with(
             384, reset=False
         )

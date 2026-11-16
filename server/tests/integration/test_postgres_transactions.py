@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID, FakePackCatalog
 from tests.integration.uow import SessionDatabase
 
 from application.benchmark.dto import SweepCreateDTO
@@ -191,10 +192,17 @@ async def test_three_versions_preserve_original_anchor(pg_engine: AsyncEngine) -
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
         repo = SQLAlchemyDocumentRepository(session)
-        first = await repo.save(Document(filename="v1.pdf", doc_domain=GENERAL_DOMAIN_KEY))
+        first = await repo.save(
+            Document(space_id=DEFAULT_SPACE_ID, filename="v1.pdf", doc_domain=GENERAL_DOMAIN_KEY)
+        )
         assert first.id is not None
         second = await repo.save(
-            Document(filename="v2.pdf", doc_domain=GENERAL_DOMAIN_KEY, version_group_id=first.id)
+            Document(
+                space_id=DEFAULT_SPACE_ID,
+                filename="v2.pdf",
+                doc_domain=GENERAL_DOMAIN_KEY,
+                version_group_id=first.id,
+            )
         )
         assert second.id is not None
     async with sessions.begin() as session:
@@ -203,7 +211,10 @@ async def test_three_versions_preserve_original_anchor(pg_engine: AsyncEngine) -
         assert loaded is not None
         third = await repo.save(
             Document(
-                filename="v3.pdf", doc_domain=GENERAL_DOMAIN_KEY, version_group_id=loaded.version_group_id
+                space_id=DEFAULT_SPACE_ID,
+                filename="v3.pdf",
+                doc_domain=GENERAL_DOMAIN_KEY,
+                version_group_id=loaded.version_group_id,
             )
         )
         assert third.id is not None
@@ -238,7 +249,10 @@ async def test_concurrent_duplicate_upload_hits_real_unique_constraint(pg_engine
                 uow.documents = RacingRepository(uow._session)
                 yield uow
 
-    context = UserContext(user_id=user_id, user_kind=UserKind.INTERNAL, user_role=UserRole.USER, group_ids=())
+    # ADMIN fills any space; the race under test is the filename slot, not the fill right.
+    context = UserContext(
+        user_id=user_id, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN, group_ids=()
+    )
     context_factory = MagicMock()
     context_factory.build = AsyncMock(return_value=context)
     storage = MagicMock(supported_extensions=(".pdf",))
@@ -246,7 +260,7 @@ async def test_concurrent_duplicate_upload_hits_real_unique_constraint(pg_engine
     storage.delete_file = AsyncMock()
     factory = RacingFactory(database)
     command = DocumentCommandService(
-        DocumentUploadCommand(factory, storage, context_factory),
+        DocumentUploadCommand(factory, storage, context_factory, FakePackCatalog()),
         DocumentDeleteCommand(factory, storage, context_factory),
         DocumentRenameCommand(factory, storage, context_factory),
     )
@@ -379,7 +393,9 @@ async def test_old_execution_cannot_commit_business_changes(pg_engine: AsyncEngi
         job = await SQLAlchemyBackgroundJobRepository(session).create(
             BackgroundJob(job_type=JobType.BENCHMARK)
         )
-        document = await SQLAlchemyDocumentRepository(session).save(Document(filename="original.txt"))
+        document = await SQLAlchemyDocumentRepository(session).save(
+            Document(space_id=DEFAULT_SPACE_ID, filename="original.txt")
+        )
     assert job.id is not None
     assert document.id is not None
     async with sessions.begin() as session:

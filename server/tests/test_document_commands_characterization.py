@@ -19,13 +19,14 @@ from application.documents.delete import DocumentDeleteCommand
 from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
 from application.identity import UserContextFactory
+from application.indexing.pack_hooks import FixedPackHooks
 from domain.identity.roles import UserRole
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
-from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
-from tests.fakes import FakeUnitOfWorkFactory, require_present
+from domain.shared.exceptions import BusinessRuleViolationError, PermissionDeniedError, ValidationError
+from tests.fakes import FakePackCatalog, FakeUnitOfWorkFactory, admit_all_users, require_present
 
 
 if TYPE_CHECKING:
@@ -62,6 +63,8 @@ def harness(
     uow: FakeUnitOfWork | None = None, pack_hooks: DocumentPackHooks | None = None
 ) -> SimpleNamespace:
     factory = TrackingFactory(uow)
+    # Filling the space is not under test here: every user may fill it.
+    admit_all_users(factory._uow)
 
     async def upload(key: object, data: object) -> None:
         assert factory.active
@@ -82,8 +85,8 @@ def harness(
     bm25 = AsyncMock()
     context_factory = UserContextFactory()
     command = DocumentCommandService(
-        DocumentUploadCommand(factory, storage, context_factory),
-        DocumentDeleteCommand(factory, storage, context_factory, pack_hooks),
+        DocumentUploadCommand(factory, storage, context_factory, FakePackCatalog()),
+        DocumentDeleteCommand(factory, storage, context_factory, FixedPackHooks(pack_hooks)),
         DocumentRenameCommand(factory, storage, context_factory),
     )
     return SimpleNamespace(command=command, factory=factory, uow=factory._uow, storage=storage, bm25=bm25)
@@ -120,7 +123,8 @@ async def upload(h: SimpleNamespace, **kwargs: Any) -> DocumentDTO:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("domain", [None, "general", "legal"])
+# An explicit profile must belong to the space's pack: see test_knowledge_spaces.py.
+@pytest.mark.parametrize("domain", [None, "general"])
 async def test_upload_implicit_conflict_and_cleanup_order(domain: str | None) -> None:
     h = harness()
     old = await seed(h, version_group_id=42)
@@ -176,7 +180,7 @@ async def test_explicit_replacement_requires_ownership_and_is_deferred(owner_id:
 async def test_explicit_replacement_cannot_change_visibility_scope() -> None:
     h = harness()
     old = await seed(h)
-    with pytest.raises(BusinessRuleViolationError, match="same visibility scope"):
+    with pytest.raises(BusinessRuleViolationError, match="same knowledge space and visibility scope"):
         await upload(h, replaces_document_id=old.id, visibility="internal_public", user_role="admin")
     h.storage.upload_file.assert_not_awaited()
 
@@ -237,9 +241,7 @@ async def test_curator_upload_rejects_missing_invalid_or_unassigned_client(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "role,kind,user_id", [("admin", "internal", 1), ("curator", "internal", 1), ("user", "client", 9)]
-)
+@pytest.mark.parametrize("role,kind,user_id", [("admin", "internal", 1), ("curator", "internal", 1)])
 async def test_client_upload_uses_effective_owner(role: str, kind: str, user_id: int) -> None:
     h = harness()
     h.uow.users.add_user(9, kind="client")
@@ -251,6 +253,18 @@ async def test_client_upload_uses_effective_owner(role: str, kind: str, user_id:
     assert dto.owner_id == 9
     assert dto.group_id is None
     assert dto.storage_key == f"uploads/users/9/{dto.id}_report.pdf"
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_fill_a_space_without_a_group() -> None:
+    """Groups admit internal employees only; a client fills no space."""
+    h = harness()
+    h.uow.users.add_user(9, kind="client")
+
+    with pytest.raises(PermissionDeniedError):
+        await upload(h, visibility="client_private", user_role="user", user_kind="client", user_id=9)
+
+    h.storage.upload_file.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -300,7 +314,7 @@ async def test_rename_updates_chunks_and_exact_outbox_metadata_before_commit() -
     )
     h.uow.documents.find_active_slot = AsyncMock(wraps=h.uow.documents.find_active_slot)
     dto = await h.command.rename_document(doc.id, "new.pdf", 1, "user")
-    h.uow.documents.find_active_slot.assert_awaited_once_with(1, "new.pdf", None, for_update=True)
+    h.uow.documents.find_active_slot.assert_awaited_once_with(1, "new.pdf", None, space_id=1, for_update=True)
     assert dto.source_path == f"uploads/users/1/{doc.id}_new.pdf"
     assert h.uow.chunks._chunks[0]["filename"] == "new.pdf"
     entry = next(iter(h.uow.vector_outbox._entries.values()))

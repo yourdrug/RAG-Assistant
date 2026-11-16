@@ -22,13 +22,15 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, nullcontext
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Self, Unpack
+from typing import TYPE_CHECKING, Any, Self, Unpack, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from application.ports.rate_limit import RateLimitDecision
 from application.rag.stream_events import SourcesEvent, TextChunk
+from application.spaces.ports import DomainPackNotLoadedError
 from application.uow.factory import UnitOfWorkFactory
 from application.uow.unit_of_work import UnitOfWork
 from domain.chat.conversation import Conversation
@@ -36,6 +38,8 @@ from domain.chat.repositories import DEFAULT_CHAT_LOG_FILTER
 from domain.identity.api_key import ApiKey
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user import User
+from domain.ingestion.profiles.general import GeneralDomainProfile
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.access_control import can_view_document
 from domain.knowledge.chunk import (
     TABLE_CONTEXT_MAX_CHUNKS,
@@ -50,17 +54,22 @@ from domain.knowledge.repositories.chunk import (
     DEFAULT_CHUNK_INSERT_OPTIONS,
     DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
 )
+from domain.knowledge.space import KnowledgeSpace
 from domain.rag.breadth import Breadth
 from domain.rag.result import RagResult
 from domain.runtime.jobs import JobConcurrencyLimitReachedError
-from domain.shared.exceptions import EntityNotFoundError, ValidationError
+from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError, ValidationError
 from domain.shared.pagination import CursorPage, encode_cursor
 
+
+# The space a new installation starts with (migration 0013).
+DEFAULT_SPACE_ID = 1
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Sequence
     from types import TracebackType
 
+    from application.indexing.pack_hooks import DocumentPackHooks
     from application.ports.rate_limit import RateLimitPolicyName
     from application.rag.stream_events import StreamEvent
     from application.runtime.config import ConfigParameter
@@ -134,6 +143,14 @@ class FakeConversationRepository:
         conversation["summary"] = new_summary
         return True
 
+    async def assign_space(self, conversation_id: int, space_id: int) -> int:
+        data = self._convs[conversation_id]
+
+        if data.get("space_id") is None:
+            data["space_id"] = space_id
+
+        return cast("int", data["space_id"])
+
     async def get_owner_id(self, conversation_id: int) -> int | None:
         conversation = self._convs.get(conversation_id)
         return conversation["user_id"] if conversation else None
@@ -203,9 +220,12 @@ class FakeMessageRepository:
 
 
 class FakeGroupRepository:
+    # Groups every internal user belongs to; see ``admit_all_users``.
+    member_of: tuple[int, ...] = ()
+
     async def get_user_group_ids(self, user_id: int) -> list[int]:
         del user_id
-        return []
+        return list(self.member_of)
 
     async def list_all(self) -> list[GroupInfo]:
         return []
@@ -312,7 +332,7 @@ class FakeChunkRepository:
         )
         return dict(rows[0].get("pack_metadata") or {}) if rows else None
 
-    async def search_substring(
+    async def search_substring(  # noqa: PLR0913 - mirrors the repository's search options
         self,
         query: str,
         user: UserContext,
@@ -321,12 +341,13 @@ class FakeChunkRepository:
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         selection: MetadataCondition | None = None,
+        space_id: int | None = None,
         document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
-        del query, user, limit, mode, document_id, selection, document_ids
+        del query, user, limit, mode, document_id, selection, space_id, document_ids
         return []
 
-    async def search_substring_page(
+    async def search_substring_page(  # noqa: PLR0913 - mirrors the repository's search options
         self,
         query: str,
         user: UserContext,
@@ -336,8 +357,9 @@ class FakeChunkRepository:
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         selection: MetadataCondition | None = None,
+        space_id: int | None = None,
     ) -> tuple[list[ChunkRecord], int]:
-        del query, user, limit, offset, mode, document_id, selection
+        del query, user, limit, offset, mode, document_id, selection, space_id
         return [], 0
 
     async def list_for_document(
@@ -592,13 +614,19 @@ class FakeDocumentRepository:
         return matching[:limit]
 
     async def list_visible(self, filters: DocumentFilter) -> list[Document]:
-        visible = [d for d in self._documents.values() if can_view_document(d, filters.user)]
+        visible = [
+            d
+            for d in self._documents.values()
+            if can_view_document(d, filters.user) and filters.space_id in (None, d.space_id)
+        ]
         page = filters.pagination
         return visible[page.offset : page.offset + page.limit]
 
     async def save(self, document: Document) -> Document:
         document.id = self._next_id
         self._next_id += 1
+        # Like the NOT NULL column: tests that do not choose a space use the starting one.
+        document.space_id = document.space_id if document.space_id is not None else DEFAULT_SPACE_ID
         self._documents[document.id] = document
         return document
 
@@ -613,7 +641,12 @@ class FakeDocumentRepository:
         ]
 
     async def find_active_slots_by_filenames(
-        self, filenames: list[str], *, owner_id: int | None = None, group_id: int | None = None
+        self,
+        filenames: list[str],
+        *,
+        owner_id: int | None = None,
+        group_id: int | None = None,
+        space_id: int | None = None,
     ) -> list[Document]:
         return [
             d
@@ -621,10 +654,17 @@ class FakeDocumentRepository:
             if getattr(d, "filename", None) in filenames
             and getattr(d, "owner_id", None) == owner_id
             and getattr(d, "group_id", None) == group_id
+            and space_id in (None, d.space_id)
         ]
 
     async def find_active_slot(
-        self, owner_id: int | None, filename: str, group_id: int | None, *, for_update: bool = False
+        self,
+        owner_id: int | None,
+        filename: str,
+        group_id: int | None,
+        *,
+        space_id: int | None = None,
+        for_update: bool = False,
     ) -> Document | None:
         del for_update
 
@@ -633,6 +673,7 @@ class FakeDocumentRepository:
                 getattr(d, "filename", None) == filename
                 and getattr(d, "owner_id", None) == owner_id
                 and getattr(d, "group_id", None) == group_id
+                and space_id in (None, d.space_id)
             ):
                 return d
 
@@ -1411,6 +1452,62 @@ class FakeIngestionRegistryRepository:
         return entry is not None and entry.file_hash == file_hash
 
 
+class FakeKnowledgeSpaceRepository:
+    """In-memory knowledge spaces; starts with the space a new installation has."""
+
+    def __init__(self) -> None:
+        self._spaces: dict[int, KnowledgeSpace] = {
+            DEFAULT_SPACE_ID: KnowledgeSpace(id=DEFAULT_SPACE_ID, name="Общее", pack_key="generic")
+        }
+        self._next_id = DEFAULT_SPACE_ID + 1
+        self.documents: FakeDocumentRepository | None = None
+
+    async def get_by_id(self, space_id: int, *, for_update: bool = False) -> KnowledgeSpace | None:
+        del for_update
+        space = self._spaces.get(space_id)
+        return replace(space) if space is not None else None
+
+    async def list_all(self) -> list[KnowledgeSpace]:
+        return [replace(space) for _, space in sorted(self._spaces.items())]
+
+    async def create(self, space: KnowledgeSpace) -> KnowledgeSpace:
+        if any(existing.name == space.name for existing in self._spaces.values()):
+            raise UniqueConstraintError(detail=f"duplicate space name {space.name}")
+
+        space.id = self._next_id
+        self._next_id += 1
+        self._spaces[space.id] = replace(space)
+        return space
+
+    async def update(self, space: KnowledgeSpace) -> KnowledgeSpace:
+        if space.id is None or space.id not in self._spaces:
+            msg = f"Space {space.id} does not exist"
+            raise ValueError(msg)
+
+        if any(other.name == space.name and other.id != space.id for other in self._spaces.values()):
+            raise UniqueConstraintError(detail=f"duplicate space name {space.name}")
+
+        stored = self._spaces[space.id]
+        self._spaces[space.id] = replace(stored, name=space.name, upload_group_ids=space.upload_group_ids)
+        return space
+
+    async def delete(self, space_id: int) -> None:
+        self._spaces.pop(space_id, None)
+
+    async def has_documents(self, space_id: int) -> bool:
+        documents = self.documents._documents.values() if self.documents is not None else ()
+        return any(document.space_id == space_id for document in documents)
+
+
+UPLOADERS_GROUP_ID = 900
+
+
+def admit_all_users(uow: FakeUnitOfWork, space_id: int = DEFAULT_SPACE_ID) -> None:
+    """Make every internal user a member of a group admitted to fill the space."""
+    uow.fake_groups.member_of = (UPLOADERS_GROUP_ID,)
+    uow.fake_knowledge_spaces._spaces[space_id].admit_groups({UPLOADERS_GROUP_ID})
+
+
 class FakeUnitOfWork(UnitOfWork):
     """In-memory UnitOfWork for unit tests."""
 
@@ -1431,15 +1528,17 @@ class FakeUnitOfWork(UnitOfWork):
         self.fake_vector_outbox = self.vector_outbox = FakeVectorOutboxRepository()
         self.fake_assignments = self.assignments = FakeAssignmentRepository()
         self.fake_ingestion_registry = self.ingestion_registry = FakeIngestionRegistryRepository()
+        self.fake_knowledge_spaces = self.knowledge_spaces = FakeKnowledgeSpaceRepository()
+        self.fake_knowledge_spaces.documents = self.fake_documents
         # Domain pack repositories; kept off the instance dict so rollback restores their
         # repositories (registered as attributes by pack test fakes) in place.
-        self._pack_repositories: object | None = None
+        self._pack_repositories: tuple[object, ...] = ()
         self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
         self._committed = False
         self._rolled_back = False
 
     @property
-    def pack_repositories(self) -> object | None:  # type: ignore[override]  # Read-only view of the snapshot-safe slot.
+    def pack_repositories(self) -> tuple[object, ...]:  # type: ignore[override]  # Read-only view of the snapshot-safe slot.
         return self._pack_repositories
 
     def on_event(self, handler: Callable[[object], Coroutine[Any, Any, None]]) -> None:
@@ -1750,3 +1849,29 @@ def require_present[T](value: T | None) -> T:
     """Verify a fixture lookup/identity exists before checking its other properties."""
     assert value is not None
     return value
+
+
+class FakePackCatalog:
+    """Loaded packs for scenario tests: the neutral pack, plus any registries and hooks given."""
+
+    def __init__(
+        self,
+        registries: dict[str, DomainProfileRegistry] | None = None,
+        hooks: dict[str, DocumentPackHooks | None] | None = None,
+    ) -> None:
+        neutral = DomainProfileRegistry()
+        neutral.register(GeneralDomainProfile())
+        self._registries = {"generic": neutral, **(registries or {})}
+        self._hooks = dict(hooks or {})
+
+    def pack_keys(self) -> tuple[str, ...]:
+        return tuple(self._registries)
+
+    def domain_registry(self, pack_key: str) -> DomainProfileRegistry:
+        if pack_key not in self._registries:
+            raise DomainPackNotLoadedError(pack_key)
+
+        return self._registries[pack_key]
+
+    def document_hooks(self, pack_key: str) -> DocumentPackHooks | None:
+        return self._hooks.get(pack_key)

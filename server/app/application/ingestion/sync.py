@@ -16,11 +16,12 @@ from application.documents.delete import delete_document_in_uow
 from application.indexing import enrich_chunks_metadata, process_chunks, tag_chunks
 from application.indexing.pack_hooks import apply_pack_document
 from application.ingestion.profiles import get_domain_profile
+from application.spaces.resolution import resolve_space
 from domain.identity.roles import UserKind
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.document import Document as DocEntity
 from domain.knowledge.enums import DocDomain, DocumentVisibility
-from domain.shared.exceptions import EntityNotFoundError, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 
 
 if TYPE_CHECKING:
@@ -75,6 +76,7 @@ class DocumentSyncService:
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
+        space_id: int | None = None,
         on_synced: Callable[[str, RegistryRecord], Awaitable[None]] | None = None,
     ) -> None:
         """Sync documents and chunks to Postgres, enqueue outbox for Qdrant.
@@ -115,7 +117,7 @@ class DocumentSyncService:
 
         # --- Phase 1: document rows (single committed transaction) ---
         doc_ids = await self.ensure_document_rows(
-            documents_to_sync, visibility=visibility, group_id=group_id, owner_id=owner_id
+            documents_to_sync, visibility=visibility, group_id=group_id, owner_id=owner_id, space_id=space_id
         )
 
         # --- Phase 2: pack state + chunks + outbox (per document) ---
@@ -154,13 +156,26 @@ class DocumentSyncService:
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         owner_id: int | None = None,
+        space_id: int | None = None,
     ) -> dict[str, list[int]]:
-        """Resolve sources independently of mutable assignments."""
+        """Resolve sources independently of mutable assignments.
+
+        A storage key belongs to the space it was first ingested into: ingesting it into
+        another space is rejected instead of moving its documents.
+        """
         doc_ids: dict[str, list[int]] = {}
         async with self._uow_factory.create(master=True) as uow:
+            space = await resolve_space(uow, space_id)
             existing_docs = await uow.documents.find_ingestion_documents(list(registry))
 
             for doc in existing_docs:
+                if doc.space_id != space.id:
+                    msg = (
+                        f"{doc.ingestion_key} is already ingested into knowledge space {doc.space_id}; "
+                        "delete it there before ingesting it into another space"
+                    )
+                    raise BusinessRuleViolationError(msg)
+
                 if doc.id is not None and doc.ingestion_key is not None:
                     doc_ids.setdefault(doc.ingestion_key, []).append(doc.id)
 
@@ -180,6 +195,7 @@ class DocumentSyncService:
                     visibility=visibility,
                     owner_id=owner_id,
                     group_id=group_id,
+                    space_id=space.id,
                 )
                 saved = await uow.documents.save(doc)
 
@@ -269,24 +285,38 @@ class DocumentSyncService:
         if self._pack_hooks is not None:
             await self._pack_hooks.after_commit(doc_id, applied)
 
-    async def delete_missing_sources(self, prefix: str, current_keys: set[str]) -> None:
-        """Prune only ingestion sources; SQL, timeline and outbox commit together."""
+    async def delete_missing_sources(
+        self, prefix: str, current_keys: set[str], *, space_id: int | None
+    ) -> None:
+        """Prune this space's ingestion sources; SQL, timeline and outbox commit together."""
         async with self._uow_factory.create(master=True) as uow:
+            space = await resolve_space(uow, space_id)
             documents = await uow.documents.list_ingestion_documents(prefix)
+            # The source registry is shared. Preserve entries owned by another space,
+            # including sources no longer present in storage.
+            foreign_keys = {doc.ingestion_key for doc in documents if doc.space_id != space.id}
 
             for document in documents:
-                if document.ingestion_key in current_keys or document.id is None:
+                if (
+                    document.space_id != space.id
+                    or document.ingestion_key in current_keys
+                    or document.id is None
+                ):
                     continue
 
                 locked = await uow.documents.get_by_id(document.id, for_update=True)
 
-                if locked is not None and locked.ingestion_key == document.ingestion_key:
+                if (
+                    locked is not None
+                    and locked.space_id == space.id
+                    and locked.ingestion_key == document.ingestion_key
+                ):
                     await delete_document_in_uow(uow, document.id, self._pack_hooks)
 
             entries = await uow.ingestion_registry.list_all()
 
             for key in entries:
-                if key.startswith(prefix) and key not in current_keys:
+                if key.startswith(prefix) and key not in current_keys and key not in foreign_keys:
                     await uow.ingestion_registry.delete(key)
 
     @staticmethod

@@ -2,6 +2,7 @@
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 
 from domain.knowledge.enums import DocumentVisibility
 from domain.shared.pagination import decode_cursor
@@ -17,11 +18,16 @@ pytestmark = pytest.mark.integration
 async def test_backward_page_continues_forward_without_repeats(pg_engine: AsyncEngine, anchor: int) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
-        doc = DocumentModel(filename="cursor.txt", visibility=DocumentVisibility.INTERNAL_PUBLIC.value)
+        doc = DocumentModel(
+            space_id=DEFAULT_SPACE_ID,
+            filename="cursor.txt",
+            visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
+        )
         session.add(doc)
         await session.flush()
         session.add_all(
             ChunkModel(
+                space_id=DEFAULT_SPACE_ID,
                 document_id=doc.id,
                 chunk_index=i,
                 content=str(i),

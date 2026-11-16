@@ -58,11 +58,15 @@ class DocumentQueryService:
         user_role: str | UserRole = UserRole.USER,
         limit: int = 200,
         offset: int = 0,
+        *,
+        space_id: int | None = None,
     ) -> list[DocumentDTO]:
         async with self._uow_factory.create() as uow:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
 
-            docs = await uow.documents.list_visible(DocumentFilter(ctx, Pagination(limit, offset)))
+            docs = await uow.documents.list_visible(
+                DocumentFilter(ctx, Pagination(limit, offset), space_id=space_id)
+            )
             dtos = [DocumentDTO.from_entity(d, in_search_scope=is_in_search_scope(d, ctx)) for d in docs]
 
             indexing_ids = [dto.id for dto in dtos if dto.status == DocumentStatus.INDEXING.value]

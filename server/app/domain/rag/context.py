@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
     from domain.identity.roles import UserKind, UserRole
     from domain.identity.user_context import UserContext
+    from domain.knowledge.space import SpaceRef
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,9 @@ class RagContext:
     depth: str | None = None
     summary: str | None = None
     as_of_date: date | None = None
+    # The space the question is asked in: it selects the searched documents and the pack's
+    # rules; ``None`` only in standalone tools that search the whole corpus.
+    space: SpaceRef | None = None
 
     @property
     def user_id(self) -> int:

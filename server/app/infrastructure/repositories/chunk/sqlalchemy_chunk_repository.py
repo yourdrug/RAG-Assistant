@@ -212,7 +212,7 @@ class SQLAlchemyChunkRepository:
     async def get_pack_metadata(self, document_id: int) -> dict[str, Any] | None:
         return await self._pack_metadata.get_pack_metadata(document_id)
 
-    async def search_substring(
+    async def search_substring(  # noqa: PLR0913 - keyword-only search scope options
         self,
         query: str,
         user: UserContext,
@@ -221,6 +221,7 @@ class SQLAlchemyChunkRepository:
         mode: str = "exact",
         document_id: int | None = None,
         selection: MetadataCondition | None = None,
+        space_id: int | None = None,
         document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
         return await self._search.search_substring(
@@ -230,10 +231,11 @@ class SQLAlchemyChunkRepository:
             mode=mode,
             document_id=document_id,
             selection=selection,
+            space_id=space_id,
             document_ids=document_ids,
         )
 
-    async def search_substring_page(
+    async def search_substring_page(  # noqa: PLR0913 - keyword-only search scope options
         self,
         query: str,
         user: UserContext,
@@ -243,6 +245,7 @@ class SQLAlchemyChunkRepository:
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         selection: MetadataCondition | None = None,
+        space_id: int | None = None,
     ) -> tuple[list[ChunkRecord], int]:
         return await self._search.search_substring_page(
             query=query,
@@ -252,4 +255,5 @@ class SQLAlchemyChunkRepository:
             mode=mode,
             document_id=document_id,
             selection=selection,
+            space_id=space_id,
         )

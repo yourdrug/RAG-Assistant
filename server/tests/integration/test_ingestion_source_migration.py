@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 
 from domain.knowledge.document import Document
 from infrastructure.repositories.document.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
@@ -19,7 +20,7 @@ async def test_sql_prefix_is_literal_and_case_sensitive(pg_engine: AsyncEngine) 
         repo = SQLAlchemyDocumentRepository(session)
 
         for key in keys:
-            await repo.save(Document(filename="a.txt", ingestion_key=key))
+            await repo.save(Document(space_id=DEFAULT_SPACE_ID, filename="a.txt", ingestion_key=key))
 
         assert [doc.ingestion_key for doc in await repo.list_ingestion_documents("docs/s_b/")] == [keys[0]]
         assert [doc.ingestion_key for doc in await repo.list_ingestion_documents("docs/s%b/")] == [keys[4]]
@@ -27,8 +28,8 @@ async def test_sql_prefix_is_literal_and_case_sensitive(pg_engine: AsyncEngine) 
 
 async def test_baseline_keeps_source_keys_separate_from_ui_slots(pg_engine: AsyncEngine) -> None:
     statement = text(
-        "INSERT INTO documents (filename, visibility, ingestion_key) "
-        "VALUES ('a.txt', 'internal_public', :key)"
+        "INSERT INTO documents (filename, visibility, ingestion_key, space_id) "
+        "VALUES ('a.txt', 'internal_public', :key, (SELECT min(id) FROM knowledge_spaces))"
     )
     async with pg_engine.begin() as connection:
         for key in ("docs/sub/a.txt", "docs/other/a.txt", None):

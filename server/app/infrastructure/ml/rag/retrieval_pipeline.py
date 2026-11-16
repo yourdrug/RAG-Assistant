@@ -170,6 +170,7 @@ async def run_exact_probes(
                     mode=SearchMode.PROVISION.value,
                     document_ids=document_ids,
                     selection=selection,
+                    space_id=ctx.space.id if ctx.space is not None else None,
                 )
             )
         except Exception:

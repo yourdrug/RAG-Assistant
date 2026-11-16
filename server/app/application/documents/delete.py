@@ -13,7 +13,7 @@ from domain.shared.exceptions import EntityNotFoundError
 
 if TYPE_CHECKING:
     from application.identity import UserContextFactory
-    from application.indexing.pack_hooks import DocumentPackHooks
+    from application.indexing.pack_hooks import DocumentHooksResolver, DocumentPackHooks
     from application.ports.file_storage import FileStorage
     from application.uow import UnitOfWork, UnitOfWorkFactory
 
@@ -45,7 +45,7 @@ class DocumentDeleteCommand:
         uow_factory: UnitOfWorkFactory,
         file_storage: FileStorage,
         user_ctx_factory: UserContextFactory,
-        pack_hooks: DocumentPackHooks | None = None,
+        pack_hooks: DocumentHooksResolver | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._file_storage = file_storage
@@ -66,7 +66,8 @@ class DocumentDeleteCommand:
             check_ownership(doc, ctx, "delete")
             # Ingestion owns shared source objects, rather than individual assignments.
             source_path = doc.source_path if doc.ingestion_key is None else None
-            await delete_document_in_uow(uow, document_id, self._pack_hooks)
+            hooks = await self._pack_hooks.for_document(uow, doc) if self._pack_hooks is not None else None
+            await delete_document_in_uow(uow, document_id, hooks)
 
         if source_path:
             try:

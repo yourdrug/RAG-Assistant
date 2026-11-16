@@ -28,7 +28,7 @@ class ChunkSearchAdapter:
     def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
         self._uow_factory = uow_factory
 
-    async def search_substring(
+    async def search_substring(  # noqa: PLR0913 - keyword-only search scope options
         self,
         query: str,
         user: UserContext,
@@ -36,6 +36,7 @@ class ChunkSearchAdapter:
         limit: int = 20,
         mode: str = "exact",
         selection: MetadataCondition | None = None,
+        space_id: int | None = None,
         document_id: int | None = None,
         document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]:
@@ -47,6 +48,7 @@ class ChunkSearchAdapter:
                 limit=limit,
                 mode=mode,
                 selection=selection,
+                space_id=space_id,
                 document_id=document_id,
                 document_ids=document_ids,
             )

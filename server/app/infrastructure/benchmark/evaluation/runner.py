@@ -23,10 +23,11 @@ from infrastructure.benchmark.sweep.settings import settings_fingerprint
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from application.benchmark.dto import BenchmarkRunnerOptions
     from application.ports.ml_clients import MLClientPort
+    from domain.knowledge.space import SpaceRef
     from infrastructure.benchmark.evaluation.annotation_validation import AnnotationValidator
 
 
@@ -37,6 +38,7 @@ async def run_benchmark_async(
     *,
     corpus_resource: MLClientPort | None = None,
     annotation_validator: AnnotationValidator | None = None,
+    space_resolver: Callable[[], Awaitable[SpaceRef]] | None = None,
     **options: Unpack[BenchmarkRunnerOptions],
 ) -> list[dict[str, Any]]:
     rag_service = options.get("rag_service")
@@ -54,6 +56,8 @@ async def run_benchmark_async(
 
     @asynccontextmanager
     async def scope() -> AsyncIterator[BenchmarkExecutionScope]:
+        space = await space_resolver() if space_resolver is not None else None
+
         async with benchmark_corpus(corpus_resource) as corpus:
             manifest = await asyncio.to_thread(
                 build_run_manifest, questions, corpus_metadata(corpus), judge_model
@@ -76,6 +80,7 @@ async def run_benchmark_async(
                     run_manifest=manifest,
                 ),
                 corpus_metadata(corpus),
+                space,
             )
 
     return await execute_benchmark(

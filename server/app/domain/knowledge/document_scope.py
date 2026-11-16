@@ -1,4 +1,4 @@
-"""Scope identity for linking editions of the same act; this does not authorize users."""
+"""Scope identity for replacing or linking documents within one space; this does not authorize users."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from domain.knowledge.enums import DocumentVisibility
 
 
 def same_document_scope(left: Document, right: Document) -> bool:
-    if left.visibility != right.visibility:
+    if left.space_id != right.space_id or left.visibility != right.visibility:
         return False
 
     if left.visibility in (DocumentVisibility.INTERNAL_PRIVATE, DocumentVisibility.CLIENT_PRIVATE):
@@ -25,10 +25,11 @@ def same_document_scope(left: Document, right: Document) -> bool:
 
 
 def document_scope_key(document: Document) -> str:
+    scope = str(document.visibility)
+
     if document.visibility == DocumentVisibility.INTERNAL_GROUP:
-        return f"{document.visibility}:{document.group_id}"
+        scope = f"{document.visibility}:{document.group_id}"
+    elif document.visibility in (DocumentVisibility.INTERNAL_PRIVATE, DocumentVisibility.CLIENT_PRIVATE):
+        scope = f"{document.visibility}:{document.owner_id}"
 
-    if document.visibility in (DocumentVisibility.INTERNAL_PRIVATE, DocumentVisibility.CLIENT_PRIVATE):
-        return f"{document.visibility}:{document.owner_id}"
-
-    return str(document.visibility)
+    return f"space:{document.space_id}:{scope}"

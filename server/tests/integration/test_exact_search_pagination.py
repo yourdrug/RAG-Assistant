@@ -7,12 +7,14 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 
 from application.search import SearchService
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocDomain, DocumentVisibility, SearchMode
 from domain.knowledge.pack_metadata import Missing
+from domain.knowledge.space import KnowledgeSpace
 from infrastructure.database.models import ChunkModel, DocumentModel, UserModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 
@@ -29,6 +31,7 @@ async def repository(pg_engine: AsyncEngine) -> AsyncIterator[SQLAlchemyChunkRep
         await session.flush()
         session.add_all(
             DocumentModel(
+                space_id=DEFAULT_SPACE_ID,
                 id=document_id,
                 filename=f"test-{document_id}.txt",
                 visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
@@ -38,6 +41,7 @@ async def repository(pg_engine: AsyncEngine) -> AsyncIterator[SQLAlchemyChunkRep
         await session.flush()
         rows = [
             ChunkModel(
+                space_id=DEFAULT_SPACE_ID,
                 id=chunk_id,
                 document_id=10 if chunk_id < 4 else 20,
                 filename="test.txt",
@@ -117,10 +121,13 @@ async def test_application_service_preserves_requested_page_and_total(
     uow = AsyncMock()
     uow.chunks = repository
     uow.groups.get_user_group_ids.return_value = []
+    uow.knowledge_spaces.list_all.return_value = [
+        KnowledgeSpace(id=DEFAULT_SPACE_ID, name="Общее", pack_key="generic")
+    ]
     factory = Mock()
     factory.create.return_value.__aenter__ = AsyncMock(return_value=uow)
     factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
-    service = SearchService(factory, chunk_selection=lambda _as_of_date: SELECTION)
+    service = SearchService(factory, chunk_selections={"generic": lambda _as_of_date: SELECTION})
     rows, total = await service.exact_search("needle", user, limit=2, offset=2)
     assert [row.chunk_id for row in rows] == [3]
     assert total == 3

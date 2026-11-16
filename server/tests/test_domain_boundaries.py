@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from config.sections import AppSection
+from composition.domain_packs import loaded_packs
 from domain.benchmark.evaluation import evaluate_evidence, summarize_evidence
 from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus
 from domain.identity import CuratorScope, UserContext, UserKind, UserRole
@@ -71,7 +71,8 @@ async def test_evidence_profiles_are_task_local_and_generic_has_no_transport_rul
 
 
 def test_domain_pack_defaults_to_neutral_rules() -> None:
-    assert AppSection().domain_pack == NEUTRAL_PACK.key
+    # Loading a pack does not change the neutral rules used without an explicit selection.
+    assert list(loaded_packs()) == [NEUTRAL_PACK.key, BELARUS_LAW_PACK.key]
     assert isinstance(
         RagOperations(MagicMock(), document_access=MagicMock()).evidence_profile, GenericEvidenceProfile
     )

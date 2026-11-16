@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus
@@ -24,6 +25,7 @@ async def test_reconcile_checks_all_outbox_states_and_is_idempotent(pg_engine: A
 
         for status in [None, *OutboxStatus]:
             document = DocumentModel(
+                space_id=DEFAULT_SPACE_ID,
                 filename=f"{status}.txt",
                 visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
                 status=DocumentStatus.INDEXING.value,
@@ -81,6 +83,7 @@ async def test_concurrent_reconciliation_skips_owned_rows_and_rollback_allows_re
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
         document = DocumentModel(
+            space_id=DEFAULT_SPACE_ID,
             filename="retry.txt",
             visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
             status=DocumentStatus.INDEXING.value,

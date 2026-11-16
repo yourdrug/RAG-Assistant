@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+from tests.fakes import DEFAULT_SPACE_ID
 
 from config import settings
 from domain.identity.roles import UserKind, UserRole
@@ -76,7 +77,11 @@ async def test_batch_chunk_read_uses_committed_content_and_document_scope(pg_eng
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
         documents = [
-            DocumentModel(filename=f"outbox-{index}.txt", visibility=DocumentVisibility.INTERNAL_PUBLIC.value)
+            DocumentModel(
+                space_id=DEFAULT_SPACE_ID,
+                filename=f"outbox-{index}.txt",
+                visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
+            )
             for index in range(2)
         ]
         session.add_all(documents)
@@ -91,6 +96,7 @@ async def test_batch_chunk_read_uses_committed_content_and_document_scope(pg_eng
                     document.filename,
                     DocumentVisibility.INTERNAL_PUBLIC.value,
                     [ChunkInsert(content="old text")],
+                    ChunkInsertOptions(space_id=DEFAULT_SPACE_ID),
                 )
             )
 
@@ -128,6 +134,7 @@ async def test_context_round_trip_and_unauthorized_search(pg_engine: AsyncEngine
         session.add_all(users)
         await session.flush()
         doc = DocumentModel(
+            space_id=DEFAULT_SPACE_ID,
             filename="rules.pdf",
             visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
             owner_id=users[0].id,
@@ -146,7 +153,7 @@ async def test_context_round_trip_and_unauthorized_search(pg_engine: AsyncEngine
                     context_metadata=context,
                 )
             ],
-            options=ChunkInsertOptions(owner_id=users[0].id, doc_domain="decree"),
+            options=ChunkInsertOptions(space_id=DEFAULT_SPACE_ID, owner_id=users[0].id, doc_domain="decree"),
         )
     allowed = UserContext(users[0].id, UserKind.INTERNAL, UserRole.USER)
     denied = UserContext(users[1].id, UserKind.INTERNAL, UserRole.USER)
@@ -172,8 +179,9 @@ async def test_context_default_and_object_constraint(pg_engine: AsyncEngine) -> 
             await conn.execute(
                 text(
                     "INSERT INTO documents "
-                    "(filename, visibility, status, source_path, doc_domain, creation_date) "
-                    "VALUES ('legacy.pdf', :visibility, :status, '', :domain, CURRENT_TIMESTAMP) RETURNING id"
+                    "(filename, visibility, status, source_path, doc_domain, creation_date, space_id) "
+                    "VALUES ('legacy.pdf', :visibility, :status, '', :domain, CURRENT_TIMESTAMP, "
+                    "(SELECT min(id) FROM knowledge_spaces)) RETURNING id"
                 ),
                 {
                     "visibility": DocumentVisibility.INTERNAL_PUBLIC.value,
@@ -186,9 +194,10 @@ async def test_context_default_and_object_constraint(pg_engine: AsyncEngine) -> 
             await conn.execute(
                 text(
                     "INSERT INTO chunks "
-                    "(document_id, chunk_index, content, filename, visibility, doc_domain, creation_date) "
+                    "(document_id, chunk_index, content, filename, visibility, doc_domain, creation_date, "
+                    "space_id) "
                     "VALUES (:doc_id, 0, 'Legacy content', 'legacy.pdf', :visibility, :domain, "
-                    "CURRENT_TIMESTAMP) "
+                    "CURRENT_TIMESTAMP, (SELECT min(id) FROM knowledge_spaces)) "
                     "RETURNING id"
                 ),
                 {

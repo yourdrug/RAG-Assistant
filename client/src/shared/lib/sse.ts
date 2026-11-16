@@ -16,6 +16,8 @@ interface StreamChatParams {
   depth?: "narrow" | "broad" | null;
   /** Explicit "as of" date (ISO YYYY-MM-DD) for temporal retrieval. null = current state. */
   asOfDate?: string | null;
+  /** Knowledge space of a new conversation; an existing conversation keeps its own. */
+  spaceId?: number | null;
   onChunk: (text: string) => void;
   onDone: (data: SSEDone) => void;
   onError: (error: string) => void;
@@ -31,6 +33,7 @@ export async function streamChat({
   token,
   depth,
   asOfDate,
+  spaceId,
   onChunk,
   onDone,
   onError,
@@ -45,6 +48,7 @@ export async function streamChat({
       conversation_id: conversationId ?? null,
       depth: depth ?? null,
       as_of_date: asOfDate ?? null,
+      space_id: spaceId ?? null,
     }),
     signal,
   });

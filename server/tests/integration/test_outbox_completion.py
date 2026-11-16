@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus
@@ -36,8 +37,12 @@ async def test_dispatcher_and_reconciler_require_every_entry_done(
     async with sessions.begin() as session:
         documents = SQLAlchemyDocumentRepository(session)
         outbox = SQLAlchemyVectorOutboxRepository(session)
-        first = await documents.save(Document(filename="first.txt", status=DocumentStatus.INDEXING))
-        second = await documents.save(Document(filename="second.txt", status=DocumentStatus.INDEXING))
+        first = await documents.save(
+            Document(space_id=DEFAULT_SPACE_ID, filename="first.txt", status=DocumentStatus.INDEXING)
+        )
+        second = await documents.save(
+            Document(space_id=DEFAULT_SPACE_ID, filename="second.txt", status=DocumentStatus.INDEXING)
+        )
         assert first.id is not None
         assert second.id is not None
 

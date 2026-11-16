@@ -13,6 +13,7 @@ import pytest_asyncio
 from application.chat import ConversationService
 from application.chunks import AddChunkResult, EditChunkResult
 from application.documents import DocumentDeletionJobs, DocumentDTO, DocumentQueryService
+from application.spaces import KnowledgeSpaceService
 from domain.benchmark.question import DEFAULT_DATASET
 from domain.chat.message import Message, MessageRole
 from domain.identity.roles import UserRole
@@ -21,6 +22,7 @@ from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocDomain, DocumentVisibility, SourceType
+from domain.knowledge.space import KnowledgeSpace
 from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
 from domain.shared.exceptions import LLMUnavailableError
 from domain.shared.pagination import CursorPage
@@ -28,7 +30,13 @@ from main import app
 from presentation.api import dependencies as deps
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.schemas import CurrentUser
-from tests.fakes import FakeUnitOfWorkFactory, require_present
+from tests.fakes import (
+    DEFAULT_SPACE_ID,
+    FakePackCatalog,
+    FakeUnitOfWork,
+    FakeUnitOfWorkFactory,
+    require_present,
+)
 from tests.test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
 
 
@@ -54,6 +62,7 @@ async def asgi_client() -> AsyncIterator[httpx.AsyncClient]:
     app.dependency_overrides[deps.create_api_key_provider] = mock_dependency
     # Neutral pack: only the ``general`` document profile is known.
     app.dependency_overrides[deps.create_domain_registry] = lambda: None
+    app.dependency_overrides[deps.create_knowledge_space_service] = neutral_space_service
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)  # type: ignore[arg-type]  # Starlette and HTTPX disagree on the ASGI send annotation.
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -81,6 +90,24 @@ def law_registry() -> DomainProfileRegistry:
     return registry
 
 
+def space_service(registry: DomainProfileRegistry | None = None) -> KnowledgeSpaceService:
+    """The only space of the installation; on the stand-in law pack when a registry is given."""
+    uow = FakeUnitOfWork()
+
+    if registry is None:
+        return KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
+
+    uow.fake_knowledge_spaces._spaces[DEFAULT_SPACE_ID] = KnowledgeSpace(
+        id=DEFAULT_SPACE_ID, name="Право", pack_key="law"
+    )
+    return KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog({"law": registry}))
+
+
+def neutral_space_service() -> KnowledgeSpaceService:
+    """Zero-argument dependency override: FastAPI would read parameters as query fields."""
+    return space_service()
+
+
 def sign_in(role: str = "user", user_id: int = 1) -> None:
     user = CurrentUser(id=user_id, email="asgi@example.org", role=role, kind="internal", is_active=True)
     app.dependency_overrides[get_current_user] = lambda: user
@@ -90,12 +117,12 @@ def sign_in(role: str = "user", user_id: int = 1) -> None:
 @pytest.mark.parametrize(
     "law_pack,keys", [(False, ["general"]), (True, ["general", "legal", "decree", "contract"])]
 )
-async def test_document_domains_list_profiles_of_the_active_pack(
+async def test_document_domains_list_profiles_of_the_space_pack(
     asgi_client: httpx.AsyncClient, law_pack: bool, keys: list[str]
 ) -> None:
     sign_in()
     registry = law_registry() if law_pack else None
-    app.dependency_overrides[deps.create_domain_registry] = lambda: registry
+    app.dependency_overrides[deps.create_knowledge_space_service] = lambda: space_service(registry)
     response = await asgi_client.get("/documents/domains")
     assert response.status_code == 200
     assert [option["key"] for option in response.json()] == keys
@@ -158,7 +185,7 @@ async def test_ingestion_accepts_supported_and_automatic_domains(
     "law_pack, domain, status",
     [(False, "legal", 422), (True, "legal", 200), (True, "decree", 200), (True, "contract", 200)],
 )
-async def test_ingestion_domains_come_from_the_active_pack(
+async def test_ingestion_domains_come_from_the_space_pack(
     asgi_client: httpx.AsyncClient, path: str, law_pack: bool, domain: str, status: int
 ) -> None:
     sign_in(UserRole.ADMIN.value)
@@ -172,7 +199,7 @@ async def test_ingestion_domains_come_from_the_active_pack(
     )
     app.dependency_overrides[deps.create_idempotency_store] = lambda: None
     registry = law_registry() if law_pack else None
-    app.dependency_overrides[deps.create_domain_registry] = lambda: registry
+    app.dependency_overrides[deps.create_knowledge_space_service] = lambda: space_service(registry)
     response = await asgi_client.post(path, params={"domain": domain, "file_path": "docs/test.pdf"})
     assert response.status_code == status
 
@@ -532,6 +559,7 @@ async def test_multipart_upload_preserves_metadata_and_job_principal(asgi_client
             "rename_on_conflict": "true",
             "doc_domain": "legal",
             "replaces_document_id": "7",
+            "space_id": "3",
         },
     )
     assert response.status_code == 200
@@ -548,6 +576,7 @@ async def test_multipart_upload_preserves_metadata_and_job_principal(asgi_client
         rename_on_conflict=True,
         doc_domain="legal",
         replaces_document_id=7,
+        space_id=3,
     )
     # Upload owns the durable job; the HTTP path never publishes to Redis.
     jobs.create_job.assert_not_awaited()

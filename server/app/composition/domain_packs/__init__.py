@@ -1,9 +1,9 @@
-"""Explicit registry of domain packs; enabling a pack is one entry in DOMAIN_PACKS.
+"""Explicit registry of domain packs; every registered pack is loaded automatically.
 
-A pack other than the neutral one is imported only when DOMAIN_PACK selects it, so the
-core (a neutral deployment, the core test suite) runs without the pack's code. A pack has
-an Infrastructure definition (profiles, evidence rules, repositories) and an optional
-Composition wiring of its scenarios: document lifecycle hooks and API routes.
+The neutral pack is always loaded. A knowledge space selects one registered pack,
+so its documents and questions use that pack's rules. A pack has an Infrastructure
+definition (profiles, evidence rules, repositories) and an optional Composition wiring of
+its scenarios: document lifecycle hooks and API routes.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from infrastructure.domain_profile.packs import NEUTRAL_PACK, DomainPack
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from fastapi import APIRouter
 
@@ -58,7 +58,7 @@ class PackRegistration:
     wiring: tuple[str, str] | None = None
 
 
-DOMAIN_PACKS: dict[str, PackRegistration] = {
+PACK_REGISTRATIONS: dict[str, PackRegistration] = {
     "belarus_law": PackRegistration(
         pack=("infrastructure.domain_packs.belarus_law.pack", "BELARUS_LAW_PACK"),
         wiring=("composition.domain_packs.belarus_law", "BELARUS_LAW_WIRING"),
@@ -68,10 +68,10 @@ DOMAIN_PACKS: dict[str, PackRegistration] = {
 
 def registration(key: str) -> PackRegistration:
     try:
-        return DOMAIN_PACKS[key]
+        return PACK_REGISTRATIONS[key]
     except KeyError:
-        known = ", ".join(sorted([NEUTRAL_PACK.key, *DOMAIN_PACKS]))
-        message = f"Unknown DOMAIN_PACK {key!r}; known packs: {known}"
+        known = ", ".join(sorted([NEUTRAL_PACK.key, *PACK_REGISTRATIONS]))
+        message = f"Unknown domain pack {key!r}; known packs: {known}"
         raise ConfigurationError(message) from None
 
 
@@ -83,7 +83,7 @@ def selected_pack(key: str) -> DomainPack:
     pack = getattr(importlib.import_module(module_name), attribute)
 
     if not isinstance(pack, DomainPack) or pack.key != key:
-        message = f"DOMAIN_PACK {key!r} must resolve to a DomainPack with that key"
+        message = f"Domain pack {key!r} must resolve to a DomainPack with that key"
         raise ConfigurationError(message)
 
     return pack
@@ -102,7 +102,23 @@ def selected_wiring(key: str) -> PackWiring:
     wiring = getattr(importlib.import_module(module_name), attribute)
 
     if not isinstance(wiring, PackWiring):
-        message = f"DOMAIN_PACK {key!r} wiring must be a PackWiring"
+        message = f"Domain pack {key!r} wiring must be a PackWiring"
         raise ConfigurationError(message)
 
     return wiring
+
+
+@dataclass(frozen=True)
+class LoadedPack:
+    pack: DomainPack
+    wiring: PackWiring
+
+
+def loaded_packs() -> dict[str, LoadedPack]:
+    """Load every registered pack, with the neutral pack first."""
+    ordered = dict.fromkeys((NEUTRAL_PACK.key, *PACK_REGISTRATIONS))
+    return {key: LoadedPack(selected_pack(key), selected_wiring(key)) for key in ordered}
+
+
+def pack_routers(packs: Mapping[str, LoadedPack]) -> list[APIRouter]:
+    return [router for loaded in packs.values() for router in loaded.wiring.routers()]

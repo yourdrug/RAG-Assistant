@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from application.uow import UnitOfWork
+    from domain.knowledge.document import Document
 
 
 type DomainMetadata = dict[str, str | list[str]]
@@ -66,6 +67,23 @@ class DocumentPackHooks(Protocol):
     ) -> None:
         """Delete the document by calling ``delete`` and keep the pack's state consistent."""
         ...
+
+
+class DocumentHooksResolver(Protocol):
+    """Hooks of the pack that owns a document (the pack of the document's space)."""
+
+    async def for_document(self, uow: UnitOfWork, document: Document) -> DocumentPackHooks | None: ...
+
+
+@dataclass(frozen=True)
+class FixedPackHooks:
+    """One pack's hooks for every document: a single-pack scenario or test."""
+
+    hooks: DocumentPackHooks | None
+
+    async def for_document(self, uow: UnitOfWork, document: Document) -> DocumentPackHooks | None:
+        del uow, document
+        return self.hooks
 
 
 async def apply_pack_document(

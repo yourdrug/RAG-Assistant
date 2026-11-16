@@ -54,6 +54,36 @@ def migration_connection() -> Iterator[Connection]:
         admin.dispose()
 
 
+def test_knowledge_space_upgrade_preserves_existing_act_scope_identities(
+    migration_connection: Connection,
+) -> None:
+    config = Config("alembic.ini")
+    config.attributes["connection"] = migration_connection
+    command.upgrade(config, "0012")
+    scopes = ["internal_public", "internal_private:7", "internal_group:4", "client_private:9"]
+
+    for scope in scopes:
+        migration_connection.execute(
+            text(
+                "INSERT INTO regulatory_acts (creation_date, act_type, act_number, title, visibility_scope) "
+                "VALUES (NOW(), 'decree', '5', 'Test act', :scope)"
+            ),
+            {"scope": scope},
+        )
+
+    migration_connection.commit()
+    command.upgrade(config, "head")
+    space_id = migration_connection.scalar(text("SELECT id FROM knowledge_spaces"))
+    assert set(migration_connection.scalars(text("SELECT visibility_scope FROM regulatory_acts"))) == {
+        f"space:{space_id}:{scope}" for scope in scopes
+    }
+    migration_connection.commit()
+    command.downgrade(config, "0012")
+    assert set(migration_connection.scalars(text("SELECT visibility_scope FROM regulatory_acts"))) == set(
+        scopes
+    )
+
+
 def test_baseline_round_trip_matches_metadata(migration_connection: Connection) -> None:
     config = Config("alembic.ini")
     config.attributes["connection"] = migration_connection
@@ -62,10 +92,16 @@ def test_baseline_round_trip_matches_metadata(migration_connection: Connection) 
 
     inspector = inspect(migration_connection)
     tables = set(inspector.get_table_names()) - {"alembic_version"}
-    # 0009 dropped cost_rates and cost_usage from the 26-table baseline.
-    assert len(tables) == 24
+    # 0009 dropped cost_rates and cost_usage from the 26-table baseline; 0013 added the two space tables.
+    assert len(tables) == 26
 
-    for name in tables:
+    # Only the starting knowledge space exists in a new installation.
+    assert [
+        tuple(row)
+        for row in migration_connection.execute(text("SELECT name, pack_key FROM knowledge_spaces"))
+    ] == [("Общее", "generic")]
+
+    for name in tables - {"knowledge_spaces"}:
         assert migration_connection.scalar(select(func.count()).select_from(Table(name, MetaData()))) == 0
 
     expected_checks = json.loads((Path(__file__).parents[1] / "fixtures/baseline_checks.json").read_text())

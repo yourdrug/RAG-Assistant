@@ -11,10 +11,12 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 
 from application.chunks import ChunkMutationService
 from domain.identity.roles import UserRole
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
+from domain.knowledge.repositories.chunk import ManualChunkInsertOptions
 from domain.shared.exceptions import BusinessRuleViolationError
 from infrastructure.database.models import ChunkModel, DocumentModel, VectorStoreOutboxModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
@@ -33,6 +35,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 async def seed_document(sessions: async_sessionmaker[AsyncSession], initial_index: int = 3) -> int:
     async with sessions.begin() as session:
         doc = DocumentModel(
+            space_id=DEFAULT_SPACE_ID,
             filename="ordinary.txt",
             visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
             status=DocumentStatus.DONE,
@@ -43,6 +46,7 @@ async def seed_document(sessions: async_sessionmaker[AsyncSession], initial_inde
         if initial_index >= 0:
             session.add(
                 ChunkModel(
+                    space_id=DEFAULT_SPACE_ID,
                     document_id=doc.id,
                     chunk_index=initial_index,
                     content="Existing",
@@ -146,12 +150,24 @@ async def test_duplicate_index_is_conflict_and_unrelated_integrity_errors_propag
         repo = SQLAlchemyChunkRepository(session)
         with pytest.raises(BusinessRuleViolationError, match="Chunk index already exists"):
             await repo.insert_one(
-                document_id, 3, "Duplicate", "ordinary.txt", "internal_public", doc_domain="general"
+                document_id,
+                3,
+                "Duplicate",
+                "ordinary.txt",
+                "internal_public",
+                doc_domain="general",
+                options=ManualChunkInsertOptions(space_id=DEFAULT_SPACE_ID),
             )
         await session.rollback()
         with pytest.raises(IntegrityError):
             await repo.insert_one(
-                -1, 4, "Missing parent", "ordinary.txt", "internal_public", doc_domain="general"
+                -1,
+                4,
+                "Missing parent",
+                "ordinary.txt",
+                "internal_public",
+                doc_domain="general",
+                options=ManualChunkInsertOptions(space_id=DEFAULT_SPACE_ID),
             )
         await session.rollback()
         assert list((await session.scalars(select(ChunkModel.chunk_index))).all()) == [3]

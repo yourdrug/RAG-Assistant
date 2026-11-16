@@ -40,6 +40,7 @@ class Document:
     visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC
     owner_id: int | None = None
     group_id: int | None = None
+    space_id: int | None = None  # knowledge space; selects searches and pack rules, never access
     status: DocumentStatus = DocumentStatus.PENDING
     doc_domain: DomainKey = GENERAL_DOMAIN_KEY
     source_type: str = SourceType.FILE.value

@@ -154,8 +154,9 @@ async def test_concurrent_ingestion_aborts_before_commit_without_losing_db_write
         async with sessions() as session, session.begin():
             await session.execute(
                 text("""INSERT INTO documents
-                (filename, source_path, visibility, status, doc_domain, creation_date)
-                VALUES ('new.txt', '', 'internal_public', 'pending', 'general', now())""")
+                (filename, source_path, visibility, status, doc_domain, creation_date, space_id)
+                VALUES ('new.txt', '', 'internal_public', 'pending', 'general', now(),
+                        (SELECT min(id) FROM knowledge_spaces))""")
             )
 
     monkeypatch.setattr(api, "wait_prepared", start_ingestion_after_probe)

@@ -50,6 +50,7 @@ class IngestPayload(Payload):
     visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value
     group_id: int | None = None
     client_id: int | None = None
+    space_id: int | None = None
 
 
 class FileIngestPayload(Payload):
@@ -59,6 +60,7 @@ class FileIngestPayload(Payload):
     visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value
     group_id: int | None = None
     client_id: int | None = None
+    space_id: int | None = None
 
 
 class BenchmarkPayload(Payload):

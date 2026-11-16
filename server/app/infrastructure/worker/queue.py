@@ -118,7 +118,7 @@ async def enqueue_document_processing(**request: Unpack[DocumentProcessingReques
     )
 
 
-async def enqueue_ingest(
+async def enqueue_ingest(  # noqa: PLR0913 - keyword-only ingestion scope of one job
     *,
     resolved_dir: str,
     reset: bool,
@@ -127,6 +127,7 @@ async def enqueue_ingest(
     visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     group_id: int | None = None,
     client_id: int | None = None,
+    space_id: int | None = None,
 ) -> None:
     """Enqueue full ingestion via Arq (deduplicated per parameters)."""
     job = await enqueue_arq(
@@ -140,6 +141,7 @@ async def enqueue_ingest(
         visibility=visibility,
         group_id=group_id,
         client_id=client_id,
+        space_id=space_id,
     )
 
     if job is None:
@@ -147,7 +149,7 @@ async def enqueue_ingest(
         raise DuplicateJobError(msg)
 
 
-async def enqueue_ingest_file(
+async def enqueue_ingest_file(  # noqa: PLR0913 - keyword-only ingestion scope of one job
     *,
     resolved: str,
     domain: str,
@@ -155,6 +157,7 @@ async def enqueue_ingest_file(
     visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     group_id: int | None = None,
     client_id: int | None = None,
+    space_id: int | None = None,
     force: bool = False,
 ) -> None:
     """Enqueue single-file ingestion via Arq (deduplicated per parameters)."""
@@ -168,6 +171,7 @@ async def enqueue_ingest_file(
         visibility=visibility,
         group_id=group_id,
         client_id=client_id,
+        space_id=space_id,
         force=force,
     )
 

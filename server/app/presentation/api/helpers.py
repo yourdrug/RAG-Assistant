@@ -99,6 +99,7 @@ class UploadRequest(TypedDict):
     rename_on_conflict: bool
     doc_domain: str | None
     replaces_document_id: NotRequired[int | None]
+    space_id: NotRequired[int | None]
 
 
 async def upload_and_enqueue(
@@ -124,6 +125,7 @@ async def upload_and_enqueue(
         rename_on_conflict=upload["rename_on_conflict"],
         doc_domain=upload["doc_domain"],
         replaces_document_id=upload.get("replaces_document_id"),
+        space_id=upload.get("space_id"),
     )
 
     if log_fn is not None:

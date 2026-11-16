@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 class ChunkInsertOptions:
     owner_id: int | None = None
     group_id: int | None = None
+    # The document's space, copied to its chunks as a search selection label.
+    space_id: int | None = None
     doc_domain: str = "general"
     domain_metadata: dict[str, Any] | None = None
     pack_metadata: dict[str, Any] | None = None
@@ -28,6 +30,7 @@ class ChunkInsertOptions:
 class ManualChunkInsertOptions:
     owner_id: int | None = None
     group_id: int | None = None
+    space_id: int | None = None
     manual: bool = False
     content_hash: str | None = None
     context_metadata: dict[str, Any] | None = None

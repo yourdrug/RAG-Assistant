@@ -9,7 +9,9 @@ import pytest
 from application.search import HybridRetriever, SearchService
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
+from domain.knowledge.document import Document as DocEntity
 from domain.knowledge.enums import SearchMode
+from domain.knowledge.space import KnowledgeSpace
 
 
 @pytest.mark.parametrize(
@@ -34,6 +36,9 @@ async def test_search_refreshes_scope_and_preserves_page(role: UserRole) -> None
     uow.assignments.get_managed_internal_ids.return_value = [11]
     uow.assignments.get_managed_group_ids.return_value = [12]
     uow.chunks.search_substring_page.return_value = ([], 7)
+    # The search runs in the space of the document it is narrowed to.
+    uow.documents.get_by_id.return_value = DocEntity(id=5, filename="a.txt", space_id=3)
+    uow.knowledge_spaces.get_by_id.return_value = KnowledgeSpace(id=3, name="Поддержка", pack_key="generic")
     factory = Mock()
     factory.create.return_value.__aenter__ = AsyncMock(return_value=uow)
     factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -59,6 +64,7 @@ async def test_search_refreshes_scope_and_preserves_page(role: UserRole) -> None
         offset=4,
         document_id=5,
         selection=None,
+        space_id=3,
         mode=SearchMode.EXACT.value,
     )
     assert result == ([], 7)

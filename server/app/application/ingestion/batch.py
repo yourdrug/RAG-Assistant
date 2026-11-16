@@ -69,7 +69,9 @@ class BatchIngestionWorkflow:
 
             if reset:
                 await self._vector_store.ensure_collection(self._settings.embed_dim, reset=False)
-                await self._sync.delete_missing_sources(docs_dir or "docs/", set(completed))
+                await self._sync.delete_missing_sources(
+                    docs_dir or "docs/", set(completed), space_id=scope.space_id
+                )
 
             return
 
@@ -111,11 +113,14 @@ class BatchIngestionWorkflow:
             visibility=scope.visibility,
             group_id=scope.group_id,
             client_id=scope.client_id,
+            space_id=scope.space_id,
             **({"on_synced": checkpoint} if tracked else {}),
         )
 
         if reset:
-            await self._sync.delete_missing_sources(docs_dir or "docs/", set(entries) | set(completed))
+            await self._sync.delete_missing_sources(
+                docs_dir or "docs/", set(entries) | set(completed), space_id=scope.space_id
+            )
 
         await self._registry.persist_entries(entries)
 

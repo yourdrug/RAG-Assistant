@@ -21,10 +21,11 @@ from application.rag.stream_events import (
     StatusEvent,
     TextChunk,
 )
+from application.spaces.resolution import resolve_space
 from domain.chat.message import Message, MessageRole
 from domain.rag.context import RagContext
 from domain.rag.ranking import compute_reranker_score
-from domain.shared.exceptions import BusinessRuleViolationError
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 
 
 if TYPE_CHECKING:
@@ -37,8 +38,9 @@ if TYPE_CHECKING:
     from application.rag.stream_events import (
         StreamEvent,
     )
-    from application.uow import UnitOfWorkFactory
+    from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.chat.conversation import Conversation
+    from domain.knowledge.space import KnowledgeSpace
 
 
 log = logging.getLogger(__name__)
@@ -76,7 +78,7 @@ class ChatService:
     # Helpers
     # ------------------------------------------------------------------
 
-    async def prepare_chat(
+    async def prepare_chat(  # noqa: PLR0913 - keyword-only chat options of one request
         self,
         question: str,
         conversation_id: int | None,
@@ -86,6 +88,7 @@ class ChatService:
         *,
         depth: str | None,
         as_of_date: date | None,
+        space_id: int | None = None,
     ) -> ChatSetup:
         async with self._uow_factory.create(master=True) as uow:
             user_ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role=user_role)
@@ -94,6 +97,8 @@ class ChatService:
             if conv.id is None:
                 msg = "Conversation get_or_create returned None id"
                 raise RuntimeError(msg)
+
+            space = await self.conversation_space(uow, conv, space_id)
 
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
 
@@ -105,6 +110,7 @@ class ChatService:
             depth=depth,
             summary=conv.summary,
             as_of_date=as_of_date,
+            space=space.ref,
         )
 
         scope = ctx.curator_scope
@@ -129,6 +135,29 @@ class ChatService:
 
         pii_question = self._pii_redactor.redact(question)
         return ChatSetup(conv=conv, history=history, ctx=ctx, pii_question=pii_question)
+
+    @staticmethod
+    async def conversation_space(uow: UnitOfWork, conv: Conversation, space_id: int | None) -> KnowledgeSpace:
+        """Every question of a conversation is asked in the space of its first question."""
+        if conv.space_id is not None:
+            if space_id is not None and space_id != conv.space_id:
+                msg = "The conversation is bound to another knowledge space; start a new conversation"
+                raise ValidationError(msg, field="space_id")
+
+            return await resolve_space(uow, conv.space_id)
+
+        space = await resolve_space(uow, space_id)
+
+        if conv.id is not None and space.id is not None:
+            bound_space_id = await uow.conversations.assign_space(conv.id, space.id)
+
+            if bound_space_id != space.id:
+                msg = "The conversation is bound to another knowledge space; start a new conversation"
+                raise ValidationError(msg, field="space_id")
+
+            conv.space_id = bound_space_id
+
+        return space
 
     async def persist_chat(self, command: PersistChatCommand) -> None:
         safe_question = html.escape(command.question)
@@ -184,7 +213,7 @@ class ChatService:
     # Streaming chat
     # ------------------------------------------------------------------
 
-    async def stream_chat(
+    async def stream_chat(  # noqa: PLR0913 - keyword-only chat options of one request
         self,
         question: str,
         conversation_id: int | None,
@@ -194,6 +223,7 @@ class ChatService:
         *,
         depth: str | None = None,
         as_of_date: date | None = None,
+        space_id: int | None = None,
     ) -> AsyncIterator[StreamEvent]:
         setup = await self.prepare_chat(
             question,
@@ -203,6 +233,7 @@ class ChatService:
             user_role,
             depth=depth,
             as_of_date=as_of_date,
+            space_id=space_id,
         )
 
         full_answer = ""
@@ -257,7 +288,7 @@ class ChatService:
     # Synchronous chat
     # ------------------------------------------------------------------
 
-    async def sync_chat(
+    async def sync_chat(  # noqa: PLR0913 - keyword-only chat options of one request
         self,
         question: str,
         conversation_id: int | None,
@@ -267,6 +298,7 @@ class ChatService:
         *,
         depth: str | None = None,
         as_of_date: date | None = None,
+        space_id: int | None = None,
     ) -> ChatResult:
         setup = await self.prepare_chat(
             question,
@@ -276,6 +308,7 @@ class ChatService:
             user_role,
             depth=depth,
             as_of_date=as_of_date,
+            space_id=space_id,
         )
 
         t_start = time.monotonic()

@@ -42,7 +42,13 @@ from application.identity import (
 )
 from application.jobs.service import JobService
 from application.search import SearchService
-from composition.service_providers import create_ingestion_service, create_pack_hooks, create_rag_service
+from application.spaces import KnowledgeSpaceService
+from composition.service_providers import (
+    create_ingestion_service,
+    create_space_pack_hooks,
+    create_space_rag_router,
+    pack_catalog,
+)
 from composition.utils import missing_fields, require
 from config import AuthSection, process_section
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
@@ -68,8 +74,8 @@ from infrastructure.ml.guardrails.pdf_adapter import (
 
 
 if TYPE_CHECKING:
-    from application.ingestion import IngestionService
-    from application.rag.service import RagService
+    from application.ingestion import IngestionPort
+    from application.rag.space_router import SpaceRagRouter
     from composition.infrastructure import InfrastructureContainer
 
 log = logging.getLogger("default")
@@ -82,7 +88,7 @@ class ApplicationContainer:
     All fields are assigned in ``init()``.
     """
 
-    rag_service: RagService | None = field(default=None)
+    rag_service: SpaceRagRouter | None = field(default=None)
     chat_service: ChatService | None = field(default=None)
     auth_service: AuthService | None = field(default=None)
     user_management_service: UserManagementService | None = field(default=None)
@@ -98,7 +104,8 @@ class ApplicationContainer:
     metrics_service: MetricsService | None = field(default=None)
     config_admin_service: ConfigAdminService | None = field(default=None)
     pdf_diagnostic_service: PDFDiagnosticService | None = field(default=None)
-    ingestion_service: IngestionService | None = field(default=None)
+    ingestion_service: IngestionPort | None = field(default=None)
+    knowledge_space_service: KnowledgeSpaceService | None = field(default=None)
     search_service: SearchService | None = field(default=None)
     conversation_service: ConversationService | None = field(default=None)
     group_service: GroupService | None = field(default=None)
@@ -125,18 +132,9 @@ class ApplicationContainer:
 
         pii_redactor = PIIRedactorAdapter(rag_settings=LiveRagSettings())
 
-        self.rag_service = create_rag_service(
-            ml_clients=ml,
-            chunk_search=chunk_search,
-            domain_keys=(
-                tuple(profile.key for profile in infra.domain_registry.all())
-                if infra.domain_registry is not None
-                else None
-            ),
-            pii_redactor=pii_redactor,
-            document_access=DocumentAccessService(uow),
-            domain_registry=infra.domain_registry,
-            evidence_profile=infra.domain_pack.evidence_profile,
+        # A question is answered by the RAG rules of its space's pack.
+        self.rag_service = create_space_rag_router(
+            infra, ml, chunk_search, pii_redactor, DocumentAccessService(uow)
         )
 
         self.ingestion_service = require(
@@ -170,7 +168,9 @@ class ApplicationContainer:
         fs = require(infra.ml.file_storage, "file_storage")
         api_key_provider = require(infra.services.api_key_provider, "api_key_provider")
         user_ctx_factory = UserContextFactory()
-        pack_hooks = create_pack_hooks(infra, uow)
+        pack_hooks = create_space_pack_hooks(infra)
+        catalog = pack_catalog(infra)
+        self.knowledge_space_service = KnowledgeSpaceService(uow, catalog, user_ctx_factory)
         password_hasher = BCryptPasswordHasher()
         self.auth_service = AuthService(
             uow_factory=uow,
@@ -180,7 +180,7 @@ class ApplicationContainer:
         self.user_management_service = UserManagementService(uow, password_hasher)
         self.api_key_service = ApiKeyService(uow, api_key_provider)
         self.document_command_service = DocumentCommandService(
-            upload_command=DocumentUploadCommand(uow, fs, user_ctx_factory),
+            upload_command=DocumentUploadCommand(uow, fs, user_ctx_factory, catalog),
             delete_command=DocumentDeleteCommand(uow, fs, user_ctx_factory, pack_hooks),
             rename_command=DocumentRenameCommand(uow, fs, user_ctx_factory),
         )
@@ -237,8 +237,10 @@ class ApplicationContainer:
     def init_catalog(self, infra: InfrastructureContainer) -> None:
         uow = require(infra.db.uow_factory, "uow_factory")
         fs = require(infra.ml.file_storage, "file_storage")
+        catalog = pack_catalog(infra)
         self.search_service = SearchService(
-            uow_factory=uow, chunk_selection=infra.domain_pack.evidence_profile.chunk_selection
+            uow_factory=uow,
+            chunk_selections=catalog.chunk_selections(),
         )
         self.group_service = GroupService(uow_factory=uow)
         self.assignment_service = AssignmentService(uow_factory=uow)

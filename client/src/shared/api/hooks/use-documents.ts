@@ -19,10 +19,17 @@ export function useUploadableClients() {
   });
 }
 
-export function useDocumentDomains() {
+/** Document profiles of the space's pack; the only space when none is chosen. */
+export function useDocumentDomains(spaceId?: number | null, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.documents.domains(),
-    queryFn: async () => (await apiClient.get<DocumentDomainOption[]>("/documents/domains")).data,
+    enabled,
+    queryKey: queryKeys.documents.domains(spaceId),
+    queryFn: async () =>
+      (
+        await apiClient.get<DocumentDomainOption[]>("/documents/domains", {
+          params: spaceId != null ? { space_id: spaceId } : undefined,
+        })
+      ).data,
     staleTime: Infinity,
   });
 }
@@ -52,6 +59,7 @@ export function useUploadDocument() {
       clientId,
       renameOnConflict,
       docDomain,
+      spaceId,
     }: {
       file: File;
       visibility: string;
@@ -59,6 +67,7 @@ export function useUploadDocument() {
       clientId?: number | null;
       renameOnConflict?: boolean;
       docDomain?: string | null;
+      spaceId?: number | null;
     }) => {
       const fd = new FormData();
       fd.append("file", file);
@@ -67,6 +76,7 @@ export function useUploadDocument() {
       if (clientId != null) fd.append("client_id", String(clientId));
       if (renameOnConflict) fd.append("rename_on_conflict", "true");
       if (docDomain) fd.append("doc_domain", docDomain);
+      if (spaceId != null) fd.append("space_id", String(spaceId));
       return (
         await apiClient.post<UploadStatusResponse>("/documents", fd, {
           headers: { "Content-Type": "multipart/form-data" },

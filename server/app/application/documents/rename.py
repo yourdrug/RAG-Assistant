@@ -107,7 +107,7 @@ class DocumentRenameCommand:
         check_ownership(doc, ctx, "rename")
         owner_id, effective_group_id = doc.owner_id, doc.group_id
         existing = await uow.documents.find_active_slot(
-            owner_id, new_filename, effective_group_id, for_update=True
+            owner_id, new_filename, effective_group_id, space_id=doc.space_id, for_update=True
         )
 
         if existing and existing.id != document_id:
@@ -121,7 +121,7 @@ class DocumentRenameCommand:
 
             if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
                 new_filename = await resolve_unique_filename(
-                    uow.documents, owner_id, effective_group_id, new_filename
+                    uow.documents, owner_id, effective_group_id, new_filename, space_id=doc.space_id
                 )
 
         # Renaming an assignment must not move the shared ingestion source.

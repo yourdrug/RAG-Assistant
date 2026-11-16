@@ -49,6 +49,7 @@ async def exact_search(
         offset=req.offset,
         mode=req.mode,
         document_id=req.document_id,
+        space_id=req.space_id,
     )
 
     return ExactSearchResponse(

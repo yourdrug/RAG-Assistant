@@ -9,7 +9,12 @@ export const queryKeys = {
     list: () => [...queryKeys.documents.all, "list"] as const,
     detail: (id: number) => [...queryKeys.documents.all, "detail", id] as const,
     clients: () => [...queryKeys.documents.all, "clients"] as const,
-    domains: () => [...queryKeys.documents.all, "domains"] as const,
+    domains: (spaceId?: number | null) => [...queryKeys.documents.all, "domains", spaceId] as const,
+  },
+  spaces: {
+    all: ["spaces"] as const,
+    list: () => [...queryKeys.spaces.all, "list"] as const,
+    packs: () => [...queryKeys.spaces.all, "packs"] as const,
   },
   chunks: {
     all: (documentId: number) => ["chunks", documentId] as const,

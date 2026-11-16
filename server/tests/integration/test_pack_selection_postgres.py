@@ -4,6 +4,7 @@ import secrets
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 from tests.pack_selection_cases import PACK_METADATA, SELECTIONS
 
 from domain.identity.roles import UserKind, UserRole
@@ -27,14 +28,22 @@ async def test_sql_selection_matches_reference_semantics_under_acl(pg_engine: As
         )
         session.add_all([owner, stranger])
         await session.flush()
-        public = DocumentModel(filename="public.txt", visibility=DocumentVisibility.INTERNAL_PUBLIC.value)
+        public = DocumentModel(
+            space_id=DEFAULT_SPACE_ID,
+            filename="public.txt",
+            visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
+        )
         private = DocumentModel(
-            filename="private.txt", visibility=DocumentVisibility.INTERNAL_PRIVATE.value, owner_id=stranger.id
+            space_id=DEFAULT_SPACE_ID,
+            filename="private.txt",
+            visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
+            owner_id=stranger.id,
         )
         session.add_all([public, private])
         await session.flush()
         session.add_all(
             ChunkModel(
+                space_id=DEFAULT_SPACE_ID,
                 document_id=public.id,
                 chunk_index=index,
                 content=f"marker {index}",
@@ -46,6 +55,7 @@ async def test_sql_selection_matches_reference_semantics_under_acl(pg_engine: As
         # Matches every selection by its pack metadata but is private to another user.
         session.add(
             ChunkModel(
+                space_id=DEFAULT_SPACE_ID,
                 document_id=private.id,
                 chunk_index=0,
                 content="marker private",

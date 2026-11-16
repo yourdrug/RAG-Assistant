@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 from tests.integration.uow import SessionDatabase
 
 from application.ingestion import DocumentSyncService
@@ -18,6 +19,7 @@ from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility
+from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from infrastructure.database.database import DatabaseManager
 from infrastructure.database.models import UserModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
@@ -146,7 +148,7 @@ async def seed_public_document(sessions: async_sessionmaker[AsyncSession]) -> tu
         await session.flush()
         client_id = client.id
         doc = await SQLAlchemyDocumentRepository(session).save(
-            Document(filename="report.md", ingestion_key="docs/report.md")
+            Document(space_id=DEFAULT_SPACE_ID, filename="report.md", ingestion_key="docs/report.md")
         )
         assert doc.id is not None
         doc_id = doc.id
@@ -155,6 +157,7 @@ async def seed_public_document(sessions: async_sessionmaker[AsyncSession]) -> tu
             "report.md",
             DocumentVisibility.INTERNAL_PUBLIC.value,
             [ChunkInsert(content="old public text")],
+            ChunkInsertOptions(space_id=DEFAULT_SPACE_ID),
         )
 
     return doc_id, client_id

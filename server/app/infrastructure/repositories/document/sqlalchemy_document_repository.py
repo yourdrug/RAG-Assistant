@@ -45,6 +45,7 @@ class SQLAlchemyDocumentRepository:
             else document.visibility,
             owner_id=document.owner_id,
             group_id=document.group_id,
+            space_id=document.space_id,
             status=document.status.value if hasattr(document.status, "value") else document.status,
             doc_domain=document.doc_domain,
             source_type=document.source_type,
@@ -207,13 +208,23 @@ class SQLAlchemyDocumentRepository:
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
     async def find_active_slot(
-        self, owner_id: int | None, filename: str, group_id: int | None, *, for_update: bool = False
+        self,
+        owner_id: int | None,
+        filename: str,
+        group_id: int | None,
+        *,
+        space_id: int | None = None,
+        for_update: bool = False,
     ) -> Document | None:
         conditions = [
             DocumentModel.filename == filename,
             DocumentModel.ingestion_key.is_(None),
             DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
         ]
+
+        # A filename slot is per space; ``None`` looks across spaces.
+        if space_id is not None:
+            conditions.append(DocumentModel.space_id == space_id)
 
         if owner_id is None:
             conditions.append(DocumentModel.owner_id.is_(None))
@@ -235,11 +246,18 @@ class SQLAlchemyDocumentRepository:
         return self._to_entity(orm) if orm else None
 
     async def find_active_slots_by_filenames(
-        self, filenames: list[str], *, owner_id: int | None = None, group_id: int | None = None
+        self,
+        filenames: list[str],
+        *,
+        owner_id: int | None = None,
+        group_id: int | None = None,
+        space_id: int | None = None,
     ) -> list[Document]:
-        """Batch prefetch of filename slots within one owner/group scope."""
+        """Batch prefetch of filename slots within one owner/group scope (and space, when given)."""
         if not filenames:
             return []
+
+        space_conditions = [] if space_id is None else [DocumentModel.space_id == space_id]
 
         subq = (
             select(
@@ -252,6 +270,7 @@ class SQLAlchemyDocumentRepository:
                 DocumentModel.owner_id == owner_id,
                 DocumentModel.group_id == group_id,
                 DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
+                *space_conditions,
             )
             .group_by(DocumentModel.filename)
             .subquery()
@@ -290,9 +309,10 @@ class SQLAlchemyDocumentRepository:
         if not or_clauses:
             return []
 
+        space_conditions = [] if filters.space_id is None else [DocumentModel.space_id == filters.space_id]
         result = await self._db.execute(
             select(DocumentModel)
-            .where(or_(*or_clauses))
+            .where(or_(*or_clauses), *space_conditions)
             .order_by(DocumentModel.creation_date.desc())
             .offset(offset)
             .limit(limit)
@@ -492,6 +512,7 @@ class SQLAlchemyDocumentRepository:
             visibility=DocumentVisibility(orm.visibility),
             owner_id=orm.owner_id,
             group_id=orm.group_id,
+            space_id=orm.space_id,
             status=DocumentStatus(orm.status),
             doc_domain=DomainKey(orm.doc_domain),
             source_type=orm.source_type,

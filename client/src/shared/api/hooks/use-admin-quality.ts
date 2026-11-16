@@ -92,18 +92,21 @@ export function useIndexFromPreview() {
       groupId,
       clientId,
       docDomain,
+      spaceId,
     }: {
       previewId: string;
       visibility?: string;
       groupId?: number | null;
       clientId?: number | null;
       docDomain?: string | null;
+      spaceId?: number | null;
     }) => {
       const fd = new FormData();
       fd.append("visibility", visibility);
       if (groupId != null) fd.append("group_id", String(groupId));
       if (clientId != null) fd.append("client_id", String(clientId));
       if (docDomain) fd.append("doc_domain", docDomain);
+      if (spaceId != null) fd.append("space_id", String(spaceId));
       return (
         await apiClient.post<IndexFromPreviewResponse>(
           `/admin/documents/preview/${previewId}/index`,

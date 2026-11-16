@@ -13,6 +13,7 @@ from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.access_control import get_visibility_conditions
+from domain.knowledge.space import SPACE_ID_KEY
 from infrastructure.repositories.vector.pack_selection import pack_selection_condition
 
 
@@ -94,19 +95,34 @@ def with_domain_filter(access_filter: Filter | None, doc_domain: str) -> Filter:
     return Filter(must=[domain_condition])
 
 
+def space_condition(space_id: int) -> FieldCondition:
+    """Documents of one knowledge space: a search selection, never an access condition."""
+    return FieldCondition(key=f"metadata.{SPACE_ID_KEY}", match=MatchValue(value=space_id))
+
+
 def build_search_filter(
     user: UserContext | dict[str, Any],
     group_ids: list[int],
     selection: MetadataCondition | None = None,
+    *,
+    space_id: int | None = None,
     **managed: list[int] | None,
 ) -> Filter:
-    """Canonical Qdrant search scope: visibility AND the pack selection.
+    """Canonical Qdrant search scope: visibility AND the question's space AND the pack selection.
 
-    The selection only narrows the documents considered; access is decided by visibility.
+    The space and the selection only narrow the documents considered; access is decided
+    by visibility, so neither adds a visibility case.
     """
     access_filter = build_qdrant_filter(user, group_ids, **managed)
+    selections: list[Condition | Filter] = []
 
-    if selection is None:
+    if space_id is not None:
+        selections.append(space_condition(space_id))
+
+    if selection is not None:
+        selections.append(pack_selection_condition(selection))
+
+    if not selections:
         return access_filter
 
-    return Filter(must=[access_filter, pack_selection_condition(selection)])
+    return Filter(must=[access_filter, *selections])

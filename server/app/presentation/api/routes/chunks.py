@@ -281,6 +281,7 @@ async def create_manual_document(
         user_kind=UserKind(current_user.kind),
         user_role=UserRole(current_user.role),
         group_id=request.group_id,
+        space_id=request.space_id,
     )
 
     log(
@@ -296,6 +297,7 @@ async def create_manual_document(
         visibility=result.visibility,
         owner_id=result.owner_id,
         group_id=result.group_id,
+        space_id=result.space_id,
         status=result.status,
         error_message=result.error_message,
         warning_message=result.warning_message,

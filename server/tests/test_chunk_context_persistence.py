@@ -74,7 +74,9 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> No
     uow = SimpleNamespace(
         chunks=repository,
         vector_outbox=SimpleNamespace(enqueue=AsyncMock()),
-        documents=SimpleNamespace(update_status=AsyncMock()),
+        documents=SimpleNamespace(
+            update_status=AsyncMock(), get_by_id=AsyncMock(return_value=SimpleNamespace(space_id=3))
+        ),
     )
     context = make_context()
     chunk = RawDocument(
@@ -118,7 +120,11 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> No
     candidates: list[Any] = [Document(page_content="seed", metadata={"document_id": 7})]
     search = SimpleNamespace(search_substring=AsyncMock(return_value=results))
     await apply_exact_search(
-        "подпункт 21.2", candidates, user, cast("RagContext", SimpleNamespace(as_of_date=None)), search
+        "подпункт 21.2",
+        candidates,
+        user,
+        cast("RagContext", SimpleNamespace(as_of_date=None, space=None)),
+        search,
     )
     candidates = candidates[1:]
     assert len(candidates) == 1

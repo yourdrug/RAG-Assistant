@@ -15,3 +15,5 @@ class IngestionScope:
     visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC
     group_id: int | None = None
     client_id: int | None = None
+    # Knowledge space of new documents; a storage key belongs to the space it was first ingested into.
+    space_id: int | None = None

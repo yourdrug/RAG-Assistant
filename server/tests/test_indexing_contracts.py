@@ -1,6 +1,7 @@
 """Shared indexing exports, transaction ownership and metadata compatibility."""
 
 import importlib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -69,6 +70,7 @@ async def test_existing_uow_keeps_transaction_ownership_and_projection_order(set
     uow.chunks.replace_document_nodes = AsyncMock(side_effect=replace_nodes)
     uow.vector_outbox.enqueue = AsyncMock(side_effect=enqueue)
     uow.documents.update_status = AsyncMock(side_effect=update)
+    uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(space_id=3))
     factory = Mock()
     chunks = [RawDocument("text", {"owner_id": 7, "visibility": "internal_private"})]
     await indexing.process_chunks(
@@ -95,6 +97,8 @@ async def test_existing_uow_keeps_transaction_ownership_and_projection_order(set
         "visibility": "internal_private",
         "chunk_id": 2,
         "chunk_index": 0,
+        # The document's space labels every vector point for the space search condition.
+        "space_id": 3,
     }
     uow.documents.update_status.assert_awaited_once_with(
         9,

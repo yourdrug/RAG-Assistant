@@ -19,8 +19,6 @@ class AppSection(BaseModel):
     version: Metadata[str] = ""
     service_start_datetime: Metadata[str] = ""
     stage: Static[AppStage] = AppStage.DEVELOPMENT
-    # Subject-area rules (document profiles, evidence and answer rules); Composition validates the key.
-    domain_pack: Static[str] = "generic"
 
     @field_validator("timezone")
     @classmethod

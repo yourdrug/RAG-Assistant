@@ -221,6 +221,32 @@ async def test_different_years_and_owners_have_independent_act_identities() -> N
 
 
 @pytest.mark.asyncio
+async def test_each_space_keeps_its_own_timeline_for_the_same_act() -> None:
+    factory, service, _ = system()
+
+    for document_id, space_id in ((1, 1), (2, 2), (3, 2)):
+        put_document(factory, document_id)
+        factory._uow.fake_documents._documents[document_id].space_id = space_id
+
+    first_space = await upload(service, 1, date(2020, 1, 1))
+    second_space_old = await upload(service, 2, date(2021, 1, 1))
+    second_space_new = await upload(service, 3, date(2024, 1, 1))
+    assert second_space_old.act_id is not None
+    assert second_space_old.act_id == second_space_new.act_id
+    assert second_space_old.act_id != first_space.act_id
+    versions = factory._uow.fake_act_versions
+    old = require_present(await versions.get_by_id(require_present(second_space_old.id)))
+    first = require_present(await versions.get_by_id(require_present(first_space.id)))
+    assert old.effective_to == date(2024, 1, 1)
+    assert not old.is_current
+    assert first.is_current
+    assert first.effective_to is None
+
+    with pytest.raises(ValidationError, match="visibility scope"):
+        await service.update_version(require_present(second_space_new.id), act_id=first_space.act_id)
+
+
+@pytest.mark.asyncio
 async def test_reindexing_does_not_duplicate_version_or_overwrite_manual_dates() -> None:
     factory, service, _ = system()
     put_document(factory, 1)
@@ -426,7 +452,7 @@ async def test_exact_candidates_include_temporal_metadata_and_request_date() -> 
         "Что предусматривает пункт 5?",
         candidates,
         UserContext(1, UserKind.INTERNAL),
-        cast("RagContext", SimpleNamespace(as_of_date=date(2024, 1, 1))),
+        cast("RagContext", SimpleNamespace(as_of_date=date(2024, 1, 1), space=None)),
         search,
     )
     assert search.search_substring.call_args.kwargs["selection"] == edition_selection(date(2024, 1, 1))
@@ -459,6 +485,7 @@ async def test_cache_key_changes_each_day_for_current_state_but_not_for_explicit
         as_of_date=None,
         depth=None,
         summary=None,
+        space=None,
     )
     rag = make_rag()
     rag = replace(rag, features=replace(rag.features, cache_enabled=True))

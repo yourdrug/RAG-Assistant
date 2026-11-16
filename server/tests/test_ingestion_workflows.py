@@ -34,7 +34,7 @@ async def test_empty_reset_prunes_selected_prefix_without_resetting_collection(p
     workflow = BatchIngestionWorkflow(vector_store, settings, loader, registry, sync=sync)
     await workflow.run(prefix, reset=True, scope=IngestionScope())
     vector_store.ensure_collection.assert_awaited_once_with(384, reset=False)
-    sync.delete_missing_sources.assert_awaited_once_with(prefix, set())
+    sync.delete_missing_sources.assert_awaited_once_with(prefix, set(), space_id=None)
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from langchain.schema import Document
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from tests.fakes import DEFAULT_SPACE_ID
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
@@ -111,6 +112,7 @@ async def seed_table_documents(
         await session.flush()
         docs = [
             DocumentModel(
+                space_id=DEFAULT_SPACE_ID,
                 filename=f"tables-{n}.md",
                 visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
                 owner_id=users[n].id,
@@ -135,6 +137,6 @@ async def seed_table_documents(
                     )
                     for n, (content, context) in enumerate(zip(contents, contexts, strict=True))
                 ],
-                options=ChunkInsertOptions(owner_id=doc.owner_id),
+                options=ChunkInsertOptions(space_id=DEFAULT_SPACE_ID, owner_id=doc.owner_id),
             )
     return users, docs

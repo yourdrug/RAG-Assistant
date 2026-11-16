@@ -24,6 +24,8 @@ class Conversation:
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     messages: list[Message] = field(default_factory=list)
     summary: str | None = None
+    # Knowledge space of every question in the conversation; set by the first question.
+    space_id: int | None = None
 
     def is_owned_by(self, user_id: int) -> bool:
         return self.user_id == user_id
@@ -42,3 +44,4 @@ class ConversationListItem:
     creation_date: datetime
     title: str | None = None
     message_count: int = 0
+    space_id: int | None = None

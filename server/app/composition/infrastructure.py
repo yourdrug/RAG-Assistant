@@ -10,6 +10,7 @@ Organized into sub-containers for Single Responsibility:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
 import logging
 from typing import TYPE_CHECKING
 
@@ -18,7 +19,9 @@ from prometheus_client import Counter
 from application.benchmark import BenchmarkService
 from application.documents import DocumentPreviewStrategy, PreviewCache
 from application.runtime.config import ConfigParameterChanged
-from composition.domain_packs import NEUTRAL_WIRING, PackWiring, selected_pack, selected_wiring
+from application.spaces.resolution import default_space_ref
+from composition.domain_packs import LoadedPack, loaded_packs
+from composition.pack_catalog import LoadedPackCatalog
 from composition.utils import missing_fields, require
 from config import settings
 from domain.ingestion.ports import DomainSettingsPort, TokenCounter
@@ -37,7 +40,7 @@ from infrastructure.benchmark.reporting.benchmark_history_adapter import Benchma
 from infrastructure.corpus.control import PostgresCorpusControl
 from infrastructure.corpus.resources import CorpusResources
 from infrastructure.database.database import DatabaseManager
-from infrastructure.domain_profile import register_pack_profiles
+from infrastructure.domain_profile import pack_registry, union_registry
 from infrastructure.domain_profile.packs import NEUTRAL_PACK, DomainPack
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import event_bus
@@ -79,7 +82,7 @@ from infrastructure.uow_factory import UnitOfWorkFactory
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from qdrant_client.models import Filter
 
@@ -112,7 +115,7 @@ class DatabaseContainer:
     uow_factory: UnitOfWorkFactory | None = field(default=None)
     config_broadcaster: PostgresConfigBroadcaster | None = field(default=None)
 
-    def init(self, database_manager: object, domain_pack: DomainPack = NEUTRAL_PACK) -> None:
+    def init(self, database_manager: object, domain_packs: Sequence[DomainPack] = (NEUTRAL_PACK,)) -> None:
 
         if not isinstance(database_manager, DatabaseManager):
             msg = f"Expected DatabaseManager, got {type(database_manager).__name__}"
@@ -123,7 +126,7 @@ class DatabaseContainer:
         self.uow_factory = UnitOfWorkFactory(
             database=database_manager,
             config_broadcaster=self.config_broadcaster,
-            pack_repositories=domain_pack.repositories,
+            pack_repositories=[pack.repositories for pack in domain_packs if pack.repositories is not None],
         )
 
     @property
@@ -158,7 +161,7 @@ class MLContainer:
         uow_factory: UnitOfWorkFactory,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsAdapter | None = None,
-        domain_pack: DomainPack = NEUTRAL_PACK,
+        pack_catalog: LoadedPackCatalog | None = None,
     ) -> None:
 
         self.file_storage = LazyStorage(settings, settings)
@@ -183,8 +186,9 @@ class MLContainer:
                 self.ml_clients,
                 annotation_validator=AnnotationValidator(
                     ChunkSearchAdapter(uow_factory),
-                    chunk_selection=domain_pack.evidence_profile.chunk_selection,
+                    chunk_selections=pack_catalog.chunk_selections() if pack_catalog is not None else None,
                 ),
+                space_resolver=partial(default_space_ref, uow_factory),
             ),
         )
         self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
@@ -368,10 +372,13 @@ class InfrastructureContainer:
     ml: MLContainer = field(default_factory=MLContainer)
     events: EventContainer = field(default_factory=EventContainer)
     services: ServiceContainer = field(default_factory=ServiceContainer)
+    # Profiles of every loaded pack: domain settings, configuration and admin tools.
     domain_registry: DomainProfileRegistry | None = field(default=None, repr=False)
     domain_settings: DomainSettingsAdapter | None = field(default=None, repr=False)
-    domain_pack: DomainPack = field(default=NEUTRAL_PACK, repr=False)
-    pack_wiring: PackWiring = field(default=NEUTRAL_WIRING, repr=False)
+    # Loaded domain packs (neutral first) and the document profiles of each.
+    packs: dict[str, LoadedPack] = field(default_factory=dict, repr=False)
+    pack_registries: dict[str, DomainProfileRegistry] = field(default_factory=dict, repr=False)
+    pack_catalog: LoadedPackCatalog | None = field(default=None, repr=False)
     rate_limit: DynamicRateLimiter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
     corpus_control: PostgresCorpusControl | None = field(default=None, repr=False)
@@ -384,21 +391,29 @@ class InfrastructureContainer:
         Order matters: domain registry → DB → ML → Services → Events
         (ML parsing/splitting is domain-aware and consumes the registry).
         """
-        # Domain profile registry — created first: ML parsing/splitting is domain-aware
-        self.domain_pack = selected_pack(settings.domain_pack)
-        self.pack_wiring = selected_wiring(settings.domain_pack)
+        # Domain profile registries — created first: ML parsing/splitting is domain-aware
+        self.packs = loaded_packs()
         self.domain_settings = DomainSettingsAdapter()
-        self.domain_registry = DomainProfileRegistry()
-        register_pack_profiles(self.domain_registry, self.domain_pack, self.domain_settings)
+        self.pack_registries = {
+            key: pack_registry(loaded.pack, self.domain_settings) for key, loaded in self.packs.items()
+        }
+        self.domain_registry = union_registry(self.pack_registries.values())
 
-        self.db.init(database_manager, self.domain_pack)
+        self.db.init(database_manager, [loaded.pack for loaded in self.packs.values()])
+        self.services.init()
+        self.pack_catalog = LoadedPackCatalog(
+            self.packs,
+            self.pack_registries,
+            uow_factory=self.db.uow,
+            domain_settings=self.domain_settings,
+            cache_invalidator=self.services.cache_invalidator,
+        )
         self.ml.init(
             uow_factory=self.db.uow,
             domain_registry=self.domain_registry,
             domain_settings=self.domain_settings,
-            domain_pack=self.domain_pack,
+            pack_catalog=self.pack_catalog,
         )
-        self.services.init()
         self.init_rate_limit()
         self.configuration = SettingsProviderConfiguration(
             domain_settings=self.domain_settings,

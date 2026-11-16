@@ -323,6 +323,7 @@ class RagOperations:
                 user,
                 list(ctx.user_group_ids),
                 current_evidence_profile().chunk_selection(ctx.as_of_date),
+                space_id=ctx.space.id if ctx.space is not None else None,
                 **managed,
             ),
             req_id=request.request_id,

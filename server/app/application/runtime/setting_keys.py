@@ -29,7 +29,6 @@ SECRET_SETTING_KEYS: frozenset[str] = frozenset(
 
 STATIC_SETTING_KEYS: frozenset[str] = frozenset(
     {
-        "domain_pack",
         "ml_internal_allowed_origins",
         "llm_allowed_origins",
         "ml_allowed_origins",

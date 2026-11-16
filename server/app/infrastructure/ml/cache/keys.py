@@ -39,6 +39,8 @@ class CacheKeyBuilder:
             state.query,
             context={
                 "as_of_date": (state.request.ctx.as_of_date or cache_today()).isoformat(),
+                # The space selects the searched documents; an answer never leaves its space.
+                "space_id": state.request.ctx.space.id if state.request.ctx.space is not None else None,
                 "depth": state.request.ctx.depth,
                 "summary": state.request.ctx.summary,
                 "question": state.request.question,

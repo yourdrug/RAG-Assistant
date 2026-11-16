@@ -8,9 +8,11 @@ from typing import TYPE_CHECKING
 
 from application.documents.dto import DocumentDTO
 from application.identity import UserContextFactory
+from application.spaces.resolution import resolve_space
 from domain.knowledge.access_control import compute_owner_and_group, validate_document_visibility
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility, SourceType
+from domain.shared.exceptions import PermissionDeniedError
 
 
 if TYPE_CHECKING:
@@ -18,6 +20,8 @@ if TYPE_CHECKING:
     from domain.identity.roles import UserKind, UserRole
 
 log = logging.getLogger(__name__)
+
+FILL_SPACE_PERMISSION = "knowledge_space.fill"
 
 
 class ManualDocumentService:
@@ -38,11 +42,18 @@ class ManualDocumentService:
         *,
         user_role: UserRole,
         group_id: int | None = None,
+        space_id: int | None = None,
     ) -> DocumentDTO:
         vis = DocumentVisibility.parse(visibility)
 
         async with self._uow_factory.create(master=True) as uow:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
+            space = await resolve_space(uow, space_id)
+
+            # A manual document fills its space like an upload does.
+            if not space.can_be_filled_by(ctx):
+                raise PermissionDeniedError(FILL_SPACE_PERMISSION)
+
             validate_document_visibility(vis, group_id, ctx)
 
             owner_id, effective_group_id = compute_owner_and_group(vis, group_id, user_id)
@@ -53,6 +64,7 @@ class ManualDocumentService:
                 visibility=vis,
                 owner_id=owner_id,
                 group_id=effective_group_id,
+                space_id=space.id,
                 status=DocumentStatus.DONE,
                 source_type=SourceType.MANUAL.value,
                 chunks=0,

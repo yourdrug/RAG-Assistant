@@ -12,7 +12,7 @@ import pytest
 
 from application.ingestion.profiles import ensure_known_domain, known_domains
 from application.runtime.errors import ConfigurationError
-from composition.domain_packs import selected_pack
+from composition.domain_packs import PACK_REGISTRATIONS, loaded_packs, selected_pack
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.shared.exceptions import ValidationError
@@ -28,9 +28,11 @@ from infrastructure.ml.rag.rag_steps import RagOperations
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
 
 # Imports every core and composition module while any domain pack import raises; prints the
-# modules that needed one. Composition loads a pack only when DOMAIN_PACK selects it.
+# modules that needed one. A core-only installation registers no optional packs.
 BLOCKED_PACKS_PROBE = """
 import importlib, importlib.abc, pkgutil, sys
+from composition.domain_packs import PACK_REGISTRATIONS
+PACK_REGISTRATIONS.clear()
 
 PACKS = ("domain.domain_packs", "application.domain_packs", "presentation.domain_packs",
          "infrastructure.domain_packs")
@@ -83,6 +85,19 @@ def test_unknown_domain_pack_is_a_configuration_error() -> None:
 
     with pytest.raises(ConfigurationError, match="belarus_typo"):
         selected_pack("belarus_typo")
+
+
+@pytest.mark.belarus
+def test_all_registered_packs_are_available_without_configuration() -> None:
+    packs = loaded_packs()
+    assert list(packs) == [NEUTRAL_PACK.key, *PACK_REGISTRATIONS]
+    assert packs["belarus_law"].pack is selected_pack("belarus_law")
+    assert packs["belarus_law"].wiring.routers()
+
+
+def test_core_without_registered_packs_loads_only_neutral_rules(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("composition.domain_packs.PACK_REGISTRATIONS", {})
+    assert list(loaded_packs()) == [NEUTRAL_PACK.key]
 
 
 def test_neutral_pack_knows_only_general_documents_and_rules() -> None:

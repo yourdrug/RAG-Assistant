@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from composition.cli.cli import cli
 from composition.container import Container
-from composition.domain_packs import selected_wiring
+from composition.domain_packs import loaded_packs, pack_routers
 from config import settings
 from domain.shared.exceptions import AppClientError, AppServerError
 from infrastructure.database.database import database
@@ -65,6 +65,7 @@ from presentation.api.routes.groups import router as groups_router
 from presentation.api.routes.health import router as health_router
 from presentation.api.routes.ingest import router as ingest_router
 from presentation.api.routes.search import router as search_router
+from presentation.api.routes.spaces import router as spaces_router
 
 
 logger = logging.getLogger("default")
@@ -217,6 +218,7 @@ class Application:
             documents_router,
             chunks_router,
             groups_router,
+            spaces_router,
             health_router,
             benchmark_router,
             benchmark_admin_router,
@@ -230,7 +232,7 @@ class Application:
             curators_router,
         )
 
-        for router in (*routers, *selected_wiring(settings.domain_pack).routers()):
+        for router in (*routers, *pack_routers(loaded_packs())):
             self.app.include_router(router)
 
 

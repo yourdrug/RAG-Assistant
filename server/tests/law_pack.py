@@ -128,7 +128,7 @@ class LawFakeUnitOfWork(FakeUnitOfWork):
         super().__init__()
         self.fake_regulatory_acts = self.regulatory_acts = FakeRegulatoryActRepository()
         self.fake_act_versions = self.act_versions = FakeActVersionRepository()
-        self._pack_repositories = ActRepositories(self.regulatory_acts, self.act_versions)
+        self._pack_repositories = (ActRepositories(self.regulatory_acts, self.act_versions),)
 
 
 class LawFakeUnitOfWorkFactory(FakeUnitOfWorkFactory):

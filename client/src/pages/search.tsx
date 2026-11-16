@@ -1,10 +1,12 @@
 "use client";
 import { FileText, Search as SearchIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
+import { defaultSpaceId, useSpaces } from "@/shared/api/hooks";
 import { type SearchMode, useExactSearch } from "@/shared/api/hooks/use-search";
 import { getSearchPagination } from "@/shared/lib/search-pagination";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 const SEARCH_PAGE_SIZE = 50;
 
@@ -28,9 +30,13 @@ export function SearchPage() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("exact");
   const [search, setSearch] = useState({ query: "", mode: "exact" as SearchMode, offset: 0 });
+  const { data: spaces } = useSpaces();
+  const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
+  // The search runs in one knowledge space: the chosen one, or the only one.
+  const spaceId = spaceChoice ?? defaultSpaceId(spaces);
   const isCurrentSearch = search.query === query.trim() && search.mode === mode;
-  const hasSearched = isCurrentSearch && search.query.length >= 3;
-  const exactSearch = useExactSearch({ ...search, limit: SEARCH_PAGE_SIZE }, hasSearched);
+  const hasSearched = isCurrentSearch && search.query.length >= 3 && spaceId != null;
+  const exactSearch = useExactSearch({ ...search, spaceId, limit: SEARCH_PAGE_SIZE }, hasSearched);
   const results = hasSearched ? (exactSearch.data?.results ?? []) : [];
   const total = hasSearched ? (exactSearch.data?.total ?? 0) : 0;
   const offset = exactSearch.data?.offset ?? search.offset;
@@ -55,7 +61,7 @@ export function SearchPage() {
           <div>
             <h1 className="text-2xl font-bold">Search</h1>
             <p className="text-sm text-muted-foreground">
-              Search across all indexed document chunks
+              Search across indexed document chunks of a knowledge space
             </p>
           </div>
 
@@ -77,6 +83,23 @@ export function SearchPage() {
 
           {/* Mode toggle */}
           <div className="flex items-center gap-4">
+            {(spaces?.length ?? 0) > 1 && (
+              <Select
+                value={spaceId != null ? String(spaceId) : ""}
+                onValueChange={(v) => setSpaceChoice(Number(v))}
+              >
+                <SelectTrigger className="h-8 w-48">
+                  <SelectValue placeholder="Choose a space" />
+                </SelectTrigger>
+                <SelectContent>
+                  {spaces?.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <span className="text-xs text-muted-foreground">Mode:</span>
             <label className="flex items-center gap-1.5 cursor-pointer text-sm">
               <input

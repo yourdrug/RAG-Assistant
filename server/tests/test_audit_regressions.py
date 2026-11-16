@@ -14,6 +14,7 @@ from application.jobs.service import JobService
 from application.ports.job_enqueuer import DuplicateJobError
 from application.ports.ml_clients import MLClientPort
 from application.rag.dto import PreparedQuery
+from application.spaces import KnowledgeSpaceService
 from config import get_request_settings, settings
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
@@ -31,7 +32,7 @@ from infrastructure.repositories.vector.acl import build_search_filter
 from infrastructure.worker import queue
 from presentation.api.dependencies import IdempotencyContext, JobSubmission
 from presentation.api.routes import ingest as ingest_routes
-from tests.fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakePackCatalog, FakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -111,9 +112,14 @@ async def test_sweep_dense_and_sparse_share_production_pack_selection() -> None:
             del as_of_date
             return Missing("hidden")
 
-    metadata: dict[str, Any] = {"visibility": DocumentVisibility.INTERNAL_PUBLIC.value}
+    metadata: dict[str, Any] = {"visibility": DocumentVisibility.INTERNAL_PUBLIC.value, "space_id": 1}
     points = [
         SimpleNamespace(id=1, score=1.0, payload={"page_content": "evidence", "metadata": metadata}),
+        SimpleNamespace(
+            id=5,
+            score=1.0,
+            payload={"page_content": "other space", "metadata": {**metadata, "space_id": 2}},
+        ),
         SimpleNamespace(
             id=2,
             score=1.0,
@@ -144,14 +150,14 @@ async def test_sweep_dense_and_sparse_share_production_pack_selection() -> None:
     clients.qdrant_client.return_value = SimpleNamespace(search=search)
     clients.embeddings.return_value = SimpleNamespace(embed_query_sync=lambda _query: [0.1])
     with evidence_profile_scope(HidingProfile()):
-        dense, sparse, candidates = await SweepDataSource(MagicMock(), clients).cache_candidates(
+        dense, sparse, candidates = await SweepDataSource(FakeUnitOfWorkFactory(), clients).cache_candidates(
             [{"question": "evidence"}], 10
         )
     assert set(candidates) == {"1"}
     assert [key for key, *_ in dense["evidence"]] == ["1"]
     assert [key for key, _ in sparse["evidence"]] == ["1"]
     production = build_search_filter(
-        {"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}, [], Missing("hidden")
+        {"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}, [], Missing("hidden"), space_id=1
     )
     assert filters == [production, production]
 
@@ -251,7 +257,7 @@ async def test_ingestion_duplicate_delivery_preserves_durable_job(single: bool) 
         "request": request,
         "admin": MagicMock(),
         "service": service,
-        "registry": None,
+        "spaces": KnowledgeSpaceService(FakeUnitOfWorkFactory(), FakePackCatalog()),
         "submission": JobSubmission(jobs=jobs, enqueuer=enqueuer, log=MagicMock()),
         "idempotency": IdempotencyContext(key=None, store=MagicMock()),
         "options": ingest_routes.IngestOptions(),

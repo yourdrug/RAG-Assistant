@@ -50,6 +50,7 @@ async def test_exact_probe_extracts_reference_and_preserves_document_acl_and_dat
         mode=SearchMode.PROVISION.value,
         document_ids=[42],
         selection=None,
+        space_id=None,
     )
     assert candidates[-1].page_content == match.content
     assert candidates[-1].metadata["document_id"] == 42

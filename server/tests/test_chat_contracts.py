@@ -24,6 +24,7 @@ from domain.chat.message import Message, MessageRole
 from domain.chat.repositories import ChatLogFilter
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocDomain
+from domain.knowledge.space import KnowledgeSpace
 from domain.rag.breadth import Breadth
 from domain.rag.result import RagResult
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, PermissionDeniedError
@@ -41,11 +42,13 @@ if TYPE_CHECKING:
 def chat_fixture() -> SimpleNamespace:
     uow = AsyncMock()
     uow.conversations.get_or_create.return_value = Conversation(id=7, user_id=1, summary="summary")
+    uow.conversations.assign_space.return_value = 1
     uow.messages.get_history.return_value = [
         Message(role=MessageRole.ASSISTANT, content="previous"),
         Message(role=MessageRole.USER, content="pending"),
     ]
     uow.groups.get_user_group_ids.return_value = [2]
+    uow.knowledge_spaces.list_all.return_value = [KnowledgeSpace(id=1, name="Общее", pack_key="generic")]
     uow.assignments.get_managed_client_ids.return_value = [10]
     uow.assignments.get_managed_internal_ids.return_value = [11]
     uow.assignments.get_managed_group_ids.return_value = [12]

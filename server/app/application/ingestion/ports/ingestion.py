@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 @runtime_checkable
 class IngestionPort(Protocol):
     def resolve_docs_dir(self, docs_dir: str) -> str: ...
-    async def run_full(
+    async def run_full(  # noqa: PLR0913 - keyword-only ingestion scope of one job
         self,
         docs_dir: str | None = None,
         *,
@@ -27,6 +27,7 @@ class IngestionPort(Protocol):
         group_id: int | None = None,
         client_id: int | None = None,
         job_id: int | None = None,
+        space_id: int | None = None,
     ) -> IngestStatusResult: ...
     def resolve_ingest_target(self, file_path: str) -> str: ...
     async def run_single(
@@ -38,6 +39,7 @@ class IngestionPort(Protocol):
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
+        space_id: int | None = None,
     ) -> IngestStatusResult: ...
     async def get_registry(self) -> IngestRegistryResult: ...
     async def force_reindex(self, filename: str) -> None: ...

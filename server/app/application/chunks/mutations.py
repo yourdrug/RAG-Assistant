@@ -20,7 +20,7 @@ from domain.shared.hashing import content_hash
 
 if TYPE_CHECKING:
     from application.chunks.ports.settings import ChunkSettingsPort
-    from application.indexing.pack_hooks import DocumentPackHooks
+    from application.indexing.pack_hooks import DocumentHooksResolver
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.identity.roles import UserRole
@@ -44,7 +44,7 @@ class ChunkMutationService:
         *,
         cache_invalidator: CacheInvalidatorPort | None = None,
         token_counter: TokenCounter | None = None,
-        pack_hooks: DocumentPackHooks | None = None,
+        pack_hooks: DocumentHooksResolver | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._settings = chunk_settings
@@ -165,6 +165,7 @@ class ChunkMutationService:
                 visibility=doc.visibility,
                 owner_id=doc.owner_id,
                 group_id=doc.group_id,
+                space_id=doc.space_id,
                 filename=doc.filename,
                 doc_domain=doc.doc_domain,
                 content_hash=new_hash,
@@ -233,7 +234,7 @@ class ChunkMutationService:
 
             # The pack reads its document state inside the write transaction and holds
             # its locks until both the SQL chunk and vector outbox snapshot are committed.
-            hooks = self._pack_hooks
+            hooks = await self._pack_hooks.for_document(uow, doc) if self._pack_hooks is not None else None
             pack_metadata = await hooks.chunk_metadata(uow, document_id) if hooks is not None else {}
 
             max_index = await chunks.get_max_chunk_index(document_id)
@@ -257,6 +258,7 @@ class ChunkMutationService:
                 options=ManualChunkInsertOptions(
                     owner_id=doc.owner_id,
                     group_id=doc.group_id,
+                    space_id=doc.space_id,
                     manual=True,
                     content_hash=new_hash,
                     context_metadata=context_metadata,
@@ -270,6 +272,7 @@ class ChunkMutationService:
                 visibility=doc.visibility,
                 owner_id=doc.owner_id,
                 group_id=doc.group_id,
+                space_id=doc.space_id,
                 filename=doc.filename,
                 doc_domain=doc.doc_domain,
                 content_hash=new_hash,

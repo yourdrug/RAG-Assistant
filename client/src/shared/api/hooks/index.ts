@@ -88,3 +88,11 @@ export { useIngestAll, useIngestFile, useIngestRegistry, useUploadFiles } from "
 export { useJob, useJobAction, useJobStats, useJobs } from "./use-jobs";
 export { useLogs } from "./use-logs";
 export { useMetrics } from "./use-metrics";
+export {
+  defaultSpaceId,
+  useCreateSpace,
+  useDeleteSpace,
+  useDomainPacks,
+  useSpaces,
+  useUpdateSpace,
+} from "./use-spaces";

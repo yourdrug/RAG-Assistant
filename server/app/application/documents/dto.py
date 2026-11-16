@@ -44,6 +44,7 @@ class DocumentDTO:
     replace_id: int | None = None
     owner_id: int | None = None
     group_id: int | None = None
+    space_id: int | None = None
     doc_domain: str = DocDomain.GENERAL.value
     source_type: str = SourceType.FILE.value
     has_manual_edits: bool = False
@@ -81,6 +82,7 @@ class DocumentDTO:
             chars=doc.chars,
             owner_id=doc.owner_id,
             group_id=doc.group_id,
+            space_id=doc.space_id,
             doc_domain=doc.doc_domain,
             source_type=doc.source_type,
             has_manual_edits=doc.has_manual_edits,
@@ -149,3 +151,5 @@ class UploadOptions(TypedDict):
     rename_on_conflict: NotRequired[bool]
     doc_domain: NotRequired[str | None]
     replaces_document_id: NotRequired[int | None]
+    # Knowledge space to fill; the only space is used when omitted.
+    space_id: NotRequired[int | None]

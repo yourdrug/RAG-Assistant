@@ -21,6 +21,7 @@ export function useIngestAll() {
       visibility,
       groupId,
       clientId,
+      spaceId,
     }: {
       docsDir: string;
       reset?: boolean;
@@ -28,6 +29,8 @@ export function useIngestAll() {
       visibility?: string;
       groupId?: number | null;
       clientId?: number | null;
+      /** Knowledge space of new documents; the only space when omitted. */
+      spaceId?: number | null;
     }) =>
       (
         await apiClient.post<IngestStatusResponse>("/ingest", null, {
@@ -38,6 +41,7 @@ export function useIngestAll() {
             visibility: visibility ?? "internal_public",
             group_id: groupId,
             client_id: clientId,
+            space_id: spaceId ?? undefined,
           },
         })
       ).data,
@@ -55,6 +59,7 @@ export function useIngestFile() {
       visibility,
       groupId,
       clientId,
+      spaceId,
     }: {
       filePath: string;
       force?: boolean;
@@ -62,6 +67,8 @@ export function useIngestFile() {
       visibility?: string;
       groupId?: number | null;
       clientId?: number | null;
+      /** Knowledge space of new documents; the only space when omitted. */
+      spaceId?: number | null;
     }) =>
       (
         await apiClient.post<IngestStatusResponse>("/ingest/file", null, {
@@ -72,6 +79,7 @@ export function useIngestFile() {
             visibility: visibility ?? "internal_public",
             group_id: groupId,
             client_id: clientId,
+            space_id: spaceId ?? undefined,
           },
         })
       ).data,

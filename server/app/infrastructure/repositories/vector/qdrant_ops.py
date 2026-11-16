@@ -157,6 +157,7 @@ def ensure_payload_indexes(client: VectorClient) -> None:
         ("metadata.visibility", PayloadSchemaType.KEYWORD),
         ("metadata.owner_id", PayloadSchemaType.INTEGER),
         ("metadata.group_id", PayloadSchemaType.INTEGER),
+        ("metadata.space_id", PayloadSchemaType.INTEGER),
         ("metadata.doc_domain", PayloadSchemaType.KEYWORD),
         ("metadata.document_id", PayloadSchemaType.INTEGER),
         ("metadata.content_hash", PayloadSchemaType.KEYWORD),

@@ -24,7 +24,7 @@ from domain.shared.exceptions import (
     UniqueConstraintError,
     ValidationError,
 )
-from tests.fakes import FakeUnitOfWork, FakeUnitOfWorkFactory
+from tests.fakes import FakePackCatalog, FakeUnitOfWork, FakeUnitOfWorkFactory
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ def _service(
     fs.delete_file = AsyncMock()
     context_factory = UserContextFactory()
     cmd = DocumentCommandService(
-        DocumentUploadCommand(factory, fs, context_factory),
+        DocumentUploadCommand(factory, fs, context_factory, FakePackCatalog()),
         DocumentDeleteCommand(factory, fs, context_factory),
         DocumentRenameCommand(factory, fs, context_factory),
     )

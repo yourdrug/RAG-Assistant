@@ -16,6 +16,7 @@ from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
+from domain.knowledge.space import SPACE_ID_KEY
 from domain.shared.hashing import content_hash
 
 
@@ -79,6 +80,7 @@ def build_outbox_metadata(
     owner_id: int | None,
     group_id: int | None,
     *,
+    space_id: int | None,
     filename: str,
     doc_domain: str,
     **extra: object,
@@ -94,6 +96,7 @@ def build_outbox_metadata(
         "visibility": vis,
         "owner_id": owner_id,
         "group_id": group_id,
+        SPACE_ID_KEY: space_id,
         "source": filename,
         "doc_domain": doc_domain,
     }
@@ -197,6 +200,9 @@ async def process_chunks_in_uow(
     **options: Unpack[ChunkWriteOptions],
 ) -> None:
     replaced_ids = await uow.chunks.get_ids_by_document_id(document_id, for_update=True)
+    document = await uow.documents.get_by_id(document_id)
+    # Chunks and their vector payload carry the document's space as a search selection label.
+    space_id = document.space_id if document is not None else None
     # 1. Bulk insert → получаем chunk_ids
     # Doc-level domain and pack metadata live identically on every chunk's metadata.
     first_meta = chunks[0].metadata if chunks else {}
@@ -222,6 +228,7 @@ async def process_chunks_in_uow(
         options=ChunkInsertOptions(
             owner_id=options["owner_id"],
             group_id=options["group_id"],
+            space_id=space_id,
             doc_domain=options["doc_domain"],
             domain_metadata=first_meta.get("domain_metadata"),
             pack_metadata=dict(first_meta.get(PACK_METADATA_KEY) or {}),
@@ -238,6 +245,7 @@ async def process_chunks_in_uow(
     for i, (chunk_id, rc) in enumerate(zip(chunk_ids, chunks, strict=True)):
         rc.metadata["chunk_id"] = chunk_id
         rc.metadata["chunk_index"] = i
+        rc.metadata[SPACE_ID_KEY] = space_id
         rc.metadata.pop(NODE_PATH_KEY, None)
 
     # 3. Enqueue outbox for Qdrant

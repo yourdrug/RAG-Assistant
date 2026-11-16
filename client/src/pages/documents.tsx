@@ -6,11 +6,13 @@ import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
 import {
+  defaultSpaceId,
   useDeleteDocument,
   useDocumentDomains,
   useDocuments,
   useGroups,
   useRenameDocument,
+  useSpaces,
   useUploadableClients,
   useUploadDocument,
 } from "@/shared/api/hooks";
@@ -63,7 +65,14 @@ export function DocumentsPage() {
   const [progress, setProgress] = useState(0);
   const { data: groups } = useGroups();
   const { data: uploadableClients } = useUploadableClients();
-  const { data: documentDomains } = useDocumentDomains();
+  const { data: spaces } = useSpaces();
+  // Only admitted groups may fill a space; ADMIN fills any.
+  const fillableSpaces = (spaces || []).filter((s) => s.can_upload);
+  const spaceNames = new Map((spaces || []).map((s) => [s.id, s.name]));
+  const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
+  // An explicit choice, or the only space the user may fill.
+  const spaceId = spaceChoice ?? defaultSpaceId(fillableSpaces);
+  const { data: documentDomains } = useDocumentDomains(spaceId, spaceId != null);
 
   useEffect(() => {
     if (user) {
@@ -78,7 +87,10 @@ export function DocumentsPage() {
   const [conflictFile, setConflictFile] = useState<File | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
-  const existingNames = new Set((documents || []).map((d) => d.filename));
+  // A filename is unique within a space; the same file may be loaded into another space.
+  const existingNames = new Set(
+    (documents || []).filter((d) => d.space_id === spaceId).map((d) => d.filename),
+  );
 
   const onDrop = useCallback((f: File[]) => {
     setFiles(f);
@@ -102,6 +114,7 @@ export function DocumentsPage() {
       clientId: vis === "client_private" ? clientId : undefined,
       renameOnConflict,
       docDomain: docDomain === "auto" ? undefined : docDomain,
+      spaceId,
     });
   };
 
@@ -224,6 +237,21 @@ export function DocumentsPage() {
         );
       },
     },
+    ...((spaces?.length ?? 0) > 1
+      ? [
+          {
+            accessorKey: "space_id",
+            header: "Space",
+            size: 120,
+            minSize: 90,
+            cell: ({ row }) => (
+              <Badge variant="outline">
+                {spaceNames.get(row.original.space_id ?? -1) ?? row.original.space_id}
+              </Badge>
+            ),
+          } satisfies ColumnDef<DocumentResponse>,
+        ]
+      : []),
     {
       accessorKey: "doc_domain",
       header: "Domain",
@@ -357,6 +385,33 @@ export function DocumentsPage() {
           </DialogHeader>
           <div className="space-y-4 min-w-0">
             <div className="space-y-2">
+              <label className="text-sm font-medium">Knowledge Space</label>
+              <Select
+                value={spaceId != null ? String(spaceId) : ""}
+                onValueChange={(v) => {
+                  setSpaceChoice(Number(v));
+                  // Profiles belong to the space's pack.
+                  setDocDomain("auto");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a space" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fillableSpaces.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {fillableSpaces.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  You are not admitted to fill any space. Ask an administrator.
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
               <label className="text-sm font-medium">Visibility</label>
               <Select
                 value={vis}
@@ -482,6 +537,7 @@ export function DocumentsPage() {
               onClick={handleUpload}
               disabled={
                 uploadMut.isPending ||
+                spaceId == null ||
                 (vis === "internal_group" && groupId == null) ||
                 (vis === "client_private" && !isClient && clientId == null)
               }

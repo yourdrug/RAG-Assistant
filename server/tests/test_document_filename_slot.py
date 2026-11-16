@@ -43,7 +43,11 @@ def document_session() -> Iterator[Session]:
 
 
 def add_document(
-    session: Session, status: DocumentStatus, owner_id: int | None = None, group_id: int | None = None
+    session: Session,
+    status: DocumentStatus,
+    owner_id: int | None = None,
+    group_id: int | None = None,
+    space_id: int = 1,
 ) -> DocumentModel:
     doc = DocumentModel(
         filename="report.pdf",
@@ -52,6 +56,7 @@ def add_document(
         status=status.value,
         owner_id=owner_id,
         group_id=group_id,
+        space_id=space_id,
     )
     session.add(doc)
     session.flush()
@@ -106,3 +111,37 @@ def test_postgresql_slot_index_rejects_upload_while_indexing(
     add_document(document_session, DocumentStatus.INDEXING, owner_id, group_id)
     with pytest.raises(IntegrityError):
         add_document(document_session, DocumentStatus.PENDING, owner_id, group_id)
+
+
+def create_slot_index(session: Session) -> None:
+    index = next(
+        index
+        for index in DocumentModel.metadata.tables[DocumentModel.__tablename__].indexes
+        if index.name == "ux_documents_active_slot"
+    )
+    session.connection().exec_driver_sql(
+        str(CreateIndex(index).compile(dialect=postgresql.dialect()))  # type: ignore[no-untyped-call]  # SQLAlchemy exposes no typed DDL compiler in this version.
+    )
+
+
+def test_slot_index_allows_the_same_file_in_another_space(document_session: Session) -> None:
+    """A document needed in two spaces is loaded into each of them."""
+    create_slot_index(document_session)
+    add_document(document_session, DocumentStatus.DONE, owner_id=1, space_id=1)
+    add_document(document_session, DocumentStatus.DONE, owner_id=1, space_id=2)
+
+    with pytest.raises(IntegrityError):
+        add_document(document_session, DocumentStatus.PENDING, owner_id=1, space_id=2)
+
+
+@pytest.mark.asyncio
+async def test_find_active_slot_is_per_space(document_session: Session) -> None:
+    doc = add_document(document_session, DocumentStatus.DONE, owner_id=1, space_id=2)
+    repository = SQLAlchemyDocumentRepository(cast("AsyncSession", LocalDocumentSession(document_session)))
+
+    assert await repository.find_active_slot(1, "report.pdf", None, space_id=1) is None
+    found = await repository.find_active_slot(1, "report.pdf", None, space_id=2)
+    assert found is not None
+    assert found.id == doc.id
+    assert found.space_id == 2
+    assert await repository.find_active_slots_by_filenames(["report.pdf"], owner_id=1, space_id=1) == []

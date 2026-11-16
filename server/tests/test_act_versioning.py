@@ -27,6 +27,7 @@ from domain.domain_packs.belarus_law.acts.edition_metadata import edition_metada
 from domain.domain_packs.belarus_law.acts.models import ActVersion, RegulatoryAct
 from domain.ingestion.profiles.types import ReferenceMatch
 from domain.knowledge.document import Document
+from domain.knowledge.document_scope import document_scope_key
 from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.exceptions import EntityNotFoundError
 from tests.law_pack import LawFakeUnitOfWorkFactory
@@ -118,10 +119,17 @@ async def test_handle_versioned_upload_unsets_previous_current_and_syncs_chunks(
     uow = factory._uow
 
     for document_id in (10, 11):
-        uow.fake_documents._documents[document_id] = Document(id=document_id)
+        uow.fake_documents._documents[document_id] = Document(id=document_id, space_id=1)
 
     act = await uow.fake_regulatory_acts.save(
-        RegulatoryAct(id=None, act_type="decree", act_number="5", title="Указ №5", act_date=date(2026, 1, 1))
+        RegulatoryAct(
+            id=None,
+            act_type="decree",
+            act_number="5",
+            title="Указ №5",
+            act_date=date(2026, 1, 1),
+            visibility_scope=document_scope_key(uow.fake_documents._documents[10]),
+        )
     )
     old_version = await uow.fake_act_versions.create(
         ActVersion(id=None, act_id=act.id, document_id=10, is_current=True, date_source="manual")

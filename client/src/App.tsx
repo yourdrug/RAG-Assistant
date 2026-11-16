@@ -25,6 +25,9 @@ const AdminUsersPage = lazy(() =>
 const AdminGroupsPage = lazy(() =>
   import("@/pages/admin/groups").then((m) => ({ default: m.AdminGroupsPage })),
 );
+const AdminSpacesPage = lazy(() =>
+  import("@/pages/admin/spaces").then((m) => ({ default: m.AdminSpacesPage })),
+);
 const AdminCuratorsPage = lazy(() =>
   import("@/pages/admin/curators").then((m) => ({ default: m.AdminCuratorsPage })),
 );
@@ -114,6 +117,14 @@ export default function App() {
                       element={
                         <Suspense fallback={<AdminFallback />}>
                           <AdminGroupsPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="spaces"
+                      element={
+                        <Suspense fallback={<AdminFallback />}>
+                          <AdminSpacesPage />
                         </Suspense>
                       }
                     />

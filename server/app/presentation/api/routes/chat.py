@@ -173,6 +173,7 @@ async def chat_sync(
             current_user.role,
             depth=req.depth,
             as_of_date=req.as_of_date,
+            space_id=req.space_id,
         )
         return ChatResponse(
             answer=result.answer,
@@ -207,6 +208,7 @@ async def stream_chat_events(
             current_user.role,
             depth=req.depth,
             as_of_date=req.as_of_date,
+            space_id=req.space_id,
         ):
             if await request.is_disconnected():
                 logger.info("Client disconnected, stopping stream (request_id=%s)", req_id)

@@ -17,6 +17,7 @@ from application.benchmark.sweep_evaluation import SweepFullEvaluator
 from application.documents import DocumentProcessor
 from application.documents.dto import DocumentProcessingDependencies
 from application.documents.reindex import DocumentReindexService
+from application.documents.space_processor import SpaceDocumentProcessor
 from application.indexing.contextualization import ChunkContextualization
 from application.ingestion import (
     BatchIngestionWorkflow,
@@ -28,7 +29,10 @@ from application.ingestion import (
     S3UploadService,
     SingleFileIngestionWorkflow,
 )
+from application.ingestion.space_router import SpaceIngestionService
 from application.rag.service import RagService as ApplicationRagService
+from application.rag.space_router import SpaceRagRouter
+from application.spaces import SpacePackHooks, default_space
 from composition.utils import require
 from config import ChunkingSection, process_section
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
@@ -37,6 +41,7 @@ from infrastructure.benchmark.sweep.data import SweepDataSource
 from infrastructure.benchmark.sweep.scoring import score_stage_candidates
 from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 from infrastructure.benchmark.sweep.strategies import default_strategy_factories
+from infrastructure.domain_profile.packs import NEUTRAL_PACK_KEY
 from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
     IngestionDocumentSplitter,
@@ -45,12 +50,13 @@ from infrastructure.ml.config.settings_adapters import LiveIngestionSettings
 from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile, evidence_profile_scope
 from infrastructure.ml.guardrails.text_quality_adapter import TextQualityAssessorAdapter
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer, RedisNoteCache
+from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag.rag_steps import RagOperations
 from infrastructure.redis.redis_client import redis_client
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncIterator, Callable, Mapping
 
     from application.benchmark import BenchmarkCheckpoints
     from application.benchmark.sweep import SweepBenchmarkPort
@@ -61,6 +67,7 @@ if TYPE_CHECKING:
     from application.ports.ml_clients import MLClientPort
     from application.uow.factory import UnitOfWorkFactory
     from composition.infrastructure import InfrastructureContainer
+    from composition.pack_catalog import LoadedPackCatalog
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.rag.ports import ChunkRetrievalRepository
     from infrastructure.ml.evidence_profiles.profiles import EvidenceProfile
@@ -68,7 +75,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 
-def build_sweep_engine(
+def build_sweep_engine(  # noqa: PLR0913 - independent build options
     uow_factory: UnitOfWorkFactory,
     benchmark_service: SweepBenchmarkPort | None = None,
     ml_clients: MLClientPort | None = None,
@@ -77,13 +84,23 @@ def build_sweep_engine(
     strategies: dict[str, Callable[[dict[str, Any]], SweepSearchStrategy]] | None = None,
     checkpoint_factory: Callable[[int], BenchmarkCheckpoints] | None = None,
     evidence_profile: EvidenceProfile | None = None,
+    evidence_profiles: Mapping[str, EvidenceProfile] | None = None,
 ) -> SweepEngine:
-    # Sweep reranking reads evidence rules; the run uses the domain pack's profile (neutral by default).
-    profile = evidence_profile or GenericEvidenceProfile()
+    """Sweep reranking reads evidence rules: an explicit profile, else the default space's pack's.
+
+    Without either the neutral rules apply.
+    """
+
+    async def run_profile() -> EvidenceProfile:
+        if evidence_profile is not None or evidence_profiles is None:
+            return evidence_profile or GenericEvidenceProfile()
+
+        space = await default_space(uow_factory)
+        return evidence_profiles.get(space.pack_key) or GenericEvidenceProfile()
 
     @asynccontextmanager
     async def corpus() -> AsyncIterator[dict[str, Any]]:
-        with evidence_profile_scope(profile):
+        with evidence_profile_scope(await run_profile()):
             async with benchmark_corpus(ml_clients) as snapshot:
                 yield corpus_metadata(snapshot)
 
@@ -105,12 +122,13 @@ def create_sweep_engine(infra: InfrastructureContainer) -> SweepEngine:
     def checkpoints(sweep_id: int) -> BenchmarkCheckpoints:
         return DatabaseBenchmarkCheckpoints(uow_factory, sweep_id)
 
+    catalog = pack_catalog(infra)
     return build_sweep_engine(
         uow_factory=uow_factory,
         benchmark_service=require(infra.ml.benchmark_service, "benchmark_service"),
         ml_clients=require(infra.ml.ml_clients, "ml_clients"),
         checkpoint_factory=checkpoints,
-        evidence_profile=infra.domain_pack.evidence_profile,
+        evidence_profiles={key: catalog.pack(key).evidence_profile for key in catalog.pack_keys()},
     )
 
 
@@ -133,26 +151,39 @@ def create_chunk_contextualization(infra: InfrastructureContainer) -> ChunkConte
     )
 
 
-def create_pack_hooks(infra: InfrastructureContainer, uow: UnitOfWorkFactory) -> DocumentPackHooks | None:
-    """The active domain pack's document lifecycle hooks; ``None`` for packs without them."""
-    factory = infra.pack_wiring.document_hooks
+def pack_catalog(infra: InfrastructureContainer) -> LoadedPackCatalog:
+    return require(infra.pack_catalog, "pack_catalog")
 
-    if factory is None:
-        return None
 
-    return factory(
-        uow,
-        require(infra.domain_registry, "domain_registry"),
-        require(infra.domain_settings, "domain_settings"),
-        infra.services.cache_invalidator,
+def create_pack_hooks(
+    infra: InfrastructureContainer, uow: UnitOfWorkFactory, pack_key: str = NEUTRAL_PACK_KEY
+) -> DocumentPackHooks | None:
+    """One pack's document lifecycle hooks; ``None`` for packs without them."""
+    return pack_catalog(infra).build_hooks(pack_key, uow)
+
+
+def create_space_pack_hooks(infra: InfrastructureContainer) -> SpacePackHooks:
+    """Hooks of each document's pack, chosen by the document's space."""
+    return SpacePackHooks(pack_catalog(infra))
+
+
+def pack_parsing(
+    infra: InfrastructureContainer, pack_key: str
+) -> tuple[IngestionDocumentParser, IngestionDocumentSplitter]:
+    """Parser and splitter that know only the document profiles of one pack."""
+    registry = pack_catalog(infra).domain_registry(pack_key)
+    parser = LangchainDocumentParser(domain_registry=registry, domain_settings=infra.domain_settings)
+    splitter = LangchainDocumentSplitter(
+        token_counter=infra.ml.token_counter, domain_registry=registry, domain_settings=infra.domain_settings
     )
+    return IngestionDocumentParser(parser), IngestionDocumentSplitter(splitter)
 
 
 def create_ingestion_service(
     infra: InfrastructureContainer,
     uow_factory: UnitOfWorkFactory | None = None,
-) -> IngestionService:
-    """Create an IngestionService using infrastructure singletons.
+) -> SpaceIngestionService:
+    """Ingest storage files into a space with the rules of the space's pack.
 
     When *uow_factory* is ``None``, use the initialized application UoW.
     Ingestion always requires a UoW because database sync and registry writes
@@ -162,25 +193,35 @@ def create_ingestion_service(
         uow_factory if uow_factory is not None else infra.db.uow_factory,
         "uow_factory",
     )
+    services = {
+        key: create_pack_ingestion_service(infra, uow, key) for key in pack_catalog(infra).pack_keys()
+    }
+    return SpaceIngestionService(uow, services, services[NEUTRAL_PACK_KEY])
 
+
+def create_pack_ingestion_service(
+    infra: InfrastructureContainer, uow: UnitOfWorkFactory, pack_key: str
+) -> IngestionService:
     file_storage = require(infra.ml.file_storage, "file_storage")
+    domain_registry = pack_catalog(infra).domain_registry(pack_key)
+    parser, splitter = pack_parsing(infra, pack_key)
 
     registry = IngestionRegistry(uow, file_storage)
     sync = DocumentSyncService(
         uow,
         # CLI ingestion records pack state the same way the API upload path does.
-        create_pack_hooks(infra, uow),
-        infra.domain_registry,
+        create_pack_hooks(infra, uow, pack_key),
+        domain_registry,
         infra.domain_settings,
         contextualization=create_chunk_contextualization(infra),
     )
     ingestion_settings = LiveIngestionSettings()
     loader = S3DocumentLoader(
         file_storage,
-        IngestionDocumentParser(require(infra.ml.document_parser, "document_parser")),
-        IngestionDocumentSplitter(require(infra.ml.document_splitter, "document_splitter")),
+        parser,
+        splitter,
         ingestion_settings,
-        domain_registry=infra.domain_registry,
+        domain_registry=domain_registry,
         domain_settings=infra.domain_settings,
         registry=registry,
     )
@@ -208,30 +249,37 @@ def create_ingestion_service(
 def create_document_processor(
     infra: InfrastructureContainer,
     uow_factory: UnitOfWorkFactory | None = None,
-) -> DocumentProcessor:
-    """Create a DocumentProcessor using infrastructure singletons."""
+) -> SpaceDocumentProcessor:
+    """Process each document with the processor of its space's pack."""
     uow = require(
         uow_factory if uow_factory is not None else infra.db.uow_factory,
         "uow_factory",
     )
+    processors = {
+        key: create_pack_document_processor(infra, uow, key) for key in pack_catalog(infra).pack_keys()
+    }
+    return SpaceDocumentProcessor(uow, processors)
 
+
+def create_pack_document_processor(
+    infra: InfrastructureContainer, uow: UnitOfWorkFactory, pack_key: str
+) -> DocumentProcessor:
+    parser, splitter = pack_parsing(infra, pack_key)
     return DocumentProcessor(
         uow_factory=uow,
         file_storage=require(infra.ml.file_storage, "file_storage"),
         dependencies=DocumentProcessingDependencies(
-            document_parser=IngestionDocumentParser(require(infra.ml.document_parser, "document_parser")),
-            document_splitter=IngestionDocumentSplitter(
-                require(infra.ml.document_splitter, "document_splitter")
-            ),
+            document_parser=parser,
+            document_splitter=splitter,
             content_extractor=require(infra.ml.content_extractor, "content_extractor"),
             pdf_quality_assessor=require(infra.ml.pdf_quality_assessor, "pdf_quality_assessor"),
             text_quality_assessor=TextQualityAssessorAdapter(),
             metrics=require(infra.ml.metrics_collector, "metrics_collector"),
             chunk_contextualization=create_chunk_contextualization(infra),
         ),
-        domain_registry=infra.domain_registry,
+        domain_registry=pack_catalog(infra).domain_registry(pack_key),
         domain_settings=infra.domain_settings,
-        pack_hooks=create_pack_hooks(infra, uow),
+        pack_hooks=create_pack_hooks(infra, uow, pack_key),
     )
 
 
@@ -274,3 +322,29 @@ def create_rag_service(
         finalization=operations,
         corpus=operations.corpus,
     )
+
+
+def create_space_rag_router(
+    infra: InfrastructureContainer,
+    ml_clients: MLClientPort,
+    chunk_search: ChunkRetrievalRepository,
+    pii_redactor: PIIRedactorPort,
+    document_access: DocumentAccessPort,
+) -> SpaceRagRouter:
+    """One RAG service per loaded pack: its profiles, evidence rules and answer policies."""
+    catalog = pack_catalog(infra)
+    services = {}
+
+    for key in catalog.pack_keys():
+        registry = catalog.domain_registry(key)
+        services[key] = create_rag_service(
+            ml_clients=ml_clients,
+            chunk_search=chunk_search,
+            domain_keys=tuple(profile.key for profile in registry.all()),
+            pii_redactor=pii_redactor,
+            document_access=document_access,
+            domain_registry=registry,
+            evidence_profile=catalog.pack(key).evidence_profile,
+        )
+
+    return SpaceRagRouter(services)

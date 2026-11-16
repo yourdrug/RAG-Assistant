@@ -34,6 +34,7 @@ class DocumentResponse(BaseModel):
     visibility: str
     owner_id: int | None
     group_id: int | None
+    space_id: int | None = None
     status: str
     doc_domain: str = DocDomain.GENERAL.value
     error_message: str | None
@@ -60,6 +61,7 @@ class ManualDocumentRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     visibility: DocumentVisibility
     group_id: int | None = None
+    space_id: int | None = None
 
 
 class DeleteDocumentResponse(BaseModel):

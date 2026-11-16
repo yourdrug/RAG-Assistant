@@ -115,6 +115,10 @@ class ConversationModel(BaseModel):
     __table_args__ = (Index("idx_conversations_user", "user_id"),)
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # A conversation asks in one space; set by its first question.
+    space_id: Mapped[int | None] = mapped_column(
+        ForeignKey("knowledge_spaces.id", ondelete="CASCADE"), nullable=True
+    )
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     messages = relationship("MessageModel", back_populates="conversation", cascade="all, delete-orphan")
@@ -147,6 +151,22 @@ class UserGroupModel(LinkedBaseModel):
     __tablename__ = "user_groups"
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+
+
+class KnowledgeSpaceModel(BaseModel):
+    __tablename__ = "knowledge_spaces"
+
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    pack_key: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class KnowledgeSpaceUploadGroupModel(LinkedBaseModel):
+    __tablename__ = "knowledge_space_upload_groups"
+
+    space_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_spaces.id", ondelete="CASCADE"), primary_key=True
+    )
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
 
 
@@ -189,6 +209,7 @@ class DocumentModel(BaseModel):
         Index("idx_documents_status", "status"),
         Index("idx_documents_doc_domain", "doc_domain"),
         Index("idx_documents_source_type", "source_type"),
+        Index("idx_documents_space", "space_id"),
         Index(
             "idx_documents_version_group",
             "version_group_id",
@@ -200,6 +221,7 @@ class DocumentModel(BaseModel):
         # through.
         Index(
             "ux_documents_active_slot",
+            "space_id",
             text("COALESCE(owner_id, 0)"),
             text("COALESCE(group_id, 0)"),
             "filename",
@@ -210,6 +232,7 @@ class DocumentModel(BaseModel):
         ),
         Index(
             "ux_documents_ingestion_slot",
+            "space_id",
             "ingestion_key",
             text("COALESCE(owner_id, 0)"),
             text("COALESCE(group_id, 0)"),
@@ -226,6 +249,9 @@ class DocumentModel(BaseModel):
     visibility: Mapped[str] = mapped_column(String(20), nullable=False)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
+    space_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_spaces.id", ondelete="RESTRICT"), nullable=False
+    )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=DocumentStatus.PENDING.value)
     doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default=DocDomain.GENERAL.value)
     source_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default=SourceType.FILE.value)
@@ -354,6 +380,7 @@ class ChunkModel(BaseModel):
         Index("ix_chunks_visibility", "visibility"),
         Index("ix_chunks_owner_id", "owner_id"),
         Index("ix_chunks_group_id", "group_id"),
+        Index("ix_chunks_space_id", "space_id"),
         Index("idx_chunks_content_hash", "content_hash"),
         Index(
             "ix_chunks_content_trgm",
@@ -379,6 +406,10 @@ class ChunkModel(BaseModel):
     doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default=DocDomain.GENERAL.value)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
+    # Copy of the document's space: a search selection, not an access condition.
+    space_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_spaces.id", ondelete="RESTRICT"), nullable=False
+    )
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     edited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")

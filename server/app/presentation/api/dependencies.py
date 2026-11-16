@@ -59,9 +59,10 @@ if TYPE_CHECKING:
         GroupService,
         UserManagementService,
     )
-    from application.ingestion import IngestionService
+    from application.ingestion import IngestionPort
     from application.ports.rate_limit import RateLimiterPort
     from application.search import SearchService
+    from application.spaces import KnowledgeSpaceService
 
 log = logging.getLogger("default")
 
@@ -91,7 +92,7 @@ def get_or_raise[T](value: T | None, name: str) -> T:
 # ---------------------------------------------------------------------------
 
 
-def create_ingestion_port(request: Request) -> IngestionService:
+def create_ingestion_port(request: Request) -> IngestionPort:
     return get_or_raise(create_container(request).application.ingestion_service, "IngestionService")
 
 
@@ -150,8 +151,14 @@ def create_manual_document_service(request: Request) -> ManualDocumentService:
     )
 
 
-def create_ingest_service(request: Request) -> IngestionService:
+def create_ingest_service(request: Request) -> IngestionPort:
     return get_or_raise(create_container(request).application.ingestion_service, "IngestionService")
+
+
+def create_knowledge_space_service(request: Request) -> KnowledgeSpaceService:
+    return get_or_raise(
+        create_container(request).application.knowledge_space_service, "KnowledgeSpaceService"
+    )
 
 
 def create_config_service(request: Request) -> ConfigService:

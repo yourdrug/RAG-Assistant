@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from domain.ingestion.repositories import IngestionRegistryRepository
     from domain.knowledge.index_sync import VectorOutboxRepository
     from domain.knowledge.repositories.document import DocumentRepository
+    from domain.knowledge.repositories.space import KnowledgeSpaceRepository
     from domain.runtime.repositories import BackgroundJobRepository
 
 
@@ -52,8 +53,9 @@ class UnitOfWorkRepositories:
     vector_outbox: VectorOutboxRepository
     assignments: AssignmentRepository
     ingestion_registry: IngestionRegistryRepository
-    # Repositories of the active domain pack over the same session; the core never reads them.
-    pack_repositories: object | None = None
+    knowledge_spaces: KnowledgeSpaceRepository
+    # Repositories of the loaded domain packs over the same session; the core never reads them.
+    pack_repositories: tuple[object, ...] = ()
 
 
 class UnitOfWork(BaseUnitOfWork):
@@ -77,6 +79,7 @@ class UnitOfWork(BaseUnitOfWork):
         self.vector_outbox = repositories.vector_outbox
         self.assignments = repositories.assignments
         self.ingestion_registry = repositories.ingestion_registry
+        self.knowledge_spaces = repositories.knowledge_spaces
         self.pack_repositories = repositories.pack_repositories
         self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
 

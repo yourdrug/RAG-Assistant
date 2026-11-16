@@ -42,7 +42,7 @@ from application.identity import (
     GroupService,
     UserManagementService,
 )
-from application.ingestion import IngestionService
+from application.ingestion import IngestionPort
 from application.jobs.service import JobService
 from application.ports.action_logger import ActionLoggerPort
 from application.ports.cache_invalidator import CacheInvalidatorPort
@@ -50,6 +50,7 @@ from application.ports.idempotency_store import IdempotencyStorePort
 from application.ports.job_enqueuer import JobEnqueuerPort
 from application.ports.rate_limit import RateLimiterPort
 from application.search import SearchService
+from application.spaces import KnowledgeSpaceService
 from application.uow.factory import UnitOfWorkFactory
 from domain.ingestion.ports import DomainSettingsPort
 from domain.ingestion.profiles.registry import DomainProfileRegistry
@@ -102,7 +103,10 @@ class ApplicationServices(Protocol):
     def pdf_diagnostic_service(self) -> PDFDiagnosticService | None: ...
 
     @property
-    def ingestion_service(self) -> IngestionService | None: ...
+    def ingestion_service(self) -> IngestionPort | None: ...
+
+    @property
+    def knowledge_space_service(self) -> KnowledgeSpaceService | None: ...
 
     @property
     def search_service(self) -> SearchService | None: ...

@@ -31,15 +31,17 @@ async def resolve_unique_filename(
     owner_id: int | None,
     group_id: int | None,
     filename: str,
+    *,
+    space_id: int | None = None,
 ) -> str:
-    """Find a unique filename by appending (N) suffix if needed."""
+    """Find a unique filename (within the space, when given) by appending (N) suffix if needed."""
     p = Path(filename)
     stem = p.stem
     suffix = p.suffix
     candidate = filename
     counter = 1
 
-    while await documents.find_active_slot(owner_id, candidate, group_id) is not None:
+    while await documents.find_active_slot(owner_id, candidate, group_id, space_id=space_id) is not None:
         candidate = f"{stem}({counter}){suffix}"
         counter += 1
 

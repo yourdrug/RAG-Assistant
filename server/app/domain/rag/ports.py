@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class ChunkSearchRepository(Protocol):
     """Substring search over document chunks."""
 
-    async def search_substring(
+    async def search_substring(  # noqa: PLR0913 - keyword-only search scope options
         self,
         query: str,
         user: UserContext,
@@ -29,6 +29,7 @@ class ChunkSearchRepository(Protocol):
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         selection: MetadataCondition | None = None,
+        space_id: int | None = None,
         document_ids: Sequence[int] | None = None,
     ) -> list[ChunkRecord]: ...
 
@@ -37,7 +38,7 @@ class ChunkSearchRepository(Protocol):
 class ChunkSearchPageRepository(Protocol):
     """Paginated API search, with the total restricted to the same access scope."""
 
-    async def search_substring_page(
+    async def search_substring_page(  # noqa: PLR0913 - keyword-only search scope options
         self,
         query: str,
         user: UserContext,
@@ -47,6 +48,7 @@ class ChunkSearchPageRepository(Protocol):
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         selection: MetadataCondition | None = None,
+        space_id: int | None = None,
     ) -> tuple[list[ChunkRecord], int]: ...
 
 

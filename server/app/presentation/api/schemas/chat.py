@@ -18,6 +18,8 @@ class ChatRequest(BaseModel):
     conversation_id: int | None = None
     depth: Literal["narrow", "broad"] | None = None
     as_of_date: date | None = None
+    # Knowledge space of the question; a conversation keeps the space of its first question.
+    space_id: int | None = None
 
     @model_validator(mode="after")
     def infer_as_of_date(self) -> ChatRequest:
@@ -59,6 +61,7 @@ class ConversationListItem(BaseModel):
     title: str | None = None
     created_at: datetime | None = None
     message_count: int = 0
+    space_id: int | None = None
 
 
 class ConversationListResponse(BaseModel):

@@ -4,10 +4,13 @@ import { RefreshCw, RotateCcw, Upload } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import {
+  defaultSpaceId,
+  useDocumentDomains,
   useGroups,
   useIngestAll,
   useIngestFile,
   useIngestRegistry,
+  useSpaces,
   useUploadableClients,
 } from "@/shared/api/hooks";
 import type { IngestRegistryItem } from "@/shared/api/types";
@@ -41,6 +44,11 @@ export function AdminIngestPage() {
   const [visibility, setVisibility] = useState("internal_public");
   const [groupId, setGroupId] = useState<number | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
+  const { data: spaces } = useSpaces();
+  const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
+  // New documents go to one knowledge space; profiles come from its domain pack.
+  const spaceId = spaceChoice ?? defaultSpaceId(spaces);
+  const { data: documentDomains } = useDocumentDomains(spaceId, spaceId != null);
 
   const [resetAll, setResetAll] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -51,7 +59,15 @@ export function AdminIngestPage() {
       return;
     }
     try {
-      await allMut.mutateAsync({ docsDir, reset: false, domain, visibility, groupId, clientId });
+      await allMut.mutateAsync({
+        docsDir,
+        reset: false,
+        domain,
+        visibility,
+        groupId,
+        clientId,
+        spaceId,
+      });
       toast.success("Ingestion started");
     } catch {
       toast.error("Failed");
@@ -61,7 +77,15 @@ export function AdminIngestPage() {
   const confirmResetIngest = async () => {
     setShowResetConfirm(false);
     try {
-      await allMut.mutateAsync({ docsDir, reset: true, domain, visibility, groupId, clientId });
+      await allMut.mutateAsync({
+        docsDir,
+        reset: true,
+        domain,
+        visibility,
+        groupId,
+        clientId,
+        spaceId,
+      });
       toast.success("Ingestion started (reset mode)");
     } catch {
       toast.error("Failed");
@@ -71,7 +95,15 @@ export function AdminIngestPage() {
   const handleFile = async () => {
     if (!filePath.trim()) return;
     try {
-      await fileMut.mutateAsync({ filePath, force: false, domain, visibility, groupId, clientId });
+      await fileMut.mutateAsync({
+        filePath,
+        force: false,
+        domain,
+        visibility,
+        groupId,
+        clientId,
+        spaceId,
+      });
       toast.success("File ingestion started");
     } catch {
       toast.error("Failed");
@@ -123,6 +155,27 @@ export function AdminIngestPage() {
           <CardDescription>Trigger ingestion for all files under an S3 prefix</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="w-72">
+            <Label>Knowledge Space</Label>
+            <Select
+              value={spaceId != null ? String(spaceId) : ""}
+              onValueChange={(v) => {
+                setSpaceChoice(Number(v));
+                setDomain("auto");
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a space" />
+              </SelectTrigger>
+              <SelectContent>
+                {spaces?.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    {s.name} ({s.pack_key})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex gap-2">
             <div className="flex-1">
               <Label>S3 Prefix</Label>
@@ -140,12 +193,19 @@ export function AdminIngestPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto-detect</SelectItem>
-                  <SelectItem value="general">General</SelectItem>
-                  <SelectItem value="legal">Legal</SelectItem>
+                  {documentDomains?.map((d) => (
+                    <SelectItem key={d.key} value={d.key}>
+                      {d.display_name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
-            <Button onClick={handleAll} disabled={allMut.isPending} className="mt-6">
+            <Button
+              onClick={handleAll}
+              disabled={allMut.isPending || spaceId == null}
+              className="mt-6"
+            >
               <Upload className="h-4 w-4 mr-2" />
               {allMut.isPending ? "Starting..." : "Ingest All"}
             </Button>
@@ -251,14 +311,17 @@ export function AdminIngestPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto-detect</SelectItem>
-                  <SelectItem value="general">General</SelectItem>
-                  <SelectItem value="legal">Legal</SelectItem>
+                  {documentDomains?.map((d) => (
+                    <SelectItem key={d.key} value={d.key}>
+                      {d.display_name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <Button
               onClick={handleFile}
-              disabled={!filePath.trim() || fileMut.isPending}
+              disabled={!filePath.trim() || fileMut.isPending || spaceId == null}
               className="mt-6"
             >
               {fileMut.isPending ? "Starting..." : "Ingest File"}

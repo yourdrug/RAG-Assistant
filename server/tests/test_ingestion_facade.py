@@ -167,6 +167,7 @@ def test_cli_file_forwards_force_to_shared_operation(monkeypatch: pytest.MonkeyP
         visibility="internal_public",
         group_id=7,
         client_id=9,
+        space_id=4,
     )
     service.run_single.assert_awaited_once_with(
         "docs/report.pdf",
@@ -175,6 +176,7 @@ def test_cli_file_forwards_force_to_shared_operation(monkeypatch: pytest.MonkeyP
         visibility=DocumentVisibility.INTERNAL_PUBLIC,
         group_id=7,
         client_id=9,
+        space_id=4,
     )
 
 
@@ -233,6 +235,7 @@ async def test_worker_uses_injected_service_and_forwards_scope(
             job_id=42,
             visibility="client_private",
             client_id=9,
+            space_id=4,
         )
         service.run_single.assert_awaited_once_with(
             "docs/report.pdf",
@@ -241,6 +244,7 @@ async def test_worker_uses_injected_service_and_forwards_scope(
             visibility=DocumentVisibility.CLIENT_PRIVATE,
             group_id=None,
             client_id=9,
+            space_id=4,
         )
     else:
         await worker_tasks.run_full_ingest(
@@ -259,5 +263,6 @@ async def test_worker_uses_injected_service_and_forwards_scope(
             visibility=DocumentVisibility.INTERNAL_GROUP,
             group_id=7,
             client_id=None,
+            space_id=None,
             job_id=42,
         )

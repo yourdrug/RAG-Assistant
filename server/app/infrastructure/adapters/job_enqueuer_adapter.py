@@ -54,7 +54,7 @@ class JobEnqueuerAdapter:
     async def enqueue_document_processing(self, **request: Unpack[DocumentProcessingRequest]) -> None:
         await _enqueue_document_processing(**request)
 
-    async def enqueue_ingest(
+    async def enqueue_ingest(  # noqa: PLR0913 - keyword-only ingestion scope of one job
         self,
         *,
         resolved_dir: str,
@@ -64,6 +64,7 @@ class JobEnqueuerAdapter:
         visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
         group_id: int | None = None,
         client_id: int | None = None,
+        space_id: int | None = None,
     ) -> None:
         await _enqueue_ingest(
             resolved_dir=resolved_dir,
@@ -73,9 +74,10 @@ class JobEnqueuerAdapter:
             visibility=visibility,
             group_id=group_id,
             client_id=client_id,
+            space_id=space_id,
         )
 
-    async def enqueue_ingest_file(
+    async def enqueue_ingest_file(  # noqa: PLR0913 - keyword-only ingestion scope of one job
         self,
         *,
         resolved: str,
@@ -84,6 +86,7 @@ class JobEnqueuerAdapter:
         visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
         group_id: int | None = None,
         client_id: int | None = None,
+        space_id: int | None = None,
         force: bool = False,
     ) -> None:
         await _enqueue_ingest_file(
@@ -93,6 +96,7 @@ class JobEnqueuerAdapter:
             visibility=visibility,
             group_id=group_id,
             client_id=client_id,
+            space_id=space_id,
             force=force,
         )
 
