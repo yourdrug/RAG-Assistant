@@ -64,6 +64,13 @@ export function ChatPage() {
       : null;
   const spaceId = conversationSpaceId ?? spaceChoice ?? defaultSpaceId(spaces);
   const supportUnassigned = isClient && spaces?.length === 0;
+  // A client is reassigned by an admin: the old conversation stays readable, the next
+  // question starts a new conversation in the currently assigned space.
+  const assignedSpaceId = isClient ? (spaces?.[0]?.id ?? null) : null;
+  const conversationOutdated =
+    conversationSpaceId != null &&
+    assignedSpaceId != null &&
+    conversationSpaceId !== assignedSpaceId;
   const needsSpace = conversationId == null && spaceId == null && (spaces?.length ?? 0) > 1;
 
   const scroll = useCallback(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), []);
@@ -170,7 +177,15 @@ export function ChatPage() {
 
   const handleSend = async (question: string) => {
     if (!question.trim() || isStreaming || !token || needsSpace) return;
-    setMessages((p) => [...p, { role: "user", content: question }]);
+    const askedConversationId = conversationOutdated ? null : conversationId;
+    if (conversationOutdated) {
+      // conversationId is replaced in onDone; resetting it here would clear the messages.
+      setHistoryCursor(null);
+      setSelectedSources([]);
+      setMessages([{ role: "user", content: question }]);
+    } else {
+      setMessages((p) => [...p, { role: "user", content: question }]);
+    }
     setIsStreaming(true);
     setStreamingMsg("");
     streamingContentRef.current = "";
@@ -179,7 +194,7 @@ export function ChatPage() {
 
     await streamChat({
       question,
-      conversationId,
+      conversationId: askedConversationId,
       token,
       depth,
       asOfDate: calendarDate,
@@ -347,6 +362,11 @@ export function ChatPage() {
 
           <div ref={endRef} />
         </div>
+        {conversationOutdated && !isStreaming && (
+          <p className="px-4 text-sm text-muted-foreground">
+            Your support space has changed. Your next question will start a new chat.
+          </p>
+        )}
         {supportUnassigned && (
           <p className="px-4 text-sm text-muted-foreground">
             No support space assigned. Contact your administrator.
