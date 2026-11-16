@@ -26,7 +26,7 @@ cleanup() {
 }
 trap cleanup EXIT
 # Stop application writers before the logical dump; stop stores before file copy.
-compose stop server worker client
+compose stop server worker worker-batch maintenance client
 compose exec -T postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >"$backup_dir/postgres.dump"
 compose stop "${running[@]}"
 tar -C data -czf "$backup_dir/data.tar.gz" postgres qdrant_storage minio redis

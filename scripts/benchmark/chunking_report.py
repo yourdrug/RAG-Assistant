@@ -4,7 +4,7 @@ Splits the benchmark corpus with the current code, then measures:
 
 - chunk sizes in bge-m3 tokens (avg/p50/p95, share < 50 tokens, prefix share);
 - fragment reachability: labelled fragments that lie whole inside one chunk;
-- BM25 recall@5/@10 and MRR with the production tokenizer (free, local);
+- BM25 recall@5/@10 and MRR with the production sparse encoder and Qdrant IDF (free, local);
 - with ``--dense``: bge-m3 recall via DeepInfra (embeddings cached by text hash,
   so only changed chunks are paid for) and an RRF hybrid of BM25 + dense;
 - with ``--contextualize``: plan 4.3 LLM notes (OpenRouter, the production auxiliary
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import defaultdict
 from datetime import date
 import hashlib
 import json
@@ -50,14 +51,13 @@ from domain.benchmark.question import evaluation_annotations
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
 from domain.rag.evidence.context import content_with_parent_scope
-from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK, BENCHMARKS_DIR
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.tokenization import build_token_counter
-from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK, BENCHMARKS_DIR
+from infrastructure.repositories.vector.sparse_vectors import encode_sparse
 
 
 log = logging.getLogger("chunking_report")
@@ -173,21 +173,31 @@ class SqliteNoteCache:
         self.db.commit()
 
 
+# The report's paid mode always calls OpenRouter with a fixed fast model.
+CONTEXTUALIZATION_MODEL = "meta-llama/llama-3.1-8b-instruct"
+KEY_NAMES = ("LLM_API_KEY",)
+
+
 def openrouter_key() -> str:
     """Read the key from the environment or server/.env.secrets; it is never printed."""
-    if key := os.environ.get("OPENROUTER_API_KEY"):
-        return key
+    for key_name in KEY_NAMES:
+        if key := os.environ.get(key_name):
+            return key
 
     secrets = ROOT / "server/.env.secrets"
 
     if secrets.exists():
+        values = {}
+
         for line in secrets.read_text().splitlines():
             name, _, value = line.partition("=")
+            values[name.strip()] = value.strip().strip("'\"")
 
-            if name.strip() == "OPENROUTER_API_KEY" and value.strip():
-                return value.strip().strip("'\"")
+        for key_name in KEY_NAMES:
+            if values.get(key_name):
+                return values[key_name]
 
-    message = "OPENROUTER_API_KEY is not set (environment or server/.env.secrets)"
+    message = "LLM_API_KEY is not set (environment or server/.env.secrets)"
     raise SystemExit(message)
 
 
@@ -195,7 +205,7 @@ def build_contextualization(notes_cache: Path, tokenizer_path: Path) -> ChunkCon
     from langchain_openai import ChatOpenAI  # noqa: PLC0415 - Optional paid mode of the report only.
 
     llm = ChatOpenAI(
-        model=FAST_OPENROUTER_MODEL,
+        model=CONTEXTUALIZATION_MODEL,
         base_url="https://openrouter.ai/api/v1",
         api_key=openrouter_key(),
         temperature=0,
@@ -372,16 +382,33 @@ def retrieval_metrics(
 
 
 def bm25_rankings(questions: list[dict[str, Any]], chunks: list[dict[str, Any]]) -> dict[str, list[int]]:
-    index = BM25Index.from_documents(
-        [
-            Document(
-                page_content=chunk["content"],
-                metadata={},
-            )
-            for chunk in chunks
-        ]
-    )
-    return {q["case_id"]: [i for i, _score in index.search(q["question"], k=SEARCH_DEPTH)] for q in questions}
+    """Score with the production sparse encoder and Qdrant's IDF modifier."""
+    postings: dict[int, list[tuple[int, float]]] = defaultdict(list)
+
+    for position, chunk in enumerate(chunks):
+        vector = encode_sparse(chunk["content"])
+
+        for term, weight in zip(vector.indices, vector.values, strict=True):
+            postings[term].append((position, weight))
+
+    total = len(chunks)
+    rankings: dict[str, list[int]] = {}
+
+    for question in questions:
+        query = encode_sparse(question["question"], query=True)
+        scores: dict[int, float] = defaultdict(float)
+
+        for term, query_weight in zip(query.indices, query.values, strict=True):
+            matches = postings.get(term, [])
+            idf = math.log(1 + (total - len(matches) + 0.5) / (len(matches) + 0.5))
+
+            for position, weight in matches:
+                scores[position] += query_weight * idf * weight
+
+        ranked = sorted(scores, key=lambda position: (-scores[position], position))
+        rankings[question["case_id"]] = ranked[:SEARCH_DEPTH]
+
+    return rankings
 
 
 def rrf(*rankings: list[int]) -> list[int]:
@@ -465,7 +492,7 @@ class EmbeddingCache:
 
 def deepinfra_key() -> str:
     """Read the key from the environment or server/.env.secrets; it is never printed."""
-    if key := os.environ.get("DEEPINFRA_API_KEY"):
+    if key := os.environ.get("EMBEDDING_API_KEY"):
         return key
 
     secrets = ROOT / "server/.env.secrets"
@@ -474,10 +501,10 @@ def deepinfra_key() -> str:
         for line in secrets.read_text().splitlines():
             name, _, value = line.partition("=")
 
-            if name.strip() == "DEEPINFRA_API_KEY" and value.strip():
+            if name.strip() == "EMBEDDING_API_KEY" and value.strip():
                 return value.strip().strip("'\"")
 
-    message = "DEEPINFRA_API_KEY is not set (environment or server/.env.secrets)"
+    message = "EMBEDDING_API_KEY (DeepInfra) is not set (environment or server/.env.secrets)"
     raise SystemExit(message)
 
 

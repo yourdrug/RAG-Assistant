@@ -98,7 +98,7 @@ COPY server/pyproject.toml server/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
     set -e;                                                                         \
     # ";" keeps a failed sync fatal: the "|| true" cleanup below would mask it
-    uv sync --frozen --no-dev --extra cpu;                                          \
+    uv sync --frozen --no-dev --extra cpu --extra paddle;                           \
     # Remove __pycache__ directories (saves ~50-100MB)
     find /code/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null       \
         || true &&                                                                  \
@@ -153,7 +153,7 @@ COPY server/pyproject.toml server/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
     set -e;                                                                         \
     # ";" keeps a failed sync fatal: the "|| true" cleanup below would mask it
-    uv sync --frozen --extra cpu;                                                   \
+    uv sync --frozen --extra cpu --extra paddle;                                    \
     # Clean up __pycache__ and .pyc files
     find /code/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null      \
         || true &&                                                                  \

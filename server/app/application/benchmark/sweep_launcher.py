@@ -5,9 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from domain.benchmark.sweep import BenchmarkSweepStatus
-from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
-
 
 if TYPE_CHECKING:
     from application.benchmark.dto import SweepCreateDTO
@@ -20,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class BenchmarkSweepLauncher:
-    """A sweep that cannot be queued is marked failed, so it neither blocks new sweeps nor stays pending."""
+    """Persist sweep and submission atomically; Redis delivery is best effort."""
 
     def __init__(
         self, uow_factory: UnitOfWorkFactory, sweeps: BenchmarkSweepService, enqueuer: JobEnqueuerPort
@@ -29,12 +26,14 @@ class BenchmarkSweepLauncher:
         self._sweeps = sweeps
         self._enqueuer = enqueuer
 
-    async def start(self, body: SweepCreateDTO) -> tuple[BenchmarkSweep, int]:
-        sweep = await self._sweeps.create(body)
+    async def start(
+        self, body: SweepCreateDTO, *, cost_principal: str | None = None
+    ) -> tuple[BenchmarkSweep, int]:
+        sweep = await self._sweeps.create(body, submit_job=True, cost_principal=cost_principal)
         return sweep, await self.enqueue(sweep)
 
-    async def resume(self, sweep_id: int) -> tuple[BenchmarkSweep, int]:
-        sweep = await self._sweeps.resume(sweep_id)
+    async def resume(self, sweep_id: int, *, cost_principal: str | None = None) -> tuple[BenchmarkSweep, int]:
+        sweep = await self._sweeps.resume(sweep_id, submit_job=True, cost_principal=cost_principal)
         return sweep, await self.enqueue(sweep)
 
     async def enqueue(self, sweep: BenchmarkSweep) -> int:
@@ -42,39 +41,19 @@ class BenchmarkSweepLauncher:
             message = "BenchmarkSweep saved with None id"
             raise RuntimeError(message)
 
-        sweep_id = sweep.id
-        job_id: int | None = None
+        job_id = sweep.job_id
+
+        if job_id is None:
+            message = "Sweep has no durable job"
+            raise RuntimeError(message)
 
         try:
-            job_id = await self.create_job(sweep_id)
-            await self._enqueuer.enqueue_sweep(sweep_id=sweep_id, job_id=job_id)
-        except Exception:
-            await self.mark_unqueued(sweep_id, job_id)
-            raise
-
-        return job_id
-
-    async def create_job(self, sweep_id: int) -> int:
-        """Commit the job together with its link to the sweep, before the queue is contacted."""
-        async with self._uow_factory.create(master=True) as uow:
-            job = await uow.background_jobs.create(
-                BackgroundJob(job_type=JobType.SWEEP, status=BackgroundJobStatus.PENDING, related_id=sweep_id)
+            await self._enqueuer.enqueue_sweep(sweep_id=sweep.id, job_id=job_id)
+        except Exception as exc:  # noqa: BLE001 — committed work is retried by the relay
+            logger.warning(
+                "Sweep delivery deferred: sweep_id=%d job_id=%d error_type=%s",
+                sweep.id,
+                job_id,
+                type(exc).__name__,
             )
-
-            if job.id is None:
-                message = "BackgroundJob create returned None id"
-                raise RuntimeError(message)
-
-            await uow.benchmark_sweeps.set_job_id(sweep_id, job.id)
-            return job.id
-
-    async def mark_unqueued(self, sweep_id: int, job_id: int | None) -> None:
-        try:
-            async with self._uow_factory.create(master=True) as uow:
-                if job_id is not None:
-                    await uow.background_jobs.mark_failed(job_id, "Failed to enqueue benchmark sweep")
-
-                await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
-        except Exception:
-            # The original enqueue error is re-raised by the caller.
-            logger.exception("Could not mark sweep %d failed after an enqueue error", sweep_id)
+        return job_id

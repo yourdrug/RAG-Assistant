@@ -14,7 +14,6 @@ from config import BenchmarkSection, LLMSection, process_section
 from infrastructure.benchmark.judging.callbacks import AsyncMetricOptions
 from infrastructure.benchmark.judging.clients import get_judge_client, get_judge_model
 from infrastructure.benchmark.judging.prompts import CORRECTNESS_PROMPT, FAITHFULNESS_PROMPT, RELEVANCY_PROMPT
-from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.ml.clients.client_lease import sync_client_operation
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
@@ -94,8 +93,6 @@ def judge_answer(
     answer: str,
     context: str,
     expected_answer: str | None = None,
-    *,
-    runtime: BudgetRuntime | None = None,
 ) -> dict[str, Any]:
     """Run judge LLM synchronously with structured output (instructor only)."""
     model = get_judge_model()
@@ -113,7 +110,7 @@ def judge_answer(
 
     for key, prompt in prompts.items():
         try:
-            client = get_judge_client(model, runtime=runtime)
+            client = get_judge_client(model)
             result = judge_with_structured_output(client, prompt, model)
             scores[key] = max(0.0, min(10.0, result.score))
             scores[f"{key}_reason"] = result.reason
@@ -142,7 +139,6 @@ async def judge_answer_async(
     expected_answer: str | None = None,
     *,
     judge_model: str | None = None,
-    runtime: BudgetRuntime | None = None,
     **options: Unpack[AsyncMetricOptions],
 ) -> dict[str, Any]:
     """Judge answer quality with structured output (instructor + timeout)."""
@@ -158,7 +154,7 @@ async def judge_answer_async(
         )
 
     async def judge_one(prompt: str) -> JudgeScore:
-        client = get_judge_client(model, runtime=runtime)
+        client = get_judge_client(model)
         with sync_client_operation(client):
             return await asyncio.wait_for(
                 asyncio.to_thread(judge_with_structured_output, client, prompt, model),

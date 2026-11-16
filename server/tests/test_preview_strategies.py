@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from docx import Document
 import pytest
 
+from config import settings
 from domain.ingestion.preview import (
     DryRunPageResult,
     PreviewUnitKind,
@@ -291,7 +292,8 @@ class TestPdfPreviewStrategy:
         assert self.strategy.supports(".docx") is False
         assert self.strategy.supports(".rtf") is False
 
-    def test_analyze_enriches_with_unit_kind_and_label(self) -> None:
+    def test_analyze_enriches_with_unit_kind_and_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "ocr_engine", "paddleocr")
         page1 = DryRunPageResult(page=1, type="text", chars=100, content_type=PageContentType.TEXT)
         page2 = DryRunPageResult(page=2, type="scan", chars=50, content_type=PageContentType.SCAN)
         self.mock_diag.analyze_text_layer.return_value = (
@@ -308,7 +310,8 @@ class TestPdfPreviewStrategy:
         assert units[1].label == "Стр. 2"
         assert total_chars == 150
 
-    def test_analyze_preserves_page_type(self) -> None:
+    def test_analyze_preserves_page_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "ocr_engine", "paddleocr")
         page = DryRunPageResult(page=1, type="garbled", content_type=PageContentType.GARBLED)
         self.mock_diag.analyze_text_layer.return_value = (
             [page],

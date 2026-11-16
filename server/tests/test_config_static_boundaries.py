@@ -46,23 +46,24 @@ def test_legacy_storage_row_does_not_change_deployment_settings(key: str) -> Non
 
 
 @pytest.mark.parametrize("source", ["environment", "dotenv"])
-def test_ml_provider_comes_from_deployment_and_ignores_legacy_database_row(
+def test_embedding_model_comes_from_deployment_and_ignores_database_row(
     source: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.delenv("ML_PROVIDER", raising=False)
+    # The model is part of the corpus embedding identity, so a DB writer cannot change it.
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
     env = tmp_path / ".env"
-    env.write_text("ML_PROVIDER=deepinfra\n")
+    env.write_text("EMBEDDING_MODEL=deployment-model\n")
 
     if source == "environment":
-        env.write_text("ML_PROVIDER=tei\n")
-        monkeypatch.setenv("ML_PROVIDER", "deepinfra")
+        env.write_text("EMBEDDING_MODEL=dotenv-model\n")
+        monkeypatch.setenv("EMBEDDING_MODEL", "deployment-model")
 
     model = Settings(_env_file=env)
     configuration = SettingsProviderConfiguration(model, bus=MagicMock())
-    configuration.apply([ConfigParameter("ml_provider", "tei", ConfigValueType.STR, "legacy")])
-    assert model.ml_provider == "deepinfra"
+    configuration.apply([ConfigParameter("embedding_model", "database-model", ConfigValueType.STR, "legacy")])
+    assert model.embedding_model == "deployment-model"
     assert configuration.status().ready
-    parameter = next(p for p in configuration.effective_parameters([]) if p.key == "ml_provider")
+    parameter = next(p for p in configuration.effective_parameters([]) if p.key == "embedding_model")
     assert parameter.source == "deployment"
     assert not parameter.editable
 
@@ -70,16 +71,14 @@ def test_ml_provider_comes_from_deployment_and_ignores_legacy_database_row(
 def test_dynamic_environment_and_dotenv_are_ignored_but_constructor_kwargs_work(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("OPENROUTER_MODEL", "legacy-env-model")
+    monkeypatch.setenv("LLM_MODEL", "legacy-env-model")
     monkeypatch.setenv("OCR_LANG_SURYA", "not-json")
     env = tmp_path / ".env"
-    env.write_text(
-        "OPENROUTER_MODEL=legacy-dotenv-model\nOCR_LANG_SURYA=not-json\nCURATOR_SCOPE_MAX_IDS=42\n"
-    )
+    env.write_text("LLM_MODEL=legacy-dotenv-model\nOCR_LANG_SURYA=not-json\nCURATOR_SCOPE_MAX_IDS=42\n")
     model = Settings(_env_file=env)
-    assert model.openrouter_model == "qwen/qwen-2.5-7b-instruct"
+    assert model.llm_model == "qwen/qwen-2.5-7b-instruct"
     assert model.curator_scope_max_ids == 42
-    assert Settings(_env_file=env, openrouter_model="explicit-model").openrouter_model == "explicit-model"
+    assert Settings(_env_file=env, llm_model="explicit-model").llm_model == "explicit-model"
 
 
 def test_removed_classifier_threshold_in_env_and_dotenv_is_ignored(

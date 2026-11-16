@@ -16,7 +16,7 @@ from domain.benchmark.sweep import (
     SweepEvaluationMode,
     validate_sweep_mode,
 )
-from domain.runtime.jobs import BackgroundJobStatus
+from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 
 
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
         RunCompareResult,
         SweepCreateDTO,
     )
-    from application.uow import UnitOfWorkFactory
+    from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.benchmark.run import BenchmarkRun
 
 
@@ -156,7 +156,9 @@ class BenchmarkSweepService:
     def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
         self._uow_factory = uow_factory
 
-    async def create(self, body: SweepCreateDTO) -> BenchmarkSweep:
+    async def create(
+        self, body: SweepCreateDTO, *, submit_job: bool = False, cost_principal: str | None = None
+    ) -> BenchmarkSweep:
         validate_sweep_mode(body.evaluation_mode, body.strategy)
         async with self._uow_factory.create(master=True) as uow:
             if await uow.benchmark_sweeps.has_active():
@@ -173,7 +175,12 @@ class BenchmarkSweepService:
                 evaluation_mode=SweepEvaluationMode(body.evaluation_mode),
                 status=BenchmarkSweepStatus.PENDING,
             )
-            return await uow.benchmark_sweeps.create(sweep_entity)
+            sweep = await uow.benchmark_sweeps.create(sweep_entity)
+
+            if submit_job:
+                await self.persist_submission(uow, sweep, cost_principal)
+
+            return sweep
 
     async def get(self, sweep_id: int) -> BenchmarkSweep:
         async with self._uow_factory.create() as uow:
@@ -224,7 +231,9 @@ class BenchmarkSweepService:
 
             await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.CANCELLED.value)
 
-    async def resume(self, sweep_id: int) -> BenchmarkSweep:
+    async def resume(
+        self, sweep_id: int, *, submit_job: bool = False, cost_principal: str | None = None
+    ) -> BenchmarkSweep:
         async with self._uow_factory.create(master=True) as uow:
             sweep = await uow.benchmark_sweeps.get_by_id(sweep_id)
 
@@ -248,7 +257,33 @@ class BenchmarkSweepService:
 
             sweep.status = BenchmarkSweepStatus.PENDING
             sweep.job_id = None
+
+            if submit_job:
+                await self.persist_submission(uow, sweep, cost_principal)
+
             return sweep
+
+    async def persist_submission(
+        self, uow: UnitOfWork, sweep: BenchmarkSweep, cost_principal: str | None = None
+    ) -> None:
+        if sweep.id is None:
+            message = "Cannot submit an unsaved sweep"
+            raise RuntimeError(message)
+
+        job = await uow.background_jobs.create(
+            BackgroundJob(
+                job_type=JobType.SWEEP,
+                related_id=sweep.id,
+                dispatch_payload={"sweep_id": sweep.id, "cost_principal": cost_principal},
+            )
+        )
+
+        if job.id is None:
+            message = "BackgroundJob create returned None id"
+            raise RuntimeError(message)
+
+        await uow.benchmark_sweeps.set_job_id(sweep.id, job.id)
+        sweep.job_id = job.id
 
     async def attach_job(self, sweep_id: int, job_id: int) -> None:
         async with self._uow_factory.create(master=True) as uow:

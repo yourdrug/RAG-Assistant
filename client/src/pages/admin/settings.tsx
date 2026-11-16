@@ -12,7 +12,7 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { ConfigurationDiagnostics, type EffectiveParameter } from "./configuration-diagnostics";
 import { CorpusControl } from "./corpus-control";
-import { CostRates } from "./cost-rates";
+import { LLM_MODELS_QUERY_KEY, llmModelLabel, useLLMModels } from "./llm-models";
 
 interface ConfigParam {
   key: string;
@@ -32,13 +32,6 @@ interface ConfigurationStatus {
   error: string | null;
 }
 
-interface OpenRouterModel {
-  id: string;
-  name: string;
-  context_length: number;
-  pricing: { prompt: number; completion: number };
-}
-
 interface SettingsBlock {
   id: string;
   label: string;
@@ -46,6 +39,20 @@ interface SettingsBlock {
   categories?: string[];
   keys?: string[];
 }
+
+const LLM_CONNECTION_BLOCK = "llm_connection";
+const MODEL_PICKER_KEYS = new Set(["llm_model", "llm_auxiliary_model"]);
+const RERANK_API_FORMATS: { value: string; label: string }[] = [
+  { value: "cohere", label: "Cohere-compatible /rerank (vLLM, Jina, Cohere, Infinity)" },
+  { value: "tei", label: "Text Embeddings Inference /rerank" },
+  { value: "deepinfra", label: "DeepInfra /inference/{model}" },
+];
+/** Deployment-owned credentials shown (presence only) inside their connection block. */
+const BLOCK_SECRETS: Record<string, { name: string; env: string; keyless: string }> = {
+  [LLM_CONNECTION_BLOCK]: { name: "llm_api_key", env: "LLM_API_KEY", keyless: "vLLM, Ollama" },
+  embeddings: { name: "embedding_api_key", env: "EMBEDDING_API_KEY", keyless: "local TEI" },
+  "reranking-service": { name: "rerank_api_key", env: "RERANK_API_KEY", keyless: "local TEI" },
+};
 
 const SETTINGS_SECTIONS = [
   {
@@ -58,7 +65,6 @@ const SETTINGS_SECTIONS = [
         label: "Answer generation",
         description: "Model selection, creativity and response length.",
         categories: ["llm"],
-        keys: ["openrouter_model"],
       },
       {
         id: "conversation",
@@ -132,51 +138,35 @@ const SETTINGS_SECTIONS = [
     description: "Service endpoints and embedding and reranking model connections.",
     blocks: [
       {
-        id: "openrouter",
-        label: "OpenRouter connection",
-        description: "Connection used by the answer model selected in Chat & answers.",
-        categories: ["openrouter"],
+        id: LLM_CONNECTION_BLOCK,
+        label: "LLM endpoint",
+        description:
+          "Any OpenAI-compatible API: OpenRouter, OpenAI, vLLM, Ollama, LM Studio. The URL origin must be approved by the deployment (LLM_ALLOWED_ORIGINS / ML_INTERNAL_ALLOWED_ORIGINS).",
+        categories: ["llm_connection"],
       },
       {
         id: "embeddings",
-        label: "Embedding service",
-        description: "Convert document chunks and questions into vectors for semantic search.",
+        label: "Embedding endpoint",
+        description:
+          "OpenAI-compatible /embeddings API (TEI /v1, DeepInfra /v1/openai, vLLM, OpenAI). The model and dimension are fixed by the deployment (EMBEDDING_MODEL, EMBED_DIM) because they define the search collection.",
         keys: [
-          "tei_embed_url",
-          "deepinfra_embed_model",
+          "embedding_base_url",
           "embedding_http_max_connections",
           "embedding_http_max_keepalive_connections",
         ],
       },
       {
         id: "reranking-service",
-        label: "Reranking service",
-        description: "Model connection used to refine the order of retrieved documents.",
+        label: "Reranking endpoint",
+        description:
+          "Model used to refine the order of retrieved documents. Choose the API format the server speaks.",
         keys: [
-          "tei_rerank_url",
-          "deepinfra_rerank_model",
+          "rerank_base_url",
+          "rerank_model",
+          "rerank_api_format",
           "rerank_http_max_connections",
           "rerank_http_max_keepalive_connections",
         ],
-      },
-      {
-        id: "ml",
-        label: "Shared ML connection",
-        description: "Provider endpoint shared by embedding and reranking models.",
-        categories: ["ml"],
-      },
-    ],
-  },
-  {
-    id: "costs",
-    label: "Spending & pricing",
-    description: "Set user spending limits and maintain model prices.",
-    blocks: [
-      {
-        id: "cost",
-        label: "User spending limits",
-        description: "Hourly and daily USD budgets, including pending reservations.",
-        categories: ["cost"],
       },
     ],
   },
@@ -214,8 +204,13 @@ const SETTINGS_SECTIONS = [
 ] satisfies { id: string; label: string; description: string; blocks: SettingsBlock[] }[];
 
 const PARAMETER_LABELS: Record<string, string> = {
-  llm_provider: "Answer provider",
-  openrouter_model: "Answer model",
+  llm_base_url: "Endpoint URL",
+  embedding_base_url: "Endpoint URL",
+  rerank_base_url: "Endpoint URL",
+  rerank_model: "Reranker model",
+  rerank_api_format: "API format",
+  llm_model: "Answer model",
+  llm_auxiliary_model: "Auxiliary model",
   llm_temperature: "Creativity (temperature)",
   llm_top_p: "Token diversity (top-p)",
   llm_num_ctx_narrow: "Context tokens · focused questions",
@@ -236,9 +231,6 @@ const PARAMETER_LABELS: Record<string, string> = {
   chunk_size: "Chunk size (characters)",
   chunk_overlap: "Chunk overlap (characters)",
   source_min_score: "Minimum source relevance",
-  cost_rate_limit_enabled: "Enable spending limits",
-  cost_hourly_limit: "Hourly limit per user (USD)",
-  cost_daily_limit: "Daily limit per user (USD)",
 };
 
 const DOMAIN_LABELS: Record<string, string> = { legal: "Legal", decree: "Decree" };
@@ -287,11 +279,7 @@ export function AdminSettingsPage() {
     queryFn: async () => (await apiClient.get<ConfigParam[]>("/admin/config")).data,
   });
 
-  const { data: openrouterData, isLoading: isLoadingOpenRouter } = useQuery({
-    queryKey: ["admin", "openrouter-models"],
-    queryFn: async () =>
-      (await apiClient.get<{ models: OpenRouterModel[] }>("/admin/models/openrouter")).data,
-  });
+  const { data: llmModels, isLoading: isLoadingModels } = useLLMModels();
 
   const updateMutation = useMutation({
     mutationFn: async ({ key, value, domain }: { key: string; value: string; domain?: string }) => {
@@ -302,10 +290,7 @@ export function AdminSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["admin", "config"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "config-status"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "models"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "openrouter-models"] });
-      if (variables.key.startsWith("cost_")) {
-        void queryClient.invalidateQueries({ queryKey: ["cost-models"] });
-      }
+      queryClient.invalidateQueries({ queryKey: LLM_MODELS_QUERY_KEY });
       setEdits((prev) => {
         const next = { ...prev };
         delete next[variables.domain ? `${variables.domain}:${variables.key}` : variables.key];
@@ -361,17 +346,33 @@ export function AdminSettingsPage() {
       );
     }
 
-    if (p.key === "llm_provider") {
-      return <span className="text-sm">OpenRouter (cloud)</span>;
+    if (p.key === "rerank_api_format") {
+      return (
+        <select
+          aria-label={parameterLabel(p)}
+          value={displayValue}
+          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {RERANK_API_FORMATS.map((format) => (
+            <option key={format.value} value={format.value}>
+              {format.label}
+            </option>
+          ))}
+        </select>
+      );
     }
 
-    // Special handling for openrouter_model - show OpenRouter models dropdown
-    if (p.key === "openrouter_model") {
-      if (isLoadingOpenRouter) {
+    // Models served by the configured endpoint (GET /models); free text when it lists none.
+    if (MODEL_PICKER_KEYS.has(p.key)) {
+      if (isLoadingModels) {
         return <Skeleton className="h-9 w-64" />;
       }
 
-      if (openrouterData?.models && openrouterData.models.length > 0) {
+      const auxiliary = p.key === "llm_auxiliary_model";
+      const models = llmModels?.models ?? [];
+
+      if (models.length > 0) {
         return (
           <div className="space-y-2">
             <select
@@ -380,32 +381,33 @@ export function AdminSettingsPage() {
               onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              {openrouterData.models.map((m) => (
+              {auxiliary && <option value="">Same as answer model</option>}
+              {displayValue && !models.some((m) => m.id === displayValue) && (
+                <option value={displayValue}>{displayValue}</option>
+              )}
+              {models.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.name} ({m.context_length.toLocaleString()} ctx, ${m.pricing.prompt.toFixed(2)}
-                  /M)
+                  {llmModelLabel(m)}
                 </option>
               ))}
             </select>
             <p className="text-xs text-muted-foreground">
-              {openrouterData.models.length} models available. Pricing per 1M tokens.
+              {models.length} models served by the endpoint.
+              {models.some((m) => m.pricing) && " Pricing per 1M tokens."}
             </p>
           </div>
         );
       }
 
-      // Fallback to text input if no models fetched
       return (
-        <div className="space-y-2">
-          <Input
-            aria-label={parameterLabel(p)}
-            type="text"
-            value={displayValue}
-            onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
-            className="w-full"
-            placeholder="e.g. qwen/qwen-2.5-7b-instruct"
-          />
-        </div>
+        <Input
+          aria-label={parameterLabel(p)}
+          type="text"
+          value={displayValue}
+          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
+          className="w-full"
+          placeholder={auxiliary ? "Empty: same as answer model" : "e.g. qwen/qwen-2.5-7b-instruct"}
+        />
       );
     }
 
@@ -458,10 +460,8 @@ export function AdminSettingsPage() {
     );
   }
 
-  const availableSections = SETTINGS_SECTIONS.filter(
-    (section) =>
-      section.id === "costs" ||
-      section.blocks.some((block) => params?.some((param) => parameterBlock(param) === block.id)),
+  const availableSections = SETTINGS_SECTIONS.filter((section) =>
+    section.blocks.some((block) => params?.some((param) => parameterBlock(param) === block.id)),
   );
 
   const renderParameter = (param: ConfigParam) => {
@@ -605,7 +605,19 @@ export function AdminSettingsPage() {
                       <CardDescription>{block.description}</CardDescription>
                     </CardHeader>
                     <CardContent className="p-[14px] pt-0">
-                      <div className="divide-y">{globalParams.map(renderParameter)}</div>
+                      <div className="divide-y">
+                        {globalParams.map(renderParameter)}
+                        {BLOCK_SECRETS[block.id] && (
+                          <SecretKeyRow
+                            {...BLOCK_SECRETS[block.id]}
+                            present={
+                              effective?.find(
+                                (p) => p.key === BLOCK_SECRETS[block.id].name && !p.domain_key,
+                              )?.present ?? null
+                            }
+                          />
+                        )}
+                      </div>
                       {domains.map((domain) => (
                         <div key={domain} className="mt-4 rounded-lg border px-4">
                           <div className="border-b py-3">
@@ -627,7 +639,6 @@ export function AdminSettingsPage() {
                   </Card>
                 );
               })}
-              {section.id === "costs" && <CostRates />}
             </TabsContent>
           ))}
           <TabsContent value="corpus">
@@ -648,6 +659,46 @@ export function AdminSettingsPage() {
           </TabsContent>
         </div>
       </Tabs>
+    </div>
+  );
+}
+
+/** The key is deployment-owned (server/.env.secrets); the API exposes only its presence. */
+function SecretKeyRow({
+  name,
+  env,
+  keyless,
+  present,
+}: {
+  name: string;
+  env: string;
+  keyless: string;
+  present: boolean | null;
+}) {
+  return (
+    <div className="grid items-center gap-3 py-[10px] md:grid-cols-[minmax(0,1fr)_minmax(240px,360px)] md:gap-8">
+      <div className="min-w-0 space-y-1">
+        <p className="text-sm font-medium">API key</p>
+        <p className="text-sm text-muted-foreground">
+          Set {env} in server/.env.secrets and restart. Leave it empty for keyless servers (
+          {keyless}).
+        </p>
+        <p className="break-all font-mono text-xs text-muted-foreground/70">{name}</p>
+      </div>
+      <div className="flex min-w-0 items-center gap-2">
+        <Input
+          aria-label="API key"
+          type="password"
+          value={present ? "••••••••••••" : ""}
+          placeholder="Not set"
+          readOnly
+          disabled
+          className="w-full"
+        />
+        <Badge variant={present === null ? "secondary" : present ? "success" : "warning"}>
+          {present === null ? "Unknown" : present ? "Set" : "Not set"}
+        </Badge>
+      </div>
     </div>
   );
 }

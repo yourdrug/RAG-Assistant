@@ -4,7 +4,7 @@ Wraps ``AsyncIOScheduler`` and exposes ``start_scheduler`` / ``stop_scheduler``
 lifespan helpers plus a ``schedule_periodic`` decorator for registering
 recurring background tasks (e.g. infra-metrics collection).
 
-Note: heavy maintenance jobs (cleanup, orphan recovery, BM25 rebuild)
+Note: heavy maintenance jobs (cleanup, orphan recovery)
 are handled by Arq worker cron — see infrastructure.worker.cron.
 Only process-local jobs stay here (metrics collector, config resync).
 """
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
     from application.ports.ml_clients import MLClientPort
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
-    from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
 
 logger = logging.getLogger("default")
@@ -38,7 +37,6 @@ class Scheduler:
         self.scheduler = AsyncIOScheduler(timezone="UTC")
         self._config_listener: PostgresConfigListener | None = None
         self._ml_clients: MLClientPort | None = None
-        self._outbox_dispatcher: OutboxDispatcher | None = None
 
     def add_interval_job(
         self,
@@ -70,21 +68,6 @@ class Scheduler:
             seconds=300,
         )
 
-        # Outbox dispatch — safety net for missed NOTIFYs (every 30s)
-        if self._outbox_dispatcher is not None:
-            self.add_interval_job(
-                job_id="vector_outbox_dispatch",
-                func=self.periodic_outbox_dispatch,
-                seconds=30,
-            )
-
-            # Reconcile stuck documents (every 60s)
-            self.add_interval_job(
-                job_id="outbox_reconcile_stuck",
-                func=self.periodic_reconcile_stuck,
-                seconds=60,
-            )
-
     @handle_exceptions
     async def periodic_infra_collector(self) -> None:
         """Periodically update infrastructure Prometheus gauges."""
@@ -100,38 +83,14 @@ class Scheduler:
         if self._config_listener is not None and self._config_listener.is_connected:
             await self._config_listener.resync(trigger="periodic")
 
-    @handle_exceptions
-    async def periodic_outbox_dispatch(self) -> None:
-        """Safety net: process pending outbox entries if NOTIFY was missed."""
-        if self._outbox_dispatcher is None:
-            return
-
-        processed = await self._outbox_dispatcher.run_once(batch_size=50)
-
-        if processed:
-            logger.info("Outbox dispatch (periodic): processed %d entries", processed)
-
-    @handle_exceptions
-    async def periodic_reconcile_stuck(self) -> None:
-        """Fix documents stuck in 'indexing' with no pending outbox entries."""
-        if self._outbox_dispatcher is None:
-            return
-
-        fixed = await self._outbox_dispatcher.reconcile_stuck_documents()
-
-        if fixed:
-            logger.info("Outbox reconcile: fixed %d stuck documents", fixed)
-
     async def startup(
         self,
         config_listener: PostgresConfigListener | None = None,
         ml_clients: MLClientPort | None = None,
-        outbox_dispatcher: OutboxDispatcher | None = None,
     ) -> None:
         """Configure and start the scheduler with required dependencies."""
         self._config_listener = config_listener
         self._ml_clients = ml_clients
-        self._outbox_dispatcher = outbox_dispatcher
         self.configure()
         self.scheduler.start()
         logger.info("Scheduler started.")

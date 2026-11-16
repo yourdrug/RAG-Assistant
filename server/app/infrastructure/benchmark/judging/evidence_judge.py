@@ -8,7 +8,6 @@ from domain.benchmark.question import answer_annotations
 from infrastructure.benchmark.judging.callbacks import SyncMetricOptions
 from infrastructure.benchmark.judging.judge import get_judge_client, judge_with_structured_output
 from infrastructure.benchmark.judging.judge_rubric import CITATION_SUPPORT_CRITERIA
-from infrastructure.budget.runtime import BudgetRuntime
 
 
 logger = logging.getLogger("default")
@@ -20,8 +19,6 @@ def judge_evidence(
     context: str | None,
     annotations: dict[str, Any] | None,
     model: str,
-    *,
-    runtime: BudgetRuntime | None = None,
     **options: Unpack[SyncMetricOptions],
 ) -> dict[str, Any]:
     result: dict[str, Any] = options.get("saved_metrics") or {"scores": {}, "details": {}}
@@ -50,7 +47,7 @@ def judge_evidence(
             + payload
         )
         try:
-            client = get_judge_client(model, runtime=runtime)
+            client = get_judge_client(model)
             score = judge_with_structured_output(client, prompt, model)
             result["scores"][metric] = max(0.0, min(10.0, score.score))
             result["details"][metric] = {"reason": score.reason}

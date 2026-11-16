@@ -72,7 +72,7 @@ async def completion(client, messages, model, seed, json_output=False):
     }
     if json_output:
         payload["response_format"] = {"type": "json_object"}
-    response = await client.post(settings.openrouter_base_url.rstrip("/") + "/chat/completions", json=payload)
+    response = await client.post(settings.llm_base_url.rstrip("/") + "/chat/completions", json=payload)
     response.raise_for_status()
     data = response.json()
     choice = data["choices"][0]
@@ -109,10 +109,10 @@ async def run(snapshot, output):
     )
     if result["input_sha256"] != fingerprint:
         raise ValueError("Resume input mismatch")
-    if not settings.openrouter_api_key.get_secret_value():
+    if not settings.llm_api_key.get_secret_value():
         raise ValueError("OpenRouter is not configured")
     async with httpx.AsyncClient(
-        headers={"Authorization": "Bearer " + settings.openrouter_api_key.get_secret_value()}, timeout=180
+        headers={"Authorization": "Bearer " + settings.llm_api_key.get_secret_value()}, timeout=180
     ) as client:
         for case in snapshot["cases"]:
             if not case["context"]:

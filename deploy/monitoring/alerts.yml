@@ -1,0 +1,51 @@
+groups:
+  - name: pgbouncer
+    rules:
+      - alert: PgBouncerWaitingForConnection
+        expr: |
+          max by (instance, database, user) (pgbouncer_pools_client_waiting_connections{database!="pgbouncer"}) > 0
+          or
+          max by (instance, database, user) (pgbouncer_pools_client_maxwait_seconds{database!="pgbouncer"}) > 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "PgBouncer ждёт свободное соединение"
+          description: "Пул {{ $labels.database }}/{{ $labels.user }}: cl_waiting > 0 или maxwait > 0. Проверьте длительность транзакций и DEFAULT_POOL_SIZE (по умолчанию 40)."
+  - name: background-jobs
+    rules:
+      - alert: BackgroundJobCleanupFallingBehind
+        expr: max(background_job_cleanup_backlog) > 20000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Expired job history exceeds an hourly cleanup budget"
+      - alert: BackgroundJobsPendingTooLong
+        expr: max by (type) (background_job_oldest_pending_seconds) > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Background work has waited more than ten minutes"
+      - alert: BackgroundJobLeasesExpiring
+        expr: max by (type) (increase(background_job_lease_expirations_total[1h])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than five execution leases expired in one hour"
+      - alert: BackgroundJobRepublicationsGrowing
+        expr: max by (type) (increase(background_job_republications_total[15m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Repeated relay publications indicate delivery problems"
+      - alert: BackgroundJobMetricsUnavailable
+        expr: time() - max(background_job_metrics_last_success_timestamp_seconds) > 120
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Application is reachable but job metrics are missing"

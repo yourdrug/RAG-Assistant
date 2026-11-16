@@ -35,7 +35,7 @@ class HybridRetriever:
 
         Args:
             dense_results: List of (content_hash, score) from dense search.
-            sparse_results: List of (content_hash, score) from BM25 search.
+            sparse_results: List of (content_hash, score) from Qdrant sparse (BM25) search.
             dense_by_hash: Mapping content_hash -> (score, Document) for dense results.
             fetch_k: Maximum number of candidates to return.
             rrf_k: RRF constant (typically 60).

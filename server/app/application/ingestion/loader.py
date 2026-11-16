@@ -5,6 +5,7 @@ Extracted from IngestionService to isolate the S3 file I/O and parsing concern.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -135,12 +136,13 @@ class S3DocumentLoader:
     def get_profile(self, domain: str) -> DocumentProfile | None:
         return get_domain_profile(self._domain_registry, domain)
 
-    async def load_documents(
+    async def load_documents(  # noqa: PLR0915 -- parse/cache/checkpoint paths share source validation
         self,
         registry: dict[str, RegistryRecord],
         *,
         force: bool = False,
         prefix: str | None = None,
+        completed: dict[str, str] | None = None,
     ) -> tuple[list[RawDocument], int]:
         """Load and parse all S3 files, returning (documents, skipped_count)."""
         del registry  # The persistent registry owns the cache check.
@@ -158,6 +160,10 @@ class S3DocumentLoader:
                 continue
 
             tag = f"[{i:>3}/{len(items)}]"
+
+            if completed and completed.get(file_item.key) == s3_file_hash(file_item):
+                skipped_cached += 1
+                continue
 
             if (
                 not force
@@ -198,10 +204,18 @@ class S3DocumentLoader:
         log.info("Parsing complete: %d loaded, %d errors, %d already in registry", ok, errors, skipped_cached)
         return documents, skipped_cached
 
+    async def source_hashes(self, prefix: str) -> dict[str, str]:
+        return {
+            item.key: s3_file_hash(item)
+            for item in await self._file_storage.list_files(prefix)
+            if item.key.startswith(prefix)
+            and item.extension.lower() in self._file_storage.supported_extensions
+        }
+
     async def load_file(self, file_item: FileItem) -> list[RawDocument] | None:
         """Download and parse one storage item, always removing its temporary file."""
         temp_path = await self._file_storage.download_to_temp(file_item.key)
         try:
-            return self.parse_file(file_item, temp_path)
+            return await asyncio.to_thread(self.parse_file, file_item, temp_path)
         finally:
             temp_path.unlink(missing_ok=True)

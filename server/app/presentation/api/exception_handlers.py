@@ -18,6 +18,7 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from domain.runtime.jobs import JobAdmissionError
 from domain.shared.exceptions import (
     AppClientError,
     AppServerError,
@@ -103,6 +104,10 @@ async def handle_client_exception(request: Request, exc: Exception) -> JSONRespo
             "Retry-After": str(exc.retry_after_sec),
             "X-RateLimit-Limit": str(exc.limit),
         }
+
+    if isinstance(exc, JobAdmissionError):
+        status_code = 503 if exc.scope == "global" else 429
+        headers = {"Retry-After": str(exc.retry_after_sec)}
 
     return json_response(exc.as_dict(), status_code, headers)
 

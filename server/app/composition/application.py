@@ -50,7 +50,7 @@ from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
 from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 from infrastructure.events.in_process_event_bus import event_bus
-from infrastructure.ml.clients.factories import fetch_openrouter_models
+from infrastructure.ml.clients.factories import fetch_llm_models
 from infrastructure.ml.config.settings_adapters import (
     LiveChatSettings,
     LiveChunkSettings,
@@ -220,7 +220,7 @@ class ApplicationContainer:
         self.config_admin_service = ConfigAdminService(
             vectordb_info=qdrant_info,
             admin_settings=LiveConfigAdminSettings(),
-            openrouter_models_fetcher=fetch_openrouter_models,
+            llm_models_fetcher=fetch_llm_models,
         )
         self.pdf_diagnostic_service = PDFDiagnosticService(
             classifier=MLPageClassifier(),
@@ -247,7 +247,9 @@ class ApplicationContainer:
         self.benchmark_run_service = BenchmarkRunService(uow_factory=uow)
         self.benchmark_export_service = BenchmarkExportService(uow, fs)
         self.benchmark_result_service = BenchmarkResultService(uow_factory=uow)
-        self.job_service = JobService(uow_factory=uow)
+        self.job_service = JobService(
+            uow_factory=uow, aborter=require(infra.services.job_aborter, "job_aborter")
+        )
 
         # Wire rag_service into benchmark_service for full-pipeline benchmarking
         if infra.ml.benchmark_service is not None:

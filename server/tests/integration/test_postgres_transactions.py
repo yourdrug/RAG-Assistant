@@ -11,22 +11,36 @@ from unittest.mock import AsyncMock, MagicMock
 
 import asyncpg
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.integration.uow import SessionDatabase
 
+from application.benchmark.dto import SweepCreateDTO
+from application.benchmark.services import BenchmarkSweepService
 from application.documents import DocumentCommandService
 from application.documents.delete import DocumentDeleteCommand
 from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
+from application.jobs.execution import ExecutionLeaseLostError, JobExecution, current_execution
+from application.jobs.service import JobService
+from config import JobsSection
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.document import Document
 from domain.knowledge.enums import GENERAL_DOMAIN_KEY, DocumentVisibility
 from domain.knowledge.index_sync import VectorOutboxEntry
-from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
+from domain.runtime.jobs import (
+    BackgroundJob,
+    BackgroundJobStatus,
+    ConcurrencyLimit,
+    JobAdmissionError,
+    JobConcurrencyLimitReachedError,
+    JobType,
+)
 from domain.shared.exceptions import BusinessRuleViolationError
-from infrastructure.database.models import BackgroundJobModel, DocumentModel, UserModel
+from infrastructure.database.models import BackgroundJobModel, BenchmarkSweepModel, DocumentModel, UserModel
+from infrastructure.metrics import metrics
 from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
     SQLAlchemyVectorOutboxRepository,
 )
@@ -49,6 +63,41 @@ TEST_HASH = "test"
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+
+
+@pytest.mark.parametrize("scope", ["global", "principal"])
+async def test_concurrent_submissions_cannot_exceed_backlog(
+    pg_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+    scope: str,
+) -> None:
+    settings = JobsSection(job_backlog_limit=1 if scope == "global" else 100, job_principal_backlog_limit=1)
+    monkeypatch.setattr(
+        "infrastructure.repositories.misc.sqlalchemy_background_job_repository.process_section",
+        lambda _: settings,
+    )
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    barrier = asyncio.Barrier(2)
+
+    async def submit(user: int) -> str:
+        try:
+            async with sessions.begin() as session:
+                await barrier.wait()
+                await SQLAlchemyBackgroundJobRepository(session).create(
+                    BackgroundJob(
+                        job_type=JobType.INGEST_FILE,
+                        dispatch_payload={"cost_principal": f"user:{user}"},
+                    )
+                )
+        except JobAdmissionError as exc:
+            return exc.scope
+        else:
+            return "accepted"
+
+    accepted = await asyncio.wait_for(asyncio.gather(submit(1), submit(2 if scope == "global" else 1)), 10)
+    assert set(accepted) == {"accepted", scope}
+    async with sessions() as session:
+        assert await SQLAlchemyBackgroundJobRepository(session).count_active() == 1
 
 
 async def test_two_claimers_skip_locks_and_rollback_restores_claim(pg_engine: AsyncEngine) -> None:
@@ -81,6 +130,37 @@ async def test_two_claimers_skip_locks_and_rollback_restores_claim(pg_engine: As
     async with sessions.begin() as session:
         reclaimed = await SQLAlchemyVectorOutboxRepository(session).claim_batch("three")
         assert [e.id for e in reclaimed] == [a[0].id]
+
+
+async def test_concurrent_principal_claims_leave_capacity_for_another_user(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBackgroundJobRepository(session)
+        jobs = [
+            await repo.create(
+                BackgroundJob(job_type=JobType.BENCHMARK, dispatch_payload={"cost_principal": f"user:{user}"})
+            )
+            for user in (1, 1, 2)
+        ]
+    barrier = asyncio.Barrier(3)
+    limit = ConcurrencyLimit(frozenset({JobType.BENCHMARK}), max_running=3, max_per_principal=1)
+
+    async def claim(job: BackgroundJob) -> bool:
+        assert job.id is not None
+        try:
+            async with sessions.begin() as session:
+                await barrier.wait()
+                await SQLAlchemyBackgroundJobRepository(session).claim(
+                    job.id, f"owner:{job.id}", lease_seconds=120, limit=limit
+                )
+        except JobConcurrencyLimitReachedError:
+            return False
+        else:
+            return True
+
+    accepted = await asyncio.wait_for(asyncio.gather(*(claim(job) for job in jobs)), 10)
+    assert sum(accepted[:2]) == 1
+    assert accepted[2] is True
 
 
 async def test_outbox_notification_arrives_only_after_commit(pg_engine: AsyncEngine) -> None:
@@ -270,3 +350,171 @@ async def test_stale_pending_preserves_durable_dispatch_but_fails_legacy_jobs(pg
         pending = await repo.pending_dispatch()
         assert len(pending) == 1
         assert pending[0].status == BackgroundJobStatus.PENDING
+
+
+async def test_two_workers_have_only_one_execution_owner(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        job = await SQLAlchemyBackgroundJobRepository(session).create(
+            BackgroundJob(job_type=JobType.BENCHMARK)
+        )
+    assert job.id is not None
+    job_id = job.id
+    barrier = asyncio.Barrier(2)
+
+    async def claim(owner: str) -> int | None:
+        async with sessions.begin() as session:
+            await barrier.wait()
+            return await SQLAlchemyBackgroundJobRepository(session).claim(job_id, owner, lease_seconds=120)
+
+    results = await asyncio.wait_for(asyncio.gather(claim("one"), claim("two")), timeout=5)
+    assert results.count(1) == 1
+    assert results.count(None) == 1
+
+
+async def test_old_execution_cannot_commit_business_changes(pg_engine: AsyncEngine) -> None:  # noqa: PLR0915 — one end-to-end fencing scenario
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    factory = UnitOfWorkFactory(SessionDatabase(sessions))
+    async with sessions.begin() as session:
+        job = await SQLAlchemyBackgroundJobRepository(session).create(
+            BackgroundJob(job_type=JobType.BENCHMARK)
+        )
+        document = await SQLAlchemyDocumentRepository(session).save(Document(filename="original.txt"))
+    assert job.id is not None
+    assert document.id is not None
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBackgroundJobRepository(session)
+        await repo.claim(job.id, "old", lease_seconds=120)
+    async with sessions.begin() as session:
+        row = await session.get(BackgroundJobModel, job.id)
+        assert row is not None
+        row.lease_until = datetime.now(UTC) - timedelta(seconds=1)
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBackgroundJobRepository(session)
+        assert [expired.id for expired in await repo.lock_expired(timeout_minutes=30)] == [job.id]
+        await repo.release_expired(job.id, error="lease expired", retry_seconds=0)
+    async with sessions.begin() as session:
+        assert await SQLAlchemyBackgroundJobRepository(session).claim(job.id, "new", lease_seconds=120) == 2
+    token = current_execution.set(JobExecution(job.id, "old"))
+    try:
+        with pytest.raises(ExecutionLeaseLostError):
+            async with factory.create(master=True) as uow:
+                await uow.documents.update_status(document.id, status="failed", error="stale worker")
+    finally:
+        current_execution.reset(token)
+    async with sessions() as session:
+        saved = await SQLAlchemyDocumentRepository(session).get_by_id(document.id)
+        assert saved is not None
+        assert saved.status.value == "pending"
+
+
+async def test_execution_guards_share_reads_and_block_attempt_updates(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBackgroundJobRepository(session)
+        job = await repo.create(BackgroundJob(job_type=JobType.BENCHMARK))
+        assert job.id is not None
+        assert await repo.claim(job.id, "owner", lease_seconds=120) == 1
+
+    async with sessions.begin() as first, sessions.begin() as second:
+        await SQLAlchemyBackgroundJobRepository(first).lock_execution(job.id, "owner")
+        # Parallel/nested business UoWs of the same attempt must not deadlock.
+        await asyncio.wait_for(
+            SQLAlchemyBackgroundJobRepository(second).lock_execution(job.id, "owner"), timeout=2
+        )
+        async with sessions() as writer:
+            await writer.execute(text("SET LOCAL lock_timeout = '100ms'"))
+            with pytest.raises(DBAPIError, match="lock timeout"):
+                await SQLAlchemyBackgroundJobRepository(writer).finish_attempt(job.id, "owner")
+
+    async with sessions.begin() as session:
+        assert await SQLAlchemyBackgroundJobRepository(session).finish_attempt(job.id, "owner")
+
+
+async def test_sweep_and_durable_submission_roll_back_together(
+    pg_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    factory = UnitOfWorkFactory(SessionDatabase(sessions))
+    monkeypatch.setattr(SQLAlchemyBackgroundJobRepository, "create", AsyncMock(side_effect=ConnectionError()))
+    with pytest.raises(ConnectionError):
+        await BenchmarkSweepService(factory).create(SweepCreateDTO(), submit_job=True)
+    async with sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(BenchmarkSweepModel)) == 0
+        assert await session.scalar(select(func.count()).select_from(BackgroundJobModel)) == 0
+
+
+async def test_queue_metrics_are_read_from_committed_database_state(
+    pg_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    now = datetime.now(UTC)
+    async with sessions.begin() as session:
+        session.add(
+            BackgroundJobModel(
+                job_type=JobType.BENCHMARK,
+                status="pending",
+                creation_date=now - timedelta(minutes=5),
+                attempt=2,
+                dispatch_attempts=4,
+            )
+        )
+        session.add(
+            BackgroundJobModel(
+                job_type=JobType.SWEEP,
+                status="running",
+                creation_date=now - timedelta(minutes=10),
+                started_at=now - timedelta(minutes=8),
+                lease_until=now - timedelta(minutes=1),
+            )
+        )
+    monkeypatch.setattr(metrics, "database", SessionDatabase(sessions))
+    await metrics.collect_job_metrics()
+    assert metrics.JOB_OLDEST_PENDING.labels(JobType.BENCHMARK)._value.get() >= 300
+    assert metrics.JOB_WAIT.labels(JobType.SWEEP)._value.get() == 120
+    assert metrics.JOB_EXPIRED._value.get() == 1
+    assert metrics.JOB_RETRIES._value.get() == 1
+    assert metrics.JOB_DELIVERIES._value.get() == 4
+
+
+async def test_concurrent_ingest_submission_is_deduplicated_in_database(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    service = JobService(UnitOfWorkFactory(SessionDatabase(sessions)))
+    payload: dict[str, object] = {"resolved_dir": "docs/", "reset": False, "domain": "general"}
+    results = await asyncio.gather(
+        service.create_job(JobType.INGEST, dispatch_payload=payload),
+        service.create_job(JobType.INGEST, dispatch_payload=payload),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(result, int) for result in results) == 1
+    assert sum(isinstance(result, BusinessRuleViolationError) for result in results) == 1
+    async with sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(BackgroundJobModel)) == 1
+
+
+async def test_concurrent_claims_respect_cluster_wide_limit(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBackgroundJobRepository(session)
+        jobs = [
+            await repo.create(BackgroundJob(job_type=job_type))
+            for job_type in (JobType.INGEST, JobType.INGEST_FILE, JobType.INGEST)
+        ]
+    limit = ConcurrencyLimit(frozenset({JobType.INGEST, JobType.INGEST_FILE}), max_running=1)
+    barrier = asyncio.Barrier(len(jobs))
+
+    async def claim(job_id: int) -> int | str | None:
+        async with sessions.begin() as session:
+            await barrier.wait()
+            try:
+                return await SQLAlchemyBackgroundJobRepository(session).claim(
+                    job_id, f"owner-{job_id}", lease_seconds=120, limit=limit
+                )
+            except JobConcurrencyLimitReachedError:
+                return "busy"
+
+    results = await asyncio.wait_for(
+        asyncio.gather(*(claim(job.id) for job in jobs if job.id is not None)), timeout=10
+    )
+    assert results.count(1) == 1, "exactly one replica may start a job of the group"
+    assert results.count("busy") == len(jobs) - 1

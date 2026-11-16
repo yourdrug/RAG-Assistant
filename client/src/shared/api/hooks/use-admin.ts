@@ -41,7 +41,7 @@ export interface ModelInfo {
 }
 
 export interface ModelsInfo {
-  embedding_model: string;
+  embed_model: string;
   rerank_model: string;
 }
 

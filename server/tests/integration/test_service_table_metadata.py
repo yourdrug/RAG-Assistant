@@ -13,7 +13,7 @@ from infrastructure.database.basemodel import BaseModel
 
 
 pytestmark = pytest.mark.integration
-SERVICE_TABLES = ("cost_usage", "cost_rates", "corpus_processes", "corpus_control")
+SERVICE_TABLES = ("corpus_processes", "corpus_control")
 
 
 def include_service_table(obj: Any, name: str | None, kind: str, reflected: bool, other: Any) -> bool:

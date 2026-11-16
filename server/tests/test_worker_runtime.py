@@ -1,20 +1,22 @@
-"""Shared worker policy preserves billing and processing retry boundaries."""
+"""Shared worker policy preserves the job principal and processing retry boundaries."""
 
 from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
 
 from arq import Retry
 import pytest
 
-from application.budget import billing_principal
-from infrastructure.budget.job_context import job_operations, next_operation_id
+from application.jobs.principal import job_principal
+from config import settings
+from domain.runtime.jobs import BackgroundJob, JobType
 from infrastructure.metrics import metrics
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.worker import runtime, sweep, tasks
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -29,6 +31,29 @@ class JobFactory:
             mark_failed=AsyncMock(),
             touch_heartbeat=AsyncMock(),
         )
+        self.attempts: dict[object, int] = {}
+
+        async def claim(*args: object, **kwargs: object) -> int:
+            self.attempts[args[0]] = self.attempts.get(args[0], 0) + 1
+            await self.jobs.mark_running(args[0])
+            return self.attempts[args[0]]
+
+        async def finish(
+            job_id: int, attempt_id: str, *, error: str | None = None, retry_seconds: float | None = None
+        ) -> bool:
+            if retry_seconds is not None:
+                return True
+
+            if error:
+                await self.jobs.mark_failed(job_id, error)
+            else:
+                await self.jobs.mark_done(job_id)
+
+            return True
+
+        self.jobs.claim = claim
+        self.jobs.finish_attempt = finish
+        self.jobs.renew_lease = AsyncMock(return_value=True)
 
     def create(self, *, master: bool = False) -> JobFactory:
         assert master
@@ -42,7 +67,8 @@ class JobFactory:
 
 
 @pytest.mark.asyncio
-async def test_ten_documents_from_same_principal_start_together() -> None:
+async def test_ten_documents_from_same_principal_start_together(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "document_max_concurrent", 10)
     factory = JobFactory()
     started: set[int] = set()
     all_started = asyncio.Event()
@@ -50,8 +76,7 @@ async def test_ten_documents_from_same_principal_start_together() -> None:
 
     async def process(command: ProcessDocumentCommand) -> None:
         started.add(command.document_id)
-        assert billing_principal.get() == "user:9"
-        assert job_operations.get() is not None
+        assert job_principal.get() == "user:9"
 
         if len(started) == 10:
             all_started.set()
@@ -87,44 +112,41 @@ async def test_ten_documents_from_same_principal_start_together() -> None:
         await asyncio.gather(*batch)
     assert started == set(range(1, 11))
     assert factory.jobs.mark_done.await_count == 10
-    assert billing_principal.get() is None
-    assert job_operations.get() is None
+    assert job_principal.get() is None
 
 
 @pytest.mark.asyncio
-async def test_processing_retries_preserve_billing_scope() -> None:
+async def test_processing_retries_preserve_principal() -> None:
     factory = JobFactory()
     observed = []
 
-    @runtime.job()
+    @runtime.job(JobType.DOCUMENT_PROCESSING)
     async def action(ctx: dict[str, int], **kwargs: object) -> None:
-        observed.append((ctx["job_try"], billing_principal.get(), next_operation_id()))
+        observed.append((ctx["job_try"], job_principal.get()))
         message = "failed"
-        raise RuntimeError(message)
+        raise ConnectionError(message)
 
     ctx = {"uow_factory": factory}
-    arguments = {"job_id": 5, "principal_id": 9, "cost_principal": "user:9", "cost_operation_id": "fixed"}
+    arguments = {"job_id": 5, "principal_id": 9, "cost_principal": "user:9"}
 
     for attempt in (1, 2):
         with pytest.raises(Retry) as raised:
             await action(dict(ctx, job_try=attempt), **arguments)
-        assert raised.value.defer_score == 5000 * 2 ** (attempt - 1)
+        assert 5000 * 2 ** (attempt - 1) <= raised.value.defer_score <= 6000 * 2 ** (attempt - 1)
 
     await action(dict(ctx, job_try=3), **arguments)
     assert [row[0] for row in observed] == [1, 2, 3]
     assert all(row[1] == "user:9" for row in observed)
-    assert len({row[2] for row in observed}) == 1
     factory.jobs.mark_failed.assert_awaited_once_with(5, "failed")
     factory.jobs.mark_done.assert_not_awaited()
-    assert billing_principal.get() is None
-    assert job_operations.get() is None
+    assert job_principal.get() is None
 
 
 @pytest.mark.asyncio
-async def test_cancellation_releases_billing_context() -> None:
+async def test_cancellation_releases_principal_context() -> None:
     factory = JobFactory()
 
-    @runtime.job()
+    @runtime.job(JobType.DOCUMENT_PROCESSING, max_tries=1)
     async def action(ctx: dict[str, int], **kwargs: object) -> None:
         raise asyncio.CancelledError
 
@@ -132,8 +154,39 @@ async def test_cancellation_releases_billing_context() -> None:
     with pytest.raises(asyncio.CancelledError):
         await action(ctx, job_id=7, owner_id=8, cost_principal="user:8")
     factory.jobs.mark_failed.assert_awaited_once()
-    assert billing_principal.get() is None
-    assert job_operations.get() is None
+    assert job_principal.get() is None
+
+
+@pytest.mark.asyncio
+async def test_saturated_concurrency_group_defers_without_claiming(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "ingest_max_concurrent", 1)
+    factory = FakeUnitOfWorkFactory()
+    repo = factory._uow.fake_background_jobs
+    running = await repo.create(BackgroundJob(job_type=JobType.INGEST))
+    waiting = await repo.create(BackgroundJob(job_type=JobType.INGEST_FILE))
+    assert running.id is not None
+    assert waiting.id is not None
+    running.mark_running()
+    ran: list[int] = []
+
+    @runtime.job(JobType.INGEST_FILE)
+    async def run_single_ingest(ctx: dict[str, object], **kwargs: object) -> None:
+        ran.append(cast("int", kwargs["job_id"]))
+
+    ctx: dict[str, object] = {"uow_factory": factory}
+
+    with pytest.raises(Retry):
+        await run_single_ingest(ctx, job_id=waiting.id)
+
+    assert ran == []
+    # The fake UoW restores a snapshot on rollback: read state from the repository.
+    assert repo.jobs[waiting.id].status == "pending"
+    assert repo.jobs[waiting.id].attempt == 0, "a deferred delivery must not consume an execution attempt"
+
+    repo.jobs[running.id].mark_done()
+    await run_single_ingest(ctx, job_id=waiting.id)
+    assert ran == [waiting.id]
+    assert repo.jobs[waiting.id].status == "done"
 
 
 @pytest.mark.asyncio

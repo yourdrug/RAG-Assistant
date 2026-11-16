@@ -161,7 +161,7 @@ async def decompose_question(
         log.warning("decompose_question called without instructor_client, returning original")
         return [question]
 
-    model = request_section(LLMSection).openrouter_model
+    model = request_section(LLMSection).active_auxiliary_model
 
     async def call_model() -> DecompositionCheck:
         llm_settings = request_section(LLMSection)

@@ -20,9 +20,6 @@ from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.profiles.types import refs_to_metadata
 from domain.ingestion.raw_document import RawDocument
 from domain.ingestion.tree_packer import select_structural_units
-from domain.knowledge.access_control import get_visibility_conditions
-from domain.knowledge.enums import DocumentVisibility
-from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
 from infrastructure.domain_packs.belarus_law.domain.legal import LegalDomainProfile
 from infrastructure.domain_packs.belarus_law.pack import BELARUS_LAW_PACK
@@ -398,25 +395,8 @@ def test_ordinary_prose_is_not_definition_or_procedure() -> None:
     assert classify_content_shape("- Первый пункт\n- Второй пункт") == "list"
 
 
-def test_contract_acl_is_preserved_in_bm25_and_qdrant() -> None:
-    documents = [
-        Document(
-            page_content=f"Условия договора {owner}",
-            metadata={
-                "doc_domain": "contract",
-                "owner_id": owner,
-                "visibility": DocumentVisibility.INTERNAL_PRIVATE.value,
-            },
-        )
-        for owner in [1, 2]
-    ]
+def test_contract_acl_is_preserved_in_qdrant() -> None:
     user = UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
-    index = BM25Index.from_documents(documents)
-    conditions = get_visibility_conditions(UserKind.INTERNAL, [], for_list=False, user_role=UserRole.USER)
-    result = index.search_with_hashes(
-        "договора", visibility_conditions=conditions, user_id=1, user_group_ids=[]
-    )
-    assert len(result) == 1
     acl = build_qdrant_filter(user, [])
     combined = with_domain_filter(acl, "contract")
     assert isinstance(combined.must, list)

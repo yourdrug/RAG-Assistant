@@ -1,7 +1,7 @@
 "use client";
 import { Clock, RefreshCw } from "lucide-react";
 import { useState } from "react";
-import { useJobStats, useJobs } from "@/shared/api/hooks";
+import { useJobAction, useJobStats, useJobs } from "@/shared/api/hooks";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -16,6 +16,7 @@ const statusVariant: Record<
   running: "default",
   done: "success",
   failed: "destructive",
+  cancelled: "secondary",
 };
 
 function formatDuration(start: string | null, end: string | null) {
@@ -30,12 +31,19 @@ function formatDuration(start: string | null, end: string | null) {
 
 export function JobsPage() {
   const [page, setPage] = useState(0);
+  const [failedOnly, setFailedOnly] = useState(false);
+  const retry = useJobAction("retry");
+  const cancel = useJobAction("cancel");
   const pageSize = 50;
   const {
     data: jobsData,
     isLoading: jobsLoading,
     refetch,
-  } = useJobs({ limit: pageSize, offset: page * pageSize });
+  } = useJobs({
+    limit: pageSize,
+    offset: page * pageSize,
+    status: failedOnly ? "failed" : undefined,
+  });
   const { data: statsData } = useJobStats();
 
   return (
@@ -45,6 +53,16 @@ export function JobsPage() {
           <h1 className="text-2xl font-bold">Jobs</h1>
           <p className="text-muted-foreground">Background task monitoring</p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setFailedOnly(!failedOnly);
+            setPage(0);
+          }}
+        >
+          {failedOnly ? "Show all" : "Show failed"}
+        </Button>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" /> Refresh
         </Button>
@@ -58,7 +76,7 @@ export function JobsPage() {
             <p className="text-xs text-muted-foreground">Total</p>
           </CardContent>
         </Card>
-        {["pending", "running", "done", "failed"].map((s) => (
+        {["pending", "running", "done", "failed", "cancelled"].map((s) => (
           <Card key={s}>
             <CardContent className="pt-4">
               <div className="text-2xl font-bold">{statsData?.by_status?.[s] ?? 0}</div>
@@ -90,16 +108,18 @@ export function JobsPage() {
                     <TableHead>ID</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Attempt</TableHead>
                     <TableHead>Request ID</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Error</TableHead>
                     <TableHead>Created</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {jobsData?.jobs?.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                         No jobs found
                       </TableCell>
                     </TableRow>
@@ -113,6 +133,7 @@ export function JobsPage() {
                       <TableCell>
                         <Badge variant={statusVariant[job.status] ?? "default"}>{job.status}</Badge>
                       </TableCell>
+                      <TableCell>{job.attempt}</TableCell>
                       <TableCell className="font-mono text-xs max-w-[120px] truncate">
                         {job.request_id ?? "-"}
                       </TableCell>
@@ -124,6 +145,29 @@ export function JobsPage() {
                       </TableCell>
                       <TableCell className="text-xs">
                         {job.creation_date ? new Date(job.creation_date).toLocaleString() : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {job.retryable && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={retry.isPending}
+                            onClick={() => retry.mutate(job.id)}
+                          >
+                            Retry
+                          </Button>
+                        )}
+                        {["ingest", "ingest_file", "benchmark"].includes(job.job_type) &&
+                          ["pending", "running"].includes(job.status) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={cancel.isPending}
+                              onClick={() => cancel.mutate(job.id)}
+                            >
+                              Cancel
+                            </Button>
+                          )}
                       </TableCell>
                     </TableRow>
                   ))}

@@ -285,7 +285,6 @@ export interface HealthResponse {
   status: string;
   version: string;
   uptime_seconds: number;
-  llm_provider: string;
   checks: {
     api: HealthCheck;
     qdrant: HealthCheck;
@@ -349,7 +348,9 @@ export interface BenchmarkResultDetail {
 export interface JobResponse {
   id: number;
   job_type: string;
-  status: "pending" | "running" | "done" | "failed";
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
+  attempt: number;
+  retryable: boolean;
   related_id?: number | null;
   request_id?: string | null;
   started_at?: string | null;
@@ -373,7 +374,6 @@ export interface JobsStatsResponse {
 export interface MetricsResponse {
   db_pool: Record<string, number>;
   qdrant: Record<string, number>;
-  bm25: Record<string, number>;
   rag: Record<string, number | Record<string, number>>;
   ingestion: Record<string, number | Record<string, number>>;
   http_requests: Record<string, number | Record<string, number>>;

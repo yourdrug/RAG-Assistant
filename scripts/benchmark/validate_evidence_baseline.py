@@ -60,12 +60,12 @@ async def resolve_costs(records: list[dict[str, Any]]) -> None:
         return
 
     async with httpx.AsyncClient(
-        timeout=30, headers={"Authorization": "Bearer " + settings.openrouter_api_key.get_secret_value()}
+        timeout=30, headers={"Authorization": "Bearer " + settings.llm_api_key.get_secret_value()}
     ) as client:
         for record in pending:
             try:
                 response = await client.get(
-                    settings.openrouter_base_url.rstrip("/") + "/generation",
+                    settings.llm_base_url.rstrip("/") + "/generation",
                     params={"id": record["response_id"]},
                 )
                 response.raise_for_status()
@@ -103,7 +103,7 @@ async def run(args: argparse.Namespace) -> None:
                     )
                 )
         # Pin the historical run's model without changing the persisted configuration.
-        settings.openrouter_model = args.generation_model
+        settings.llm_model = args.generation_model
         report = (
             json.loads(args.out.read_text())
             if args.out.exists()
@@ -111,7 +111,7 @@ async def run(args: argparse.Namespace) -> None:
                 "source_run": args.source_run,
                 "input_fingerprint": input_fingerprint,
                 "evidence_policy": EVIDENCE_POLICY_VERSION,
-                "model": settings.openrouter_model,
+                "model": settings.llm_model,
                 "judge_model": args.judge_model,
                 "config": {
                     "top_k": 8,
@@ -128,7 +128,7 @@ async def run(args: argparse.Namespace) -> None:
 
         if (
             report["evidence_policy"] != EVIDENCE_POLICY_VERSION
-            or report["model"] != settings.openrouter_model
+            or report["model"] != settings.llm_model
             or report["source_run"] != args.source_run
             or report.get("input_fingerprint") != input_fingerprint
             or report["judge_model"] != args.judge_model

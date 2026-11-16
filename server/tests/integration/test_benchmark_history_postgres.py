@@ -241,7 +241,7 @@ async def test_fresh_sweep_worker_restores_database_without_data_dir(
     )
     monkeypatch.setattr(first, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
     monkeypatch.setattr(first._data, "cache_reranker_scores", AsyncMock(return_value={}))
-    monkeypatch.setattr(first, "score_config_cheap", lambda *_args: {"composite_score": 1})
+    monkeypatch.setattr(first, "score_config_cheap", lambda *_args, **_kwargs: {"composite_score": 1})
     first_phase = AsyncMock(side_effect=RuntimeError("judge unavailable"))
     monkeypatch.setattr(first, "run_phase_b", first_phase)
     with pytest.raises(RuntimeError, match="judge unavailable"):

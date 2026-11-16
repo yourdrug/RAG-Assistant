@@ -84,7 +84,7 @@ async def test_failed_request_resumes_without_repeating_successes(
     comparison: ModuleType, snapshot: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
-    monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("fixture-key"))
+    monkeypatch.setattr(settings, "llm_api_key", SecretStr("fixture-key"))
     requests = []
     fail_first = True
 

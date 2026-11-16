@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -32,6 +33,9 @@ from presentation.api.schemas import (
     BenchmarkResultsListResponse,
     CurrentUser,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(tags=["benchmark"])
@@ -70,16 +74,22 @@ async def run_benchmark(
     if cached is not None:
         return BenchmarkResponse(**cached)
 
-    job_id = await submission.jobs.create_job(JobType.BENCHMARK)
-
-    await submission.enqueuer.enqueue_benchmark(
-        dataset=req.dataset,
-        top_k=k,
-        judge_model=judge,
-        job_id=job_id,
+    job_id = await submission.jobs.create_job(
+        JobType.BENCHMARK,
+        cost_principal=f"user:{admin.id}",
+        dispatch_payload={
+            "dataset": req.dataset,
+            "top_k": k,
+            "judge_model": judge,
+        },
     )
-
-    response = BenchmarkResponse(status="started")
+    try:
+        await submission.enqueuer.enqueue_benchmark(
+            dataset=req.dataset, top_k=k, judge_model=judge, job_id=job_id
+        )
+    except Exception:  # noqa: BLE001 — committed work remains available to the relay
+        logger.warning("Benchmark delivery deferred: job_id=%d", job_id)
+    response = BenchmarkResponse(status="started", job_id=job_id)
 
     await complete_idempotency(idempotency.store, reservation, response.model_dump(mode="json"))
 

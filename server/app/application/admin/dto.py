@@ -3,21 +3,22 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from application.runtime.enums import MLProvider
-
 
 @dataclass(frozen=True)
 class ModelsInfo:
-    llm_provider: str
+    llm_base_url: str
     llm_model: str
-    tei_embed_url: str
-    tei_rerank_url: str
+    llm_auxiliary_model: str
+    llm_api_key_configured: bool
+    embedding_base_url: str
     embed_model: str
+    embedding_api_key_configured: bool
+    rerank_base_url: str
     rerank_model: str
+    rerank_api_format: str
+    rerank_api_key_configured: bool
     ocr_engine: str
     ocr_enabled: bool
-    openrouter_model: str | None = None
-    ml_provider: str = MLProvider.TEI.value
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,7 @@ class VectorDBInfo:
 
 
 @dataclass(frozen=True)
-class OpenRouterModelsInfo:
+class LLMModelsInfo:
     models: list[dict[str, Any]] = field(default_factory=list)
     active_model: str | None = None
 

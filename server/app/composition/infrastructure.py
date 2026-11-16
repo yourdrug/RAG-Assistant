@@ -10,14 +10,12 @@ Organized into sub-containers for Single Responsibility:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from functools import partial
 import logging
 from typing import TYPE_CHECKING
 
 from prometheus_client import Counter
 
 from application.benchmark import BenchmarkService
-from application.budget import BudgetAdminService
 from application.documents import DocumentPreviewStrategy, PreviewCache
 from application.runtime.config import ConfigParameterChanged
 from composition.domain_packs import selected_pack
@@ -36,9 +34,6 @@ from infrastructure.benchmark.evaluation.annotation_validation import Annotation
 from infrastructure.benchmark.executor import BenchmarkExecutor
 from infrastructure.benchmark.judging.clients import close_judge_clients
 from infrastructure.benchmark.reporting.benchmark_history_adapter import BenchmarkHistoryAdapter
-from infrastructure.budget.ledger import PostgresRedisBudget
-from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
-from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.corpus.control import PostgresCorpusControl
 from infrastructure.corpus.resources import CorpusResources
 from infrastructure.database.database import DatabaseManager
@@ -65,6 +60,7 @@ from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, 
 from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
 from infrastructure.ml.ingestion import get_paddle_ocr, get_surya_predictors
 from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
+from infrastructure.ml.ingestion.ocr_vl import ocr_client_pool
 from infrastructure.ml.langchain_document_parser import (
     LangchainDocumentParser,
     LangchainDocumentSplitter,
@@ -91,6 +87,7 @@ if TYPE_CHECKING:
     from application.benchmark import BenchmarkHistoryPort
     from application.documents import PreviewStrategyFactoryPort
     from application.identity import ApiKeyProviderPort
+    from application.jobs.ports import JobAbortPort
     from application.ports.action_logger import ActionLoggerPort
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.ports.http_metrics import HttpMetricsPort
@@ -160,12 +157,11 @@ class MLContainer:
         uow_factory: UnitOfWorkFactory,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsAdapter | None = None,
-        budget_runtime: BudgetRuntime | None = None,
     ) -> None:
 
         self.file_storage = LazyStorage(settings, settings)
         resources = CorpusResources(create_qdrant_client)
-        self.ml_clients = MLClientRegistry(budget_runtime=budget_runtime, corpus_resources=resources)
+        self.ml_clients = MLClientRegistry(corpus_resources=resources)
         self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
         self.preview_cache = PreviewCache(storage=self.file_storage, settings=LivePreviewSettings())
         self.document_parser = LangchainDocumentParser(
@@ -183,7 +179,6 @@ class MLContainer:
             rag_service=None,
             runner=BenchmarkExecutor(
                 self.ml_clients,
-                budget_runtime=budget_runtime,
                 annotation_validator=AnnotationValidator(ChunkSearchAdapter(uow_factory)),
             ),
         )
@@ -194,6 +189,7 @@ class MLContainer:
 
     def dispose(self) -> None:
         """Clear ML-specific caches and release resources."""
+        ocr_client_pool.close()
         # Clear OCR/lru_cache caches — import may fail if optional deps
         # (paddleocr, surya) are not installed.
         try:
@@ -307,6 +303,7 @@ class ServiceContainer:
     action_logger: ActionLoggerPort | None = field(default=None)
     cache_invalidator: CacheInvalidatorPort | None = field(default=None)
     job_enqueuer: JobEnqueuerPort | None = field(default=None)
+    job_aborter: JobAbortPort | None = field(default=None)
     config_masker: ConfigMaskerPort | None = field(default=None)
     log_buffer: LogBufferPort | None = field(default=None)
     preview_strategy_factory: PreviewStrategyFactoryPort | None = field(default=None)
@@ -321,7 +318,9 @@ class ServiceContainer:
         self.api_key_provider = api_key_provider
         self.action_logger = ActionLoggerAdapter()
         self.cache_invalidator = CacheInvalidatorAdapter()
-        self.job_enqueuer = JobEnqueuerAdapter()
+        enqueuer = JobEnqueuerAdapter()
+        self.job_enqueuer = enqueuer
+        self.job_aborter = enqueuer
         self.config_masker = ConfigMaskerAdapter()
         self.log_buffer = LogBufferAdapter()
         self.preview_strategy_factory = PreviewStrategyFactoryAdapter()
@@ -370,8 +369,6 @@ class InfrastructureContainer:
     rate_limit: DynamicRateLimiter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
     corpus_control: PostgresCorpusControl | None = field(default=None, repr=False)
-    budget_runtime: BudgetRuntime = field(default_factory=BudgetRuntime, repr=False)
-    budget_admin: BudgetAdminService | None = field(default=None, repr=False)
     configuration: SettingsProviderConfiguration | None = field(default=None, repr=False)
     _config_handlers: list[Callable[[ConfigParameterChanged], None]] = field(default_factory=list, repr=False)
 
@@ -392,17 +389,9 @@ class InfrastructureContainer:
             uow_factory=self.db.uow,
             domain_registry=self.domain_registry,
             domain_settings=self.domain_settings,
-            budget_runtime=self.budget_runtime,
         )
         self.services.init()
         self.init_rate_limit()
-        session_factory = partial(database_manager.get_session, master=True)
-        budget_ledger = PostgresRedisBudget(session_factory, redis_client.async_redis)
-        billing_catalog = OpenRouterBillingCatalog()
-        self.budget_runtime.configure(
-            budget_ledger, session_factory, billing_catalog, database_manager=database_manager
-        )
-        self.budget_admin = BudgetAdminService(budget_ledger, billing_catalog)
         self.configuration = SettingsProviderConfiguration(
             domain_settings=self.domain_settings,
             registry=self.domain_registry,
@@ -434,9 +423,6 @@ class InfrastructureContainer:
         await seed_config_defaults(self.db.uow)
         await seed_domain_config_defaults(self.db.uow, require(self.domain_registry, "domain_registry"))
 
-        if self.owns_budget_runtime():
-            self.budget_runtime.bootstrapped = True
-
         await self.events.config_listener.synchronize(require_complete=True)
 
         if self.corpus_control is None:
@@ -444,13 +430,6 @@ class InfrastructureContainer:
             raise RuntimeError(msg)
 
         await self.corpus_control.start(role)
-
-    def owns_budget_runtime(self) -> bool:
-        if self.budget_admin is None or self.budget_runtime.service is None:
-            return False
-
-        ledger: object = self.budget_runtime.service.ledger
-        return ledger is self.budget_admin.repository
 
     def subscribe_config_events(self) -> None:
         if self._config_handlers:
@@ -490,21 +469,21 @@ class InfrastructureContainer:
             return
 
         if event.key in {
-            "llm_provider",
             "llm_temperature",
             "llm_top_p",
             "llm_num_ctx_narrow",
             "llm_num_predict_narrow",
             "llm_num_ctx_broad",
             "llm_num_predict_broad",
-            "openrouter_model",
+            "llm_model",
+            "llm_auxiliary_model",
         }:
             ml.invalidate_llm()
 
-        if event.key in {"ml_provider", "deepinfra_embed_model"}:
+        if event.key == "embedding_base_url":
             ml.invalidate_embeddings()
 
-        if event.key in {"ml_provider", "deepinfra_rerank_model"}:
+        if event.key in {"rerank_base_url", "rerank_model", "rerank_api_format"}:
             ml.invalidate_reranker()
 
     def init_rate_limit(self) -> None:
@@ -539,14 +518,11 @@ class InfrastructureContainer:
 
         return issues
 
-    async def close_billing_and_corpus(self) -> None:
-        if self.owns_budget_runtime():
-            self.budget_runtime.bootstrapped = False
-
+    async def close_corpus_and_judges(self) -> None:
         if self.corpus_control is not None:
             await self.corpus_control.close()
 
-        await close_judge_clients(runtime=self.budget_runtime)
+        await close_judge_clients()
 
     async def dispose(self) -> None:
         """Tear down all resources in reverse order.
@@ -556,7 +532,7 @@ class InfrastructureContainer:
         the future, add ``self.db.dispose()`` here.
         """
         try:
-            await self.close_billing_and_corpus()
+            await self.close_corpus_and_judges()
         finally:
             try:
                 if self.rate_limit is not None:

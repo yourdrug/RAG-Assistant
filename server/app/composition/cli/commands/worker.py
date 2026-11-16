@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from enum import StrEnum
 import logging
 import sys
 from typing import Any
@@ -24,72 +24,120 @@ from infrastructure.worker.cron import (
     cron_recover_orphaned_jobs,
     cron_recover_stuck_processing,
 )
-from infrastructure.worker.document_deletion import delete_document
 from infrastructure.worker.document_dispatch import cron_dispatch_documents
-from infrastructure.worker.queue import QUEUE_NAME, arq_redis_settings, close_arq_pool
-from infrastructure.worker.sweep import run_sweep_task as run_sweep
-from infrastructure.worker.tasks import (
-    process_document,
-    run_benchmark,
-    run_full_ingest,
-    run_single_ingest,
-)
+from infrastructure.worker.maintenance import cron_outbox_dispatch, cron_outbox_reconcile
+from infrastructure.worker.queue import arq_redis_settings, close_arq_pool
+from infrastructure.worker.registry import BATCH_QUEUE, DOCUMENTS_QUEUE, MAINTENANCE_QUEUE, tasks_for_queue
+from infrastructure.worker_health import health_check_key
 
 
 logger = logging.getLogger("cli")
 
-_PROCESS_TIMEOUT = 60 * 30  # single document incl. OCR: 30 min
-_SINGLE_INGEST_TIMEOUT = 60 * 30  # single file ingest: 30 min
-_FULL_INGEST_TIMEOUT = 60 * 120  # whole corpus ingest: 2 h
-_BENCHMARK_TIMEOUT = 60 * 60  # benchmark run: 1 h
-_SWEEP_TIMEOUT = 60 * 60 * 6  # parameter sweep with LLM judge: 6 h
-_CRON_TIMEOUT = 60 * 10  # maintenance cron jobs: 10 min
-_MAX_JOB_TRIES = 3
+CRON_TIMEOUT = 60 * 10
+
+
+class WorkerRole(StrEnum):
+    DOCUMENTS = "documents"
+    BATCH = "batch"
+    MAINTENANCE = "maintenance"
+
+
+QUEUES = {
+    WorkerRole.DOCUMENTS: DOCUMENTS_QUEUE,
+    WorkerRole.BATCH: BATCH_QUEUE,
+    WorkerRole.MAINTENANCE: MAINTENANCE_QUEUE,
+}
+# Busy concurrency groups defer deliveries with Arq Retry; DB execution attempts,
+# not broker deliveries, enforce the retry budget, so this is only a safety net.
+MAX_DELIVERIES = 1000
+
+
+def default_max_jobs(role: WorkerRole) -> int:
+    """Broker slots per replica; total capacity scales with the replica count."""
+    if role == WorkerRole.MAINTENANCE:
+        return settings.maintenance_max_concurrent
+
+    if role == WorkerRole.DOCUMENTS:
+        return settings.document_max_concurrent
+
+    # Batch slots per replica; cluster-wide caps per job type apply at claim.
+    return settings.worker_max_concurrent
 
 
 def worker(
     max_jobs: int | None = None,
     health_check_interval: int = 10,
+    role: WorkerRole = WorkerRole.DOCUMENTS,
 ) -> None:
-    """Запустить Arq worker для обработки фоновых задач.
-
-    Слушает очередь: background_tasks.
-    Cron-задачи: job_cleanup (2x/day), recover_orphaned (15 мин), recover_stuck_processing (15 мин).
-    Использует Redis как брокер.
-    """
+    """Run one Arq queue: documents, batch or maintenance (cron, relay, outbox)."""
+    role = WorkerRole(role)
     try:
         redis_settings = arq_redis_settings(settings.redis_url)
 
-        functions: Sequence[Function] = [
-            arq_func(delete_document, timeout=_PROCESS_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
-            arq_func(process_document, timeout=_PROCESS_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
-            arq_func(run_full_ingest, timeout=_FULL_INGEST_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
+        maintenance = role == WorkerRole.MAINTENANCE
+        queue_name = QUEUES[role]
+        functions: list[Function] = [
             arq_func(
-                run_single_ingest,
-                timeout=_SINGLE_INGEST_TIMEOUT,
-                keep_result=0,
-                max_tries=_MAX_JOB_TRIES,
-            ),
-            arq_func(run_benchmark, timeout=_BENCHMARK_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
-            arq_func(
-                run_sweep, name="run_sweep", timeout=_SWEEP_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES
-            ),
-            arq_func(cron_sweep_checkpoint_cleanup, timeout=_CRON_TIMEOUT, keep_result=0),
-            arq_func(cron_job_cleanup, timeout=_CRON_TIMEOUT, keep_result=0),
-            arq_func(cron_recover_orphaned_jobs, timeout=_CRON_TIMEOUT, keep_result=0),
-            arq_func(cron_recover_stuck_processing, timeout=_CRON_TIMEOUT, keep_result=0),
+                task.handler, name=task.name, timeout=task.timeout, keep_result=0, max_tries=MAX_DELIVERIES
+            )
+            for task in tasks_for_queue(queue_name)
         ]
-
-        cron_jobs = [
-            cron(cron_dispatch_documents, second={0, 30}, timeout=_CRON_TIMEOUT, run_at_startup=True),
-            cron(cron_sweep_checkpoint_cleanup, minute=set(range(60)), timeout=_CRON_TIMEOUT),
-            cron(cron_job_cleanup, hour={1, 13}, timeout=_CRON_TIMEOUT),
-            cron(cron_recover_orphaned_jobs, minute={0, 15, 30, 45}, timeout=_CRON_TIMEOUT),
-            cron(cron_recover_stuck_processing, minute={5, 20, 35, 50}, timeout=_CRON_TIMEOUT),
-        ]
+        cron_jobs = (
+            [
+                cron(
+                    cron_dispatch_documents,
+                    job_id="maintenance:cron_dispatch_documents",
+                    second={0, 30},
+                    timeout=CRON_TIMEOUT,
+                    run_at_startup=True,
+                ),
+                cron(
+                    cron_outbox_dispatch,
+                    job_id="maintenance:cron_outbox_dispatch",
+                    second={5, 35},
+                    timeout=CRON_TIMEOUT,
+                    run_at_startup=True,
+                ),
+                cron(
+                    cron_outbox_reconcile,
+                    job_id="maintenance:cron_outbox_reconcile",
+                    minute=set(range(60)),
+                    second=10,
+                    timeout=CRON_TIMEOUT,
+                ),
+                cron(
+                    cron_sweep_checkpoint_cleanup,
+                    job_id="maintenance:cron_sweep_checkpoint_cleanup",
+                    minute=set(range(60)),
+                    timeout=CRON_TIMEOUT,
+                ),
+                cron(
+                    cron_job_cleanup,
+                    job_id="maintenance:cron_job_cleanup",
+                    minute=0,
+                    timeout=CRON_TIMEOUT,
+                ),
+                cron(
+                    cron_recover_orphaned_jobs,
+                    job_id="maintenance:cron_recover_orphaned_jobs",
+                    # Leases last minutes; recover lost attempts promptly.
+                    minute=set(range(60)),
+                    second=20,
+                    timeout=CRON_TIMEOUT,
+                ),
+                cron(
+                    cron_recover_stuck_processing,
+                    job_id="maintenance:cron_recover_stuck_processing",
+                    minute={5, 20, 35, 50},
+                    timeout=CRON_TIMEOUT,
+                ),
+            ]
+            if maintenance
+            else []
+        )
 
         if max_jobs is None:
-            max_jobs = settings.worker_max_concurrent
+            max_jobs = default_max_jobs(role)
 
         w = Worker(
             functions=functions,
@@ -97,14 +145,21 @@ def worker(
             redis_settings=redis_settings,
             max_jobs=max_jobs,
             health_check_interval=health_check_interval,
-            queue_name=QUEUE_NAME,
-            on_startup=on_startup,
+            queue_name=queue_name,
+            health_check_key=health_check_key(queue_name),
+            job_completion_wait=settings.worker_completion_wait_seconds,
+            allow_abort_jobs=True,
+            # Results are never read; a kept failure result (e.g. a delivery to a
+            # replica of the previous release) would block re-publication by ID.
+            keep_result=0,
+            on_startup=on_maintenance_startup if maintenance else on_startup,
             on_shutdown=on_shutdown,
         )
 
         logger.info(
-            "Arq worker starting — queue: %s cron: cleanup/recover/reconcile max_jobs=%d redis=%s",
-            QUEUE_NAME,
+            "Arq worker starting — role: %s queue: %s max_jobs=%d redis=%s",
+            role,
+            queue_name,
             max_jobs,
             settings.redis_host,
         )
@@ -126,7 +181,17 @@ async def on_startup(ctx: dict[str, Any]) -> None:
         ctx["container"] = container
         container.init(database)
         await container.infrastructure.bootstrap_configuration(role="worker")
-        ctx.update(container.worker_dependencies())
+
+        if ctx.get("maintenance"):
+            ctx["uow_factory"] = container.infrastructure.db.uow
+            ctx["outbox_dispatcher"] = container.infrastructure.events.outbox_dispatcher
+            outbox_listener = require(
+                container.infrastructure.events.outbox_listener, "maintenance outbox listener"
+            )
+            await outbox_listener.start()
+        else:
+            ctx.update(container.worker_dependencies())
+
         listener = require(container.infrastructure.events.config_listener, "worker config listener")
         init_breakers(
             fail_max=settings.llm_breaker_fail_max,
@@ -141,6 +206,11 @@ async def on_startup(ctx: dict[str, Any]) -> None:
     except BaseException:
         await on_shutdown(ctx)
         raise
+
+
+async def on_maintenance_startup(ctx: dict[str, Any]) -> None:
+    ctx["maintenance"] = True
+    await on_startup(ctx)
 
 
 async def periodic_config_resync(listener: PostgresConfigListener) -> None:

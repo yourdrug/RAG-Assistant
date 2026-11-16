@@ -25,10 +25,8 @@ from pyrate_limiter.utils import validate_rate_list
 from application.admin import ConfigurationStatus, EffectiveParameter
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType, parse_bool
 from application.runtime.dynamic_params import DYNAMIC_PARAMS, profile_param_category
-from application.runtime.enums import LLMProvider, MLProvider
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from config import settings
-from domain.runtime.cost import usd_units
 from domain.shared.exceptions import ValidationError
 from infrastructure.benchmark.judging.clients import retire_judge_clients
 from infrastructure.events.in_process_event_bus import event_bus
@@ -359,13 +357,9 @@ class SettingsProviderConfiguration:
             candidate = self.settings.model_copy(update=updates)
             keys = {event.key for event in events}
 
-            if (
-                previous_version is None
-                and require_complete
-                and candidate.ml_provider == MLProvider.TEI.value
-            ):
+            if previous_version is None and require_complete:
                 # Defaults produce no change event, but startup must verify the serving encoder.
-                keys.add("tei_embed_url")
+                keys.add("embedding_base_url")
 
             prepared = await prepare_clients(
                 self.ml_clients,
@@ -464,7 +458,7 @@ class SettingsProviderConfiguration:
             self.ml_clients.install_clients(prepared if prepared is not None else {})
 
             if any(event.key in LLM_CLIENT_KEYS for event in events):
-                retire_judge_clients(runtime=self.ml_clients.budget_runtime)
+                retire_judge_clients()
 
     def failed(self) -> None:
         self._status = replace(
@@ -520,18 +514,7 @@ def validate_chunking(
 
 
 def validate_provider_credentials(candidate: Settings) -> None:
-    for key in ("cost_hourly_limit", "cost_daily_limit"):
-        if usd_units(str(getattr(candidate, key))) <= 0:
-            message = "USD budgets must be positive"
-            raise ValidationError(message)
-
-    errors = candidate.check_ml_provider()
-
-    if not candidate.openrouter_api_key.get_secret_value():
-        errors.append("OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter")
-
-    if candidate.llm_provider not in {provider.value for provider in LLMProvider}:
-        errors.append("Unknown LLM provider")
+    errors = [*candidate.check_ml_endpoints(), *candidate.check_llm_endpoint()]
 
     if errors:
         raise ValidationError("; ".join(errors))

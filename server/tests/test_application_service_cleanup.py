@@ -68,7 +68,6 @@ def test_metrics_preserve_totals_histograms_and_status_keys() -> None:
     assert result.ingestion["by_status"] == {"success": 4.0, "failed": 2.0, "": 1.0}
     assert result.http_requests == {"total": 7.0, "by_endpoint": {"GET_health": 7.0}}
     assert result.qdrant == {"points": 0.0}
-    assert result.bm25 == {"index_size": 0.0}
 
 
 @pytest.mark.parametrize(

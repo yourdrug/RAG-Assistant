@@ -15,7 +15,7 @@ from config.sections.llm import LLMSection
 from config.sections.ml import MLProviderSection
 from config.sections.ocr import OCRSection
 from config.sections.rag import HybridSearchSection, RagFeaturesSection, RankingSection, RetrievalSection
-from config.sections.rate_limit import CostLimitSection, RateLimitSection
+from config.sections.rate_limit import RateLimitSection
 from config.sections.redis import RedisSection
 from config.sections.storage import StorageSection
 from config.sections.vector_store import VectorStoreSection
@@ -41,7 +41,6 @@ ALL_SECTIONS = (
     HttpSection,
     AuthSection,
     RateLimitSection,
-    CostLimitSection,
     BenchmarkSection,
 )
 
@@ -53,7 +52,6 @@ __all__ = [
     "ChatSection",
     "ChunkingSection",
     "ConcurrencySection",
-    "CostLimitSection",
     "DatabaseSection",
     "HttpSection",
     "HybridSearchSection",

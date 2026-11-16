@@ -16,7 +16,6 @@ from fastapi import Depends, HTTPException, Request
 from application.act_versioning import ActVersioningService
 from application.admin import ConfigMaskerPort, CorpusControlPort, LogBufferPort
 from application.benchmark import BenchmarkExportService, BenchmarkHistoryPort
-from application.budget import BudgetAdminService
 from application.documents import DocumentDeletionJobs, PreviewCache, PreviewStrategyFactoryPort
 from application.jobs.service import JobService
 from application.ports.action_logger import ActionLoggerPort
@@ -344,7 +343,7 @@ def create_benchmark_config(_request: Request) -> BenchmarkConfig:
     return BenchmarkConfig(
         data_dir=process_section(StorageSection).data_dir,
         retriever_top_k=process_section(RetrievalSection).retriever_top_k,
-        llm_model=process_section(LLMSection).openrouter_model,
+        llm_model=process_section(LLMSection).llm_model,
     )
 
 
@@ -360,10 +359,6 @@ def create_storage_config(_request: Request) -> StorageConfig:
 
 def create_document_deletion_jobs(request: Request) -> DocumentDeletionJobs:
     return get_or_raise(create_container(request).application.document_deletion_jobs, "DocumentDeletionJobs")
-
-
-def create_budget_admin_service(request: Request) -> BudgetAdminService:
-    return get_or_raise(create_container(request).infrastructure.budget_admin, "BudgetAdminService")
 
 
 def create_corpus_control(request: Request) -> CorpusControlPort:

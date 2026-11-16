@@ -37,10 +37,8 @@ if TYPE_CHECKING:
     from qdrant_client import QdrantClient
 
     from application.ports.ml_clients import EmbeddingClientPort, RerankerClientPort
-    from infrastructure.budget.runtime import BudgetRuntime
     from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
-    from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient, DeepInfraRerankerClient
-    from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient, TEIRerankerClient
+    from infrastructure.ml.clients.inference_clients import EmbeddingsClient, RerankerClient
 
 log = logging.getLogger("default")
 
@@ -99,24 +97,22 @@ class MLClientRegistry(MLClientPort):
     def __init__(
         self,
         *,
-        budget_runtime: BudgetRuntime | None = None,
         corpus_resources: CorpusResources | None = None,
     ) -> None:
         concurrency_settings = process_section(ConcurrencySection)
 
-        self.budget_runtime = budget_runtime
         self.corpus_resources = (
             corpus_resources
             if corpus_resources is not None
             else CorpusResources(factories.create_qdrant_client)
         )
         self._init_lock = threading.Lock()
-        self.cached_embeddings: DeepInfraEmbeddingsClient | TEIEmbeddingsClient | None = None
+        self.cached_embeddings: EmbeddingsClient | None = None
         self._retired_clients: list[object] = []
         self.cached_llm: ManagedLLM | None = None
         self.cached_llm_breadth_cache: dict[str, ManagedLLM] = {}
         self.cached_fast_llm: ManagedLLM | None = None
-        self.cached_reranker: DeepInfraRerankerClient | TEIRerankerClient | None = None
+        self.cached_reranker: RerankerClient | None = None
         self._close_task: asyncio.Task[None] | None = None
         self.cached_instructor: ManagedInstructor | None = None
 
@@ -195,12 +191,12 @@ class MLClientRegistry(MLClientPort):
         pinned = self.request_client("embeddings")
 
         if pinned is not None:
-            return cast("DeepInfraEmbeddingsClient | TEIEmbeddingsClient", pinned)
+            return cast("EmbeddingsClient", pinned)
 
         if self.cached_embeddings is None:
             with self._init_lock:
                 if self.cached_embeddings is None:
-                    self.cached_embeddings = factories.create_embeddings(runtime=self.budget_runtime)
+                    self.cached_embeddings = factories.create_embeddings()
 
         return self.cached_embeddings
 
@@ -213,7 +209,7 @@ class MLClientRegistry(MLClientPort):
         if self.cached_llm is None:
             with self._init_lock:
                 if self.cached_llm is None:
-                    self.cached_llm = ManagedLLM(factories.create_llm(runtime=self.budget_runtime))
+                    self.cached_llm = ManagedLLM(factories.create_llm())
 
         return self.cached_llm
 
@@ -227,7 +223,7 @@ class MLClientRegistry(MLClientPort):
             with self._init_lock:
                 if breadth not in self.cached_llm_breadth_cache:
                     self.cached_llm_breadth_cache[breadth] = ManagedLLM(
-                        factories.create_llm_for_breadth(breadth, runtime=self.budget_runtime)
+                        factories.create_llm_for_breadth(breadth)
                     )
 
         return self.cached_llm_breadth_cache[breadth]
@@ -243,9 +239,7 @@ class MLClientRegistry(MLClientPort):
         if self.cached_fast_llm is None:
             with self._init_lock:
                 if self.cached_fast_llm is None:
-                    self.cached_fast_llm = ManagedLLM(
-                        factories.create_fast_llm_for_auxiliary(runtime=self.budget_runtime)
-                    )
+                    self.cached_fast_llm = ManagedLLM(factories.create_fast_llm_for_auxiliary())
 
         return self.cached_fast_llm
 
@@ -253,12 +247,12 @@ class MLClientRegistry(MLClientPort):
         pinned = self.request_client("reranker")
 
         if pinned is not None:
-            return cast("DeepInfraRerankerClient | TEIRerankerClient", pinned)
+            return cast("RerankerClient", pinned)
 
         if self.cached_reranker is None:
             with self._init_lock:
                 if self.cached_reranker is None:
-                    self.cached_reranker = factories.create_reranker(runtime=self.budget_runtime)
+                    self.cached_reranker = factories.create_reranker()
 
         return self.cached_reranker
 
@@ -289,9 +283,8 @@ class MLClientRegistry(MLClientPort):
                     model = settings.model_copy()
 
                     instructor = create_async_instructor_client(
-                        runtime=self.budget_runtime,
-                        base_url=model.openrouter_base_url,
-                        api_key=model.openrouter_api_key.get_secret_value(),
+                        base_url=model.llm_base_url,
+                        api_key=model.llm_api_key.get_secret_value(),
                     )
 
                     self.cached_instructor = ManagedInstructor(instructor)

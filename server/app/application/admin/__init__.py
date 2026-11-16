@@ -5,8 +5,8 @@ from application.admin.config_service import ConfigService, validate_corpus_upda
 from application.admin.dto import (
     ConfigurationStatus,
     EffectiveParameter,
+    LLMModelsInfo,
     ModelsInfo,
-    OpenRouterModelsInfo,
     VectorDBCollectionInfo,
     VectorDBInfo,
 )
@@ -30,12 +30,12 @@ __all__ = [
     "ConfigurationStatus",
     "CorpusControlPort",
     "EffectiveParameter",
+    "LLMModelsInfo",
     "LogBufferPort",
     "MetricsRegistryPort",
     "MetricsResult",
     "MetricsService",
     "ModelsInfo",
-    "OpenRouterModelsInfo",
     "ProviderConfigurationPort",
     "VectorDBCollectionInfo",
     "VectorDBInfo",

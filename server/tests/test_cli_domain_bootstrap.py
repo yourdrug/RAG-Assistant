@@ -42,7 +42,7 @@ def build_infrastructure(
     monkeypatch.setattr(infra.db, "uow_factory", FakeUnitOfWorkFactory())
 
     model = Settings(
-        _env_file=None, tei_embed_url="http://tei-embed:80", tei_rerank_url="http://tei-rerank:80"
+        _env_file=None, embedding_base_url="http://tei-embed:80", rerank_base_url="http://tei-rerank:80"
     )
     infra.configuration = SettingsProviderConfiguration(model, adapter, registry, bus)
     infra.events.config_listener = PostgresConfigListener(
@@ -83,7 +83,7 @@ async def test_cli_loads_global_and_domain_settings_before_auto_classification(
     )
     await require_present(
         cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
-    ).save(ConfigParameter("openrouter_model", "db-model", "str", "llm"))
+    ).save(ConfigParameter("llm_model", "db-model", "str", "llm"))
     monkeypatch.setattr(ingest, "InfrastructureContainer", lambda: infra)
     monkeypatch.setattr(database, "connect", AsyncMock())
     monkeypatch.setattr(database, "disconnect", AsyncMock())
@@ -91,7 +91,7 @@ async def test_cli_loads_global_and_domain_settings_before_auto_classification(
     monkeypatch.setattr(redis_client, "aclose", AsyncMock())
 
     async def classify(infrastructure: Any) -> Any:
-        assert infrastructure.configuration.settings.openrouter_model == "db-model"
+        assert infrastructure.configuration.settings.llm_model == "db-model"
         assert infrastructure.domain_settings.get("fingerprint_min_articles", "legal") == "7"
         infrastructure.domain_registry.classify("An ordinary document.", settings=infra.domain_settings)
         await require_present(

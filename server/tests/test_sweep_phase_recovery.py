@@ -152,7 +152,7 @@ def test_settings_fingerprint_excludes_secrets_and_operational_judge_limits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     initial = settings_fingerprint()
-    monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("private-key"))
+    monkeypatch.setattr(settings, "llm_api_key", SecretStr("private-key"))
     monkeypatch.setattr(settings, "benchmark_judge_initial_tokens", 9999)
     monkeypatch.setattr(settings, "benchmark_judge_retry_tokens", 9999)
     monkeypatch.setattr(settings, "benchmark_judge_max_concurrent", 9)

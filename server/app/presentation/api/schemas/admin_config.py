@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from application.runtime.enums import MLProvider
-
 
 class ConfigParamResponse(BaseModel):
     key: str
@@ -25,27 +23,31 @@ class ConfigParamUpdateRequest(BaseModel):
 
 
 class ModelsInfoResponse(BaseModel):
-    llm_provider: str
+    llm_base_url: str
     llm_model: str
-    tei_embed_url: str
-    tei_rerank_url: str
+    llm_auxiliary_model: str
+    llm_api_key_configured: bool
+    embedding_base_url: str
     embed_model: str
+    embedding_api_key_configured: bool
+    rerank_base_url: str
     rerank_model: str
+    rerank_api_format: str
+    rerank_api_key_configured: bool
     ocr_engine: str
     ocr_enabled: bool
-    openrouter_model: str | None = None
-    ml_provider: str = MLProvider.TEI.value
 
 
-class OpenRouterModelInfo(BaseModel):
+class LLMModelInfo(BaseModel):
     id: str
     name: str
-    context_length: int
-    pricing: dict[str, float]
+    context_length: int | None = None
+    # Present only when the endpoint reports it (e.g. OpenRouter); USD per 1M tokens.
+    pricing: dict[str, float] | None = None
 
 
-class OpenRouterModelsResponse(BaseModel):
-    models: list[OpenRouterModelInfo]
+class LLMModelsResponse(BaseModel):
+    models: list[LLMModelInfo]
     active_model: str
 
 

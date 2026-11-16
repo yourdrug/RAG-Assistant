@@ -24,6 +24,8 @@ from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from application.act_versioning import ActVersioningService, VersioningPlan
     from application.indexing.contextualization import ChunkContextualization
     from application.ingestion.dto import RegistryRecord, SyncOneDocumentOptions
@@ -63,7 +65,7 @@ class DocumentSyncService:
     def get_profile(self, domain: str) -> DocumentProfile | None:
         return get_domain_profile(self._domain_registry, domain)
 
-    async def sync_documents_to_db(
+    async def sync_documents_to_db(  # noqa: PLR0913 -- preserves scope and per-source commit callback
         self,
         registry: dict[str, RegistryRecord],
         source_chars: dict[str, int],
@@ -73,6 +75,7 @@ class DocumentSyncService:
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
+        on_synced: Callable[[str, RegistryRecord], Awaitable[None]] | None = None,
     ) -> None:
         """Sync documents and chunks to Postgres, enqueue outbox for Qdrant.
 
@@ -140,6 +143,9 @@ class DocumentSyncService:
                     owner_id=owner_id,
                     group_id=group_id,
                 )
+
+            if on_synced is not None:
+                await on_synced(fname, info)
 
         log.info("Synced %d documents to database via outbox", len(documents_to_sync))
 

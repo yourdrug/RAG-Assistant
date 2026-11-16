@@ -46,6 +46,11 @@ server/.coverage
 server/.coverage_report
 
 # Load test results & generated data
+!loadtest/data/
+loadtest/data/*
+!loadtest/data/generate_users.py
+!loadtest/data/test_questions.json
+!loadtest/data/sample.txt
 loadtest/results/
 loadtest/data/test_users.json
 

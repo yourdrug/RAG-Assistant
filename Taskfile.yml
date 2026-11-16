@@ -2,6 +2,9 @@ version: "3"
 
 vars:
   COMPOSE: docker compose
+  # Compose project name (named volumes are prefixed with it): COMPOSE_PROJECT_NAME or the directory name.
+  PROJECT:
+    sh: printf '%s' "${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-'
   VERSION:
     sh: cat VERSION
 
@@ -30,7 +33,7 @@ tasks:
       - task: data:create
       - task: data:perms
       - task: build
-      - 'echo "Готово. Дальше:  task up  →  task pull-model MODEL=qwen2.5:7b  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
+      - 'echo "Готово. Дальше:  task up  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
       - 'echo "(Для GPU: измените BUILD_TARGET=gpu в server/.env)"'
 
   setup:
@@ -64,6 +67,7 @@ tasks:
   data:create:
     desc: Создать все data-директории, необходимые для Docker-сервисов
     cmds:
+      - python3 deploy/metrics-token.py
       - mkdir -p data/qdrant_storage data/postgres data/minio data/paddleocr_cache data/db/postgres data/redis
       - test -f data/redis/redis.conf || echo '# See data/redis/redis.conf in repo' > data/redis/redis.conf
       - 'echo "Data-директории созданы"'
@@ -86,11 +90,47 @@ tasks:
         build server client
 
   up:
-    desc: Поднять стек
+    desc: "Поднять стек; опционально: task up -- vllm | ocr-vl (GPU-профили) | gpu (GPU для TEI/server), можно несколько"
     cmds:
       - task: data:create
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.override.yml up -d"
+      - |
+        FILES="-f docker-compose.yml -f docker-compose.override.yml"
+        # --profile в CLI заменяет COMPOSE_PROFILES, поэтому дополняем переменную (например, tei из server/.env).
+        PROFILES="${COMPOSE_PROFILES:-}"
+        for extra in {{.CLI_ARGS}}; do
+          case "$extra" in
+            vllm|ocr-vl) PROFILES="${PROFILES:+$PROFILES,}$extra" ;;
+            gpu) FILES="$FILES -f docker-compose.gpu.yml" ;;
+            *) echo "Неизвестная опция: $extra (vllm | ocr-vl | gpu)" >&2; exit 1 ;;
+          esac
+        done
+        COMPOSE_PROFILES="$PROFILES" {{.COMPOSE}} $FILES up -d
       - task: ps
+
+  ocr-vl:models:
+    desc: Однократно скачать модели PaddleOCR-VL в volume (сервис работает в сети backend без интернета)
+    cmds:
+      - "{{.COMPOSE}} --profile ocr-vl build ocr-vl"
+      # docker run (не compose run): сеть backend внутренняя, а загрузке нужен интернет.
+      - >
+        docker run --rm -v {{.PROJECT}}_ocr_vl_models:/root/.paddlex --entrypoint python
+        ${OCR_VL_IMAGE:-rag-ocr-vl:latest} -c "from paddlex.inference.utils.official_models import official_models as m;
+        [m.get_model_path(n) for n in ('PP-LCNet_x1_0_doc_ori', 'UVDoc', 'PP-DocLayoutV3', 'PaddleOCR-VL-1.6')]"
+
+  vllm:models:
+    desc: "Однократно скачать модель vLLM в volume (VLLM_MODEL, по умолчанию Qwen/Qwen2.5-3B-Instruct-AWQ)"
+    cmds:
+      - >
+        docker run --rm -e HF_HUB_DISABLE_XET=1 -v {{.PROJECT}}_vllm_models:/root/.cache/huggingface --entrypoint hf
+        vllm/vllm-openai:${VLLM_IMAGE_TAG:-v0.10.1.1} download ${VLLM_MODEL:-Qwen/Qwen2.5-3B-Instruct-AWQ}
+
+  gpu:stop:
+    desc: "Остановить опциональные GPU-сервисы (task gpu:stop -- vllm | ocr-vl), основной стек не трогается"
+    cmds:
+      - |
+        for service in {{.CLI_ARGS | default "ocr-vl vllm"}}; do
+          {{.COMPOSE}} stop "$service"
+        done
 
   down:
     desc: Остановить и удалить контейнеры (данные в data/ сохраняются)
@@ -164,9 +204,9 @@ tasks:
   # -------------------------------------------------------------------------
 
   bench:
-    desc: Запустить оценку качества (retriever + LLM-судья) по data/test_questions.json
+    desc: "Оценка качества (retriever + LLM-судья) через worker по датасетам из БД; task bench -- -d quick-30 --no-wait"
     cmds:
-      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli benchmark run'"
+      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli benchmark run {{.CLI_ARGS}}'"
 
   bench:regression:
     desc: Benchmark + regression check vs baseline (exit code 1 при regressions)
@@ -227,6 +267,12 @@ tasks:
     cmds:
       - uv sync --frozen --group development --group testing
 
+  install:paddle:
+    desc: Доустановить локальный CPU OCR (PaddleOCR) для ocr_engine=paddleocr без сервиса ocr-vl
+    dir: server
+    cmds:
+      - uv sync --frozen --group development --group testing --extra paddle
+
   install:surya:
     desc: Доустановить опциональный OCR-движок Surya (см. README → «Лицензии»)
     dir: server
@@ -274,7 +320,7 @@ tasks:
     desc: Прогнать unit-тесты (pytest)
     dir: server
     cmds:
-      - uv run pytest -v -m "not integration" {{.CLI_ARGS}}
+      - uv run pytest -m "not integration" {{.CLI_ARGS}}
 
   test:integration:
     desc: Прогнать интеграционные тесты (требуются настроенные внешние сервисы)
@@ -282,7 +328,7 @@ tasks:
     env:
       RUN_INTEGRATION_TESTS: "1"
     cmds:
-      - uv run pytest -v -m integration {{.CLI_ARGS}}
+      - uv run pytest -m integration {{.CLI_ARGS}}
 
   benchmark:validate:
     desc: "Проверить структуру benchmark v2 без запуска RAG"
@@ -318,6 +364,7 @@ tasks:
       - >
         python3 data/generate_users.py
         --count {{.count | default "50"}}
+        --prefix {{.prefix | default "loadtest"}}
         --base-url {{.url | default "http://localhost:8001"}}
         {{if .admin_email}}--admin-email {{.admin_email}}{{end}}
         {{if .admin_password}}--admin-password {{.admin_password}}{{end}}
@@ -375,6 +422,42 @@ tasks:
         --out json=/results/results_breakpoint_{{now | date "20060102_150405"}}.json
     env:
       BASE_URL: '{{.url | default "http://host.docker.internal:8001"}}'
+
+  loadtest:upload-chat:
+    desc: "1000 загрузок одного куратора при параллельном чате других пользователей"
+    dir: loadtest
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile k6 run --rm k6
+        run --env UPLOAD_COUNT={{.uploads | default "1000"}}
+        --env UPLOAD_VUS={{.upload_vus | default "20"}}
+        --env CHAT_VUS={{.chat_vus | default "20"}}
+        --env DURATION={{.duration | default "5m"}}
+        --env CHAT_P95_MS={{.chat_p95_ms | default "120000"}}
+        --summary-export=/results/summary_upload_chat_{{now | date "20060102_150405"}}.json
+        /scripts/upload-chat.js
+    env:
+      BASE_URL: '{{.url | default "http://server:8001"}}'
+
+  loadtest:replicas:
+    desc: "Чат N × users_per_replica; проверяет фактическое число запущенных API-реплик"
+    dir: loadtest
+    preconditions:
+      - sh: 'test "$(docker ps -q --filter "label=com.docker.compose.project=$LOADTEST_PROJECT" --filter label=com.docker.compose.service=server --filter status=running | wc -l)" -eq "$API_REPLICAS"'
+        msg: "Число запущенных API-реплик не совпадает с replicas; сначала масштабируйте тестовый стек"
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile k6 run --rm k6
+        run --env API_REPLICAS={{.replicas | default "1"}}
+        --env CHAT_VUS_PER_REPLICA={{.users_per_replica | default "20"}}
+        --env DURATION={{.duration | default "5m"}}
+        --env CHAT_P95_MS={{.chat_p95_ms | default "120000"}}
+        --summary-export=/results/summary_replicas_{{.replicas | default "1"}}_{{now | date "20060102_150405"}}.json
+        /scripts/replicas.js
+    env:
+      BASE_URL: '{{.url | default "http://server:8001"}}'
+      API_REPLICAS: '{{.replicas | default "1"}}'
+      LOADTEST_PROJECT: '{{.PROJECT}}'
 
   loadtest:sse:
     desc: "Locust SSE test — тестирование /chat streaming (task loadtest:sse -- users=200 duration=10m)"

@@ -49,6 +49,7 @@ class IngestionService:
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
+        job_id: int | None = None,
     ) -> IngestStatusResult:
         resolved = self._targets.resolve_docs_dir(docs_dir or "docs/")
         async with self._registry.ingestion_lock():
@@ -56,6 +57,7 @@ class IngestionService:
                 resolved,
                 reset=reset,
                 scope=IngestionScope(domain, visibility, group_id, client_id),
+                job_id=job_id,
             )
         mode = "RESET selected prefix (preserve existing assignments)" if reset else "APPEND (new files only)"
         return IngestStatusResult(status="started", mode=mode, docs_dir=resolved)

@@ -46,7 +46,7 @@ async def cache_candidates(
 ) -> tuple[DenseDocumentCache, SparseCache, DocumentCache]:
     """Phase 1: Cache dense + sparse candidates at max fetch_k.
 
-    ACL parameters are forwarded to Qdrant search and BM25 pre-filter
+    ACL parameters are forwarded to Qdrant dense and sparse search
     to ensure sweep retrieval respects document visibility.
     """
     dense_cache: DenseDocumentCache = {}

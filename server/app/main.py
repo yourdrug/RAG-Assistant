@@ -140,9 +140,6 @@ async def start_background_services(container: Container) -> None:
 
     await container.infrastructure.events.config_listener.start()
 
-    if container.infrastructure.events.outbox_listener is not None:
-        await container.infrastructure.events.outbox_listener.start()
-
     # --- Circuit breakers ---
     init_breakers(
         fail_max=settings.llm_breaker_fail_max,
@@ -168,7 +165,6 @@ async def start_background_services(container: Container) -> None:
     await scheduler.startup(
         config_listener=container.infrastructure.events.config_listener,
         ml_clients=container.infrastructure.ml.ml_clients,
-        outbox_dispatcher=container.infrastructure.events.outbox_dispatcher,
     )
     await collect_infra_metrics(ml_clients=container.infrastructure.ml.ml_clients)
 

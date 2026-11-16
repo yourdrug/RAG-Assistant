@@ -73,15 +73,16 @@ def generation_identity() -> tuple[tuple[str, str | float], ...]:
     ml = request_section(MLProviderSection)
     retrieval = request_section(RetrievalSection)
     return (
-        ("llm_provider", llm.llm_provider),
-        ("openrouter_model", llm.openrouter_model),
-        ("ml_provider", ml.ml_provider),
+        ("llm_model", llm.llm_model),
+        # Relevance/sufficiency gates run on the auxiliary model and can change the answer.
+        ("auxiliary_model", llm.active_auxiliary_model),
+        ("llm_base_url", llm.llm_base_url),
+        ("embedding_model", ml.embedding_model),
         ("llm_temperature", llm.llm_temperature),
         ("llm_top_p", llm.llm_top_p),
         ("embedding_revision", ml.embedding_revision),
-        ("tei_embed_model", ml.tei_embed_model),
-        ("deepinfra_embed_model", ml.deepinfra_embed_model),
-        ("deepinfra_rerank_model", ml.deepinfra_rerank_model),
+        ("rerank_model", ml.rerank_model),
+        ("rerank_api_format", ml.rerank_api_format),
         ("rag_retrieval_score_threshold", retrieval.rag_retrieval_score_threshold),
     )
 

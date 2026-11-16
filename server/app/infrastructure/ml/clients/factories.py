@@ -13,26 +13,22 @@ from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 import httpx
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
-from application.runtime.enums import LLMProvider, MLProvider
 from config import LLMSection, VectorStoreSection, ml_client_settings, process_section
 from domain.rag.breadth import Breadth
-from infrastructure.budget.transport import PaidAsyncTransport, PaidSyncTransport
 from infrastructure.corpus import snapshot as corpus_snapshot
 from infrastructure.corpus.clients import raw_corpus_client
 from infrastructure.corpus.locks import corpus_write_guard
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.database.database import database
-from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient, DeepInfraRerankerClient
-from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient, TEIRerankerClient
+from infrastructure.ml.clients.inference_clients import EmbeddingsClient, RerankerClient
+from infrastructure.ml.clients.instructor_client import NO_API_KEY, llm_auth_headers
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
 
 if TYPE_CHECKING:
-    from pydantic import SecretStr
-
     from config import MLClientSettings
-    from infrastructure.budget.runtime import BudgetRuntime
 
 log = logging.getLogger("default")
 
@@ -42,33 +38,21 @@ log = logging.getLogger("default")
 # ---------------------------------------------------------------------------
 
 
-def create_embeddings(
-    model: MLClientSettings | None = None, *, runtime: BudgetRuntime | None = None
-) -> DeepInfraEmbeddingsClient | TEIEmbeddingsClient:
+def create_embeddings(model: MLClientSettings | None = None) -> EmbeddingsClient:
     model = (model or ml_client_settings()).model_copy()
     pool_limits = httpx.Limits(
         max_connections=model.embedding_http_max_connections,
         max_keepalive_connections=model.embedding_http_max_keepalive_connections,
     )
-
-    if model.ml_provider == MLProvider.DEEPINFRA.value:
-        log.info("Creating DeepInfra embeddings client (model=%s) ...", model.deepinfra_embed_model)
-        client = DeepInfraEmbeddingsClient(
-            api_key=model.deepinfra_api_key.get_secret_value(),
-            base_url=f"{model.deepinfra_base_url}/openai",
-            model=model.deepinfra_embed_model,
-            pool_limits=pool_limits,
-            runtime=runtime,
-        )
-
-        client.embedding_identity = configured_embedding_identity(model)
-        return client
-
-    log.info("Creating TEI embeddings client (%s) ...", model.tei_embed_url)
-
-    tei_client = TEIEmbeddingsClient(model.tei_embed_url, pool_limits=pool_limits)
-    tei_client.embedding_identity = configured_embedding_identity(model)
-    return tei_client
+    log.info("Creating embeddings client (model=%s) ...", model.embedding_model)
+    client = EmbeddingsClient(
+        model.embedding_base_url,
+        model.embedding_model,
+        api_key=model.embedding_api_key.get_secret_value(),
+        pool_limits=pool_limits,
+    )
+    client.embedding_identity = configured_embedding_identity(model)
+    return client
 
 
 # ---------------------------------------------------------------------------
@@ -76,35 +60,25 @@ def create_embeddings(
 # ---------------------------------------------------------------------------
 
 
-def create_reranker(
-    model: MLClientSettings | None = None, *, runtime: BudgetRuntime | None = None
-) -> DeepInfraRerankerClient | TEIRerankerClient:
+def create_reranker(model: MLClientSettings | None = None) -> RerankerClient:
     model = (model or ml_client_settings()).model_copy()
     pool_limits = httpx.Limits(
         max_connections=model.rerank_http_max_connections,
         max_keepalive_connections=model.rerank_http_max_keepalive_connections,
     )
-
-    if model.ml_provider == MLProvider.DEEPINFRA.value:
-        log.info("Creating DeepInfra reranker client (model=%s) ...", model.deepinfra_rerank_model)
-        return DeepInfraRerankerClient(
-            api_key=model.deepinfra_api_key.get_secret_value(),
-            base_url=model.deepinfra_base_url,
-            model=model.deepinfra_rerank_model,
-            pool_limits=pool_limits,
-            runtime=runtime,
-        )
-
-    log.info("Creating TEI reranker client (%s) ...", model.tei_rerank_url)
-    return TEIRerankerClient(model.tei_rerank_url, pool_limits=pool_limits)
+    log.info("Creating reranker client (model=%s, api=%s) ...", model.rerank_model, model.rerank_api_format)
+    return RerankerClient(
+        model.rerank_base_url,
+        model.rerank_model,
+        model.rerank_api_format,
+        api_key=model.rerank_api_key.get_secret_value(),
+        pool_limits=pool_limits,
+    )
 
 
 # ---------------------------------------------------------------------------
 # LLM
 # ---------------------------------------------------------------------------
-
-
-FAST_OPENROUTER_MODEL = "meta-llama/llama-3.1-8b-instruct"
 
 
 class ChatModelRole(StrEnum):
@@ -123,7 +97,6 @@ class ChatModelOptions(TypedDict, total=False):
     num_predict: int | None
     model_name: str | None
     base_url: str | None
-    runtime: BudgetRuntime | None
 
 
 class BreadthModelOptions(TypedDict, total=False):
@@ -134,7 +107,6 @@ class BreadthModelOptions(TypedDict, total=False):
     num_ctx_broad: int | None
     num_predict_narrow: int | None
     num_predict_broad: int | None
-    runtime: BudgetRuntime | None
 
 
 class OpenAIParameters(TypedDict, total=False):
@@ -150,17 +122,12 @@ class OpenAIParameters(TypedDict, total=False):
     stream_usage: bool
 
 
-def build_chat_model(
-    provider: LLMProvider | str,
-    role: ChatModelRole,
-    **options: Unpack[ChatModelOptions],
-) -> ChatOpenAI:
+def build_chat_model(role: ChatModelRole, **options: Unpack[ChatModelOptions]) -> ChatOpenAI:
     """Build a chat client from one settings snapshot and its call role."""
     model = (options.get("model") or ml_client_settings()).model_copy()
     temperature = options.get("temperature")
     num_predict = options.get("num_predict")
     model_name = options.get("model_name")
-    runtime = options.get("runtime")
     output_limits = {
         ChatModelRole.DEFAULT: model.llm_num_predict_narrow,
         ChatModelRole.NARROW: model.llm_num_predict_narrow,
@@ -171,23 +138,20 @@ def build_chat_model(
     role_temperature = (
         0 if role in (ChatModelRole.AUXILIARY, ChatModelRole.BENCHMARK) else model.llm_temperature
     )
+    default_name = model.active_auxiliary_model if role == ChatModelRole.AUXILIARY else model.llm_model
+    # Keyless servers (vLLM, Ollama) still need a non-empty key for the OpenAI SDK.
+    api_key = model.llm_api_key if model.llm_api_key.get_secret_value() else SecretStr(NO_API_KEY)
 
-    if provider != LLMProvider.OPENROUTER:
-        message = f"Unsupported LLM provider: {provider}"
-        raise ValueError(message)
-
-    default_name = FAST_OPENROUTER_MODEL if role == ChatModelRole.AUXILIARY else model.openrouter_model
     parameters: OpenAIParameters = {
         "model_name": model_name if model_name is not None else default_name,
-        "openai_api_key": model.openrouter_api_key if model.openrouter_api_key.get_secret_value() else None,
-        "openai_api_base": model.openrouter_base_url,
+        "openai_api_key": api_key,
+        "openai_api_base": model.llm_base_url,
         "temperature": temperature if temperature is not None else role_temperature,
         "max_tokens": num_predict if num_predict is not None else output_limits[role],
         "max_retries": 0,
-        "http_client": httpx.Client(follow_redirects=False, transport=PaidSyncTransport(runtime=runtime)),
-        "http_async_client": httpx.AsyncClient(
-            follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime)
-        ),
+        # Endpoint origins are restricted to deployment-approved lists by endpoint_policy.
+        "http_client": httpx.Client(follow_redirects=False),
+        "http_async_client": httpx.AsyncClient(follow_redirects=False),
     }
 
     if role != ChatModelRole.BENCHMARK:
@@ -205,15 +169,11 @@ def create_llm(
     num_ctx: int | None = None,
     num_predict: int | None = None,
     model: MLClientSettings | None = None,
-    *,
-    runtime: BudgetRuntime | None = None,
 ) -> ChatOpenAI:
-    """Create LLM based on the configured provider."""
+    """Create LLM for the configured OpenAI-compatible endpoint."""
     return build_chat_model(
-        (model or ml_client_settings()).llm_provider,
         ChatModelRole.DEFAULT,
         model=model,
-        runtime=runtime,
         temperature=temperature,
         top_p=top_p,
         num_ctx=num_ctx,
@@ -221,28 +181,9 @@ def create_llm(
     )
 
 
-def create_openrouter_llm(
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    model: MLClientSettings | None = None,
-    *,
-    runtime: BudgetRuntime | None = None,
-) -> ChatOpenAI:
-    """Create an OpenRouter chat client through the shared provider factory."""
-    return build_chat_model(
-        LLMProvider.OPENROUTER,
-        ChatModelRole.DEFAULT,
-        model=model,
-        runtime=runtime,
-        temperature=temperature,
-        num_predict=max_tokens,
-    )
-
-
 def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions]) -> ChatOpenAI:
     """Create LLM with parameters matching breadth mode."""
     model = options.get("model")
-    runtime = options.get("runtime")
     temperature = options.get("temperature")
     top_p = options.get("top_p")
     num_ctx_broad = options.get("num_ctx_broad")
@@ -251,10 +192,8 @@ def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions])
     num_predict_narrow = options.get("num_predict_narrow")
     is_broad = breadth == Breadth.BROAD
     return build_chat_model(
-        (model or ml_client_settings()).llm_provider,
         ChatModelRole.BROAD if is_broad else ChatModelRole.NARROW,
         model=model,
-        runtime=runtime,
         temperature=temperature,
         top_p=top_p,
         num_ctx=(num_ctx_broad if is_broad else num_ctx_narrow) or None,
@@ -262,13 +201,9 @@ def create_llm_for_breadth(breadth: str, **options: Unpack[BreadthModelOptions])
     )
 
 
-def create_fast_llm_for_auxiliary(
-    model: MLClientSettings | None = None, *, runtime: BudgetRuntime | None = None
-) -> ChatOpenAI:
+def create_fast_llm_for_auxiliary(model: MLClientSettings | None = None) -> ChatOpenAI:
     """Create the lightweight client for condense, relevance and decomposition."""
-    return build_chat_model(
-        (model or ml_client_settings()).llm_provider, ChatModelRole.AUXILIARY, model=model, runtime=runtime
-    )
+    return build_chat_model(ChatModelRole.AUXILIARY, model=model)
 
 
 # ---------------------------------------------------------------------------
@@ -289,56 +224,69 @@ def create_qdrant_client() -> BoundQdrantClient:
 
 
 # ---------------------------------------------------------------------------
-# OpenRouter models (async, not cached — called rarely)
+# LLM endpoint models (async, not cached — called rarely)
 # ---------------------------------------------------------------------------
 
+NON_CHAT_MODEL_MARKERS = ("embedding", "vision", "tts", "whisper")
 
-async def fetch_openrouter_models() -> list[dict[str, Any]]:
-    """Fetch available models from OpenRouter API.
 
-    Returns list of dicts with keys: id, name, context_length, pricing.
-    Filters to chat-capable models only.
+def model_price_per_million(pricing: object, field: str) -> float | None:
+    raw = pricing.get(field) if isinstance(pricing, dict) else None
+
+    if not isinstance(raw, (str, int, float)) or raw == "":
+        return None
+
+    try:
+        return round(float(raw) * 1_000_000, 4)
+    except ValueError:
+        return None
+
+
+def normalize_llm_model(item: object) -> dict[str, Any] | None:
+    """One OpenAI ``/models`` entry; optional OpenRouter/vLLM metadata is kept when present."""
+    if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]:
+        return None
+
+    model_id = item["id"]
+
+    if any(marker in model_id.lower() for marker in NON_CHAT_MODEL_MARKERS):
+        return None
+
+    window = item.get("context_length") or item.get("max_model_len")
+    pricing = item.get("pricing")
+    prompt = model_price_per_million(pricing, "prompt")
+    completion = model_price_per_million(pricing, "completion")
+    return {
+        "id": model_id,
+        "name": item.get("name") if isinstance(item.get("name"), str) and item.get("name") else model_id,
+        "context_length": window if isinstance(window, int) else None,
+        "pricing": {"prompt": prompt, "completion": completion}
+        if prompt is not None and completion is not None
+        else None,
+    }
+
+
+async def fetch_llm_models() -> list[dict[str, Any]]:
+    """List chat models served by the configured endpoint via the standard ``GET /models``.
+
+    Returns an empty list when the endpoint does not implement it; the admin UI then
+    falls back to free-text model names.
     """
     llm_settings = process_section(LLMSection)
 
-    if not llm_settings.openrouter_api_key.get_secret_value():
-        return []
-
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                f"{llm_settings.openrouter_base_url}/models",
-                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key.get_secret_value()}"},
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+            response = await client.get(
+                f"{llm_settings.llm_base_url.rstrip('/')}/models",
+                headers=llm_auth_headers(llm_settings.llm_api_key),
             )
-            r.raise_for_status()
-            data = r.json()
-
-            models = []
-
-            for m in data.get("data", []):
-                model_id = m.get("id", "")
-
-                if any(skip in model_id.lower() for skip in ["embedding", "vision", "tts", "whisper"]):
-                    continue
-
-                pricing = m.get("pricing", {})
-                prompt_price = float(pricing.get("prompt", "0") or "0") * 1_000_000
-                completion_price = float(pricing.get("completion", "0") or "0") * 1_000_000
-
-                models.append(
-                    {
-                        "id": model_id,
-                        "name": m.get("name", model_id),
-                        "context_length": m.get("context_length", 0),
-                        "pricing": {
-                            "prompt": round(prompt_price, 4),
-                            "completion": round(completion_price, 4),
-                        },
-                    }
-                )
-
-            models.sort(key=lambda x: x["name"].lower())
-            return models
-    except Exception as e:
-        log.warning("Failed to fetch OpenRouter models: %s", e, exc_info=True)
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("Failed to fetch LLM endpoint models: %s", type(exc).__name__)
         return []
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    models = [model for model in map(normalize_llm_model, data if isinstance(data, list) else []) if model]
+    models.sort(key=lambda model: model["name"].lower())
+    return models

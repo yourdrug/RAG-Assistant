@@ -11,7 +11,6 @@ import {
   FolderOpen,
   Globe,
   HardDrive,
-  Search,
   Server,
   TrendingUp,
   Users,
@@ -248,7 +247,7 @@ export function AdminDashboardPage() {
             latency={health.checks?.qdrant?.latency_ms}
           />
           <ServiceCard
-            title="OpenRouter"
+            title="LLM"
             icon={<Cpu className="h-5 w-5 text-orange-600 dark:text-orange-400" />}
             status={llmStatus}
             latency={health.checks?.llm?.latency_ms}
@@ -283,12 +282,6 @@ export function AdminDashboardPage() {
             value={Number(metrics.qdrant?.points || 0).toLocaleString()}
             icon={BarChart3}
             color="bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
-          />
-          <StatCard
-            label="BM25 Index"
-            value={Number(metrics.bm25?.index_size || 0).toLocaleString()}
-            icon={Search}
-            color="bg-purple-500/10 text-purple-600 dark:text-purple-400"
           />
           <StatCard
             label="Total Chunks"
@@ -568,19 +561,15 @@ export function AdminDashboardPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Cpu className="h-5 w-5" />
-                OpenRouter LLM
+                LLM
               </CardTitle>
-              <CardDescription>Cloud model</CardDescription>
+              <CardDescription>OpenAI-compatible endpoint</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 <Badge variant="secondary" className="text-xs">
                   {health?.checks?.llm?.models?.[0] || "—"}
                 </Badge>
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Provider</span>
-                  <span className="font-mono">OpenRouter</span>
-                </div>
               </div>
             </CardContent>
           </Card>

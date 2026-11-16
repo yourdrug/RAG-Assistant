@@ -1,10 +1,5 @@
-"""Tests for split BM25 modules — unique tests not covered by test_hybrid_search.py.
+"""Stemmer tests for the BM25 tokenizer used by Qdrant sparse vectors."""
 
-Focuses on: stemmer and incremental operations (add/remove).
-Core BM25/tokenizer/RRF tests live in test_hybrid_search.py.
-"""
-
-from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.stemmer import stem_token
 
 
@@ -29,39 +24,3 @@ class TestStemmer:
 
     def test_unknown_language_passthrough(self) -> None:
         assert stem_token("12345") == "12345"
-
-
-# ---------------------------------------------------------------------------
-# Incremental operations (unique to this file)
-# ---------------------------------------------------------------------------
-
-
-class TestBM25Incremental:
-    def test_add_text(self) -> None:
-        idx = BM25Index(texts=["hello world"])
-        idx.add_text("foo bar baz")
-        assert idx.n_docs == 2
-        results = idx.search("foo")
-        assert len(results) > 0
-
-    def test_remove_text(self) -> None:
-        idx = BM25Index(texts=["hello world", "foo bar"])
-        idx.remove_text(0)
-        assert idx.n_docs == 1
-        assert idx.texts == ["foo bar"]
-        results = idx.search("hello")
-        assert len(results) == 0
-
-    def test_serialization_roundtrip_after_mutation(self) -> None:
-        idx = BM25Index(texts=["alpha", "bravo"])
-        idx.add_text("charlie")
-        idx.remove_text(0)
-        data = idx.to_dict()
-        idx2 = BM25Index.from_dict(data)
-        assert idx2.n_docs == 2
-        assert idx2.texts == ["bravo", "charlie"]
-
-
-# ---------------------------------------------------------------------------
-# Backward compatibility — hybrid.py shim (unique to this file)
-# ---------------------------------------------------------------------------

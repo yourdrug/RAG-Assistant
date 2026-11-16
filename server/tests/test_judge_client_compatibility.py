@@ -11,26 +11,17 @@ from openai import OpenAI
 from pydantic import SecretStr
 import pytest
 
-from application.runtime.enums import LLMProvider
 from config import settings
 from infrastructure.benchmark.judging import clients as judge_clients, judge
 from infrastructure.benchmark.judging.token_usage import judge_usage
-from infrastructure.budget.runtime import BudgetRuntime
 
 
 if TYPE_CHECKING:
     from infrastructure.ml.clients.llm_schemas import JudgeScore
 
 
-@pytest.mark.parametrize(
-    "provider, base_url, mode",
-    [
-        (LLMProvider.OPENROUTER, "https://openrouter.ai/api/v1", instructor.Mode.JSON),
-    ],
-)
-def test_judge_client_provider_compatibility(
-    monkeypatch: pytest.MonkeyPatch, provider: str, base_url: str, mode: instructor.Mode
-) -> None:
+@pytest.mark.parametrize("base_url", ["https://openrouter.ai/api/v1", "http://vllm:8000/v1"])
+def test_judge_client_endpoint_compatibility(monkeypatch: pytest.MonkeyPatch, base_url: str) -> None:
     requests = []
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -53,11 +44,9 @@ def test_judge_client_provider_compatibility(
             },
         )
 
-    monkeypatch.setattr(settings, "llm_provider", provider)
-    monkeypatch.setattr(settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
-    monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("test-key"))
+    monkeypatch.setattr(settings, "llm_base_url", base_url)
+    monkeypatch.setattr(settings, "llm_api_key", SecretStr("test-key"))
     monkeypatch.setattr(judge_clients, "_judge_client_cache", {})
-    runtime = BudgetRuntime()
     records: list[dict[str, Any]] = []
     token = judge_usage.set(records)
     with OpenAI(
@@ -74,18 +63,18 @@ def test_judge_client_provider_compatibility(
 
         monkeypatch.setattr(judge_clients, "OpenAI", create_raw)
         try:
-            client = judge_clients.get_judge_client("judge-model", runtime=runtime)
-            assert client.mode == mode
-            assert judge_clients.get_judge_client("judge-model", runtime=runtime) is client
+            client = judge_clients.get_judge_client("judge-model")
+            assert client.mode == instructor.Mode.JSON
+            assert judge_clients.get_judge_client("judge-model") is client
             score = judge.judge_with_structured_output(client, "Evaluate the answer", "judge-model")
         finally:
             judge_usage.reset(token)
 
-    check_judge_contract(score, requests, records, provider)
+    check_judge_contract(score, requests, records)
 
 
 def check_judge_contract(
-    score: JudgeScore, requests: list[dict[str, Any]], records: list[dict[str, Any]], provider: str
+    score: JudgeScore, requests: list[dict[str, Any]], records: list[dict[str, Any]]
 ) -> None:
     assert score.score == 8
     assert score.reason == "grounded"
@@ -93,10 +82,7 @@ def check_judge_contract(
     assert "tools" not in requests[0]
     assert requests[0]["model"] == "judge-model"
 
-    if provider == LLMProvider.OPENROUTER:
-        assert requests[0]["response_format"] == {"type": "json_object"}
-    else:
-        assert "response_format" not in requests[0]
+    assert requests[0]["response_format"] == {"type": "json_object"}
 
     assert len(records) == 1
     assert records[0]["input_tokens"] == 20

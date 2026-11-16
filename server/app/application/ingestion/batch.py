@@ -12,6 +12,7 @@ from domain.knowledge.enums import DocDomain
 
 
 if TYPE_CHECKING:
+    from application.ingestion.dto import RegistryRecord
     from application.ingestion.loader import S3DocumentLoader
     from application.ingestion.ports.settings import IngestionSettingsPort
     from application.ingestion.registry import IngestionRegistry
@@ -41,13 +42,24 @@ class BatchIngestionWorkflow:
         self._registry = registry
         self._sync = sync
 
-    async def run(self, docs_dir: str | None, *, reset: bool, scope: IngestionScope) -> None:
+    async def run(  # noqa: C901, PLR0915 -- preparation, reset and checkpoints share one workflow
+        self, docs_dir: str | None, *, reset: bool, scope: IngestionScope, job_id: int | None = None
+    ) -> None:
         started_at = time.monotonic()
         self.log_config(reset=reset, docs_dir=docs_dir)
 
         registry = await self._registry.list_all()
+        tracked = job_id is not None
+        completed: dict[str, str] = {}
 
-        docs, cached = await self._loader.load_documents(registry, force=reset, prefix=docs_dir)
+        if job_id is not None:
+            saved = await self._registry.load_progress(job_id)
+            sources = await self._loader.source_hashes(docs_dir or "docs/")
+            completed = {key: value for key, value in saved.items() if sources.get(key) == value}
+
+        docs, cached = await self._loader.load_documents(
+            registry, force=reset, prefix=docs_dir, **({"completed": completed} if tracked else {})
+        )
 
         if not docs:
             if cached:
@@ -57,7 +69,7 @@ class BatchIngestionWorkflow:
 
             if reset:
                 await self._vector_store.ensure_collection(self._settings.embed_dim, reset=False)
-                await self._sync.delete_missing_sources(docs_dir or "docs/", set())
+                await self._sync.delete_missing_sources(docs_dir or "docs/", set(completed))
 
             return
 
@@ -84,6 +96,13 @@ class BatchIngestionWorkflow:
             for key in entries:
                 await self._registry.delete(key)
 
+        async def checkpoint(key: str, entry: RegistryRecord) -> None:
+            # A source is complete only after every assigned document and its outbox committed.
+            await self._registry.persist_entries({key: entry})
+
+            if job_id is not None:
+                await self._registry.checkpoint(job_id, key, entry["hash"])
+
         await self._sync.sync_documents_to_db(
             {**registry, **entries},
             source_chars,
@@ -92,10 +111,11 @@ class BatchIngestionWorkflow:
             visibility=scope.visibility,
             group_id=scope.group_id,
             client_id=scope.client_id,
+            **({"on_synced": checkpoint} if tracked else {}),
         )
 
         if reset:
-            await self._sync.delete_missing_sources(docs_dir or "docs/", set(entries))
+            await self._sync.delete_missing_sources(docs_dir or "docs/", set(entries) | set(completed))
 
         await self._registry.persist_entries(entries)
 
@@ -108,7 +128,7 @@ class BatchIngestionWorkflow:
         log.info("RAG Ingestion  |  mode: %s", "RESET" if reset else "APPEND")
         log.info("backend  : s3")
         log.info("prefix   : %s (bucket: %s)", docs_dir or "docs/", self._settings.s3_bucket)
-        log.info("tei_embed: %s", self._settings.tei_embed_url)
+        log.info("embedding: %s", self._settings.embedding_base_url)
         log.info(
             "qdrant   : %s  /  collection: %s",
             self._settings.qdrant_url,

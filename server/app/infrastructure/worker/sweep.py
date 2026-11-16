@@ -19,6 +19,7 @@ import contextlib
 from application.benchmark.sweep_jobs import validate_sweep_coverage
 from application.benchmark.sweep_ports import SweepCancelled
 from config import BenchmarkSection, LLMSection, process_section
+from domain.runtime.jobs import JobType
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.worker.outcomes import job_error_message
 from infrastructure.worker.runtime import job
@@ -46,7 +47,7 @@ async def run_cancellable_sweep(
             sweep=sweep,
             judge_model=sweep.judge_model
             or process_section(BenchmarkSection).benchmark_judge_model
-            or process_section(LLMSection).openrouter_model,
+            or process_section(LLMSection).llm_model,
             progress_callback=progress_callback,
             should_cancel=is_cancelled,
         )
@@ -67,7 +68,7 @@ async def run_cancellable_sweep(
                 await task
 
 
-@job(max_tries=1)
+@job(JobType.SWEEP)
 async def run_sweep_task(
     ctx: dict[str, Any],
     *,

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
-from functools import partial
 import hashlib
 import json
 import os
@@ -22,10 +20,6 @@ from tests.integration.uow import session_factory
 from application.benchmark import BenchmarkExportService
 from config import settings
 from domain.benchmark.run import BenchmarkRun
-from domain.knowledge.enums import DocumentVisibility
-from infrastructure.bm25 import bm25_invalidation, persistence
-from infrastructure.bm25.snapshots import LocalBM25Snapshots
-from infrastructure.redis.redis_client import redis_client
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository import (
     SQLAlchemyBenchmarkRunRepository,
 )
@@ -36,8 +30,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
     from sqlalchemy.ext.asyncio import AsyncEngine
-
-    from infrastructure.bm25 import BM25Index
 
 
 pytestmark = pytest.mark.integration
@@ -144,84 +136,6 @@ async def test_repeated_config_rotations_close_retired_pools(
 
 
 @pytest.mark.asyncio
-async def test_bm25_cold_warm_load_and_snapshot_refresh(
-    s3_storage: tuple[S3Storage, str, list[str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    storage, prefix, keys = s3_storage
-    key = prefix + "snapshot.json"
-    keys.append(key)
-    monkeypatch.setattr(persistence, "BM25_S3_KEY", key)
-    downloads = []
-    original_download = storage.download_to_temp
-
-    async def download(snapshot_key: str) -> Path:
-        downloads.append(snapshot_key)
-        return await original_download(snapshot_key)
-
-    monkeypatch.setattr(storage, "download_to_temp", download)
-    registry = LocalBM25Snapshots(bm25_loader=partial(persistence.load_bm25_index_from_s3, storage))
-    data = {
-        "texts": ["original snapshot"],
-        "hashes": ["original-hash"],
-        "doc_visibility": [DocumentVisibility.INTERNAL_PRIVATE.value],
-        "doc_owner_id": [42],
-        "doc_group_id": [None],
-    }
-    try:
-        await storage.upload_file(key, json.dumps(data).encode())
-        snapshots = await asyncio.gather(*(registry.ensure_bm25_loaded() for _ in range(10)))
-        first = snapshots[0]
-        assert_cold_snapshot(snapshots, first, downloads, key)
-        assert await registry.ensure_bm25_loaded() is first
-        data["texts"] = ["replacement snapshot"]
-        data["hashes"] = ["replacement-hash"]
-        await storage.upload_file(key, json.dumps(data).encode())
-        registry.invalidate_bm25()
-        second = await registry.ensure_bm25_loaded()
-        assert second is not first
-        assert second is not None
-        assert second.hashes == ["replacement-hash"]
-        assert downloads == [key, key]
-    finally:
-        await registry.close()
-
-
-@pytest.mark.asyncio
-async def test_bm25_redis_invalidation_reloads_real_snapshot(
-    s3_storage: tuple[S3Storage, str, list[str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    if os.environ.get("RAG_S3_REDIS_SMOKE") != "1":
-        pytest.skip("Set RAG_S3_REDIS_SMOKE=1 to opt in to isolated Redis pub/sub smoke")
-
-    storage, prefix, keys = s3_storage
-    key = prefix + "redis-snapshot.json"
-    keys.append(key)
-    channel = prefix + "invalidate"
-    monkeypatch.setattr(persistence, "BM25_S3_KEY", key)
-    monkeypatch.setattr(bm25_invalidation, "_CHANNEL", channel)
-    registry = LocalBM25Snapshots(bm25_loader=partial(persistence.load_bm25_index_from_s3, storage))
-    listener = None
-    try:
-        await redis_client.init()
-        await storage.upload_file(key, b'{"texts":["before"],"hashes":["before-hash"]}')
-        first = await registry.ensure_bm25_loaded()
-        listener = asyncio.create_task(bm25_invalidation.listen_for_bm25_invalidation(registry))
-        await storage.upload_file(key, b'{"texts":["after"],"hashes":["after-hash"]}')
-
-        second = await asyncio.wait_for(wait_for_reload(registry, first), 5)
-        assert second is not None
-        assert second.hashes == ["after-hash"]
-    finally:
-        if listener is not None:
-            listener.cancel()
-            with suppress(asyncio.CancelledError):
-                await listener
-
-        await registry.close()
-        await redis_client.aclose()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("report_format", ["csv", "json"])
 async def test_committed_benchmark_report_survives_s3_failure_and_new_worker(
     pg_engine: AsyncEngine,
@@ -293,27 +207,6 @@ async def assert_paginated_listing(storage: S3Storage, prefix: str, keys: list[s
     listing = await storage.list_files(prefix + "page/")
     assert [item.key for item in listing] == pagination_keys
     assert all(item.size_bytes == 1 for item in listing)
-
-
-def assert_cold_snapshot(
-    snapshots: list[BM25Index | None], first: BM25Index | None, downloads: list[str], key: str
-) -> None:
-    assert all(snapshot is first for snapshot in snapshots)
-    assert downloads == [key]
-    assert first is not None
-    assert first.doc_visibility == [DocumentVisibility.INTERNAL_PRIVATE.value]
-    assert first.doc_owner_id == [42]
-
-
-async def wait_for_reload(registry: LocalBM25Snapshots, first: BM25Index | None) -> BM25Index:
-    while True:
-        # A unique channel keeps running server/worker caches untouched.
-        await bm25_invalidation.publish_bm25_invalidation()
-        await asyncio.sleep(0.05)
-        current = await registry.ensure_bm25_loaded()
-
-        if current is not None and current is not first:
-            return current
 
 
 async def assert_report(

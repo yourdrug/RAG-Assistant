@@ -9,19 +9,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from application.runtime.enums import LLMProvider
+from application.runtime.enums import RerankApiFormat
 
 
 class DynamicParamCategory(StrEnum):
     CORPUS = "corpus"
-    COST = "cost"
     HYBRID = "hybrid"
     INGESTION = "ingestion"
     JOBS = "jobs"
     LLM = "llm"
+    LLM_CONNECTION = "llm_connection"
     ML = "ml"
     OCR = "ocr"
-    OPENROUTER = "openrouter"
     RAG = "rag"
     RATE_LIMIT = "rate_limit"
     RERANKER = "reranker"
@@ -72,26 +71,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         "Alias/physical collection; coordinated corpus switch only",
     ),
     DynamicParam(
-        "cost_rate_limit_enabled",
-        bool,
-        DynamicParamCategory.COST,
-        "USD per principal; unsupported paid calls blocked",
-    ),
-    DynamicParam(
-        "cost_hourly_limit",
-        float,
-        DynamicParamCategory.COST,
-        "Rolling hour USD; includes pending reservations",
-        0.000000001,
-    ),
-    DynamicParam(
-        "cost_daily_limit",
-        float,
-        DynamicParamCategory.COST,
-        "Rolling day USD; includes pending reservations",
-        0.000000001,
-    ),
-    DynamicParam(
         "max_upload_size_mb",
         int,
         DynamicParamCategory.INGESTION,
@@ -122,19 +101,39 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         1,
     ),
     DynamicParam(
-        "openrouter_base_url",
+        "llm_base_url",
         str,
-        DynamicParamCategory.OPENROUTER,
-        "OpenRouter endpoint (canonical HTTPS origin)",
+        DynamicParamCategory.LLM_CONNECTION,
+        "OpenAI-compatible endpoint, e.g. https://openrouter.ai/api/v1 or http://vllm:8000/v1 "
+        "(origin must be in LLM_ALLOWED_ORIGINS or ML_INTERNAL_ALLOWED_ORIGINS)",
+    ),
+    DynamicParam("llm_model", str, DynamicParamCategory.LLM_CONNECTION, "Answer model name"),
+    DynamicParam(
+        "llm_auxiliary_model",
+        str,
+        DynamicParamCategory.LLM_CONNECTION,
+        "Auxiliary model for condense/relevance/decomposition; empty reuses the answer model",
     ),
     DynamicParam(
-        "tei_embed_url", str, DynamicParamCategory.ML, "TEI embedding endpoint (same model identity required)"
+        "embedding_base_url",
+        str,
+        DynamicParamCategory.ML,
+        "OpenAI-compatible embeddings endpoint, e.g. http://tei-embed:8080/v1 or "
+        "https://api.deepinfra.com/v1/openai (same model identity required)",
     ),
     DynamicParam(
-        "tei_rerank_url", str, DynamicParamCategory.ML, "TEI reranker endpoint (deployment-approved origin)"
+        "rerank_base_url",
+        str,
+        DynamicParamCategory.ML,
+        "Reranking endpoint, e.g. http://tei-rerank:8080 or https://api.deepinfra.com/v1",
     ),
+    DynamicParam("rerank_model", str, DynamicParamCategory.ML, "Reranker model name"),
     DynamicParam(
-        "deepinfra_base_url", str, DynamicParamCategory.ML, "DeepInfra endpoint (canonical HTTPS origin)"
+        "rerank_api_format",
+        str,
+        DynamicParamCategory.ML,
+        "Reranking API: cohere (vLLM/Jina/Cohere/Infinity), tei or deepinfra",
+        allowed=[item.value for item in RerankApiFormat],
     ),
     DynamicParam(
         "embedding_http_max_connections",
@@ -207,13 +206,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("cache_enabled", bool, DynamicParamCategory.TOGGLES, "Enable response cache"),
     DynamicParam("pii_redaction_enabled", bool, DynamicParamCategory.TOGGLES, "Enable PII redaction"),
     # ── LLM ─────────────────────────────────────────────────────
-    DynamicParam(
-        "llm_provider",
-        str,
-        DynamicParamCategory.LLM,
-        "LLM provider",
-        allowed=[provider.value for provider in LLMProvider],
-    ),
     DynamicParam("llm_temperature", float, DynamicParamCategory.LLM, "LLM temperature", 0.0, 2.0),
     DynamicParam("llm_top_p", float, DynamicParamCategory.LLM, "LLM top-p", 0.0, 1.0),
     DynamicParam(
@@ -228,11 +220,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam(
         "llm_num_predict_broad", int, DynamicParamCategory.LLM, "LLM max tokens predict (broad)", 64, 16384
     ),
-    # ── OpenRouter ──────────────────────────────────────────────
-    DynamicParam("openrouter_model", str, DynamicParamCategory.OPENROUTER, "OpenRouter model name"),
-    # ── ML Provider ─────────────────────────────────────────────
-    DynamicParam("deepinfra_embed_model", str, DynamicParamCategory.ML, "DeepInfra embedding model"),
-    DynamicParam("deepinfra_rerank_model", str, DynamicParamCategory.ML, "DeepInfra reranker model"),
     # ── OCR ─────────────────────────────────────────────────────
     DynamicParam("ocr_enabled", bool, DynamicParamCategory.OCR, "Enable OCR processing"),
     DynamicParam(

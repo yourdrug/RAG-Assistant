@@ -70,7 +70,7 @@ def migration_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
 
     path = tmp_path / ".env"
     path.write_text(
-        '# preserved comment\nOPENROUTER_MODEL="legacy model"\n'
+        '# preserved comment\nLLM_MODEL="legacy model"\n'
         "ML_PROVIDER=tei\nRATE_LIMIT_ENABLED=false\nHTTP_POOL_MAX_CONNECTIONS=42\n"
         "HTTP_POOL_MAX_KEEPALIVE=18\nS3_ACCESS_KEY=private-access\nS3_SECRET_KEY=private-secret\n"
     )
@@ -145,15 +145,15 @@ async def test_secret_transfer_preserves_compose_credentials(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("exported_key", ["OPENROUTER_MODEL", "openrouter_model"])
+@pytest.mark.parametrize("exported_key", ["LLM_MODEL", "llm_model"])
 async def test_dynamic_environment_override_is_migrated(
     migration_env: tuple[Path, MigrationFactory], monkeypatch: pytest.MonkeyPatch, exported_key: str
 ) -> None:
     path, factory = migration_env
     monkeypatch.setenv(exported_key, "exported-model")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
-    assert require_present(await factory.repository.get_by_key("openrouter_model")).value == "exported-model"
-    assert dotenv_values(path)["OPENROUTER_MODEL"] == "legacy model"
+    assert require_present(await factory.repository.get_by_key("llm_model")).value == "exported-model"
+    assert dotenv_values(path)["LLM_MODEL"] == "legacy model"
 
 
 @pytest.mark.asyncio
@@ -199,11 +199,9 @@ async def test_secret_file_dynamic_value_has_priority_over_env(
     migration_env: tuple[Path, MigrationFactory],
 ) -> None:
     path, factory = migration_env
-    path.with_name(".env.secrets").write_text("OPENROUTER_MODEL=secret-file-model\n")
+    path.with_name(".env.secrets").write_text("LLM_MODEL=secret-file-model\n")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
-    assert (
-        require_present(await factory.repository.get_by_key("openrouter_model")).value == "secret-file-model"
-    )
+    assert require_present(await factory.repository.get_by_key("llm_model")).value == "secret-file-model"
 
 
 @pytest.mark.asyncio
@@ -211,10 +209,10 @@ async def test_existing_db_value_survives_environment_override(
     migration_env: tuple[Path, MigrationFactory], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path, factory = migration_env
-    await add_row(factory, "openrouter_model", "db-model")
-    monkeypatch.setenv("OPENROUTER_MODEL", "exported-model")
+    await add_row(factory, "llm_model", "db-model")
+    monkeypatch.setenv("LLM_MODEL", "exported-model")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
-    assert require_present(await factory.repository.get_by_key("openrouter_model")).value == "db-model"
+    assert require_present(await factory.repository.get_by_key("llm_model")).value == "db-model"
 
 
 async def add_row(factory: MigrationFactory, key: str, value: str, domain_key: str | None = None) -> None:
@@ -230,7 +228,7 @@ async def test_s3_requires_credentials_before_mutations(
     migration_env: tuple[Path, MigrationFactory], apply: bool, backend: str
 ) -> None:
     path, factory = migration_env
-    path.write_text(backend + "OPENROUTER_MODEL=legacy\n")
+    path.write_text(backend + "LLM_MODEL=legacy\n")
     original = path.read_text()
     with pytest.raises(ValueError, match=r"S3_ACCESS_KEY.*S3_SECRET_KEY"):
         await config_migration.migrate_env_configuration(factory, path, apply=apply)
@@ -251,7 +249,7 @@ async def test_dry_run_does_not_change_files_or_rows(
     assert path.read_bytes() == before
     assert await factory.repository.get_all() == []
     assert sorted(p.name for p in path.parent.iterdir()) == [".env"]
-    assert "OPENROUTER_MODEL" in caplog.text
+    assert "LLM_MODEL" in caplog.text
     assert "private-secret" not in caplog.text
     assert "private-access" not in caplog.text
     assert "legacy model" not in caplog.text
@@ -262,10 +260,10 @@ async def test_apply_preserves_database_values_scopes_and_pending_env(
     migration_env: tuple[Path, MigrationFactory],
 ) -> None:
     path, factory = migration_env
-    await add_row(factory, "openrouter_model", "db model")
+    await add_row(factory, "llm_model", "db model")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
     rows = {(r.key, r.domain_key): r.value for r in await factory.repository.get_all()}
-    assert rows[("openrouter_model", None)] == "db model"
+    assert rows[("llm_model", None)] == "db model"
     assert rows[("embedding_http_max_connections", None)] == "42"
     assert rows[("rerank_http_max_connections", None)] == "21"
     assert rows[("rerank_http_max_keepalive_connections", None)] == "9"
@@ -273,7 +271,7 @@ async def test_apply_preserves_database_values_scopes_and_pending_env(
     assert not any(key.startswith("s3_") for key, scope in rows)
     env = dotenv_values(path)
     assert env["COMPOSE_PROFILES"] == "tei"
-    assert env["OPENROUTER_MODEL"] == "legacy model"
+    assert env["LLM_MODEL"] == "legacy model"
     assert env["HTTP_POOL_MAX_CONNECTIONS"] == "42"
     assert "S3_SECRET_KEY" not in env
     secret_path = path.with_name(".env.secrets")
@@ -461,15 +459,15 @@ async def test_environment_edit_after_db_commit_is_preserved(
 
 
 @pytest.mark.asyncio
-async def test_missing_provider_credential_blocks_apply(
+async def test_ml_endpoint_keys_are_optional_for_migration(
     migration_env: tuple[Path, MigrationFactory], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Keyless self-hosted embedding/rerank servers are supported, so no ML key is required.
     path, factory = migration_env
-    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
-    path.write_text("ML_PROVIDER=deepinfra\n")
-    with pytest.raises(ValueError, match="DEEPINFRA_API_KEY"):
-        await config_migration.migrate_env_configuration(factory, path, apply=True)
-    assert await factory.repository.get_all() == []
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    monkeypatch.delenv("RERANK_API_KEY", raising=False)
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    assert await factory.repository.get_all() != []
 
 
 @pytest.mark.asyncio
@@ -477,7 +475,6 @@ async def test_migration_uses_env_provider_despite_legacy_database_value(
     migration_env: tuple[Path, MigrationFactory], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path, factory = migration_env
-    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
     legacy = ConfigParameter("ml_provider", "deepinfra", ConfigValueType.STR, "ml")
     await factory.repository.save(legacy)
     await config_migration.migrate_env_configuration(factory, path, apply=True, trim_env=True)
@@ -557,10 +554,10 @@ async def test_empty_optional_provider_key_is_preserved(
     migration_env: tuple[Path, MigrationFactory], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path, factory = migration_env
-    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
-    path.write_text(path.read_text() + "DEEPINFRA_API_KEY=''\n")
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    path.write_text(path.read_text() + "EMBEDDING_API_KEY=''\n")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
-    assert dotenv_values(path.with_name(".env.secrets"))["DEEPINFRA_API_KEY"] == ""
+    assert dotenv_values(path.with_name(".env.secrets"))["EMBEDDING_API_KEY"] == ""
 
 
 @pytest.mark.asyncio
@@ -578,11 +575,9 @@ async def test_lowercase_settings_and_secrets_follow_settings_case_rules(
     migration_env: tuple[Path, MigrationFactory],
 ) -> None:
     path, factory = migration_env
-    path.write_text(
-        "S3_ACCESS_KEY=private-access\nopenrouter_model=legacy-model\ns3_secret_key=lowercase-secret\n"
-    )
+    path.write_text("S3_ACCESS_KEY=private-access\nllm_model=legacy-model\ns3_secret_key=lowercase-secret\n")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
-    assert require_present(await factory.repository.get_by_key("openrouter_model")).value == "legacy-model"
+    assert require_present(await factory.repository.get_by_key("llm_model")).value == "legacy-model"
     assert "s3_secret_key" not in dotenv_values(path)
     assert dotenv_values(path.with_name(".env.secrets"))["S3_SECRET_KEY"] == "lowercase-secret"  # noqa: S105 - Synthetic test data used to verify authentication/redaction.
 
@@ -601,7 +596,7 @@ async def test_final_trim_preserves_static_overrides_and_db_values(
     original = path.read_text()
     await factory.repository.save(
         ConfigParameter(
-            key="openrouter_model",
+            key="llm_model",
             value="existing-db-model",
             value_type=ConfigValueType.STR,
             category="llm",
@@ -622,7 +617,7 @@ async def test_final_trim_preserves_static_overrides_and_db_values(
     assert env["ML_PROVIDER"] == "tei"
     assert (
         not {
-            "OPENROUTER_MODEL",
+            "LLM_MODEL",
             "RATE_LIMIT_ENABLED",
             "HTTP_POOL_MAX_CONNECTIONS",
             "HTTP_POOL_MAX_KEEPALIVE",
@@ -632,13 +627,9 @@ async def test_final_trim_preserves_static_overrides_and_db_values(
         }
         & env.keys()
     )
-    assert (
-        require_present(await factory.repository.get_by_key("openrouter_model")).value == "existing-db-model"
-    )
+    assert require_present(await factory.repository.get_by_key("llm_model")).value == "existing-db-model"
     await config_migration.migrate_env_configuration(factory, path, apply=True, trim_env=True)
-    assert (
-        require_present(await factory.repository.get_by_key("openrouter_model")).value == "existing-db-model"
-    )
+    assert require_present(await factory.repository.get_by_key("llm_model")).value == "existing-db-model"
 
 
 @pytest.mark.asyncio

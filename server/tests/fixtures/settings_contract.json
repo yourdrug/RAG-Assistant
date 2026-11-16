@@ -17,6 +17,12 @@
     "metadata": "[]",
     "required": true
   },
+  "benchmark_job_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "1",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "benchmark_judge_grouped_enabled": {
     "annotation": "<class 'bool'>",
     "default": "True",
@@ -131,24 +137,6 @@
     "metadata": "[]",
     "required": false
   },
-  "cost_daily_limit": {
-    "annotation": "<class 'float'>",
-    "default": "5.0",
-    "metadata": "[Gt(gt=0), _PydanticGeneralMetadata(allow_inf_nan=False)]",
-    "required": false
-  },
-  "cost_hourly_limit": {
-    "annotation": "<class 'float'>",
-    "default": "1.0",
-    "metadata": "[Gt(gt=0), _PydanticGeneralMetadata(allow_inf_nan=False)]",
-    "required": false
-  },
-  "cost_rate_limit_enabled": {
-    "annotation": "<class 'bool'>",
-    "default": "False",
-    "metadata": "[]",
-    "required": false
-  },
   "curator_scope_max_ids": {
     "annotation": "<class 'int'>",
     "default": "1000",
@@ -158,6 +146,18 @@
   "data_dir": {
     "annotation": "<class 'str'>",
     "default": "'/code/project/data'",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_direct_host": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
+  "db_direct_port": {
+    "annotation": "<class 'str'>",
+    "default": "''",
     "metadata": "[]",
     "required": false
   },
@@ -175,7 +175,7 @@
   },
   "db_max_overflow": {
     "annotation": "<class 'int'>",
-    "default": "20",
+    "default": "0",
     "metadata": "[Ge(ge=0)]",
     "required": false
   },
@@ -199,7 +199,7 @@
   },
   "db_pool_size": {
     "annotation": "<class 'int'>",
-    "default": "40",
+    "default": "5",
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
@@ -227,6 +227,12 @@
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
+  "db_use_pgbouncer": {
+    "annotation": "<class 'bool'>",
+    "default": "False",
+    "metadata": "[]",
+    "required": false
+  },
   "db_user": {
     "annotation": "<class 'str'>",
     "default": null,
@@ -239,34 +245,16 @@
     "metadata": "[]",
     "required": false
   },
-  "deepinfra_api_key": {
-    "annotation": "<class 'pydantic.types.SecretStr'>",
-    "default": "SecretStr('')",
-    "metadata": "[]",
-    "required": false
-  },
-  "deepinfra_base_url": {
-    "annotation": "<class 'str'>",
-    "default": "'https://api.deepinfra.com/v1'",
-    "metadata": "[]",
-    "required": false
-  },
-  "deepinfra_embed_model": {
-    "annotation": "<class 'str'>",
-    "default": "'BAAI/bge-m3'",
-    "metadata": "[]",
-    "required": false
-  },
-  "deepinfra_rerank_model": {
-    "annotation": "<class 'str'>",
-    "default": "'Qwen/Qwen3-Reranker-0.6B'",
-    "metadata": "[]",
-    "required": false
-  },
   "dense_weight": {
     "annotation": "<class 'float'>",
     "default": "1.5",
     "metadata": "[]",
+    "required": false
+  },
+  "document_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "4",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "domain_pack": {
@@ -293,6 +281,18 @@
     "metadata": "[]",
     "required": false
   },
+  "embedding_api_key": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
+    "metadata": "[]",
+    "required": false
+  },
+  "embedding_base_url": {
+    "annotation": "<class 'str'>",
+    "default": "'https://api.deepinfra.com/v1/openai'",
+    "metadata": "[]",
+    "required": false
+  },
   "embedding_http_max_connections": {
     "annotation": "<class 'int'>",
     "default": "40",
@@ -309,6 +309,12 @@
     "annotation": "<class 'int'>",
     "default": "16",
     "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "embedding_model": {
+    "annotation": "<class 'str'>",
+    "default": "'BAAI/bge-m3'",
+    "metadata": "[]",
     "required": false
   },
   "embedding_revision": {
@@ -341,15 +347,39 @@
     "metadata": "[]",
     "required": false
   },
+  "ingest_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "1",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "ingestion_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "8",
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
+  "job_backlog_limit": {
+    "annotation": "<class 'int'>",
+    "default": "5000",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "job_cleanup_days": {
     "annotation": "<class 'int'>",
     "default": "30",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "job_max_per_principal": {
+    "annotation": "<class 'int'>",
+    "default": "2",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "job_principal_backlog_limit": {
+    "annotation": "<class 'int'>",
+    "default": "1000",
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
@@ -371,16 +401,40 @@
     "metadata": "[]",
     "required": true
   },
+  "llm_allowed_origins": {
+    "annotation": "list[str]",
+    "default": "['https://openrouter.ai']",
+    "metadata": "[]",
+    "required": false
+  },
+  "llm_api_key": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
+    "metadata": "[]",
+    "required": false
+  },
   "llm_auxiliary_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "4",
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
+  "llm_auxiliary_model": {
+    "annotation": "<class 'str'>",
+    "default": "''",
+    "metadata": "[]",
+    "required": false
+  },
   "llm_auxiliary_timeout": {
     "annotation": "<class 'int'>",
     "default": "30",
     "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "llm_base_url": {
+    "annotation": "<class 'str'>",
+    "default": "'https://openrouter.ai/api/v1'",
+    "metadata": "[]",
     "required": false
   },
   "llm_breaker_fail_max": {
@@ -407,6 +461,12 @@
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
+  "llm_model": {
+    "annotation": "<class 'str'>",
+    "default": "'qwen/qwen-2.5-7b-instruct'",
+    "metadata": "[]",
+    "required": false
+  },
   "llm_num_ctx_broad": {
     "annotation": "<class 'int'>",
     "default": "16384",
@@ -431,12 +491,6 @@
     "metadata": "[]",
     "required": false
   },
-  "llm_provider": {
-    "annotation": "typing.Literal['openrouter']",
-    "default": "'openrouter'",
-    "metadata": "[]",
-    "required": false
-  },
   "llm_request_timeout": {
     "annotation": "<class 'int'>",
     "default": "120",
@@ -455,21 +509,33 @@
     "metadata": "[]",
     "required": false
   },
+  "maintenance_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "2",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "max_upload_size_mb": {
     "annotation": "<class 'int'>",
     "default": "50",
     "metadata": "[Ge(ge=1), Le(le=63)]",
     "required": false
   },
-  "ml_internal_allowed_origins": {
-    "annotation": "list[str]",
-    "default": "['http://tei-embed:8080', 'http://tei-rerank:8080', 'http://qdrant:6333', 'http://localhost:6333']",
+  "metrics_scrape_token": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
     "metadata": "[]",
     "required": false
   },
-  "ml_provider": {
-    "annotation": "typing.Literal['tei', 'deepinfra']",
-    "default": "'deepinfra'",
+  "ml_allowed_origins": {
+    "annotation": "list[str]",
+    "default": "['https://api.deepinfra.com']",
+    "metadata": "[]",
+    "required": false
+  },
+  "ml_internal_allowed_origins": {
+    "annotation": "list[str]",
+    "default": "['http://tei-embed:8080', 'http://tei-rerank:8080', 'http://qdrant:6333', 'http://localhost:6333']",
     "metadata": "[]",
     "required": false
   },
@@ -487,7 +553,7 @@
   },
   "ocr_engine": {
     "annotation": "<class 'str'>",
-    "default": "'paddleocr'",
+    "default": "'paddleocr_vl'",
     "metadata": "[]",
     "required": false
   },
@@ -524,24 +590,6 @@
   "ocr_vl_url": {
     "annotation": "<class 'str'>",
     "default": "'http://ocr-vl:8080'",
-    "metadata": "[]",
-    "required": false
-  },
-  "openrouter_api_key": {
-    "annotation": "<class 'pydantic.types.SecretStr'>",
-    "default": "SecretStr('')",
-    "metadata": "[]",
-    "required": false
-  },
-  "openrouter_base_url": {
-    "annotation": "<class 'str'>",
-    "default": "'https://openrouter.ai/api/v1'",
-    "metadata": "[]",
-    "required": false
-  },
-  "openrouter_model": {
-    "annotation": "<class 'str'>",
-    "default": "'qwen/qwen-2.5-7b-instruct'",
     "metadata": "[]",
     "required": false
   },
@@ -719,6 +767,24 @@
     "metadata": "[]",
     "required": false
   },
+  "rerank_api_format": {
+    "annotation": "<class 'str'>",
+    "default": "'deepinfra'",
+    "metadata": "[]",
+    "required": false
+  },
+  "rerank_api_key": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
+    "metadata": "[]",
+    "required": false
+  },
+  "rerank_base_url": {
+    "annotation": "<class 'str'>",
+    "default": "'https://api.deepinfra.com/v1'",
+    "metadata": "[]",
+    "required": false
+  },
   "rerank_http_max_connections": {
     "annotation": "<class 'int'>",
     "default": "20",
@@ -734,6 +800,12 @@
   "rerank_min_score": {
     "annotation": "float | None",
     "default": "0.15",
+    "metadata": "[]",
+    "required": false
+  },
+  "rerank_model": {
+    "annotation": "<class 'str'>",
+    "default": "'Qwen/Qwen3-Reranker-0.6B'",
     "metadata": "[]",
     "required": false
   },
@@ -869,22 +941,10 @@
     "metadata": "[]",
     "required": false
   },
-  "tei_embed_model": {
-    "annotation": "<class 'str'>",
-    "default": "'BAAI/bge-m3'",
-    "metadata": "[]",
-    "required": false
-  },
-  "tei_embed_url": {
-    "annotation": "<class 'str'>",
-    "default": "'http://tei-embed:8080'",
-    "metadata": "[]",
-    "required": false
-  },
-  "tei_rerank_url": {
-    "annotation": "<class 'str'>",
-    "default": "'http://tei-rerank:8080'",
-    "metadata": "[]",
+  "sweep_max_concurrent": {
+    "annotation": "<class 'int'>",
+    "default": "1",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "timezone": {
@@ -903,6 +963,12 @@
     "annotation": "<class 'str'>",
     "default": "''",
     "metadata": "[]",
+    "required": false
+  },
+  "worker_completion_wait_seconds": {
+    "annotation": "<class 'int'>",
+    "default": "90",
+    "metadata": "[Gt(gt=0)]",
     "required": false
   },
   "worker_max_concurrent": {

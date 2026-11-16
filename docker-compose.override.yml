@@ -14,6 +14,9 @@ services:
           selinux: Z
 
   server:
+    # Direct API access for local tools (Taskfile); dev runs a single replica.
+    ports:
+      - "127.0.0.1:8001:8001"
     # Host VPN DNS is unreachable from Docker; keep external lookups container-local.
     dns:
       - 1.1.1.1
@@ -43,6 +46,48 @@ services:
           selinux: Z
 
   worker:
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    volumes:
+      - type: bind
+        source: server/app
+        target: /code/project/app
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: server/entrypoint.sh
+        target: /code/project/entrypoint.sh
+        read_only: true
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+
+  worker-batch:
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    volumes:
+      - type: bind
+        source: server/app
+        target: /code/project/app
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: server/entrypoint.sh
+        target: /code/project/entrypoint.sh
+        read_only: true
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+
+  maintenance:
     dns:
       - 1.1.1.1
       - 8.8.8.8

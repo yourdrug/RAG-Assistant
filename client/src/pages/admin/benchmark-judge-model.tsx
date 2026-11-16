@@ -4,18 +4,12 @@ import { apiClient } from "@/shared/api/client";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Skeleton } from "@/shared/ui/skeleton";
+import { llmModelLabel, useLLMModels } from "./llm-models";
 
 interface ModelsInfo {
-  llm_provider: string;
+  llm_base_url: string;
   llm_model: string;
-  openrouter_model: string;
-}
-
-interface OpenRouterModel {
-  id: string;
-  name: string;
-  context_length: number;
-  pricing: { prompt: number; completion: number };
+  llm_auxiliary_model: string;
 }
 
 export function BenchmarkJudgeModel({
@@ -31,21 +25,17 @@ export function BenchmarkJudgeModel({
     queryKey: ["admin", "models"],
     queryFn: async () => (await apiClient.get<ModelsInfo>("/admin/models/info")).data,
   });
-  const { data: catalog, isLoading: catalogLoading } = useQuery({
-    queryKey: ["admin", "openrouter-models"],
-    queryFn: async () =>
-      (await apiClient.get<{ models: OpenRouterModel[] }>("/admin/models/openrouter")).data,
-  });
+  const { data: catalog, isLoading: catalogLoading } = useLLMModels();
 
   useEffect(() => {
     if (value === null && info) {
-      onChange(info.openrouter_model);
+      onChange(info.llm_auxiliary_model);
     }
   }, [value, info, onChange]);
 
   const models = (catalog?.models ?? []).map((model) => ({
     id: model.id,
-    label: `${model.name} (${model.context_length.toLocaleString()} ctx, $${model.pricing.prompt.toFixed(2)}/M)`,
+    label: llmModelLabel(model),
   }));
   const selected = value ?? "";
   const loading = isLoading || catalogLoading;
@@ -88,7 +78,7 @@ export function BenchmarkJudgeModel({
       <p className="text-xs text-muted-foreground">
         {disabled
           ? "Not used when Top-N for LLM is 0."
-          : `Uses ${info?.llm_provider ?? "the configured LLM provider"}. This selection applies only to this sweep.`}
+          : `Uses ${info?.llm_base_url ?? "the configured LLM endpoint"}. This selection applies only to this sweep.`}
       </p>
     </div>
   );

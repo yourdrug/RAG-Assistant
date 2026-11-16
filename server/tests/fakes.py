@@ -23,6 +23,7 @@ import asyncio
 from contextlib import asynccontextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import replace
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Self, Unpack
 from unittest.mock import AsyncMock, MagicMock
@@ -52,13 +53,14 @@ from domain.knowledge.repositories.chunk import (
 )
 from domain.rag.breadth import Breadth
 from domain.rag.result import RagResult
+from domain.runtime.jobs import JobConcurrencyLimitReachedError
 from domain.shared.exceptions import EntityNotFoundError, ValidationError
 from domain.shared.pagination import CursorPage, encode_cursor
 
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Sequence
-    from datetime import date, datetime
+    from datetime import date
     from types import TracebackType
 
     from application.ports.rate_limit import RateLimitPolicyName
@@ -88,7 +90,7 @@ if TYPE_CHECKING:
     )
     from domain.knowledge.repositories.document import DocumentFilter, DocumentStatusUpdate
     from domain.rag.context import RagContext
-    from domain.runtime.jobs import BackgroundJob
+    from domain.runtime.jobs import BackgroundJob, ConcurrencyLimit
 
 
 # ---------------------------------------------------------------------------
@@ -986,6 +988,24 @@ class FakeBackgroundJobRepository:
     def __init__(self) -> None:
         self.jobs: dict[int, BackgroundJob] = {}
 
+    async def check_admission(self, principal: object) -> None:
+        del principal
+
+    async def cancel(self, job_id: int) -> bool:
+        job = self.jobs[job_id]
+
+        if job.status not in {"pending", "running"}:
+            return False
+
+        job.status = type(job.status)("cancelled")
+        job.finished_at = datetime.now(UTC)
+        job.attempt_id = None
+        job.lease_until = None
+        return True
+
+    async def save_progress(self, job_id: int, progress: dict[str, str]) -> None:
+        self.jobs[job_id].progress = dict(progress)
+
     async def create(self, job: BackgroundJob) -> BackgroundJob:
         job.id = len(self.jobs) + 1
         self.jobs[job.id] = job
@@ -996,14 +1016,82 @@ class FakeBackgroundJobRepository:
             job for job in self.jobs.values() if job.status == "pending" and job.dispatch_payload is not None
         ][:limit]
 
+    async def claim(
+        self, job_id: int, attempt_id: str, *, lease_seconds: int, limit: ConcurrencyLimit | None = None
+    ) -> int | None:
+        del lease_seconds
+        job = self.jobs.get(job_id)
+
+        if job is None or job.status != "pending":
+            return None
+
+        if limit is not None:
+            running = sum(
+                1
+                for other in self.jobs.values()
+                if other.job_type in limit.job_types and other.status == "running"
+            )
+
+            if limit.max_running is not None and running >= limit.max_running:
+                message = "concurrency group full"
+                raise JobConcurrencyLimitReachedError(message)
+
+            if limit.max_per_principal is not None:
+                principal = (job.dispatch_payload or {}).get("cost_principal")
+                running = sum(
+                    other.status == "running"
+                    and other.job_type in limit.job_types
+                    and (other.dispatch_payload or {}).get("cost_principal") == principal
+                    for other in self.jobs.values()
+                )
+
+                if running >= limit.max_per_principal:
+                    message = "principal concurrency group full"
+                    raise JobConcurrencyLimitReachedError(message)
+
+        job.mark_running()
+        job.attempt += 1
+        job.attempt_id = attempt_id
+        return job.attempt
+
+    async def renew_lease(self, job_id: int, attempt_id: str, *, lease_seconds: int) -> bool:
+        del lease_seconds
+        return self.jobs[job_id].attempt_id == attempt_id
+
+    async def finish_attempt(
+        self, job_id: int, attempt_id: str, *, error: str | None = None, retry_seconds: float | None = None
+    ) -> bool:
+        job = self.jobs[job_id]
+
+        if job.attempt_id != attempt_id:
+            return False
+
+        if retry_seconds is not None:
+            job.status = type(job.status)("pending")
+        elif error is not None:
+            await self.mark_failed(job_id, error)
+        else:
+            await self.mark_done(job_id)
+
+        return True
+
+    async def lock_execution(self, job_id: int, attempt_id: str) -> None:
+        if self.jobs[job_id].attempt_id != attempt_id:
+            message = "lease lost"
+            raise RuntimeError(message)
+
+    async def record_dispatch(self, job_id: int, *, published: bool) -> None:
+        if published:
+            self.jobs[job_id].dispatch_attempts += 1
+
     async def mark_running(self, job_id: int) -> None:
-        pass
+        self.jobs[job_id].mark_running()
 
     async def mark_done(self, job_id: int) -> None:
-        pass
+        self.jobs[job_id].mark_done()
 
     async def mark_failed(self, job_id: int, error: str) -> None:
-        pass
+        self.jobs[job_id].mark_failed(error)
 
     async def touch_heartbeat(self, job_id: int) -> None:
         pass
@@ -1011,24 +1099,41 @@ class FakeBackgroundJobRepository:
     async def count_active(self) -> int:
         return 0
 
-    async def delete_old(self, days: int) -> int:
-        del days
+    async def delete_old(self, days: int, limit: int = 1000) -> int:
+        del days, limit
         return 0
 
-    async def list_recent(self, limit: int = 50, offset: int = 0) -> list[BackgroundJob]:
-        del limit, offset
+    async def list_recent(
+        self, limit: int = 50, offset: int = 0, status: str | None = None
+    ) -> list[BackgroundJob]:
+        del limit, offset, status
         return []
 
     async def get_by_id(self, job_id: int) -> BackgroundJob | None:
-        del job_id
-        return None
+        return self.jobs.get(job_id)
 
     async def count_by_status(self) -> dict[str, int]:
         return {}
 
-    async def recover_orphaned(self, timeout_minutes: int = 15) -> list[int]:
+    async def lock_expired(self, timeout_minutes: int, limit: int = 100) -> list[BackgroundJob]:
         del timeout_minutes
-        return []
+        now = datetime.now(UTC)
+        return [
+            job
+            for job in self.jobs.values()
+            if job.status == "running" and job.lease_until is not None and job.lease_until <= now
+        ][:limit]
+
+    async def release_expired(self, job_id: int, *, error: str, retry_seconds: float | None) -> None:
+        job = self.jobs[job_id]
+        job.attempt_id = None
+        job.lease_until = None
+
+        if retry_seconds is None:
+            job.mark_failed(error)
+        else:
+            job.status = type(job.status)("pending")
+            job.error_message = error
 
     async def fail_stale_pending(self, timeout_minutes: int) -> list[BackgroundJob]:
         del timeout_minutes

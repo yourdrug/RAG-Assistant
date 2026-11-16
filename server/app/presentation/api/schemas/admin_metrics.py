@@ -8,7 +8,6 @@ from pydantic import BaseModel
 class MetricsResponse(BaseModel):
     db_pool: dict[str, float]
     qdrant: dict[str, float]
-    bm25: dict[str, float]
     rag: dict[str, object]
     ingestion: dict[str, object]
     http_requests: dict[str, object]

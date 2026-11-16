@@ -98,6 +98,30 @@ class SweepFactory:
             mark_failed=AsyncMock(),
             touch_heartbeat=AsyncMock(),
         )
+        self.attempt = 0
+
+        async def claim(*args: object, **kwargs: object) -> int:
+            self.attempt += 1
+            await self.jobs.mark_running(args[0])
+            return self.attempt if "runtime" in __name__ else 1
+
+        async def finish(
+            job_id: int, attempt_id: str, *, error: str | None = None, retry_seconds: float | None = None
+        ) -> bool:
+            if retry_seconds is not None:
+                return True
+
+            if error:
+                await self.jobs.mark_failed(job_id, error)
+            else:
+                await self.jobs.mark_done(job_id)
+
+            return True
+
+        self.jobs.claim = claim
+        self.jobs.finish_attempt = finish
+        self.jobs.renew_lease = AsyncMock(return_value=True)
+
         self.committed_progress: list[Any] = []
 
     def create(self, master: bool = False) -> SweepUow:

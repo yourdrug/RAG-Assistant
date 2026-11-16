@@ -84,6 +84,6 @@ export {
 } from "./use-groups";
 export { useHealth } from "./use-health";
 export { useIngestAll, useIngestFile, useIngestRegistry, useUploadFiles } from "./use-ingest";
-export { useJob, useJobStats, useJobs } from "./use-jobs";
+export { useJob, useJobAction, useJobStats, useJobs } from "./use-jobs";
 export { useLogs } from "./use-logs";
 export { useMetrics } from "./use-metrics";

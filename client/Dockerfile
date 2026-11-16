@@ -1,6 +1,7 @@
 # -----------------------------------------------------------------------------------
 # Node-base — shared env vars for all targets
-FROM node:22.14-alpine AS node-base
+# Keep the Node major in sync with .github/workflows/lint.yml (client-test).
+FROM node:24-alpine AS node-base
 
 LABEL author.email="mitkojenia@gmail.com"
 LABEL author.name="Eugene Mitsko"
@@ -17,19 +18,17 @@ ENV                                                                             
 # Set workdir
 WORKDIR $ROOT_DIR
 
-# Install core deps + pnpm
+# Install core deps
 RUN                                                                                 \
     apk add --no-cache                                                              \
     git                                                                             \
-    curl &&                                                                         \
-    corepack enable &&                                                               \
-    corepack prepare pnpm@9.15.9 --activate
+    curl
 
 # Copy package files
-COPY package.json pnpm-lock.yaml .npmrc ./
+COPY package.json package-lock.json ./
 
 # Install dependencies
-RUN npm_config_minimum_release_age=0 pnpm install --frozen-lockfile
+RUN npm ci
 
 # -----------------------------------------------------------------------------------
 # Build stage — compile frontend
@@ -39,20 +38,24 @@ FROM node-base AS build
 COPY . .
 
 # Build the application
-RUN pnpm run build
+RUN npm run build
 
 # -----------------------------------------------------------------------------------
 # Serve stage — nginx for static files + reverse proxy
-FROM nginx:1.27-alpine
+# 1.27.3+ is required for runtime re-resolution of upstream replicas.
+FROM nginx:1.27.5-alpine
 
 RUN apk add --no-cache bash envsubst
 
 COPY --from=build /code/project/dist /usr/share/nginx/html
 
 ARG UPSTREAM_SERVER=server:8001
+# Docker's embedded DNS; override for other orchestrators (e.g. kube-dns).
+ARG NGINX_RESOLVER=127.0.0.11
 ENV UPSTREAM_SERVER=${UPSTREAM_SERVER} \
+    NGINX_RESOLVER=${NGINX_RESOLVER} \
     TRUSTED_PROXY_CIDR=127.0.0.1 \
-    NGINX_ENVSUBST_FILTER="UPSTREAM_SERVER|TRUSTED_PROXY_CIDR"
+    NGINX_ENVSUBST_FILTER="UPSTREAM_SERVER|TRUSTED_PROXY_CIDR|NGINX_RESOLVER"
 
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 

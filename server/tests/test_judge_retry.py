@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,7 +20,6 @@ from infrastructure.benchmark.judging.judge import (
     judge_answer_async,
     judge_with_structured_output,
 )
-from infrastructure.budget.runtime import BudgetRuntime
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
@@ -89,10 +87,6 @@ class TestJudgeWithStructuredOutput:
 
 
 class TestGetJudgeClientCaching:
-    @pytest.fixture(autouse=True)
-    def budget_runtime(self) -> None:
-        self.runtime = BudgetRuntime()
-
     def test_same_model_returns_same_client(self) -> None:
 
         _judge_client_cache.clear()
@@ -101,8 +95,8 @@ class TestGetJudgeClientCaching:
             "infrastructure.benchmark.judging.clients.instructor.from_openai",
             return_value=mock_client,
         ):
-            c1 = get_judge_client("test-model", runtime=self.runtime)
-            c2 = get_judge_client("test-model", runtime=self.runtime)
+            c1 = get_judge_client("test-model")
+            c2 = get_judge_client("test-model")
             assert c1 is c2
         _judge_client_cache.clear()
 
@@ -116,8 +110,8 @@ class TestGetJudgeClientCaching:
             "infrastructure.benchmark.judging.clients.instructor.from_openai",
             side_effect=[mock_a, mock_b],
         ):
-            c1 = get_judge_client("model-a", runtime=self.runtime)
-            c2 = get_judge_client("model-b", runtime=self.runtime)
+            c1 = get_judge_client("model-a")
+            c2 = get_judge_client("model-b")
             assert c1 is not c2
         _judge_client_cache.clear()
 
@@ -129,9 +123,9 @@ class TestGetJudgeClientCaching:
             "infrastructure.benchmark.judging.clients.instructor.from_openai",
             return_value=mock_client,
         ) as mock_create:
-            get_judge_client("x", runtime=self.runtime)
-            get_judge_client("x", runtime=self.runtime)
-            get_judge_client("x", runtime=self.runtime)
+            get_judge_client("x")
+            get_judge_client("x")
+            get_judge_client("x")
             assert mock_create.call_count == 1
         _judge_client_cache.clear()
 
@@ -151,7 +145,6 @@ class TestJudgeAnswerAsync:
             patch("infrastructure.benchmark.judging.judge.get_judge_client", return_value=client),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = SimpleNamespace(value="openrouter")
             mock_settings.llm_auxiliary_timeout = 30.0
             result = await judge_answer_async(
                 question="What is RAG?",
@@ -176,7 +169,6 @@ class TestJudgeAnswerAsync:
             patch("infrastructure.benchmark.judging.judge.get_judge_client", return_value=client),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = SimpleNamespace(value="openrouter")
             mock_settings.llm_auxiliary_timeout = 30.0
             result = await judge_answer_async("q", "a", "ctx")
             assert result["faithfulness"] is None
@@ -197,7 +189,6 @@ class TestJudgeAnswerAsync:
             patch("infrastructure.benchmark.judging.judge.get_judge_client", return_value=client),
             patch("config.settings") as mock_settings,
         ):
-            mock_settings.llm_provider = SimpleNamespace(value="openrouter")
             mock_settings.llm_auxiliary_timeout = 30.0
             result = await judge_answer_async("q", "a", "ctx", expected_answer="expected")
         assert "correctness" in result

@@ -13,6 +13,7 @@ import pytest
 from application.health.ports import HealthCheckResult
 from application.health.service import HealthService
 from application.runtime.enums import HealthStatus
+from config import settings
 from infrastructure.health.system_health_probe import SystemHealthProbe
 from presentation.api.dependencies import create_health_service
 from presentation.api.routes.health import router
@@ -24,12 +25,12 @@ def health_service() -> tuple[HealthService, SimpleNamespace]:
     probe = SimpleNamespace(
         **{
             name: AsyncMock(return_value=HealthCheckResult(status=HealthStatus.OK.value))
-            for name in ("check_qdrant", "check_postgres", "check_redis", "check_openrouter")
+            for name in ("check_qdrant", "check_postgres", "check_redis", "check_llm")
         },
-        check_tei=AsyncMock(
+        check_ml=AsyncMock(
             return_value={
-                "tei_embed": HealthCheckResult(status=HealthStatus.OK.value),
-                "tei_rerank": HealthCheckResult(status=HealthStatus.OK.value),
+                "embeddings": HealthCheckResult(status=HealthStatus.OK.value),
+                "reranker": HealthCheckResult(status=HealthStatus.OK.value),
             }
         ),
     )
@@ -37,7 +38,7 @@ def health_service() -> tuple[HealthService, SimpleNamespace]:
         FakeUnitOfWorkFactory(),
         probe,
         SimpleNamespace(is_connected=True),
-        SimpleNamespace(version="test", uptime_seconds=1, llm_provider="openrouter", ml_provider="tei"),
+        SimpleNamespace(version="test", uptime_seconds=1),
     )
     return service, probe
 
@@ -45,15 +46,15 @@ def health_service() -> tuple[HealthService, SimpleNamespace]:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failed_check",
-    [None, "check_postgres", "check_qdrant", "check_redis", "check_openrouter", "tei_embed", "tei_rerank"],
+    [None, "check_postgres", "check_qdrant", "check_redis", "check_llm", "embeddings", "reranker"],
 )
 async def test_readiness_dependency_failure(
     health_service: tuple[HealthService, SimpleNamespace], failed_check: str | None
 ) -> None:
     service, probe = health_service
 
-    if failed_check in ("tei_embed", "tei_rerank"):
-        probe.check_tei.return_value[failed_check] = HealthCheckResult(status=HealthStatus.ERROR.value)
+    if failed_check in ("embeddings", "reranker"):
+        probe.check_ml.return_value[failed_check] = HealthCheckResult(status=HealthStatus.ERROR.value)
     elif failed_check:
         getattr(probe, failed_check).return_value = HealthCheckResult(status=HealthStatus.ERROR.value)
 
@@ -85,21 +86,30 @@ async def test_liveness_never_constructs_dependency_service() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remote_provider_does_not_require_tei(
-    health_service: tuple[HealthService, SimpleNamespace],
-) -> None:
-    service, probe = health_service
-    service._settings.ml_provider = "deepinfra"  # type: ignore[misc]  # Deliberate frozen-field write must fail at runtime.
-    result = await service.check()
-    probe.check_tei.assert_not_awaited()
-    assert "tei_embed" not in result.checks
+async def test_cloud_ml_endpoints_are_not_health_probed(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[httpx.Request] = []
+    original_client = httpx.AsyncClient
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(503)
+
+    transport = httpx.MockTransport(respond)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=transport, **kwargs))
+    monkeypatch.setattr(settings, "embedding_base_url", "https://api.deepinfra.com/v1/openai")
+    monkeypatch.setattr(settings, "rerank_base_url", "https://api.deepinfra.com/v1")
+    assert await SystemHealthProbe().check_ml() == {}
+    assert requests == []
 
 
 @pytest.mark.asyncio
-async def test_tei_probe_rejects_http_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_self_hosted_ml_probe_rejects_http_failure(monkeypatch: pytest.MonkeyPatch) -> None:
 
     original_client = httpx.AsyncClient
     transport = httpx.MockTransport(lambda _request: httpx.Response(503))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=transport, **kwargs))
-    result = await SystemHealthProbe().check_tei()
+    monkeypatch.setattr(settings, "embedding_base_url", "http://tei-embed:8080/v1")
+    monkeypatch.setattr(settings, "rerank_base_url", "http://tei-rerank:8080")
+    result = await SystemHealthProbe().check_ml()
+    assert set(result) == {"embeddings", "reranker"}
     assert all(check.status.startswith(HealthStatus.ERROR.value) for check in result.values())

@@ -10,7 +10,7 @@
 | Frontend | `client/.env`, в частности `VITE_API_URL`. | При сборке Vite. |
 
 Точный состав групп: [setting_keys.py](../../server/app/application/runtime/setting_keys.py).
-Типы и defaults: [config.py](../../server/app/config.py); активный динамический реестр:
+Типы и defaults: [config/sections](../../server/app/config/sections/); активный динамический реестр:
 [dynamic_params.py](../../server/app/application/runtime/dynamic_params.py).
 Реестр включает LLM/ML endpoints и модели, RAG, OCR, ingestion, квоты, retention и corpus.
 Некоторые параметры остаются статическими, поэтому название категории не определяет источник.
@@ -30,9 +30,55 @@ API отдельно создаёт начального администрат�
 Для legacy env выполните миграцию до запуска нового приложения: уже существующие
 строки БД миграция сохраняет, включая defaults от предыдущего запуска.
 
-`COMPOSE_PROFILES=tei` включает локальные Docker-сервисы TEI. `ML_PROVIDER` в БД
-выбирает провайдера приложения и не запускает контейнеры. Выбор модели OpenRouter
-задаётся runtime-конфигурацией.
+`COMPOSE_PROFILES=tei` включает локальные Docker-сервисы TEI и не переключает приложение:
+для этого укажите их URL в настройках эмбеддингов и реранкера (см. ниже).
+
+## Embedding и rerank endpoints
+
+Отдельного выбора провайдера (TEI/DeepInfra) нет: эмбеддинги и реранкинг задаются URL.
+
+| Параметр | Где задаётся | Назначение |
+|---|---|---|
+| `embedding_base_url` | Runtime (Admin → Settings → Model connections) | OpenAI-совместимый `/embeddings`: `http://tei-embed:8080/v1`, `https://api.deepinfra.com/v1/openai`, vLLM, OpenAI. |
+| `EMBEDDING_MODEL`, `EMBEDDING_REVISION`, `EMBED_DIM` | `server/.env` | Идентичность корпуса (`{model}:{revision}` в Qdrant); смена требует переиндексации. Для локального TEI — `model_id` из его `/info`. |
+| `rerank_base_url`, `rerank_model` | Runtime | Эндпоинт и модель реранкера. |
+| `rerank_api_format` | Runtime | `cohere` — `POST /rerank` с `results[].relevance_score` (vLLM, Jina, Cohere, Infinity); `tei` — TEI `/rerank` (логиты, sigmoid на стороне приложения); `deepinfra` — `POST /inference/{model}`. Оценки всех форматов приводятся к `[0, 1]`. |
+| `EMBEDDING_API_KEY`, `RERANK_API_KEY` | `server/.env.secrets` | Bearer-ключи; пусто для локального TEI. В UI показывается только наличие. |
+| `ML_ALLOWED_ORIGINS` | `server/.env` | Внешние origins для обоих URL; default `["https://api.deepinfra.com"]`. |
+
+Как и для LLM, origin URL обязан входить в `ML_ALLOWED_ORIGINS` или
+`ML_INTERNAL_ALLOWED_ORIGINS`. При смене URL эмбеддингов приложение запрашивает тестовый
+вектор и проверяет размерность; если сервер отдаёт TEI `/info`, дополнительно сверяются
+`model_id` с `EMBEDDING_MODEL` и, при переключении между TEI, `model_sha`/dtype/тип модели.
+Изменение URL, модели или формата реранкера проверяется тестовым запросом.
+`/health` проверяет `GET /health` только у внутренних (self-hosted) эндпоинтов.
+Миграция `0011` удаляет прежние ключи `tei_*`/`deepinfra_*` из БД, сохраняя выбранную
+модель реранкера.
+
+## LLM endpoint
+
+LLM подключается через один OpenAI-совместимый клиент (OpenRouter, OpenAI, vLLM,
+Ollama, LM Studio и т. п.); отдельного выбора провайдера нет.
+
+| Параметр | Где задаётся | Назначение |
+|---|---|---|
+| `llm_base_url` | Runtime (Admin → Settings → Model connections) | URL API, например `https://openrouter.ai/api/v1` или `http://vllm:8000/v1`. |
+| `llm_model` | Runtime | Модель ответов. |
+| `llm_auxiliary_model` | Runtime | Модель condense/relevance/decomposition и судьи бенчмарка по умолчанию; пусто — основная модель. |
+| `LLM_API_KEY` | `server/.env.secrets` | Bearer-ключ эндпоинта; пусто для vLLM/Ollama без авторизации. В UI показывается только наличие. |
+| `LLM_ALLOWED_ORIGINS` | `server/.env` | Внешние origins, на которые разрешено направить `llm_base_url`; default `["https://openrouter.ai"]`. |
+
+Ключ уходит на `llm_base_url`, поэтому origin URL обязан входить в `LLM_ALLOWED_ORIGINS`
+или `ML_INTERNAL_ALLOWED_ORIGINS` (внутренние сервисы, например `http://vllm:8000`);
+иначе сохранение отклоняется до записи в БД. Расширение списков — решение деплоя,
+требует пересоздания контейнеров.
+
+При сохранении URL или моделей приложение запрашивает `GET {llm_base_url}/models` и
+отклоняет модель, которой эндпоинт не отдаёт, а также контекстное окно (`max_model_len`)
+меньше `llm_num_ctx_*`. Этот же список используется в админке для выбора модели; если
+эндпоинт его не поддерживает, модель вводится вручную.
+
+Сохранённые в БД настройки прежнего активного провайдера переносятся Alembic-миграцией `0010`.
 
 ## Сохранение, применение и диагностика
 

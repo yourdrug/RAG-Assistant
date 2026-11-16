@@ -1,4 +1,4 @@
-"""Health-check endpoint aggregating Postgres, Qdrant, and OpenRouter status."""
+"""Health-check endpoint aggregating Postgres, Qdrant and LLM endpoint status."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ async def health(
         status=result.status,
         version=result.version,
         uptime_seconds=result.uptime_seconds,
-        llm_provider=result.llm_provider,
         checks={
             k: HealthCheck(status=v.status, latency_ms=v.latency_ms, models=v.models)
             for k, v in result.checks.items()

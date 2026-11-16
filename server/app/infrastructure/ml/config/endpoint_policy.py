@@ -6,18 +6,14 @@ from config import EndpointSettings, MLProviderSection
 from domain.shared.exceptions import ValidationError
 
 
-ENDPOINT_KEYS = frozenset(
-    {
-        "tei_embed_url",
-        "tei_rerank_url",
-        "openrouter_base_url",
-        "deepinfra_base_url",
-    }
-)
-CLOUD_ORIGINS = {
-    "openrouter_base_url": "https://openrouter.ai:443",
-    "deepinfra_base_url": "https://api.deepinfra.com:443",
+# Each endpoint receives its env-owned key, so its origin is limited to deployment-approved
+# lists: the endpoint's external allowlist plus internal ML services.
+EXTERNAL_ALLOWLISTS = {
+    "llm_base_url": "llm_allowed_origins",
+    "embedding_base_url": "ml_allowed_origins",
+    "rerank_base_url": "ml_allowed_origins",
 }
+ENDPOINT_KEYS = frozenset(EXTERNAL_ALLOWLISTS)
 
 
 FIRST_PRINTABLE_CODEPOINT = 32
@@ -53,17 +49,16 @@ def endpoint_origin(value: str) -> str:
 def validate_endpoints(candidate: EndpointSettings) -> None:
     internal = {endpoint_origin(value) for value in candidate.ml_internal_allowed_origins}
 
-    for key in ENDPOINT_KEYS:
+    for key, allowlist in EXTERNAL_ALLOWLISTS.items():
         value = getattr(candidate, key)
 
-        # Empty inactive internal services remain supported for cloud-only deployments.
-        if not value and key not in CLOUD_ORIGINS:
+        # Required endpoints are reported by the provider check with a clearer message.
+        if not value:
             continue
 
-        origin = endpoint_origin(value)
-        allowed = {CLOUD_ORIGINS[key]} if key in CLOUD_ORIGINS else internal
+        allowed = internal | {endpoint_origin(item) for item in getattr(candidate, allowlist)}
 
-        if origin not in allowed:
+        if endpoint_origin(value) not in allowed:
             message = f"ML endpoint origin is not deployment-approved: {key}"
             raise ValidationError(message)
 

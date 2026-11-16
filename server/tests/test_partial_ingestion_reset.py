@@ -17,14 +17,50 @@ from application.ingestion import (
     S3UploadService,
     SingleFileIngestionWorkflow,
 )
+from application.jobs.execution import JobExecution, current_execution
 from application.ports.file_storage import FileItem
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import Chunk
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocDomain, DocumentVisibility, SourceType
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
+from domain.runtime.jobs import BackgroundJob
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from tests.fakes import FakeUnitOfWorkFactory
+
+
+@pytest.mark.asyncio
+async def test_worker_reset_resumes_completed_files_after_interruption(ingestion: SimpleNamespace) -> None:
+    env = ingestion
+    jobs = env.factory._uow.background_jobs
+    job = await jobs.create(BackgroundJob(job_type="ingest", dispatch_payload={"reset": True}))
+    await jobs.claim(job.id, "attempt", lease_seconds=180)
+    original = env.sync.sync_one_document
+
+    async def interrupt(**kwargs: object) -> None:
+        if kwargs["src"] == "s3://bucket/docs/other/a.txt":
+            message = "deploy interruption"
+            raise ConnectionError(message)
+
+        await original(**kwargs)
+
+    env.sync.sync_one_document = AsyncMock(side_effect=interrupt)
+    token = current_execution.set(JobExecution(job.id, "attempt"))
+    try:
+        with pytest.raises(ConnectionError, match="deploy interruption"):
+            await env.service.run_full(reset=True, job_id=job.id)
+        assert jobs.jobs[job.id].progress == {"docs/sub/a.txt": "8_2026-01-01"}
+        env.sync.sync_one_document = original
+        env.loader.load_file = AsyncMock(wraps=env.loader.load_file)
+        await env.service.run_full(reset=True, job_id=job.id)
+        assert [call.args[0].key for call in env.loader.load_file.await_args_list] == ["docs/other/a.txt"]
+        assert set(jobs.jobs[job.id].progress) == {"docs/sub/a.txt", "docs/other/a.txt"}
+        assert {doc.ingestion_key for doc in env.factory._uow.documents._documents.values()} == {
+            "docs/sub/a.txt",
+            "docs/other/a.txt",
+        }
+    finally:
+        current_execution.reset(token)
 
 
 @pytest.fixture
@@ -64,7 +100,7 @@ def ingestion(tmp_path: Path) -> SimpleNamespace:
     settings = SimpleNamespace(
         s3_bucket="bucket",
         embed_dim=384,
-        tei_embed_url="tei",
+        embedding_base_url="embeddings",
         qdrant_url="qdrant",
         collection_name="chunks",
     )

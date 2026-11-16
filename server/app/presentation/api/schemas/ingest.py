@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 
 class IngestStatusResponse(BaseModel):
+    job_id: int | None = None
     status: str
     mode: str | None = None
     docs_dir: str | None = None

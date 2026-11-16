@@ -1,168 +1,84 @@
-# RAG — Корпоративный ассистент (локальный, без облака)
+# RAG — Корпоративный ассистент
 
-**Стек:** FastAPI · LangChain · Qdrant · OpenRouter · PostgreSQL · BAAI/bge-m3 · BAAI/bge-reranker-v2-m3 · PaddleOCR
+Ассистент для поиска по корпоративным документам и ответов с указанием источников.
+Поддерживает личные и групповые документы, роли пользователей и разграничение доступа.
+Разворачивается на своей инфраструктуре; модели можно подключать через локальные или облачные API.
 
-**Лицензия проекта:** Elastic License 2.0 — можно self-host, нельзя продавать как SaaS.
+**Стек:** FastAPI · React / TypeScript · PostgreSQL · Qdrant · Redis / Arq · S3 / MinIO.
 
----
+## Возможности
+
+- Загрузка и фоновая индексация PDF, DOCX, RTF, Markdown и TXT; OCR для сканов.
+- Гибридный поиск в Qdrant: dense + BM25, реранкинг и фильтрация по правам доступа.
+- Чат с потоковыми ответами и источниками.
+- Администрирование пользователей, групп, документов и настроек; оценка качества RAG.
+- LLM через OpenAI-совместимый API, отдельные endpoints для эмбеддингов и реранкинга.
 
 ## Быстрый старт
 
-```bash
-# Одной командой (автоустановка Docker/Task, сборка, подъём стека):
-curl -fsSL https://raw.githubusercontent.com/yourdrug/RAG-Assistant/main/install.sh | bash
+Нужны Docker с Compose и [Task](https://taskfile.dev/).
+Команды выполняются из корня репозитория.
 
-# Или вручную:
+```bash
 task init
-# Заполните server/.env.secrets перед запуском.
+# Заполните пароли и ключи API в server/.env.secrets.
+# Задайте ADMIN_EMAIL в server/.env и ADMIN_PASSWORD
+# в server/.env.secrets для первого администратора.
 task up
-task pull-model MODEL=qwen2.5:7b
-task login email=admin@example.com password=change-me-please
-cp /path/to/docs/* data/docs_sample/
-task ingest
-task chat -- "Вопрос"
 ```
 
-После `task up`: API — http://localhost:8001/docs, Qdrant — http://localhost:6333/dashboard
+Откройте http://localhost:3001 и войдите с данными администратора.
+В админке проверьте подключения моделей, затем загрузите документы и задайте вопрос в чате.
+Адреса и модели настраиваются под выбранные сервисы; внешние endpoints должны входить
+в разрешённые origins.
 
----
-
-## Команды
-
-| Команда | Что делает |
-|---|---|
-| `task init` | server/.env + client/.env + собрать образ |
-| `task up` / `task down` | Поднять / остановить стек |
-| `task up -- gpu` | Поднять с GPU |
-| `task build` | Пересобрать образы |
-| `task build -- gpu` | Пересобрать с GPU |
-| `task login email=... password=...` | Залогиниться → `.auth_token` |
-| `task ingest` | Проиндексировать `data/docs_sample/` [admin] |
-| `task chat -- "вопрос"` | Синхронный запрос |
-| `task bench` | Оценка качества |
-| `task test` / `task lint` / `task fmt` | pytest / ruff |
-| `task db:shell` / `task db:backup` | psql / дамп |
-| `task clean` | Удалить все данные |
-
-Полный список: `task --list`
-
----
+Для локальных эмбеддингов и реранкинга включите `COMPOSE_PROFILES=tei` в `server/.env`.
+Опциональные GPU-сервисы запускаются через `task up -- vllm` и `task up -- ocr-vl`;
+перед первым запуском скачайте модели командами `task vllm:models` и `task ocr-vl:models`.
+GPU для TEI/server включается через `task up -- gpu`.
 
 ## Конфигурация
 
-`task env` создаёт файлы из шаблонов без перезаписи:
+`task env` создаёт файлы из шаблонов без перезаписи существующих значений:
 
-- **`server/.env`** — PostgreSQL/Redis bootstrap, CORS, S3 и Docker deployment.
-- **`server/.env.secrets`** — пароли и API-ключи; права `0600`, заполнить до запуска.
-- **`client/.env`** — `VITE_API_URL`, применяется при сборке Vite.
+- `server/.env` — инфраструктура и статические настройки развёртывания.
+- `server/.env.secrets` — пароли и API-ключи, права доступа `0600`.
+- `client/.env` — настройки frontend, применяются при сборке.
 
-LLM/OCR/RAG, ML endpoints, квоты, retention и corpus хранятся в PostgreSQL и
-управляются через админку. Состояние применения проверяйте отдельно от сохранения.
-Для локального TEI задайте `COMPOSE_PROFILES=tei`; для облачного ML оставьте профиль
-пустым. `ML_PROVIDER` в БД выбирает провайдера приложения, а не Docker-сервисы.
-`task pull-model MODEL=...` только скачивает модель; её выбор для запросов задаётся в БД.
+Runtime-настройки LLM, RAG, OCR и обработки документов хранятся в PostgreSQL
+и управляются через админку. Для LLM используется `LLM_API_KEY`, для эмбеддингов
+и реранкинга — `EMBEDDING_API_KEY` и `RERANK_API_KEY`.
+Сохранение настройки и её применение проверяются отдельно.
+Подробнее: [конфигурация](docs/operations/configuration.md).
 
-Существующий env сокращайте через offline `config migrate-env --trim-env` после
-backup и сверки dry run, сохраняя нестандартные static overrides. Полный порядок,
-ограничения применения и откат: [конфигурация](docs/operations/configuration.md).
+## Основные команды
 
----
+| Команда                  | Назначение                                            |
+|--------------------------|-------------------------------------------------------|
+| `task up` / `task down`  | Запустить / остановить стек                           |
+| `task build`             | Пересобрать образы                                    |
+| `task ps` / `task logs`  | Статус / логи сервисов                                |
+| `task setup`             | Подготовить окружение разработчика и git hooks        |
+| `task install`           | Установить backend-зависимости через uv (Python 3.12) |
+| `task test`              | Запустить тесты без интеграционных                    |
+| `task lint` / `task fmt` | Проверить / отформатировать Python-код                |
+| `task bench`             | Запустить оценку качества по датасетам из БД          |
+| `task db:migrate`        | Применить миграции БД                                 |
 
-## Архитектура
+Полный список: `task --list`.
+
+## Архитектура и эксплуатация
 
 Backend разделён на Domain, Application, Infrastructure, Presentation и Composition.
-Основные пути загрузки и ответа, внешние сервисы и границы зависимостей:
-[обзор архитектуры](docs/architecture/overview.md).
-Термины предметной области: [глоссарий](docs/domain/glossary.md).
-Остальная постоянная документация: [docs](docs/README.md).
+Индексация и другие фоновые задачи выполняются Arq workers.
+Веб-интерфейс и API доступны через nginx gateway; для внешнего доступа настройте HTTPS.
 
----
+- [Документация проекта](docs/README.md)
+- [Архитектура](docs/architecture/overview.md) и [глоссарий](docs/domain/glossary.md)
+- [Руководство разработчика](docs/development/developer-guide.md)
+- [Быстрый старт API](docs/api/quickstart.md)
+- [Эксплуатация, резервное копирование и восстановление](docs/operations/operations.md)
 
-## Продакшн (домен + TLS)
+## Лицензия
 
-Стек внутри Docker не завершает TLS — это делает внешний nginx на хосте с certbot/letsencrypt.
-
-Порты backend (`8001`) и клиентского nginx (`3001`) опубликованы только на `127.0.0.1`.
-Внешний доступ к UI и API идёт через HTTPS-домен. Для доступа к API из curl, Postman
-или другого приложения UI не требуется: используйте `https://rag.example.com/api/`.
-Внутри Docker-сети клиентский nginx обращается к backend по адресу `server:8001`.
-
-Клиентский контейнер уже запускает свой nginx, который проксирует `/api/*` на `server:8001` с таймаутами 600s для SSE-стриминга. Внешнему nginx достаточно проксировать один upstream:
-
-```nginx
-upstream rag { server 127.0.0.1:3001; }
-
-server {
-    listen 443 ssl;
-    server_name rag.example.com;
-    ssl_certificate     /etc/letsencrypt/live/rag.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/rag.example.com/privkey.pem;
-
-    location / {
-        proxy_pass http://rag;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_buffering off;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-        client_max_body_size 100m;
-    }
-}
-```
-
-Пример запроса к API (замените домен своим, а `TOKEN` — действующим JWT):
-
-```bash
-curl https://rag.example.com/api/documents \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-После изменения привязки портов пересоздайте контейнеры server и client: обычный
-`docker compose restart` не применяет изменения публикации портов.
-
-Деплой на сервер: `./deploy/deploy.sh 0.6.0` (или `./deploy/deploy.sh 0.6.0 --gpu`). Образы тянутся из GHCR.
-Скрипт загружает env-файлы, использует `COMPOSE_PROFILES`, сохраняет работающие контейнеры
-хранилищ и проверяет `/api/ready` после обновления приложения.
-
-Эксплуатационные утилиты находятся в `scripts/operations/`: `backup.sh` создаёт
-холодный бэкап с остановкой стека и проверкой восстановления PostgreSQL,
-`restore.sh BACKUP_DIRECTORY NEW_DATA_DIRECTORY` распаковывает его в новую директорию,
-`check_health.py` проверяет API, диск и давность бэкапа. Настройки —
-`scripts/operations/operations.env.example`, шаблоны systemd — `deploy/systemd/`
-(пути в них рассчитаны на `/opt/rag-assistant`). Автоматический откат образов
-блокируется при изменении схемы БД, если совместимость явно не подтверждена.
-
----
-
-## Форматы документов
-
-| Формат | Парсер |
-|--------|--------|
-| `.pdf` | PyMuPDF + OCR для сканов (PaddleOCR) |
-| `.docx` | python-docx |
-| `.rtf` | striprtf |
-| `.md` | markdown → plain text |
-| `.txt` | автоопределение кодировки |
-
----
-
-## Лицензии моделей
-
-| Компонент | Модель | Лицензия |
-|---|---|---|
-| LLM | Qwen2.5-14B / Mistral-Nemo-12B | Apache-2.0 |
-| Эмбеддинги | BAAI/bge-m3 | MIT |
-| Реранкер | BAAI/bge-reranker-v2-m3 | MIT |
-| OCR | PaddleOCR | Apache-2.0 |
-| OCR (опц.) | Surya | Apache-2.0 (код), **платная лицензия весов сверх $5M** |
-
----
-
-## Troubleshooting
-
-
-**`401 Unauthorized`** → Токен истёк. `task login email=... password=...` заново.
-
-**`403 Forbidden` на /ingest** → Нужна роль admin. `task me` проверить роль.
+Проект распространяется по [Elastic License 2.0](LICENSE).

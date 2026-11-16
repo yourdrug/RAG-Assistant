@@ -8,6 +8,7 @@ from http import HTTPStatus
 import logging
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from qdrant_client import QdrantClient
@@ -20,6 +21,8 @@ from application.health.ports import HealthCheckResult
 from application.runtime.enums import HealthStatus
 from config import LLMSection, MLProviderSection, VectorStoreSection, process_section
 from infrastructure.database.database import database
+from infrastructure.ml.clients.instructor_client import llm_auth_headers
+from infrastructure.ml.config.endpoint_policy import endpoint_origin
 from infrastructure.redis.redis_client import redis_client
 
 
@@ -44,48 +47,56 @@ class SystemHealthProbe:
     def __init__(self) -> None:
         self.http = HttpProbe()
 
-    async def check_tei(self) -> dict[str, HealthCheckResult]:
-        ml_provider_settings = process_section(MLProviderSection)
+    async def check_ml(self) -> dict[str, HealthCheckResult]:
+        """``GET /health`` of self-hosted embedding/rerank servers; cloud APIs have no such route."""
+        ml_settings = process_section(MLProviderSection)
+        internal = {endpoint_origin(value) for value in ml_settings.ml_internal_allowed_origins}
 
         async def probe(url: str) -> HealthCheckResult:
+            parsed = urlsplit(url)
             try:
-                response, latency_ms = await self.http.get(f"{url.rstrip('/')}/health")
+                response, latency_ms = await self.http.get(f"{parsed.scheme}://{parsed.netloc}/health")
                 response.raise_for_status()
                 return HealthCheckResult(
                     status=HealthStatus.OK.value,
                     latency_ms=latency_ms,
                 )
             except (httpx.HTTPError, ValueError) as exc:
-                logger.warning("TEI health probe failed (%s)", type(exc).__name__)
+                logger.warning("ML endpoint health probe failed (%s)", type(exc).__name__)
                 return HealthCheckResult(status=f"error: {exc}")
 
-        embed, rerank = await asyncio.gather(
-            probe(ml_provider_settings.tei_embed_url),
-            probe(ml_provider_settings.tei_rerank_url),
-        )
-        return {"tei_embed": embed, "tei_rerank": rerank}
+        targets = {
+            name: url
+            for name, url in (
+                ("embeddings", ml_settings.embedding_base_url),
+                ("reranker", ml_settings.rerank_base_url),
+            )
+            if url and endpoint_origin(url) in internal
+        }
+        results = await asyncio.gather(*(probe(url) for url in targets.values()))
+        return dict(zip(targets, results, strict=True))
 
-    async def check_openrouter(self) -> HealthCheckResult:
+    async def check_llm(self) -> HealthCheckResult:
         llm_settings = process_section(LLMSection)
 
         try:
             response, latency_ms = await self.http.get(
-                f"{llm_settings.openrouter_base_url}/models",
+                f"{llm_settings.llm_base_url.rstrip('/')}/models",
                 request_timeout=5,
-                headers={"Authorization": f"Bearer {llm_settings.openrouter_api_key.get_secret_value()}"},
+                headers=llm_auth_headers(llm_settings.llm_api_key),
             )
 
             if response.status_code < HTTPStatus.BAD_REQUEST:
                 return HealthCheckResult(
                     status=HealthStatus.OK.value,
                     latency_ms=latency_ms,
-                    models=[llm_settings.openrouter_model],
+                    models=[llm_settings.llm_model],
                 )
 
-            logger.warning("OpenRouter health probe returned HTTP %s", response.status_code)
+            logger.warning("LLM health probe returned HTTP %s", response.status_code)
             return HealthCheckResult(status=f"error: HTTP {response.status_code}")
         except (httpx.HTTPError, ValueError) as e:
-            logger.warning("Openrouter health probe failed (%s)", type(e).__name__)
+            logger.warning("LLM health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
     async def check_qdrant(self) -> HealthCheckResult:

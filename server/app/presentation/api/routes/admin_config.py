@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
 import logging
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -17,20 +16,14 @@ from application.admin import (
     CorpusControlPort,
     EffectiveParameter,
 )
-from application.budget import BudgetAdminService
-from application.budget.dto import BudgetUsageRows, CostRateRow
 from application.ports.action_logger import ActionLoggerPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
-from application.runtime.enums import MLProvider
 from application.runtime.setting_keys import SECRET_SETTING_KEYS
-from config import CostLimitSection, MLProviderSection, process_section
-from domain.runtime.cost import CostRate
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEYS
 from presentation.api.dependencies import (
     create_action_logger,
-    create_budget_admin_service,
     create_config_admin_service,
     create_config_masker,
     create_config_service,
@@ -41,9 +34,9 @@ from presentation.api.schemas import (
     ConfigParamResponse,
     ConfigParamUpdateRequest,
     CurrentUser,
+    LLMModelInfo,
+    LLMModelsResponse,
     ModelsInfoResponse,
-    OpenRouterModelInfo,
-    OpenRouterModelsResponse,
     VectorDBCollectionInfo,
     VectorDBInfoResponse,
 )
@@ -147,28 +140,31 @@ async def models_info(
 ) -> ModelsInfoResponse:
     info = await admin_service.get_models_info()
     return ModelsInfoResponse(
-        llm_provider=info.llm_provider,
+        llm_base_url=info.llm_base_url,
         llm_model=info.llm_model,
-        tei_embed_url=info.tei_embed_url,
-        tei_rerank_url=info.tei_rerank_url,
+        llm_auxiliary_model=info.llm_auxiliary_model,
+        llm_api_key_configured=info.llm_api_key_configured,
+        embedding_base_url=info.embedding_base_url,
         embed_model=info.embed_model,
+        embedding_api_key_configured=info.embedding_api_key_configured,
+        rerank_base_url=info.rerank_base_url,
         rerank_model=info.rerank_model,
+        rerank_api_format=info.rerank_api_format,
+        rerank_api_key_configured=info.rerank_api_key_configured,
         ocr_engine=info.ocr_engine,
         ocr_enabled=info.ocr_enabled,
-        openrouter_model=info.openrouter_model,
-        ml_provider=info.ml_provider,
     )
 
 
-@router.get("/admin/models/openrouter", response_model=OpenRouterModelsResponse)
-async def openrouter_models(
+@router.get("/admin/models/llm", response_model=LLMModelsResponse)
+async def llm_models(
     *,
     _admin: Annotated[CurrentUser, Depends(require_admin)],
     admin_service: Annotated[ConfigAdminService, Depends(create_config_admin_service)],
-) -> OpenRouterModelsResponse:
-    info = await admin_service.get_openrouter_models()
-    return OpenRouterModelsResponse(
-        models=[OpenRouterModelInfo(**m) for m in info.models],
+) -> LLMModelsResponse:
+    info = await admin_service.get_llm_models()
+    return LLMModelsResponse(
+        models=[LLMModelInfo(**m) for m in info.models],
         active_model=info.active_model or "",
     )
 
@@ -203,88 +199,6 @@ async def vectordb_info(
     )
 
 
-class CostRateResponse(BaseModel):
-    provider: Literal["openrouter", "deepinfra"]
-    model: str = Field(min_length=1, max_length=200)
-    version: int = Field(ge=1)
-    unit: Literal["tokens"] = "tokens"
-    input_usd_per_million: Decimal = Field(ge=0, allow_inf_nan=False)
-    output_usd_per_million: Decimal = Field(ge=0, allow_inf_nan=False)
-    context_tokens: int = Field(ge=1, le=10_000_000)
-
-
-class CostRateRequest(CostRateResponse):
-    input_usd_per_million: Decimal = Field(gt=0, allow_inf_nan=False)
-
-
-@router.get("/admin/cost/rates", response_model=list[CostRateResponse])
-async def cost_rates(
-    *,
-    _admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[BudgetAdminService, Depends(create_budget_admin_service)],
-) -> list[CostRateRow]:
-    return await service.rates()
-
-
-@router.post(
-    "/admin/cost/rates",
-    status_code=201,
-    response_model=CostRateRequest,
-    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
-)
-async def add_cost_rate(
-    *,
-    body: CostRateRequest,
-    _admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[BudgetAdminService, Depends(create_budget_admin_service)],
-) -> CostRate:
-    return await service.add_rate(
-        CostRate(**body.model_dump(), input_only=body.provider == MLProvider.DEEPINFRA.value)
-    )
-
-
-@router.get("/admin/cost/usage", response_model=None)
-async def recent_cost_usage(
-    *,
-    _admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[BudgetAdminService, Depends(create_budget_admin_service)],
-) -> BudgetUsageRows:
-    return await service.usage()
-
-
-@router.get("/admin/cost/models", response_model=None)
-async def active_cost_models(
-    *,
-    _admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[BudgetAdminService, Depends(create_budget_admin_service)],
-) -> dict[str, object]:
-    ml_provider_settings = process_section(MLProviderSection)
-
-    models = []
-
-    if ml_provider_settings.ml_provider == MLProvider.DEEPINFRA.value:
-        models.extend(
-            [
-                await service.model_status(MLProvider.DEEPINFRA.value, model)
-                for model in (
-                    ml_provider_settings.deepinfra_embed_model,
-                    ml_provider_settings.deepinfra_rerank_model,
-                )
-            ]
-        )
-
-    return {"enabled": process_section(CostLimitSection).cost_rate_limit_enabled, "models": models}
-
-
-@router.get("/admin/cost/pending", response_model=None)
-async def pending_cost_usage(
-    *,
-    _admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[BudgetAdminService, Depends(create_budget_admin_service)],
-) -> BudgetUsageRows:
-    return await service.pending()
-
-
 class CorpusSwitchRequest(BaseModel):
     endpoint: str = Field(min_length=1, max_length=2048)
     collection: str = Field(min_length=1, max_length=255)
@@ -313,26 +227,3 @@ async def switch_corpus(
     result = await control.switch(body.endpoint, body.collection, body.expected_generation)
     log("corpus.switch", user_id=admin.id, details={"generation": result["active"]["generation"]})
     return result
-
-
-class CostReconciliationRequest(BaseModel):
-    actual_usd: Decimal = Field(ge=0, allow_inf_nan=False)
-    evidence: str = Field(min_length=1, max_length=512)
-
-
-@router.post(
-    "/admin/cost/pending/{operation_id}/reconcile",
-    status_code=204,
-    response_model=None,
-    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
-)
-async def reconcile_cost(
-    *,
-    operation_id: str,
-    body: CostReconciliationRequest,
-    admin: Annotated[CurrentUser, Depends(require_admin)],
-    service: Annotated[BudgetAdminService, Depends(create_budget_admin_service)],
-    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
-) -> None:
-    await service.reconcile(operation_id, str(body.actual_usd), body.evidence)
-    log("cost.reconcile", user_id=admin.id, details={"operation_id": operation_id})

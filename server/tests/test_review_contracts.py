@@ -25,6 +25,7 @@ from domain.identity.roles import UserRole
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus
+from domain.runtime.jobs import BackgroundJob, JobType
 from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.database.database import database
 from infrastructure.ml.cache import answers as answer_cache
@@ -206,7 +207,7 @@ async def test_document_worker_admits_same_and_other_principals() -> None:
     started, finish = asyncio.Event(), asyncio.Event()
     ran = []
 
-    @job()
+    @job(JobType.DOCUMENT_PROCESSING)
     async def action(ctx: dict[str, Any], **kwargs: Any) -> None:
         ran.append(kwargs["job_id"])
 
@@ -214,7 +215,12 @@ async def test_document_worker_admits_same_and_other_principals() -> None:
             started.set()
             await finish.wait()
 
-    ctx = {"uow_factory": FakeUnitOfWorkFactory()}
+    factory = FakeUnitOfWorkFactory()
+
+    for _ in range(3):
+        await factory._uow.fake_background_jobs.create(BackgroundJob())
+
+    ctx = {"uow_factory": factory}
     first = asyncio.create_task(action(ctx, owner_id=10, principal_id=1, job_id=1))
     try:
         await asyncio.wait_for(started.wait(), timeout=5)

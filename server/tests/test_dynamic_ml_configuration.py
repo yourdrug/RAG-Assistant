@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import replace
+import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
@@ -11,6 +13,7 @@ from unittest.mock import MagicMock
 import httpx
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from pydantic import SecretStr
 import pytest
 from qdrant_client.models import Filter
 
@@ -28,7 +31,11 @@ from infrastructure.health import system_health_probe
 from infrastructure.initialization import build_defaults, load_config_from_db
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.client_registry import MLClientRegistry
-from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration, validate_chunking
+from infrastructure.ml.config.provider_configuration import (
+    SettingsProviderConfiguration,
+    validate_chunking,
+    validate_provider_credentials,
+)
 from infrastructure.ml.rag import rag_retrieval
 from infrastructure.ml.rag.rag_prompts import condense_question
 from infrastructure.repositories.vector import qdrant_ops
@@ -41,15 +48,14 @@ if TYPE_CHECKING:
 
     from qdrant_client.models import PointStruct
 
-    from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient
+    from infrastructure.ml.clients.inference_clients import EmbeddingsClient
     from tests.fakes import FakeUnitOfWork
 
 
 ENDPOINT_KEYS = (
-    "openrouter_base_url",
-    "tei_embed_url",
-    "tei_rerank_url",
-    "deepinfra_base_url",
+    "llm_base_url",
+    "embedding_base_url",
+    "rerank_base_url",
 )
 POOL_KEYS = (
     "embedding_http_max_connections",
@@ -69,9 +75,9 @@ def row(key: str, value: object) -> ConfigParameter:
 def model() -> Settings:
     return Settings(
         _env_file=None,
-        ml_provider="tei",
-        tei_embed_url="http://tei-embed:8080",
-        tei_rerank_url="http://tei-rerank:8080",
+        embedding_base_url="http://tei-embed:8080",
+        rerank_base_url="http://tei-rerank:8080",
+        rerank_api_format="tei",
         ml_internal_allowed_origins=[
             "http://localhost:11434",
             "http://tei-embed:8080",
@@ -163,20 +169,56 @@ def test_invalid_pool_snapshot_is_rejected_before_mutation(model: Settings, key:
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("openrouter_base_url", "https://evil.example/api/v1"),
-        ("openrouter_base_url", "http://openrouter.ai/api/v1"),
-        ("deepinfra_base_url", "https://api.deepinfra.com.evil.example/v1"),
-        ("tei_embed_url", "http://169.254.169.254/latest/meta-data"),
-        ("tei_rerank_url", "http://unapproved:8080"),
-        ("tei_embed_url", "file:///etc/passwd"),
-        ("tei_embed_url", "http://user:password@tei-embed:8080"),
-        ("tei_embed_url", "http://tei-embed:8080/?token=secret"),
+        ("llm_base_url", "https://evil.example/api/v1"),
+        ("llm_base_url", "http://openrouter.ai/api/v1"),
+        ("llm_base_url", "https://openrouter.ai.evil.example/api/v1"),
+        ("embedding_base_url", "https://api.deepinfra.com.evil.example/v1"),
+        ("rerank_base_url", "http://api.deepinfra.com/v1"),
+        ("embedding_base_url", "http://169.254.169.254/latest/meta-data"),
+        ("rerank_base_url", "http://unapproved:8080"),
+        ("llm_base_url", "http://169.254.169.254/v1"),
+        ("llm_base_url", "http://vllm:8000/v1"),
+        ("embedding_base_url", "file:///etc/passwd"),
+        ("embedding_base_url", "http://user:password@tei-embed:8080"),
+        ("embedding_base_url", "http://tei-embed:8080/?token=secret"),
     ],
 )
 def test_untrusted_origins_rejected_without_http_request(model: Settings, key: str, value: str) -> None:
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
     with pytest.raises(ValidationError):
         config.validate_change(key, value)
+
+
+@pytest.mark.parametrize(
+    "update,error",
+    [
+        ({"llm_base_url": ""}, "LLM_BASE_URL is required"),
+        ({"llm_model": ""}, "LLM_MODEL is required"),
+    ],
+)
+def test_llm_endpoint_requires_url_and_model(model: Settings, update: dict[str, str], error: str) -> None:
+    with pytest.raises(ValidationError, match=error):
+        validate_provider_credentials(model.model_copy(update=update))
+
+
+def test_llm_endpoint_needs_no_key(model: Settings) -> None:
+    validate_provider_credentials(model.model_copy(update={"llm_api_key": SecretStr("")}))
+
+
+@pytest.mark.parametrize(
+    "allowed, internal, url",
+    [
+        (["https://api.openai.com"], [], "https://api.openai.com/v1"),
+        ([], ["http://vllm:8000"], "http://vllm:8000/v1"),
+    ],
+)
+def test_llm_endpoint_accepts_deployment_approved_origins(
+    model: Settings, allowed: list[str], internal: list[str], url: str
+) -> None:
+    model.llm_allowed_origins = allowed
+    model.ml_internal_allowed_origins = [*model.ml_internal_allowed_origins, *internal]
+    config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
+    config.validate_change("llm_base_url", url)
 
 
 def use_factory_settings(monkeypatch: pytest.MonkeyPatch, model: Settings) -> None:
@@ -202,6 +244,28 @@ def wire_http(
     return pools
 
 
+TEI_ENDPOINTS = {
+    "embedding_base_url": "http://tei-embed:8080",
+    "rerank_base_url": "http://tei-rerank:8080",
+    "rerank_api_format": "tei",
+}
+
+
+def local_tei_defaults() -> list[ConfigParameter]:
+    """Seeded defaults pointing the ML endpoints at the local TEI services of ``model``."""
+    return [
+        replace(row, value=TEI_ENDPOINTS[row.key]) if row.key in TEI_ENDPOINTS else row
+        for row in build_defaults()
+    ]
+
+
+def embeddings_response(request: httpx.Request, vector: list[float]) -> httpx.Response:
+    """OpenAI ``/embeddings`` payload with one ``vector`` per requested input."""
+    inputs = json.loads(request.content)["input"]
+    count = len(inputs) if isinstance(inputs, list) else 1
+    return httpx.Response(200, json={"data": [{"index": i, "embedding": vector} for i in range(count)]})
+
+
 def successful_response(request: httpx.Request) -> httpx.Response:
     if request.url.path == "/info":
         return httpx.Response(
@@ -214,8 +278,8 @@ def successful_response(request: httpx.Request) -> httpx.Response:
             },
         )
 
-    if request.url.path == "/embed":
-        return httpx.Response(200, json=[[0.25] * 1024])
+    if request.url.path == "/embeddings":
+        return embeddings_response(request, [0.25] * 1024)
 
     if request.url.path == "/rerank":
         return httpx.Response(200, json=[{"index": 0, "score": 0.7}])
@@ -228,7 +292,7 @@ def successful_response(request: httpx.Request) -> httpx.Response:
 async def test_cold_bootstrap_probes_default_encoder_before_readiness(
     model: Settings, monkeypatch: pytest.MonkeyPatch, fault: str | None
 ) -> None:
-    tei_defaults = build_defaults()
+    tei_defaults = local_tei_defaults()
 
     requests = []
 
@@ -241,8 +305,8 @@ async def test_cold_bootstrap_probes_default_encoder_before_readiness(
         if fault == "wrong-model" and request.url.path == "/info":
             return httpx.Response(200, json={"model_id": "another-model"})
 
-        if fault == "wrong-dimension" and request.url.path == "/embed":
-            return httpx.Response(200, json=[[0.1]])
+        if fault == "wrong-dimension" and request.url.path == "/embeddings":
+            return embeddings_response(request, [0.1])
 
         return successful_response(request)
 
@@ -263,19 +327,62 @@ async def test_cold_bootstrap_probes_default_encoder_before_readiness(
             assert config.status().ready
             assert "/info" in requests
 
-            assert "/embed" in requests
+            assert "/embeddings" in requests
             assert await registry.embeddings().embed_query("query") == [0.25] * 1024
     finally:
         await registry.close()
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("dimension, ready", [(1024, True), (8, False)])
+async def test_endpoint_without_info_is_verified_by_vector_dimension(
+    model: Settings, monkeypatch: pytest.MonkeyPatch, dimension: int, ready: bool
+) -> None:
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+
+        if request.url.path == "/info":
+            return httpx.Response(404)
+
+        if request.url.path == "/v1/openai/embeddings":
+            assert request.headers["Authorization"] == "Bearer cloud-key"
+            return embeddings_response(request, [0.25] * dimension)
+
+        return successful_response(request)
+
+    wire_http(monkeypatch, handler)
+    model.embedding_api_key = SecretStr("cloud-key")
+    model.ml_allowed_origins = ["https://cloud.example"]
+    defaults = [
+        replace(row, value="https://cloud.example/v1/openai") if row.key == "embedding_base_url" else row
+        for row in local_tei_defaults()
+    ]
+    registry = MLClientRegistry()
+    config = SettingsProviderConfiguration(
+        model, DomainSettingsAdapter(), bus=InProcessEventBus(), ml_clients=registry
+    )
+    try:
+        if ready:
+            await config.apply_async(defaults, require_complete=True)
+            assert config.status().ready
+        else:
+            with pytest.raises(ValidationError):
+                await config.apply_async(defaults, require_complete=True)
+
+        assert requests[:2] == ["/info", "/v1/openai/embeddings"]
+    finally:
+        await registry.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("fault", ["offline", "dns"])
-@pytest.mark.parametrize("path", ["/info", "/embed"])
+@pytest.mark.parametrize("path", ["/info", "/embeddings"])
 async def test_cold_bootstrap_warns_when_embedding_endpoint_is_unavailable(
     model: Settings, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, fault: str, path: str
 ) -> None:
-    tei_defaults = build_defaults()
+    tei_defaults = local_tei_defaults()
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == path:
@@ -297,7 +404,6 @@ async def test_cold_bootstrap_warns_when_embedding_endpoint_is_unavailable(
         assert config.status().ready
         assert config.status().applied_version is not None
         assert registry.cached_embeddings is not None
-        assert model.ml_provider == "tei"
         assert "endpoint is unavailable during startup" in caplog.text
         assert "corpus migration" in caplog.text
     finally:
@@ -312,7 +418,7 @@ async def test_switch_keeps_active_request_then_closes_old_pool(
     hosts = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/embed" and request.url.host == "tei-embed":
+        if request.url.path == "/embeddings" and request.url.host == "tei-embed":
             started.set()
             await release.wait()
 
@@ -326,13 +432,13 @@ async def test_switch_keeps_active_request_then_closes_old_pool(
     call = asyncio.create_task(old.embed_query("old call"))
     await started.wait()
     try:
-        await config.apply_async([row("tei_embed_url", "http://replacement:8080")])
+        await config.apply_async([row("embedding_base_url", "http://replacement:8080")])
         assert registry.embeddings() is not old
         assert not any(pool.is_closed for pool in pools[:1])
         assert await registry.embeddings().embed_query("new call") == [0.25] * 1024
         release.set()
         assert await call == [0.25] * 1024
-        await cast("TEIEmbeddingsClient", old).close()
+        await cast("EmbeddingsClient", old).close()
         assert pools[0].is_closed
         assert hosts[-1] == "tei-embed"
         await asyncio.sleep(0)
@@ -366,8 +472,8 @@ async def test_failed_preparation_retains_applied_resource(
                 data["model_id" if failure == "wrong-model" else "model_sha"] = "wrong"
                 return httpx.Response(200, json=data)
 
-            if request.url.path == "/embed" and failure == "wrong-dimension":
-                return httpx.Response(200, json=[[0.1]])
+            if request.url.path == "/embeddings" and failure == "wrong-dimension":
+                return embeddings_response(request, [0.1])
 
         return successful_response(request)
 
@@ -377,10 +483,10 @@ async def test_failed_preparation_retains_applied_resource(
     old = registry.embeddings()
     try:
         with pytest.raises((ValidationError, httpx.HTTPError)):
-            await config.apply_async([row("tei_embed_url", "http://replacement:8080")])
+            await config.apply_async([row("embedding_base_url", "http://replacement:8080")])
         assert registry.embeddings() is old
         assert not any(pool.is_closed for pool in pools[:1])
-        assert model.tei_embed_url == "http://tei-embed:8080"
+        assert model.embedding_base_url == "http://tei-embed:8080"
         assert not config.status().ready
         assert all(pool.is_closed for pool in pools[1:])
     finally:
@@ -440,10 +546,10 @@ async def test_stale_probe_cannot_publish_over_newer_database_snapshot(
 ) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    await factory._uow.config_parameters.save(row("tei_rerank_url", "http://replacement:8080"))
+    await factory._uow.config_parameters.save(row("rerank_base_url", "http://replacement:8080"))
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        await factory._uow.config_parameters.update_value("tei_rerank_url", "http://tei-rerank:8080")
+        await factory._uow.config_parameters.update_value("rerank_base_url", "http://tei-rerank:8080")
         return successful_response(request)
 
     pools = wire_http(monkeypatch, handler)
@@ -451,7 +557,7 @@ async def test_stale_probe_cannot_publish_over_newer_database_snapshot(
     try:
         with pytest.raises(ValidationError, match="changed during"):
             await load_config_from_db(factory, config, require_complete=False)
-        assert model.tei_rerank_url == "http://tei-rerank:8080"
+        assert model.rerank_base_url == "http://tei-rerank:8080"
         assert all(pool.is_closed for pool in pools)
     finally:
         await registry.close()
@@ -477,8 +583,8 @@ async def test_unproven_local_tei_weights_cannot_be_switched(
     registry.embeddings()
     try:
         with pytest.raises(ValidationError, match="revision"):
-            await config.apply_async([row("tei_embed_url", "http://replacement:8080")])
-        assert model.tei_embed_url == "http://tei-embed:8080"
+            await config.apply_async([row("embedding_base_url", "http://replacement:8080")])
+        assert model.embedding_base_url == "http://tei-embed:8080"
     finally:
         await registry.close()
 
@@ -491,12 +597,12 @@ async def test_admin_endpoint_failure_never_commits_invalid_setting(
     pools = wire_http(monkeypatch, lambda _request: httpx.Response(503))
     registry, config = configured_registry(model)
     factory = FakeUnitOfWorkFactory()
-    await factory._uow.config_parameters.save(row("tei_rerank_url", model.tei_rerank_url))
+    await factory._uow.config_parameters.save(row("rerank_base_url", model.rerank_base_url))
     service = ConfigService(factory, config.bus, config)
     try:
         with pytest.raises((ValidationError, httpx.HTTPError)):
-            await service.update_parameter("tei_rerank_url", "http://replacement:8080")
-        saved = await factory._uow.config_parameters.get_by_key_and_domain("tei_rerank_url", None)
+            await service.update_parameter("rerank_base_url", "http://replacement:8080")
+        saved = await factory._uow.config_parameters.get_by_key_and_domain("rerank_base_url", None)
         assert saved is not None
         assert saved.value == "http://tei-rerank:8080"
         assert all(pool.is_closed for pool in pools)
@@ -510,7 +616,7 @@ async def test_admin_probe_has_no_open_transaction_and_detects_concurrent_change
 ) -> None:
 
     factory = FakeUnitOfWorkFactory()
-    await factory._uow.config_parameters.save(row("tei_rerank_url", model.tei_rerank_url))
+    await factory._uow.config_parameters.save(row("rerank_base_url", model.rerank_base_url))
     await factory._uow.config_parameters.save(row("rerank_http_max_connections", 20))
     transactions = 0
     original = factory.create
@@ -537,9 +643,9 @@ async def test_admin_probe_has_no_open_transaction_and_detects_concurrent_change
     try:
         with pytest.raises(ValidationError, match="changed during"):
             await ConfigService(factory, config.bus, config).update_parameter(
-                "tei_rerank_url", "http://replacement:8080"
+                "rerank_base_url", "http://replacement:8080"
             )
-        saved = await factory._uow.config_parameters.get_by_key_and_domain("tei_rerank_url", None)
+        saved = await factory._uow.config_parameters.get_by_key_and_domain("rerank_base_url", None)
         assert saved is not None
         assert saved.value == "http://tei-rerank:8080"
         assert all(pool.is_closed for pool in pools)
@@ -560,9 +666,9 @@ async def test_health_probe_reads_applied_endpoint(model: Settings, monkeypatch:
     monkeypatch.setattr("config.settings", model)
     registry, config = configured_registry(model)
     try:
-        await config.apply_async([row("tei_rerank_url", "http://replacement:8080")])
+        await config.apply_async([row("rerank_base_url", "http://replacement:8080")])
         hosts.clear()
-        await system_health_probe.SystemHealthProbe().check_tei()
+        await system_health_probe.SystemHealthProbe().check_ml()
         assert "replacement" in hosts
         assert "tei-rerank" not in hosts
     finally:
@@ -574,7 +680,7 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(
     model: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
-    model.openrouter_base_url = "https://openrouter.ai/old/v1"
+    model.llm_base_url = "https://openrouter.ai/old/v1"
     model.ml_internal_allowed_origins += ["https://openrouter.ai/old/v1", "https://openrouter.ai/new/v1"]
     wire_http(monkeypatch, successful_response)
     use_factory_settings(monkeypatch, model)
@@ -589,7 +695,7 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(
     stream = asyncio.create_task(consume())
     await started.wait()
     try:
-        await config.apply_async([row("openrouter_base_url", "https://openrouter.ai/new/v1")])
+        await config.apply_async([row("llm_base_url", "https://openrouter.ai/new/v1")])
         assert (await registry.llm().ainvoke("new")).content == "https://openrouter.ai/new/v1"
         assert (await registry.fast_llm().ainvoke("new")).content == "https://openrouter.ai/new/v1"
         assert (
@@ -616,7 +722,7 @@ async def test_upload_finishes_all_embedding_batches_on_original_snapshot(
     hosts = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/embed":
+        if request.url.path == "/embeddings":
             hosts.append(request.url.host)
 
             if len(hosts) == 1:
@@ -631,7 +737,7 @@ async def test_upload_finishes_all_embedding_batches_on_original_snapshot(
     monkeypatch.setattr(qdrant_ops, "ensure_embedding_identity", lambda *_args: "tei:BAAI/bge-m3:v1")
     registry, config = configured_registry(model)
     old = registry.embeddings()
-    upload, persisted = start_upload(cast("TEIEmbeddingsClient", old))
+    upload, persisted = start_upload(cast("EmbeddingsClient", old))
     await started.wait()
     try:
         await config.apply_async([row("embedding_http_max_connections", 45)])
@@ -640,7 +746,7 @@ async def test_upload_finishes_all_embedding_batches_on_original_snapshot(
         await upload
         assert len(persisted) == 3
         assert hosts == ["tei-embed"] * 3
-        await cast("TEIEmbeddingsClient", old).close()
+        await cast("EmbeddingsClient", old).close()
         assert pools[0].is_closed
     finally:
         finish.set()
@@ -761,15 +867,15 @@ def test_factory_captures_one_snapshot_even_if_settings_change_during_constructi
     real_limits = httpx.Limits
 
     def limits(**kwargs: Any) -> httpx.Limits:
-        model.tei_embed_url = "http://replacement:8080"
-        model.tei_embed_model = "different-model"
+        model.embedding_base_url = "http://replacement:8080"
+        model.embedding_model = "different-model"
         return real_limits(**kwargs)
 
     monkeypatch.setattr(httpx, "Limits", limits)
     client = factories.create_embeddings(model)
     try:
         assert client._base_url == "http://tei-embed:8080"
-        assert client.embedding_identity == "tei:BAAI/bge-m3:v2"
+        assert client.embedding_identity == "BAAI/bge-m3:v2"
     finally:
         asyncio.run(client.close())
 
@@ -804,7 +910,7 @@ def llm_family(
     initial_settings = model
 
     def llm(*_args: object, model: Settings | None = None, **_kwargs: Any) -> LLM:
-        return LLM((model or initial_settings).openrouter_base_url)
+        return LLM((model or initial_settings).llm_base_url)
 
     monkeypatch.setattr(factories, "create_llm", llm)
     monkeypatch.setattr(factories, "create_fast_llm_for_auxiliary", llm)
@@ -816,7 +922,7 @@ def llm_family(
     return registry, started, finish
 
 
-def start_upload(old: TEIEmbeddingsClient) -> tuple[asyncio.Task[None], list[PointStruct]]:
+def start_upload(old: EmbeddingsClient) -> tuple[asyncio.Task[None], list[PointStruct]]:
     class Qdrant:
         def upsert(self, collection_name: str, points: list[PointStruct]) -> None:
             assert collection_name

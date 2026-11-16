@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, Unpack
 
 from application.documents.dto import ProcessDocumentCommand
 from domain.knowledge.enums import DocumentVisibility
+from domain.runtime.jobs import JobType
 from infrastructure.worker.runtime import job
 
 
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-@job()
+@job(JobType.DOCUMENT_PROCESSING)
 async def process_document(ctx: dict[str, Any], **request: Unpack[DocumentProcessingRequest]) -> None:
     """Process an uploaded document (parse → split → vectorize → store)."""
     processor = ctx["document_processor"]
@@ -42,6 +43,7 @@ async def process_document(ctx: dict[str, Any], **request: Unpack[DocumentProces
             group_id=request["group_id"],
             replace_id=request["replace_id"],
             doc_domain=request.get("doc_domain"),
+            skip_persisted=True,
         )
     )
     logger.info(
@@ -59,6 +61,7 @@ class IngestScope(TypedDict):
     client_id: int | None
     reset: NotRequired[bool]
     force: NotRequired[bool]
+    job_id: NotRequired[int]
 
 
 class IngestRequest(TypedDict):
@@ -103,16 +106,18 @@ async def ingest_document_scope(
             visibility=vis,
             group_id=scope["group_id"],
             client_id=scope["client_id"],
+            job_id=scope.get("job_id"),
         )
 
 
-@job()
+@job(JobType.INGEST)
 async def run_full_ingest(ctx: dict[str, Any], **request: Unpack[FullIngestRequest]) -> None:
     await ingest_document_scope(
         ctx,
         request["resolved_dir"],
         single=False,
         reset=request["reset"],
+        job_id=request["job_id"],
         domain=request["domain"],
         visibility=request.get("visibility", DocumentVisibility.INTERNAL_PUBLIC.value),
         group_id=request.get("group_id"),
@@ -120,7 +125,7 @@ async def run_full_ingest(ctx: dict[str, Any], **request: Unpack[FullIngestReque
     )
 
 
-@job()
+@job(JobType.INGEST_FILE)
 async def run_single_ingest(ctx: dict[str, Any], **request: Unpack[SingleIngestRequest]) -> None:
     await ingest_document_scope(
         ctx,
@@ -134,7 +139,7 @@ async def run_single_ingest(ctx: dict[str, Any], **request: Unpack[SingleIngestR
     )
 
 
-@job()
+@job(JobType.BENCHMARK)
 async def run_benchmark(
     ctx: dict[str, Any],
     *,

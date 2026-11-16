@@ -13,7 +13,6 @@ from infrastructure.benchmark.judging import context_judge, evidence_judge, grou
 if TYPE_CHECKING:
     from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
     from infrastructure.benchmark.judging.callbacks import SaveStage
-    from infrastructure.budget.runtime import BudgetRuntime
 
 
 async def judge_generated(
@@ -24,7 +23,6 @@ async def judge_generated(
     save_stage: SaveStage,
     *,
     judge_model: str,
-    runtime: BudgetRuntime | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
     if process_section(BenchmarkSection).benchmark_judge_grouped_enabled or (annotations or {}).get(
@@ -38,7 +36,6 @@ async def judge_generated(
             generated.context,
             evidence_context=generated.evidence.context if generated.evidence else None,
             model=judge_model,
-            runtime=runtime,
             saved=saved_scores,
             callback=lambda value: save_stage("grouped_metrics", value),
         )
@@ -74,7 +71,6 @@ async def judge_generated(
             context=generated.context,
             expected_answer=question.get("expected_answer"),
             judge_model=judge_model,
-            runtime=runtime,
             saved_metrics=stages.get("generator_metrics"),
             metric_callback=lambda value: save_stage("generator_metrics", value),
         )
@@ -90,7 +86,6 @@ async def judge_generated(
                 question.get("expected_answer") or "",
                 context_override=generated.context,
                 judge_model=judge_model,
-                runtime=runtime,
                 saved_metrics=stages.get("context_metrics"),
                 metric_callback=lambda value: save_sync("context_metrics", value),
             )
@@ -105,7 +100,6 @@ async def judge_generated(
             generated.evidence.context if generated.evidence else None,
             annotations,
             judge_model,
-            runtime=runtime,
             saved_metrics=stages.get("evidence_judge"),
             metric_callback=lambda value: save_sync("evidence_judge", value),
         )

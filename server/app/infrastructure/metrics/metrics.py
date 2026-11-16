@@ -10,20 +10,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from time import time
 from typing import TYPE_CHECKING, cast
 
 from prometheus_client import Counter, Gauge, Histogram
+from sqlalchemy import text
 
-from config import VectorStoreSection, process_section
+from config import JobsSection, VectorStoreSection, process_section
 from infrastructure.database.database import database
 from infrastructure.metrics.ingestion import (
     BOUNDARY_CANDIDATES_REJECTED_TOTAL,  # noqa: F401
     BOUNDARY_NUMBER_GAPS_TOTAL,  # noqa: F401
     CHUNK_FALLBACK_SPLIT_TOTAL,  # noqa: F401
 )
+from infrastructure.metrics.jobs import collect_job_events
 from infrastructure.ml.clients import factories
 from infrastructure.ml.rag.prompt_blocks import is_not_found_answer
 from infrastructure.ml.usage_capture import extract_usage_from_langchain  # noqa: F401
+from infrastructure.redis.redis_client import redis_client
+from infrastructure.worker.queues import BATCH_QUEUE, DOCUMENTS_QUEUE, MAINTENANCE_QUEUE
 
 
 if TYPE_CHECKING:
@@ -87,12 +92,6 @@ RAG_DECOMPOSED_TOTAL = Counter(
     "Number of queries that were decomposed into sub-queries",
 )
 
-RAG_SPARSE_SURVIVAL_RATIO = Histogram(
-    "rag_sparse_survival_ratio",
-    "Fraction of BM25 candidates surviving ACL pre-filter",
-    ["role"],
-    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
-)
 
 RAG_RELEVANCE_GATE_TOTAL = Counter(
     "rag_relevance_gate_total",
@@ -197,11 +196,6 @@ QDRANT_POINTS = Gauge(
     "Number of points in Qdrant collection",
 )
 
-BM25_INDEX_SIZE = Gauge(
-    "bm25_index_size",
-    "Number of documents in BM25 index",
-)
-
 
 # ---------------------------------------------------------------------------
 # Config listener metrics
@@ -234,25 +228,13 @@ HTTP_REQUESTS_TOTAL = Counter(
 )
 
 # ---------------------------------------------------------------------------
-# BM25 / Qdrant / Cache observability (Phase 6)
+# Qdrant / Cache observability
 # ---------------------------------------------------------------------------
-
-BM25_UPDATE_DURATION = Histogram(
-    "bm25_update_duration_seconds",
-    "Duration of BM25 incremental update operations (add/replace/remove)",
-    ["operation"],
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
-)
 
 QDRANT_UPSERT_DURATION = Histogram(
     "qdrant_batch_upsert_duration_seconds",
     "Duration of Qdrant batch upsert operations",
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
-)
-
-BM25_REBUILD_MEMORY = Gauge(
-    "bm25_rebuild_memory_bytes",
-    "Memory used during BM25 index rebuild",
 )
 
 CACHE_COMPRESSION_RATIO = Gauge(
@@ -359,6 +341,15 @@ async def collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
 async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
     """Update infrastructure gauges. Called periodically from lifespan."""
     try:
+        await collect_job_metrics()
+    except Exception:
+        log.warning("Failed to collect background job metrics", exc_info=True)
+    try:
+        await collect_queue_metrics()
+        await collect_job_events()
+    except Exception:
+        log.warning("Failed to collect broker queue metrics", exc_info=True)
+    try:
         await collect_db_pool_metrics()
     except Exception as e:
         log.warning("Failed to collect DB pool metrics: %s", e, exc_info=True)
@@ -366,3 +357,73 @@ async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
         await collect_qdrant_metrics(ml_clients)
     except Exception as e:
         log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e, exc_info=True)
+
+
+JOB_OLDEST_PENDING = Gauge("background_job_oldest_pending_seconds", "Age of oldest pending job", ["type"])
+JOB_WAIT = Gauge("background_job_max_wait_seconds", "Maximum queue wait among retained jobs", ["type"])
+JOB_EXPIRED = Gauge("background_job_expired_leases", "Running jobs with expired leases")
+JOB_CLEANUP_BACKLOG = Gauge("background_job_cleanup_backlog", "Terminal job rows older than retention")
+JOB_RETRIES = Gauge("background_job_execution_retries", "Execution retries among retained jobs")
+JOB_DELIVERIES = Gauge("background_job_delivery_attempts", "Delivery attempts among retained jobs")
+JOB_BACKLOG = Gauge("background_job_backlog", "Accepted unfinished jobs in Postgres", ["type", "status"])
+JOB_METRICS_LAST_SUCCESS = Gauge(
+    "background_job_metrics_last_success_timestamp_seconds",
+    "Last successful durable queue metrics collection",
+)
+JOB_QUEUE_DEPTH = Gauge(
+    "background_job_queue_depth", "Arq sorted-set size, including deferred deliveries", ["queue"]
+)
+OUTBOX_LAG = Gauge("vector_outbox_oldest_pending_seconds", "Age of oldest outstanding vector operation")
+
+
+async def collect_queue_metrics() -> None:
+    async with asyncio.timeout(3):
+        for queue in (DOCUMENTS_QUEUE, BATCH_QUEUE, MAINTENANCE_QUEUE):
+            JOB_QUEUE_DEPTH.labels(queue).set(await redis_client.async_redis.zcard(queue))
+
+
+async def collect_job_metrics() -> None:
+    # Read committed global state so API replicas export the same queue health.
+    async with database.get_session(master=True) as session:
+        jobs = await session.execute(
+            text("""
+            SELECT job_type,
+                   COALESCE(MAX(EXTRACT(EPOCH FROM (NOW() - creation_date)))
+                            FILTER (WHERE status = 'pending'), 0) AS age,
+                   COALESCE(MAX(EXTRACT(EPOCH FROM (started_at - creation_date))), 0) AS wait,
+                   COUNT(*) FILTER (WHERE status = 'running' AND lease_until < NOW()) AS expired,
+                   COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+                   COUNT(*) FILTER (WHERE status = 'running') AS running,
+                   COUNT(*) FILTER (WHERE status IN ('done', 'failed', 'cancelled')
+                                    AND creation_date < NOW() - make_interval(days => :retention_days))
+                       AS cleanup_pending,
+                   COALESCE(SUM(GREATEST(attempt - 1, 0)), 0) AS retries,
+                   COALESCE(SUM(dispatch_attempts), 0) AS deliveries
+            FROM background_jobs GROUP BY job_type
+        """),
+            {"retention_days": process_section(JobsSection).job_cleanup_days},
+        )
+        rows = jobs.mappings().all()
+        lag = await session.scalar(
+            text("""
+            SELECT COALESCE(MAX(EXTRACT(EPOCH FROM (NOW() - creation_date))), 0)
+            FROM vector_store_outbox WHERE status IN ('pending', 'failed', 'in_progress')
+        """)
+        )
+    JOB_OLDEST_PENDING.clear()
+    JOB_WAIT.clear()
+    JOB_BACKLOG.clear()
+
+    for row in rows:
+        JOB_OLDEST_PENDING.labels(row["job_type"]).set(max(0, row["age"]))
+        JOB_WAIT.labels(row["job_type"]).set(max(0, row["wait"]))
+
+        for state in ("pending", "running"):
+            JOB_BACKLOG.labels(row["job_type"], state).set(row.get(state, 0))
+
+    JOB_EXPIRED.set(sum(row["expired"] for row in rows))
+    JOB_CLEANUP_BACKLOG.set(sum(row.get("cleanup_pending", 0) for row in rows))
+    JOB_RETRIES.set(sum(row["retries"] for row in rows))
+    JOB_DELIVERIES.set(sum(row["deliveries"] for row in rows))
+    OUTBOX_LAG.set(max(0, lag or 0))
+    JOB_METRICS_LAST_SUCCESS.set(time())
