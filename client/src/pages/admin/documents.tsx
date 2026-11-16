@@ -909,6 +909,7 @@ function ManualDocumentDialog({ open, onClose }: { open: boolean; onClose: () =>
                     <SelectItem value="internal_private">Private</SelectItem>
                     <SelectItem value="internal_group">Group</SelectItem>
                     <SelectItem value="client_private">Client Private</SelectItem>
+                    <SelectItem value="client_public">Client Public</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

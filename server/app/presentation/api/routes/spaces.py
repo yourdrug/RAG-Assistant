@@ -16,6 +16,7 @@ from presentation.api.dependencies import create_action_logger, create_knowledge
 from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import CurrentUser
 from presentation.api.schemas.spaces import (
+    AssignClientSpaceRequest,
     CreateKnowledgeSpaceRequest,
     DomainPacksResponse,
     KnowledgeSpaceResponse,
@@ -118,3 +119,22 @@ async def delete_space(
 ) -> None:
     await service.delete(space_id)
     log("space.delete", user_id=admin.id, details={"space_id": space_id})
+
+
+@router.put(
+    "/clients/{client_id}",
+    status_code=204,
+    response_class=Response,
+    response_model=None,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
+async def assign_client_space(
+    *,
+    client_id: int,
+    req: AssignClientSpaceRequest,
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[KnowledgeSpaceService, Depends(create_knowledge_space_service)],
+    log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
+) -> None:
+    await service.assign_client(admin_context(admin), client_id, req.space_id)
+    log("space.assign_client", user_id=admin.id, details={"client_id": client_id, "space_id": req.space_id})

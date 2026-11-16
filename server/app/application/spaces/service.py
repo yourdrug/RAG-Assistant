@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 
 from application.identity.user_context_factory import UserContextFactory
 from application.spaces.ports import DomainPackNotLoadedError
-from application.spaces.resolution import SPACE_ENTITY, resolve_space
+from application.spaces.resolution import SPACE_ENTITY, client_space, resolve_space
+from domain.identity.roles import UserKind
 from domain.knowledge.space import KnowledgeSpace
 from domain.shared.exceptions import (
     BusinessRuleViolationError,
@@ -82,8 +83,31 @@ class KnowledgeSpaceService:
     async def list_for_user(self, user_id: int, user_kind: str, user_role: str) -> list[KnowledgeSpaceDTO]:
         async with self._uow_factory.create() as uow:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
-            spaces = await uow.knowledge_spaces.list_all()
+
+            if ctx.user_kind == UserKind.CLIENT:
+                assigned = await client_space(uow, user_id)
+                spaces = [assigned] if assigned is not None else []
+            else:
+                spaces = await uow.knowledge_spaces.list_all()
         return [KnowledgeSpaceDTO.for_user(space, ctx) for space in spaces]
+
+    async def assign_client(self, admin: UserContext, client_id: int, space_id: int | None) -> None:
+        if not admin.is_admin:
+            msg = "Only admin can assign a client support space"
+            raise BusinessRuleViolationError(msg)
+
+        async with self._uow_factory.create(master=True) as uow:
+            user = await uow.users.get_by_id(client_id)
+
+            if user is None:
+                entity = "User"
+                raise EntityNotFoundError(entity, client_id)
+
+            if space_id is not None:
+                await resolve_space(uow, space_id)
+
+            user.assign_client_space(space_id)
+            await uow.users.assign_client_space(client_id, space_id)
 
     async def document_profiles(self, space_id: int | None) -> list[DocumentProfileOption]:
         """Document profiles an upload into the space may request explicitly."""

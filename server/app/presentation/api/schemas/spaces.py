@@ -36,3 +36,9 @@ class UpdateKnowledgeSpaceRequest(BaseModel):
 
 class DomainPacksResponse(BaseModel):
     pack_keys: list[str]
+
+
+class AssignClientSpaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    space_id: int | None = Field(..., gt=0, description="Assigned support space; null clears it")

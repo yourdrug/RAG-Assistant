@@ -970,6 +970,9 @@ class FakeUserRepository:
         user.change_role(UserRole(role))
         return True
 
+    async def assign_client_space(self, user_id: int, space_id: int | None) -> None:
+        self._users[user_id].assign_client_space(space_id)
+
 
 class FakeConfigParameterRepository:
     async def lock_configuration(self) -> None:

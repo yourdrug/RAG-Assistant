@@ -50,6 +50,7 @@ export function ChatPage() {
   const endRef = useRef<HTMLDivElement>(null);
   const suppressScrollRef = useRef(false);
   const token = useAuthStore((s) => s.token);
+  const isClient = useAuthStore((s) => s.user?.kind === "client");
   const streamingContentRef = useRef("");
   const hadChunksRef = useRef(false);
   const queryClient = useQueryClient();
@@ -62,6 +63,7 @@ export function ChatPage() {
       ? (conversations?.conversations.find((c) => c.id === conversationId)?.space_id ?? null)
       : null;
   const spaceId = conversationSpaceId ?? spaceChoice ?? defaultSpaceId(spaces);
+  const supportUnassigned = isClient && spaces?.length === 0;
   const needsSpace = conversationId == null && spaceId == null && (spaces?.length ?? 0) > 1;
 
   const scroll = useCallback(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), []);
@@ -181,7 +183,7 @@ export function ChatPage() {
       token,
       depth,
       asOfDate: calendarDate,
-      spaceId: conversationId == null ? spaceId : null,
+      spaceId: !isClient && conversationId == null ? spaceId : null,
       onChunk: (text) => {
         hadChunksRef.current = true;
         streamingContentRef.current += text;
@@ -255,7 +257,7 @@ export function ChatPage() {
           <div className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
             <h1 className="font-semibold">Chat</h1>
-            {(spaces?.length ?? 0) > 1 && (
+            {!isClient && (spaces?.length ?? 0) > 1 && (
               <Select
                 value={spaceId != null ? String(spaceId) : ""}
                 onValueChange={(v) => setSpaceChoice(Number(v))}
@@ -345,10 +347,15 @@ export function ChatPage() {
 
           <div ref={endRef} />
         </div>
+        {supportUnassigned && (
+          <p className="px-4 text-sm text-muted-foreground">
+            No support space assigned. Contact your administrator.
+          </p>
+        )}
         <ChatInput
           onSend={handleSend}
           onStop={handleStop}
-          disabled={isStreaming || needsSpace}
+          disabled={isStreaming || needsSpace || supportUnassigned}
           depth={depth}
           onDepthChange={setDepth}
           asOfDate={calendarDate}

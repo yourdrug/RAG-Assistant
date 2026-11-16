@@ -23,6 +23,7 @@ ALLOWED_VISIBILITY_FOR_KIND: dict[UserKind, set[DocumentVisibility]] = {
         DocumentVisibility.INTERNAL_GROUP,
         DocumentVisibility.INTERNAL_PRIVATE,
         DocumentVisibility.CLIENT_PRIVATE,
+        DocumentVisibility.CLIENT_PUBLIC,
     },
     UserKind.CLIENT: {DocumentVisibility.CLIENT_PRIVATE},
 }
@@ -50,12 +51,13 @@ class VisibilityCondition:
 
 
 def client_conditions() -> list[VisibilityCondition]:
-    """CLIENT users can only see their own CLIENT_PRIVATE docs."""
+    """CLIENT users see common articles and their own CLIENT_PRIVATE docs."""
     return [
         VisibilityCondition(
             visibility=DocumentVisibility.CLIENT_PRIVATE,
             owner_match=OwnerMatch.SELF,
-        )
+        ),
+        VisibilityCondition(visibility=DocumentVisibility.CLIENT_PUBLIC),
     ]
 
 
@@ -164,6 +166,9 @@ def get_visibility_conditions(
 
     conditions = base_internal_conditions(user_kind, group_ids)
 
+    if user_kind == UserKind.INTERNAL:
+        conditions.append(VisibilityCondition(visibility=DocumentVisibility.CLIENT_PUBLIC))
+
     if user_role == UserRole.CURATOR:
         conditions.extend(
             curator_conditions(group_ids, managed_client_ids, managed_internal_ids, managed_group_ids)
@@ -198,7 +203,7 @@ def validate_document_visibility(
 
     # Managed client validation for curators happens in DocumentService.
     if (
-        visibility == DocumentVisibility.CLIENT_PRIVATE
+        visibility in (DocumentVisibility.CLIENT_PRIVATE, DocumentVisibility.CLIENT_PUBLIC)
         and user_kind == UserKind.INTERNAL
         and Capability.DOCUMENTS_UPLOAD_FOR_CLIENTS not in capabilities
     ):

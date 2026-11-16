@@ -9,14 +9,17 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 from types import SimpleNamespace
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from qdrant_client import models
+from qdrant_client.local.payload_filters import check_filter
+from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, or_, select
 
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility
 from domain.shared.exceptions import BusinessRuleViolationError
+from infrastructure.repositories.sql_acl import render_visibility_conditions
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
@@ -34,6 +37,10 @@ from domain.knowledge.access_control import (
 )
 from domain.shared.exceptions import ValidationError
 from infrastructure.repositories.vector.acl import build_qdrant_filter
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import InstrumentedAttribute
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +80,7 @@ class TestAllowedVisibility:
             DocumentVisibility.INTERNAL_GROUP,
             DocumentVisibility.INTERNAL_PRIVATE,
             DocumentVisibility.CLIENT_PRIVATE,
+            DocumentVisibility.CLIENT_PUBLIC,
         }
 
     def test_client_allowed_visibilities(self) -> None:
@@ -224,9 +232,9 @@ class TestBuildQdrantFilter:
         user = {"id": 42, "kind": "client"}
         f = build_qdrant_filter(user, [])
         assert isinstance(f.should, list)
-        # Single condition: must=[visibility, owner_id] wrapped in should
+        # Private-owner clause plus common client articles.
         assert f.should is not None
-        assert len(f.should) == 1
+        assert len(f.should) == 2
         inner = f.should[0]
         assert isinstance(inner, models.Filter)
         assert isinstance(inner.must, list)
@@ -248,31 +256,31 @@ class TestBuildQdrantFilter:
         f = build_qdrant_filter({"id": 1, "kind": "internal"}, [])
         assert isinstance(f.should, list)
         assert f.should is not None
-        assert len(f.should) == 2  # public + private
+        assert len(f.should) == 3  # internal public + private + client public
 
     def test_internal_with_groups_adds_group_filter(self) -> None:
         f = build_qdrant_filter({"id": 1, "kind": "internal"}, [10, 20])
         assert isinstance(f.should, list)
-        assert len(f.should) == 3  # public + private + group
+        assert len(f.should) == 4  # internal public + private + group + client public
 
     def test_internal_with_clients_adds_client_filter(self) -> None:
         f = build_qdrant_filter({"id": 1, "kind": "internal"}, [])
         assert isinstance(f.should, list)
         # for_list=False: client_private NOT included in RAG search filters
-        assert len(f.should) == 2  # public + private
+        assert len(f.should) == 3  # internal public + private + client public
 
     def test_internal_with_both_groups_and_clients(self) -> None:
         f = build_qdrant_filter({"id": 1, "kind": "internal"}, [10])
         assert isinstance(f.should, list)
         # for_list=False: client_private NOT included, but group IS included
-        assert len(f.should) == 3  # public + private + group
+        assert len(f.should) == 4  # internal public + private + group + client public
 
     def test_user_context_client_gets_owner_filter(self) -> None:
         ctx = UserContext(user_id=42, user_kind=UserKind.CLIENT, user_role=UserRole.USER)
         f = build_qdrant_filter(ctx, [])
         assert isinstance(f.should, list)
         assert f.should is not None
-        assert len(f.should) == 1
+        assert len(f.should) == 2
         inner = f.should[0]
         assert isinstance(inner, models.Filter)
         assert isinstance(inner.must, list)
@@ -643,17 +651,17 @@ class TestACLInvariant:
         # USER sees public documents and their own private documents.
         f_user = build_qdrant_filter({"id": 1, "kind": "internal", "role": "user"}, [])
         assert isinstance(f_user.should, list)
-        assert len(f_user.should) == 2
+        assert len(f_user.should) == 3
 
         # ADMIN (search): public + private(self) + group(bypass) + private(bypass) = 4
         f_admin = build_qdrant_filter({"id": 1, "kind": "internal", "role": "admin"}, [])
         assert isinstance(f_admin.should, list)
-        assert len(f_admin.should) == 4
+        assert len(f_admin.should) == 5
 
         # CURATOR no managed: public + private(self) = 2
         f_curator = build_qdrant_filter({"id": 1, "kind": "internal", "role": "curator"}, [])
         assert isinstance(f_curator.should, list)
-        assert len(f_curator.should) == 2
+        assert len(f_curator.should) == 3
 
         # CURATOR with managed: public + private(self) + private(assigned) + client(assigned) = 4
         f_curator_managed = build_qdrant_filter(
@@ -663,7 +671,7 @@ class TestACLInvariant:
             managed_internal_ids=[200],
         )
         assert isinstance(f_curator_managed.should, list)
-        assert len(f_curator_managed.should) == 4
+        assert len(f_curator_managed.should) == 5
 
     def test_visibility_conditions_vs_filter_always_consistent(self) -> None:
         """Meta-test: get_visibility_conditions(for_list=False) count == filter conditions count.
@@ -702,3 +710,92 @@ class TestACLInvariant:
                 f"Condition count mismatch for {kind}/{role}: "
                 f"visibility_conditions={len(conds)}, filter={len(f.should)}"
             )
+
+
+@pytest.mark.parametrize(
+    "ctx",
+    [
+        internal_user(),
+        internal_user(role=UserRole.ADMIN),
+        internal_user(role=UserRole.CURATOR),
+        client_user(),
+    ],
+    ids=["user", "admin", "curator", "client"],
+)
+@pytest.mark.parametrize("visibility", list(DocumentVisibility))
+@pytest.mark.parametrize("for_list", [False, True], ids=["search", "listing"])
+def test_client_public_and_denied_documents_across_roles(
+    ctx: UserContext, visibility: DocumentVisibility, for_list: bool
+) -> None:
+    doc = Document(visibility=visibility, owner_id=999, group_id=999)
+    expected = visibility == DocumentVisibility.CLIENT_PUBLIC or (
+        ctx.user_kind == UserKind.INTERNAL
+        and (
+            visibility == DocumentVisibility.INTERNAL_PUBLIC
+            or (ctx.is_admin and (for_list or visibility != DocumentVisibility.CLIENT_PRIVATE))
+        )
+    )
+    actual = can_view_document(doc, ctx) if for_list else is_in_search_scope(doc, ctx)
+    assert actual is expected
+
+    table = Table(
+        "documents",
+        MetaData(),
+        Column("id", Integer, primary_key=True),
+        Column("visibility", String),
+        Column("owner_id", Integer),
+        Column("group_id", Integer),
+    )
+    engine = create_engine("sqlite://")
+    table.metadata.create_all(engine)
+    conditions = get_visibility_conditions(
+        ctx.user_kind, list(ctx.group_ids), for_list=for_list, user_role=ctx.user_role
+    )
+    clauses = render_visibility_conditions(
+        conditions,
+        visibility_column=cast("InstrumentedAttribute[str]", table.c.visibility),
+        owner_column=cast("InstrumentedAttribute[int | None]", table.c.owner_id),
+        group_column=cast("InstrumentedAttribute[int | None]", table.c.group_id),
+        user_id=ctx.user_id,
+        group_ids=list(ctx.group_ids),
+    )
+    with engine.begin() as db:
+        db.execute(table.insert().values(id=1, visibility=visibility.value, owner_id=999, group_id=999))
+        assert (db.execute(select(table.c.id).where(or_(*clauses))).scalar_one_or_none() == 1) is expected
+    engine.dispose()
+
+    if not for_list:
+        scope = build_qdrant_filter(ctx, list(ctx.group_ids))
+        payload = {"metadata": {"visibility": visibility.value, "owner_id": 999, "group_id": 999}}
+        assert check_filter(scope, payload, 1) is expected
+
+
+@pytest.mark.parametrize(
+    "ctx,allowed",
+    [
+        (internal_user(), False),
+        (internal_user(role=UserRole.ADMIN), True),
+        (internal_user(role=UserRole.CURATOR), True),
+        (client_user(), False),
+    ],
+    ids=["user", "admin", "curator", "client"],
+)
+def test_client_public_requires_upload_for_clients_capability(ctx: UserContext, allowed: bool) -> None:
+    if allowed:
+        validate_document_visibility(DocumentVisibility.CLIENT_PUBLIC, None, ctx)
+    else:
+        with pytest.raises((BusinessRuleViolationError, ValidationError)):
+            validate_document_visibility(DocumentVisibility.CLIENT_PUBLIC, None, ctx)
+
+
+def test_clients_never_read_internal_documents_even_with_owner_and_group_match() -> None:
+    ctx = client_user(group_ids=[5])
+
+    for visibility in (
+        DocumentVisibility.INTERNAL_PUBLIC,
+        DocumentVisibility.INTERNAL_GROUP,
+        DocumentVisibility.INTERNAL_PRIVATE,
+    ):
+        doc = Document(visibility=visibility, owner_id=ctx.user_id, group_id=5)
+        assert not can_view_document(doc, ctx)
+        assert not is_in_search_scope(doc, ctx)

@@ -433,12 +433,14 @@ export function DocumentsPage() {
                       <SelectItem value="internal_public">Public</SelectItem>
                       <SelectItem value="internal_group">Group</SelectItem>
                       <SelectItem value="client_private">Client Private</SelectItem>
+                      <SelectItem value="client_public">Client Public</SelectItem>
                     </>
                   ) : isCurator ? (
                     <>
                       <SelectItem value="internal_private">Private</SelectItem>
                       <SelectItem value="internal_group">Group</SelectItem>
                       <SelectItem value="client_private">Client Private</SelectItem>
+                      <SelectItem value="client_public">Client Public</SelectItem>
                     </>
                   ) : (
                     <>

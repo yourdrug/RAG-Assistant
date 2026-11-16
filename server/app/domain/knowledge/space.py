@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from domain.identity.roles import UserKind
 from domain.shared.exceptions import ValidationError
 
 
@@ -80,6 +81,9 @@ class KnowledgeSpace:
 
     def can_be_filled_by(self, user: UserContext) -> bool:
         """ADMIN fills any space; others only through a group admitted to this space."""
+        if user.user_kind == UserKind.CLIENT:
+            return False
+
         if user.is_admin:
             return True
 

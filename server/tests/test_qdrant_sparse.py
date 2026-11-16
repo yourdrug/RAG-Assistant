@@ -357,3 +357,40 @@ async def test_payload_mutation_retry_stays_in_one_corpus_snapshot(
     if client_method == "set_payload":
         assert client.set_payload.call_args.kwargs["key"] == "metadata"
         assert client.set_payload.call_args.kwargs["wait"] is True
+
+
+@pytest.mark.parametrize(
+    "kind,role,expected",
+    [
+        ("internal", "user", {1, 2}),
+        ("internal", "admin", {1, 2, 3, 4}),
+        ("internal", "curator", {1, 2}),
+        ("client", "user", {1, 5}),
+    ],
+)
+def test_client_public_dense_and_bm25_acl_before_top_k(
+    sparse_client: QdrantClient, kind: str, role: str, expected: set[int]
+) -> None:
+    points = [
+        point(1, 10, visibility="client_public", owner_id=999),
+        point(2, 20, visibility="internal_public"),
+        point(3, 30, visibility="internal_group", group_id=999),
+        point(4, 40, visibility="internal_private", owner_id=999),
+        point(5, 50, visibility="client_private", owner_id=5),
+        point(6, 60, visibility="client_private", owner_id=999),
+        point(7, 70, visibility="client_public"),
+    ]
+
+    for entry in points:
+        assert entry.payload is not None
+        entry.payload["metadata"]["space_id"] = 2 if entry.id == 7 else 1
+
+    sparse_client.upsert(settings.collection_name, points)
+    scope = build_search_filter({"id": 5, "kind": kind, "role": role}, [], space_id=1)
+
+    for query in ([1.0, 0.0], sparse_query("маркировка")):
+        hits = sparse_client.search(settings.collection_name, query, query_filter=scope, limit=20)
+        assert {hit.id for hit in hits} == expected
+        top = sparse_client.search(settings.collection_name, query, query_filter=scope, limit=1)
+        assert len(top) == 1
+        assert top[0].id in expected

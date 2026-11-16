@@ -22,7 +22,7 @@
 | 2. Реестр пакетов, пакет права | готов (ветка `feat/domain-packs`) |
 | 3. Редакции актов — в пакет права | готов (ветка `feat/domain-packs`) |
 | 4. Пространства знаний | готов (ветка `feat/domain-packs`) |
-| 5. `client_public` и назначение клиентов | не начат |
+| 5. `client_public` и назначение клиентов | готов (ветка `feat/client-public-spaces`) |
 | 6. Пакеты поддержки и внутреннего ресурса | не начат |
 
 ## Этап 1. Ядро без `belarus` по умолчанию
@@ -184,19 +184,21 @@ import-linter держит слои внутри пакета (`pack` → `evide
 **Что меняется.**
 - `DocumentVisibility.CLIENT_PUBLIC`; правила в `domain/knowledge/access_control.py`
   (`get_visibility_conditions`, `is_in_search_scope`), `infrastructure/repositories/vector/acl.py`
-  (`build_qdrant_filter`), `infrastructure/bm25/bm25_index.py` (`doc_matches_acl`), listing.
+  (`build_qdrant_filter`, общий для dense и sparse `bm25_ru_v2`), listing.
 - Загрузка с `client_public` — при наличии `DOCUMENTS_UPLOAD_FOR_CLIENTS`.
 - Назначение клиента в пространство поддержки (ADMIN); вопросы CLIENT идут в назначенное
   пространство, клиент его не выбирает. Это маршрутизация, не право доступа.
 - Ключ кэша: видимость клиента и пространство.
+- Пространство клиента читается из актуального назначения на каждом запросе; беседа остаётся
+  привязанной к пространству первого вопроса, после переназначения нужна новая беседа.
 
 **Готово, когда.**
-- Соответствие `is_in_search_scope()` ⇔ Qdrant ⇔ BM25 для `client_public` подтверждено тестами
+- Соответствие `is_in_search_scope()` ⇔ Qdrant (dense и BM25) для `client_public` подтверждено тестами
   для USER, ADMIN, CURATOR и CLIENT в режимах listing и search.
 - Клиент не видит `internal_*` документы, в том числе `internal_public`.
 
 **Тесты.** Разрешённый и запрещённый сценарии `client_public` для всех ролей
-в `test_acl.py`, `test_bm25_acl.py`, `test_retrieval_acl.py`; кэш — `test_answer_cache.py`.
+в `test_acl.py`, `test_qdrant_sparse.py`, `test_retrieval_acl.py`; кэш — `test_answer_cache.py`.
 
 ## Этап 6. Пакеты поддержки и внутреннего ресурса
 

@@ -499,3 +499,88 @@ async def test_concurrent_first_questions_use_one_conversation_space(same_space:
         assert results[1].id == stored.space_id
     else:
         assert isinstance(results[1], ValidationError)
+
+
+@pytest.mark.asyncio
+async def test_admin_assigns_client_and_listing_only_returns_assigned_space() -> None:
+    uow = FakeUnitOfWork()
+    add_space(uow, SUPPORT_SPACE_ID)
+    uow.fake_users.add_user(9, kind=UserKind.CLIENT)
+    service = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
+    assert await service.list_for_user(9, UserKind.CLIENT, UserRole.USER) == []
+    await service.assign_client(ADMIN, 9, SUPPORT_SPACE_ID)
+    [assigned] = await service.list_for_user(9, UserKind.CLIENT, UserRole.USER)
+    assert assigned.id == SUPPORT_SPACE_ID
+    assert not assigned.can_upload
+    await service.assign_client(ADMIN, 9, None)
+    assert await service.list_for_user(9, UserKind.CLIENT, UserRole.USER) == []
+
+
+@pytest.mark.asyncio
+async def test_client_assignment_rejects_non_admin_non_client_and_unknown_ids() -> None:
+    uow = FakeUnitOfWork()
+    uow.fake_users.add_user(9, kind=UserKind.CLIENT)
+    uow.fake_users.add_user(10)
+    service = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
+    with pytest.raises(BusinessRuleViolationError):
+        await service.assign_client(UserContext(2, UserKind.INTERNAL, UserRole.CURATOR), 9, DEFAULT_SPACE_ID)
+    with pytest.raises(BusinessRuleViolationError):
+        await service.assign_client(ADMIN, 10, DEFAULT_SPACE_ID)
+    with pytest.raises(EntityNotFoundError):
+        await service.assign_client(ADMIN, 404, DEFAULT_SPACE_ID)
+    with pytest.raises(EntityNotFoundError):
+        await service.assign_client(ADMIN, 9, 404)
+
+
+@pytest.mark.asyncio
+async def test_client_chat_uses_current_assignment_and_rejects_old_conversation_after_reassignment() -> None:
+    uow = FakeUnitOfWork()
+    add_space(uow, SUPPORT_SPACE_ID)
+    uow.fake_users.add_user(9, kind=UserKind.CLIENT)
+    spaces = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
+    service = chat_service(uow, FakeChatRAGPort())
+
+    async def ask(conversation_id: int | None = None, space_id: int | None = None) -> Any:
+        return await service.prepare_chat(
+            "Q",
+            conversation_id,
+            9,
+            UserKind.CLIENT,
+            UserRole.USER,
+            depth=None,
+            as_of_date=None,
+            space_id=space_id,
+        )
+
+    with pytest.raises(ValidationError):
+        await ask()
+    await spaces.assign_client(ADMIN, 9, SUPPORT_SPACE_ID)
+    setup = await ask()
+    assert setup.ctx.space == SpaceRef(SUPPORT_SPACE_ID, "generic")
+    assert (await ask(setup.conv.id)).ctx.space == setup.ctx.space
+    with pytest.raises(ValidationError):
+        await ask(space_id=DEFAULT_SPACE_ID)
+
+    await spaces.assign_client(ADMIN, 9, DEFAULT_SPACE_ID)
+    with pytest.raises(ValidationError):
+        await ask(setup.conv.id)
+    assert (await ask()).ctx.space == SpaceRef(DEFAULT_SPACE_ID, "generic")
+    await spaces.assign_client(ADMIN, 9, None)
+    with pytest.raises(ValidationError):
+        await ask(setup.conv.id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "role,allowed", [(UserRole.ADMIN, True), (UserRole.CURATOR, True), (UserRole.USER, False)]
+)
+async def test_upload_client_public_checks_capability_before_storage(role: UserRole, allowed: bool) -> None:
+    h = harness()
+
+    if allowed:
+        dto = await upload(h, visibility=DocumentVisibility.CLIENT_PUBLIC, user_role=role)
+        assert dto.visibility == DocumentVisibility.CLIENT_PUBLIC
+    else:
+        with pytest.raises(BusinessRuleViolationError):
+            await upload(h, visibility=DocumentVisibility.CLIENT_PUBLIC, user_role=role)
+        h.storage.upload_file.assert_not_awaited()

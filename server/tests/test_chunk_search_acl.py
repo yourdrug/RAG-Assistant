@@ -302,9 +302,12 @@ class TestCompiledScopeStructure:
         top = where_tree(stmt)
         assert top[0] == "AND", "top-level WHERE must be an AND of content match and ACL scope"
         scope = scope_of(top)
-        # Single condition, two parts (visibility + owner) — must be conjunctive.
-        assert scope[0] == "AND", "visibility + owner parts must be AND (C-1 regression: OR)"
-        parts = condition_parts(scope)
+        # Common articles OR a private-owner condition; the private clause remains conjunctive.
+        assert scope[0] == "OR"
+        private, common = scope[1]
+        assert common == ("cmp", "visibility", "eq", "client_public")
+        assert private[0] == "AND", "visibility + owner parts must be AND (C-1 regression: OR)"
+        parts = condition_parts(private)
         assert {(p[1], p[3]) for p in parts} == {("visibility", "client_private"), ("owner_id", 1)}
 
     def test_client_condition_compiled_sql_uses_and(self) -> None:
@@ -320,7 +323,7 @@ class TestCompiledScopeStructure:
         top = where_tree(stmt)
         scope = scope_of(top)
         assert scope[0] == "OR"
-        assert len(scope[1]) == 3, "internal: public + private + group conditions"
+        assert len(scope[1]) == 4, "internal: public + private + group + client public conditions"
 
         public = condition_parts(scope[1][0])
         assert (public[0][1], public[0][3]) == ("visibility", "internal_public")

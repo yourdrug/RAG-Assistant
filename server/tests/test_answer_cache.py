@@ -6,17 +6,24 @@ closing the demotion cache poisoning vulnerability.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
+from application.rag.dto import PreparedQuery
 from config import settings
-from domain.identity.user_context import CuratorScope
+from domain.identity.roles import UserKind
+from domain.identity.user_context import CuratorScope, UserContext
+from domain.knowledge.space import SpaceRef
+from domain.rag.context import RagContext
 from infrastructure.ml.cache.answers import (
     CACHE_PREFIX,
     cache_key,
     compute_question_hash,
     compute_visibility_scope_hash,
 )
-from infrastructure.ml.cache.keys import generation_identity
+from infrastructure.ml.cache.keys import CacheKeyBuilder, generation_identity
+from infrastructure.ml.rag.rag_steps import RagOperations
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +33,7 @@ from infrastructure.ml.cache.keys import generation_identity
 
 class TestCachePrefix:
     def test_prefix_versions_document_citations_and_revision_fence(self) -> None:
-        assert CACHE_PREFIX == "rag:cache:v6:"
+        assert CACHE_PREFIX == "rag:cache:v7:"
 
 
 # ---------------------------------------------------------------------------
@@ -218,3 +225,18 @@ def test_question_hash_identity_changes_with_active_llm(
     first = generation_identity()
     monkeypatch.setattr(settings, key, value)
     assert generation_identity() != first
+
+
+@pytest.mark.generic_evidence
+def test_client_public_answers_keep_client_identity_and_assigned_space_in_cache() -> None:
+    operations = RagOperations(MagicMock(), document_access=MagicMock())
+
+    def keys(user_id: int, kind: UserKind, space_id: int) -> tuple[str, str]:
+        ctx = RagContext(UserContext(user_id, kind), space=SpaceRef(space_id, "generic"))
+        return CacheKeyBuilder.build(PreparedQuery(operations.request("Q", [], ctx), "Q"))
+
+    client = keys(5, UserKind.CLIENT, 1)
+    assert client == keys(5, UserKind.CLIENT, 1)
+    assert client[1] != keys(6, UserKind.CLIENT, 1)[1]
+    assert client[1] != keys(5, UserKind.INTERNAL, 1)[1]
+    assert client[0] != keys(5, UserKind.CLIENT, 2)[0]

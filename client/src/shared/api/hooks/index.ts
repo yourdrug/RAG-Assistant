@@ -90,6 +90,7 @@ export { useLogs } from "./use-logs";
 export { useMetrics } from "./use-metrics";
 export {
   defaultSpaceId,
+  useAssignClientSpace,
   useCreateSpace,
   useDeleteSpace,
   useDomainPacks,

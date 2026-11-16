@@ -94,6 +94,7 @@ class UserModel(BaseModel):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'curator', 'user')", name="users_role_check"),
+        CheckConstraint("client_space_id IS NULL OR kind = 'client'", name="chk_client_space_kind"),
         CheckConstraint("kind IN ('internal', 'client')", name="users_kind_check"),
         CheckConstraint(
             "NOT (kind = 'client' AND role IN ('admin', 'curator'))",
@@ -106,6 +107,10 @@ class UserModel(BaseModel):
     role: Mapped[str] = mapped_column(String(16), nullable=False, default=UserRole.USER.value)
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default=UserKind.INTERNAL.value)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    client_space_id: Mapped[int | None] = mapped_column(
+        ForeignKey("knowledge_spaces.id", ondelete="SET NULL"), nullable=True
+    )
 
     groups = relationship("GroupModel", secondary="user_groups", back_populates="members")
 
@@ -196,7 +201,8 @@ class DocumentModel(BaseModel):
     __tablename__ = "documents"
     __table_args__ = (
         CheckConstraint(
-            "visibility IN ('internal_public', 'internal_group', 'internal_private', 'client_private')",
+            "visibility IN ('internal_public', 'internal_group', 'internal_private', "
+            "'client_private', 'client_public')",
             name="documents_visibility_check",
         ),
         CheckConstraint(

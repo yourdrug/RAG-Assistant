@@ -56,3 +56,15 @@ export function useDeleteSpace() {
 export function defaultSpaceId(spaces: KnowledgeSpace[] | undefined): number | null {
   return spaces?.length === 1 ? spaces[0].id : null;
 }
+
+export function useAssignClientSpace() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ clientId, spaceId }: { clientId: number; spaceId: number | null }) => {
+      await apiClient.put(`/spaces/clients/${clientId}`, { space_id: spaceId });
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: queryKeys.auth.users() });
+    },
+  });
+}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from domain.identity.roles import UserKind, UserRole
@@ -43,6 +43,7 @@ class SQLAlchemyUserRepository:
             hashed_password=user.hashed_password,
             role=user.role,
             kind=user.kind,
+            client_space_id=user.client_space_id,
         )
         self._db.add(orm)
         await self._db.flush()
@@ -97,6 +98,14 @@ class SQLAlchemyUserRepository:
         await self._db.flush()
         return True
 
+    async def assign_client_space(self, user_id: int, space_id: int | None) -> None:
+        await self._db.execute(
+            update(UserModel)
+            .where(UserModel.id == user_id, UserModel.kind == UserKind.CLIENT)
+            .values(client_space_id=space_id)
+        )
+        await self._db.flush()
+
     @staticmethod
     def _to_entity(orm: UserModel) -> User:
         return User(
@@ -106,5 +115,6 @@ class SQLAlchemyUserRepository:
             role=UserRole(orm.role),
             kind=UserKind(orm.kind),
             is_active=orm.is_active,
+            client_space_id=orm.client_space_id,
             creation_date=orm.creation_date,
         )

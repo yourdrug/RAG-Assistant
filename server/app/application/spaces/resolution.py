@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from domain.identity.roles import UserKind
 from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 
@@ -35,6 +36,20 @@ async def resolve_space(uow: UnitOfWork, space_id: int | None) -> KnowledgeSpace
 
     msg = "space_id is required: choose a knowledge space" if spaces else "No knowledge space exists"
     raise ValidationError(msg, field="space_id")
+
+
+async def client_space(uow: UnitOfWork, user_id: int) -> KnowledgeSpace | None:
+    """Read the current client routing assignment, including API-key requests."""
+    user = await uow.users.get_by_id(user_id)
+
+    if user is None:
+        entity = "User"
+        raise EntityNotFoundError(entity, user_id)
+
+    if user.kind != UserKind.CLIENT or user.client_space_id is None:
+        return None
+
+    return await resolve_space(uow, user.client_space_id)
 
 
 async def default_space(uow_factory: UnitOfWorkFactory) -> KnowledgeSpace:

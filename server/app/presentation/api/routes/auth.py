@@ -98,7 +98,15 @@ async def list_all_users(
     users, total = await user_service.list_users(limit=limit, offset=offset)
     log("user.list", user_id=admin.id, details={"limit": limit, "offset": offset})
     response_users = [
-        UserResponse(id=u.id, email=u.email, role=u.role, kind=u.kind, is_active=u.is_active) for u in users
+        UserResponse(
+            id=u.id,
+            email=u.email,
+            role=u.role,
+            kind=u.kind,
+            is_active=u.is_active,
+            client_space_id=u.client_space_id,
+        )
+        for u in users
     ]
     return UserListResponse(total=total, limit=limit, offset=offset, users=response_users)
 

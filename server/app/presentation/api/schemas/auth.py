@@ -48,6 +48,7 @@ class UserResponse(BaseModel):
     role: str
     kind: str
     is_active: bool
+    client_space_id: int | None = None
 
 
 class MeResponse(BaseModel):

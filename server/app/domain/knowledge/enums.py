@@ -62,6 +62,7 @@ class DocumentVisibility(ValidatedStrEnum, label="visibility"):
     INTERNAL_GROUP = "internal_group"
     INTERNAL_PRIVATE = "internal_private"
     CLIENT_PRIVATE = "client_private"
+    CLIENT_PUBLIC = "client_public"
 
 
 class SourceType(StrEnum):

@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-CACHE_PREFIX = "rag:cache:v6:"
+CACHE_PREFIX = "rag:cache:v7:"
 CORPUS_REVISION_KEY = "rag:corpus:revision"
 DOC_INDEX_PREFIX = "rag:doc:"
 DOC_INDEX_TTL = CACHE_TTL_SECONDS

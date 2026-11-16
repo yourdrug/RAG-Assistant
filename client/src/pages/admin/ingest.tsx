@@ -228,6 +228,7 @@ export function AdminIngestPage() {
                   <SelectItem value="internal_public">Public</SelectItem>
                   <SelectItem value="internal_group">Group</SelectItem>
                   <SelectItem value="client_private">Client Private</SelectItem>
+                  <SelectItem value="client_public">Client Public</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -345,6 +346,7 @@ export function AdminIngestPage() {
                   <SelectItem value="internal_public">Public</SelectItem>
                   <SelectItem value="internal_group">Group</SelectItem>
                   <SelectItem value="client_private">Client Private</SelectItem>
+                  <SelectItem value="client_public">Client Public</SelectItem>
                 </SelectContent>
               </Select>
             </div>

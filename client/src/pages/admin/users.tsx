@@ -4,8 +4,10 @@ import { Plus, UserPlus } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import {
+  useAssignClientSpace,
   useChangeUserRole,
   useCreateUser,
+  useSpaces,
   useToggleUserActive,
   useUsers,
 } from "@/shared/api/hooks";
@@ -39,6 +41,8 @@ const roleBadgeVariant = (role: string) => {
 
 export function AdminUsersPage() {
   const { data: users } = useUsers();
+  const { data: spaces } = useSpaces();
+  const assignSpaceMut = useAssignClientSpace();
   const createMut = useCreateUser();
   const toggleMut = useToggleUserActive();
   const changeRoleMut = useChangeUserRole();
@@ -105,6 +109,42 @@ export function AdminUsersPage() {
       accessorKey: "kind",
       header: "Kind",
       cell: ({ row }) => <Badge variant="outline">{row.original.kind}</Badge>,
+    },
+    {
+      accessorKey: "client_space_id",
+      header: "Support space",
+      cell: ({ row }) =>
+        row.original.kind === "client" ? (
+          <Select
+            value={
+              row.original.client_space_id != null ? String(row.original.client_space_id) : "none"
+            }
+            disabled={assignSpaceMut.isPending}
+            onValueChange={async (value) => {
+              try {
+                await assignSpaceMut.mutateAsync({
+                  clientId: row.original.id,
+                  spaceId: value === "none" ? null : Number(value),
+                });
+                toast.success("Support space updated");
+              } catch {
+                toast.error("Failed to assign support space");
+              }
+            }}
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Unassigned</SelectItem>
+              {spaces?.map((space) => (
+                <SelectItem key={space.id} value={String(space.id)}>
+                  {space.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null,
     },
     {
       accessorKey: "is_active",

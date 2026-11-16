@@ -24,6 +24,7 @@ class User:
     is_active: bool = True
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     group_ids: list[int] = field(default_factory=list)
+    client_space_id: int | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.role, str):
@@ -49,6 +50,13 @@ class User:
         if self.id == requester_id:
             msg = "Cannot deactivate yourself"
             raise BusinessRuleViolationError(msg)
+
+    def assign_client_space(self, space_id: int | None) -> None:
+        if self.kind != UserKind.CLIENT:
+            msg = "Only clients can be assigned a support space"
+            raise BusinessRuleViolationError(msg)
+
+        self.client_space_id = space_id
 
     def set_active(self, *, is_active: bool) -> None:
         self.is_active = is_active

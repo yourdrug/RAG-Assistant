@@ -610,16 +610,25 @@ async def test_general_expansion_accepts_only_immediate_same_document_neighbors(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "visibility, role, viewer, expected",
+    "visibility, kind, role, viewer, expected",
     [
-        ("internal_private", UserRole.USER, 12, 2),
-        ("internal_private", UserRole.USER, 99, 0),
-        ("client_private", UserRole.ADMIN, 99, 0),
-        ("internal_public", UserRole.USER, 99, 2),
+        ("internal_private", UserKind.INTERNAL, UserRole.USER, 12, 2),
+        ("internal_private", UserKind.INTERNAL, UserRole.USER, 99, 0),
+        ("client_private", UserKind.INTERNAL, UserRole.ADMIN, 99, 0),
+        ("internal_public", UserKind.INTERNAL, UserRole.USER, 99, 2),
+        ("client_public", UserKind.INTERNAL, UserRole.USER, 99, 2),
+        ("client_public", UserKind.INTERNAL, UserRole.ADMIN, 99, 2),
+        ("client_public", UserKind.INTERNAL, UserRole.CURATOR, 99, 2),
+        ("client_public", UserKind.CLIENT, UserRole.USER, 99, 2),
+        ("internal_public", UserKind.CLIENT, UserRole.USER, 12, 0),
+        ("internal_private", UserKind.CLIENT, UserRole.USER, 12, 0),
+        ("client_private", UserKind.CLIENT, UserRole.USER, 12, 2),
+        ("client_private", UserKind.CLIENT, UserRole.USER, 99, 0),
     ],
 )
 async def test_neighbor_sql_applies_search_acl_and_document_scope(
     visibility: str,
+    kind: UserKind,
     role: UserRole,
     viewer: int,
     expected: int,
@@ -671,7 +680,7 @@ async def test_neighbor_sql_applies_search_acl_and_document_scope(
         session.flush()
         async_session = SimpleNamespace(execute=AsyncMock(side_effect=session.execute))
         repository = SQLAlchemyChunkContextRepository(cast("AsyncSession", async_session))
-        user = UserContext(user_id=viewer, user_kind=UserKind.INTERNAL, user_role=role)
+        user = UserContext(user_id=viewer, user_kind=kind, user_role=role)
         results = await repository.get_neighbors(7, 2, user=user)
         assert len(results) == expected
         assert all(row.document_id == 7 for row in results)
@@ -685,19 +694,27 @@ async def test_neighbor_sql_applies_search_acl_and_document_scope(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "visibility, role, viewer, allowed",
+    "visibility, kind, role, viewer, allowed",
     [
-        ("internal_private", UserRole.USER, OWNER_ID, True),
-        ("internal_private", UserRole.USER, 99, False),
+        ("internal_private", UserKind.INTERNAL, UserRole.USER, OWNER_ID, True),
+        ("internal_private", UserKind.INTERNAL, UserRole.USER, 99, False),
         # Listing may show CLIENT_PRIVATE to ADMIN; RAG search scope must not.
-        ("client_private", UserRole.ADMIN, 99, False),
-        ("internal_public", UserRole.USER, 99, True),
+        ("client_private", UserKind.INTERNAL, UserRole.ADMIN, 99, False),
+        ("internal_public", UserKind.INTERNAL, UserRole.USER, 99, True),
+        ("client_public", UserKind.INTERNAL, UserRole.USER, 99, True),
+        ("client_public", UserKind.INTERNAL, UserRole.ADMIN, 99, True),
+        ("client_public", UserKind.INTERNAL, UserRole.CURATOR, 99, True),
+        ("client_public", UserKind.CLIENT, UserRole.USER, 99, True),
+        ("internal_public", UserKind.CLIENT, UserRole.USER, OWNER_ID, False),
+        ("internal_private", UserKind.CLIENT, UserRole.USER, OWNER_ID, False),
+        ("client_private", UserKind.CLIENT, UserRole.USER, OWNER_ID, True),
+        ("client_private", UserKind.CLIENT, UserRole.USER, 99, False),
     ],
 )
 async def test_parent_scope_sql_applies_search_acl(
-    visibility: str, role: UserRole, viewer: int, allowed: bool
+    visibility: str, kind: UserKind, role: UserRole, viewer: int, allowed: bool
 ) -> None:
-    user = UserContext(user_id=viewer, user_kind=UserKind.INTERNAL, user_role=role)
+    user = UserContext(user_id=viewer, user_kind=kind, user_role=role)
 
     with parent_scope_repository(visibility) as repository:
         results = await repository.get_parent_context(DOCUMENT_ID, POINT, user=user, max_chars=70)

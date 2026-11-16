@@ -18,6 +18,7 @@ export interface UserResponse {
   role: "admin" | "curator" | "user";
   kind: "internal" | "client";
   is_active: boolean;
+  client_space_id?: number | null;
 }
 
 export interface UserListResponse {
@@ -113,7 +114,8 @@ export type DocumentVisibility =
   | "internal_public"
   | "internal_group"
   | "internal_private"
-  | "client_private";
+  | "client_private"
+  | "client_public";
 
 export type DocumentStatus = "pending" | "processing" | "indexing" | "done" | "failed";
 

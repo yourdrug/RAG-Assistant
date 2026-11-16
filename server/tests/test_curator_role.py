@@ -438,7 +438,7 @@ class TestCuratorFilterIgnoresManagedIds:
         # Only base internal conditions: PUBLIC + PRIVATE(self)
         assert f.should is not None
         assert isinstance(f.should, list)
-        assert len(f.should) == 2
+        assert len(f.should) == 3
 
     def test_build_qdrant_filter_with_managed_ids_has_assigned(self) -> None:
         """When managed-ids ARE passed: filter includes ASSIGNED conditions."""
@@ -580,7 +580,7 @@ class TestRagServiceCuratorScope:
         # Non-curator: only base conditions (PUBLIC + PRIVATE(self))
         assert f.should is not None
         assert isinstance(f.should, list)
-        assert len(f.should) == 2
+        assert len(f.should) == 3
 
     def test_rag_filter_with_scope_has_assigned_conditions(self) -> None:
         """After B4, curator with managed_ids → filter includes ASSIGNED conditions."""

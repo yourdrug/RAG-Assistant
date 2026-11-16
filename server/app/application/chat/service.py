@@ -21,8 +21,9 @@ from application.rag.stream_events import (
     StatusEvent,
     TextChunk,
 )
-from application.spaces.resolution import resolve_space
+from application.spaces.resolution import client_space, resolve_space
 from domain.chat.message import Message, MessageRole
+from domain.identity.roles import UserKind
 from domain.rag.context import RagContext
 from domain.rag.ranking import compute_reranker_score
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
@@ -97,6 +98,19 @@ class ChatService:
             if conv.id is None:
                 msg = "Conversation get_or_create returned None id"
                 raise RuntimeError(msg)
+
+            if user_ctx.user_kind == UserKind.CLIENT:
+                assigned = await client_space(uow, user_id)
+
+                if assigned is None:
+                    msg = "No support space assigned to this client"
+                    raise ValidationError(msg, field="space_id")
+
+                if space_id is not None and space_id != assigned.id:
+                    msg = "Clients cannot choose a knowledge space"
+                    raise ValidationError(msg, field="space_id")
+
+                space_id = assigned.id
 
             space = await self.conversation_space(uow, conv, space_id)
 
