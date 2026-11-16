@@ -92,8 +92,10 @@ from presentation.api.schemas.chunks import (
     ChunkCursorListResponse,
     ChunkDeleteResponse,
     ChunkEditRequest,
+    ChunkIndexStateResponse,
     ChunkListResponse,
     ChunkResponse,
+    IndexFieldComparisonResponse,
 )
 from presentation.api.schemas.curators import CuratorAssignmentResponse
 from presentation.api.schemas.documents import (
@@ -155,6 +157,7 @@ __all__ = [
     "ChunkCursorListResponse",
     "ChunkDeleteResponse",
     "ChunkEditRequest",
+    "ChunkIndexStateResponse",
     "ChunkListResponse",
     "ChunkResponse",
     # admin_config
@@ -194,6 +197,7 @@ __all__ = [
     # health
     "HealthCheck",
     "HealthResponse",
+    "IndexFieldComparisonResponse",
     "IndexFromPreviewResponse",
     # ingest
     "IngestRegistryItem",

@@ -22,7 +22,7 @@ from application.benchmark import (
     BenchmarkSweepService,
 )
 from application.chat import ChatLogService, ChatService, ConversationService
-from application.chunks import ChunkMutationService, ChunkQueryService
+from application.chunks import ChunkIndexInspectionService, ChunkMutationService, ChunkQueryService
 from application.documents import (
     DocumentCommandService,
     DocumentDeletionJobs,
@@ -83,6 +83,9 @@ class ApplicationServices(Protocol):
 
     @property
     def chunk_mutation_service(self) -> ChunkMutationService | None: ...
+
+    @property
+    def chunk_index_inspection_service(self) -> ChunkIndexInspectionService | None: ...
 
     @property
     def manual_document_service(self) -> ManualDocumentService | None: ...

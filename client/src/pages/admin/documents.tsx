@@ -21,6 +21,7 @@ import {
   useChunks,
   useChunksCursor,
   useCreateManualDocument,
+  useCurrentUser,
   useDeleteChunk,
   useDeleteDocument,
   useDocuments,
@@ -49,6 +50,7 @@ import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/shared/ui/tooltip";
+import { ChunkDetailsSheet } from "./chunk-details-sheet";
 
 export function AdminDocumentsPage() {
   const [searchParams] = useSearchParams();
@@ -457,6 +459,10 @@ function ChunkManager({
   };
 
   const [editingChunk, setEditingChunk] = useState<ChunkResponse | null>(null);
+  const [viewingChunk, setViewingChunk] = useState<ChunkResponse | null>(null);
+  // The index-state endpoint is admin-only; other roles see Postgres metadata only.
+  const { data: currentUser } = useCurrentUser();
+  const isAdmin = currentUser?.role === "admin";
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [deleteChunkId, setDeleteChunkId] = useState<number | null>(null);
 
@@ -524,7 +530,7 @@ function ChunkManager({
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <div className="flex gap-1">
+        <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
           <Button variant="ghost" size="icon" onClick={() => setEditingChunk(row.original)}>
             <Edit3 className="h-4 w-4" />
           </Button>
@@ -570,9 +576,17 @@ function ChunkManager({
             searchKey="content"
             searchPlaceholder="Search chunks..."
             serverPagination={serverPagination}
+            onRowClick={setViewingChunk}
           />
         )}
       </CardContent>
+
+      <ChunkDetailsSheet
+        documentId={documentId}
+        chunk={viewingChunk}
+        showIndexState={isAdmin}
+        onClose={() => setViewingChunk(null)}
+      />
 
       {editingChunk && (
         <EditChunkDialog

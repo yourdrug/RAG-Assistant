@@ -25,6 +25,8 @@ class Capability(StrEnum):
     DOCUMENTS_UPLOAD_FOR_CLIENTS = "documents.upload_for_clients"
     DOCUMENTS_MANAGE = "documents.manage"
     CHUNKS_MANAGE = "chunks.manage"
+    # Admin-only diagnostics: raw vector-index state of a chunk, outside ACL search scope.
+    CHUNKS_INSPECT_INDEX = "chunks.inspect_index"
     DOCUMENTS_VIEW = "documents.view"
     SEARCH_USE = "search.use"
     API_KEYS_MANAGE_OWN = "api_keys.manage_own"

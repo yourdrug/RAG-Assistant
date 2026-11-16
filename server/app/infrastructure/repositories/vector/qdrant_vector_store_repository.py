@@ -7,15 +7,16 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from langchain.schema import Document as LCDocument
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct, SparseVector
 
+from application.chunks.dto import IndexedPointSnapshot
 from config import VectorStoreSection, process_section
 from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from infrastructure.corpus.snapshot import collection_for, pin_corpus_call
 from infrastructure.ml.clients.factories import create_embeddings, create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 from infrastructure.repositories.vector.qdrant_ops import ensure_collection, upload_to_qdrant
-from infrastructure.repositories.vector.sparse_vectors import point_vectors
+from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, point_vectors
 from infrastructure.resilience.retry import retry_on_transient
 
 
@@ -159,6 +160,31 @@ class QdrantVectorStoreRepository:
 
     @pin_corpus_call
     @retry_on_transient
+    async def inspect_point(self, point_id: int) -> IndexedPointSnapshot | None:
+        """Read one point by ID for admin diagnostics; only vector shapes leave this method.
+
+        No ACL filter: callers must gate this behind the admin-only inspect capability,
+        since drifted ACL payloads are exactly what the inspection must reveal.
+        """
+        client = self.get_qdrant_client()
+
+        def retrieve() -> IndexedPointSnapshot | None:
+            records = client.retrieve(
+                collection_name=process_section(VectorStoreSection).collection_name,
+                ids=[point_id],
+                with_payload=True,
+                with_vectors=True,
+            )
+
+            if not records:
+                return None
+
+            return snapshot_from_record(records[0].payload or {}, records[0].vector)
+
+        return await asyncio.to_thread(retrieve)
+
+    @pin_corpus_call
+    @retry_on_transient
     async def delete_by_ids(self, ids: list[int]) -> None:
         """Delete points by their IDs."""
         client = self.get_qdrant_client()
@@ -233,3 +259,21 @@ class QdrantVectorStoreRepository:
             key="metadata",
             wait=True,
         )
+
+
+def snapshot_from_record(payload: dict[str, Any], vector: object) -> IndexedPointSnapshot:
+    dense: object = vector
+    sparse: object = None
+
+    if isinstance(vector, dict):
+        dense = vector.get("")
+        sparse = vector.get(SPARSE_VECTOR_NAME)
+
+    metadata = payload.get("metadata")
+    page_content = payload.get("page_content")
+    return IndexedPointSnapshot(
+        metadata=dict(metadata) if isinstance(metadata, dict) else {},
+        page_content=page_content if isinstance(page_content, str) else None,
+        dense_dim=len(dense) if isinstance(dense, list) else None,
+        sparse_terms=len(sparse.indices) if isinstance(sparse, SparseVector) else None,
+    )

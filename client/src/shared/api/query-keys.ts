@@ -24,6 +24,8 @@ export const queryKeys = {
       documentId: number,
       params?: { cursor?: string; direction?: string; highlight?: string },
     ) => [...queryKeys.chunks.all(documentId), "cursor", params] as const,
+    indexState: (documentId: number, chunkId: number) =>
+      [...queryKeys.chunks.all(documentId), "index-state", chunkId] as const,
   },
   conversations: {
     all: ["conversations"] as const,

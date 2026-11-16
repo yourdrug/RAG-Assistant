@@ -55,6 +55,7 @@ export {
 export { useChatLogs } from "./use-chat-logs";
 export {
   useAddChunk,
+  useChunkIndexState,
   useChunks,
   useChunksCursor,
   useCreateManualDocument,

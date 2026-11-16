@@ -46,7 +46,7 @@ if TYPE_CHECKING:
         BenchmarkSweepService,
     )
     from application.chat import ChatLogService, ChatService, ConversationService
-    from application.chunks import ChunkMutationService, ChunkQueryService
+    from application.chunks import ChunkIndexInspectionService, ChunkMutationService, ChunkQueryService
     from application.documents import DocumentCommandService, DocumentQueryService, ManualDocumentService
     from application.documents.diagnostics import PDFDiagnosticService
     from application.documents.quality_service import QualityService
@@ -135,6 +135,13 @@ def create_document_query_service(request: Request) -> DocumentQueryService:
 
 def create_chunk_query_service(request: Request) -> ChunkQueryService:
     return get_or_raise(create_container(request).application.chunk_query_service, "ChunkQueryService")
+
+
+def create_chunk_index_inspection_service(request: Request) -> ChunkIndexInspectionService:
+    return get_or_raise(
+        create_container(request).application.chunk_index_inspection_service,
+        "ChunkIndexInspectionService",
+    )
 
 
 def create_chunk_mutation_service(request: Request) -> ChunkMutationService:
