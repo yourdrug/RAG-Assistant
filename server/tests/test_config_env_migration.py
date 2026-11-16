@@ -63,7 +63,7 @@ def migration_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     for key in (
         TARGET_DYNAMIC_SETTING_KEYS
         | LEGACY_POOL_SETTING_KEYS
-        | {"s3_access_key", "s3_secret_key", "file_backend", "ml_provider"}
+        | {"s3_access_key", "s3_secret_key", "file_backend", "ml_provider", "compose_profiles"}
     ):
         monkeypatch.delenv(key.upper(), raising=False)
         monkeypatch.delenv(key.lower(), raising=False)

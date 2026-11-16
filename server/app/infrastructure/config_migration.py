@@ -299,18 +299,16 @@ def secret_moves(env: EnvSnapshot, secrets: EnvSnapshot) -> dict[str, str]:
     }
 
 
-def compose_updates(env: EnvSnapshot, effective: dict[str, str | None]) -> dict[str, str]:
+def compose_updates(effective: dict[str, str | None]) -> dict[str, str]:
+    # An explicit COMPOSE_PROFILES, even empty, is the operator's choice and is kept as is.
     if "COMPOSE_PROFILES" in effective:
         return {}
 
-    profiles = [p.strip() for p in (effective.get("COMPOSE_PROFILES") or "").split(",") if p.strip()]
-
     # Pre-unification env files selected local TEI containers through ML_PROVIDER.
-    if effective.get("ML_PROVIDER") == LEGACY_TEI_PROVIDER and "tei" not in profiles:
-        profiles.append("tei")
+    if effective.get("ML_PROVIDER") == LEGACY_TEI_PROVIDER:
+        return {"COMPOSE_PROFILES": "tei"}
 
-    joined = ",".join(profiles)
-    return {"COMPOSE_PROFILES": joined} if profiles and env.values.get("COMPOSE_PROFILES") != joined else {}
+    return {}
 
 
 def validate_storage_and_credentials(
@@ -382,7 +380,7 @@ async def migrate_env_configuration(
         if (raw := effective.get(key.upper())) is not None
     ]
     candidates += pool_parameters(effective)
-    updates = compose_updates(env, effective)
+    updates = compose_updates(effective)
     removed = set(moved)
 
     if trim_env:
