@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -57,3 +58,36 @@ class ChunkCursorQuery:
     cursor: str | None = None
     direction: str = "next"
     content_hashes: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class IndexedPointSnapshot:
+    """What the vector index holds for one point; vector values are never exposed."""
+
+    metadata: dict[str, Any]
+    page_content: str | None
+    dense_dim: int | None
+    sparse_terms: int | None
+
+
+@dataclass(frozen=True)
+class IndexFieldComparison:
+    name: str
+    expected: str | int | None
+    actual: str | int | None
+    matches: bool
+
+
+@dataclass(frozen=True)
+class ChunkIndexStateDTO:
+    chunk_id: int
+    document_id: int
+    document_status: str
+    indexed: bool
+    in_sync: bool
+    dense_dim: int | None = None
+    sparse_terms: int | None = None
+    embedding_model: str | None = None
+    content_matches: bool | None = None
+    fields: list[IndexFieldComparison] = field(default_factory=list)
+    payload_metadata: dict[str, Any] = field(default_factory=dict)

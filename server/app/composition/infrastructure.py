@@ -88,6 +88,7 @@ if TYPE_CHECKING:
 
     from application.admin import ConfigMaskerPort, LogBufferPort
     from application.benchmark import BenchmarkHistoryPort
+    from application.chunks import ChunkIndexInspectorPort
     from application.documents import PreviewStrategyFactoryPort
     from application.identity import ApiKeyProviderPort
     from application.jobs.ports import JobAbortPort
@@ -221,6 +222,10 @@ class MLContainer:
 
     @property
     def vector_search(self) -> VectorSearch[Filter]:
+        return self.vector_store
+
+    @property
+    def chunk_index_inspector(self) -> ChunkIndexInspectorPort:
         return self.vector_store
 
     @property

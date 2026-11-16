@@ -18,7 +18,7 @@ from application.benchmark import (
     BenchmarkSweepService,
 )
 from application.chat import ChatLogService, ChatService, ConversationService
-from application.chunks import ChunkMutationService, ChunkQueryService
+from application.chunks import ChunkIndexInspectionService, ChunkMutationService, ChunkQueryService
 from application.documents import (
     DocumentAccessService,
     DocumentCommandService,
@@ -98,6 +98,7 @@ class ApplicationContainer:
     document_deletion_jobs: DocumentDeletionJobs | None = field(default=None)
     chunk_query_service: ChunkQueryService | None = field(default=None)
     chunk_mutation_service: ChunkMutationService | None = field(default=None)
+    chunk_index_inspection_service: ChunkIndexInspectionService | None = field(default=None)
     manual_document_service: ManualDocumentService | None = field(default=None)
     config_service: ConfigService | None = field(default=None)
     health_service: HealthService | None = field(default=None)
@@ -197,6 +198,9 @@ class ApplicationContainer:
             cache_invalidator=infra.services.cache_invalidator,
             token_counter=infra.ml.token_counter,
             pack_hooks=pack_hooks,
+        )
+        self.chunk_index_inspection_service = ChunkIndexInspectionService(
+            uow, infra.ml.chunk_index_inspector, user_ctx_factory
         )
         self.manual_document_service = ManualDocumentService(uow)
 

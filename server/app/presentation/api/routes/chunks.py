@@ -7,7 +7,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from application.chunks import ChunkCursorQuery, ChunkMutationService, ChunkQueryService
+from application.chunks import (
+    ChunkCursorQuery,
+    ChunkIndexInspectionService,
+    ChunkMutationService,
+    ChunkQueryService,
+)
 from application.documents import ManualDocumentService
 from application.ports.action_logger import ActionLoggerPort
 from application.ports.rate_limit import RateLimitPolicyName
@@ -17,6 +22,7 @@ from domain.knowledge.enums import DocumentVisibility
 from presentation.api.auth_dependencies import get_current_user, require_capability
 from presentation.api.dependencies import (
     create_action_logger,
+    create_chunk_index_inspection_service,
     create_chunk_mutation_service,
     create_chunk_query_service,
     create_manual_document_service,
@@ -27,10 +33,12 @@ from presentation.api.schemas import (
     ChunkCursorListResponse,
     ChunkDeleteResponse,
     ChunkEditRequest,
+    ChunkIndexStateResponse,
     ChunkListResponse,
     ChunkResponse,
     CurrentUser,
     DocumentResponse,
+    IndexFieldComparisonResponse,
     ManualDocumentRequest,
 )
 
@@ -148,6 +156,43 @@ async def list_chunks_cursor(
         next_cursor=page.next_cursor,
         prev_cursor=page.prev_cursor,
         document_id=document_id,
+    )
+
+
+@router.get(
+    "/admin/documents/{document_id}/chunks/{chunk_id}/index-state",
+    response_model=ChunkIndexStateResponse,
+)
+async def get_chunk_index_state(
+    *,
+    document_id: int,
+    chunk_id: int,
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.CHUNKS_INSPECT_INDEX))],
+    service: Annotated[ChunkIndexInspectionService, Depends(create_chunk_index_inspection_service)],
+) -> ChunkIndexStateResponse:
+    """Admin diagnostics: compare the chunk's vector-index point with Postgres."""
+    state = await service.inspect(
+        document_id=document_id,
+        chunk_id=chunk_id,
+        user_id=current_user.id,
+        user_kind=UserKind(current_user.kind),
+        user_role=UserRole(current_user.role),
+    )
+    return ChunkIndexStateResponse(
+        chunk_id=state.chunk_id,
+        document_id=state.document_id,
+        document_status=state.document_status,
+        indexed=state.indexed,
+        in_sync=state.in_sync,
+        dense_dim=state.dense_dim,
+        sparse_terms=state.sparse_terms,
+        embedding_model=state.embedding_model,
+        content_matches=state.content_matches,
+        fields=[
+            IndexFieldComparisonResponse(name=f.name, expected=f.expected, actual=f.actual, matches=f.matches)
+            for f in state.fields
+        ],
+        payload_metadata=state.payload_metadata,
     )
 
 

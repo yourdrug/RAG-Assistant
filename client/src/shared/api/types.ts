@@ -183,6 +183,32 @@ export interface ChunkResponse {
   warning?: string | null;
   section?: string | null;
   heading?: string | null;
+  heading_level?: number | null;
+  content_type?: string | null;
+  doc_title?: string | null;
+  doc_type?: string | null;
+}
+
+export interface IndexFieldComparison {
+  name: string;
+  expected: string | number | null;
+  actual: string | number | null;
+  matches: boolean;
+}
+
+/** Admin-only: the chunk's point in Qdrant compared with Postgres. */
+export interface ChunkIndexStateResponse {
+  chunk_id: number;
+  document_id: number;
+  document_status: string;
+  indexed: boolean;
+  in_sync: boolean;
+  dense_dim: number | null;
+  sparse_terms: number | null;
+  embedding_model: string | null;
+  content_matches: boolean | null;
+  fields: IndexFieldComparison[];
+  payload_metadata: Record<string, unknown>;
 }
 
 export interface ChunkCreateRequest {

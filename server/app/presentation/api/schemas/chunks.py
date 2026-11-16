@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from domain.knowledge.enums import DocDomain
@@ -77,3 +79,26 @@ __all__ = [
     "ChunkResponse",
     "DocumentResponse",
 ]
+
+
+class IndexFieldComparisonResponse(BaseModel):
+    name: str
+    expected: str | int | None = None
+    actual: str | int | None = None
+    matches: bool
+
+
+class ChunkIndexStateResponse(BaseModel):
+    """Admin diagnostics: the chunk's point in the vector index versus Postgres."""
+
+    chunk_id: int
+    document_id: int
+    document_status: str
+    indexed: bool
+    in_sync: bool
+    dense_dim: int | None = None
+    sparse_terms: int | None = None
+    embedding_model: str | None = None
+    content_matches: bool | None = None
+    fields: list[IndexFieldComparisonResponse] = Field(default_factory=list)
+    payload_metadata: dict[str, Any] = Field(default_factory=dict)

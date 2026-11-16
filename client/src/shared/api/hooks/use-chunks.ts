@@ -5,6 +5,7 @@ import type {
   ChunkCreateRequest,
   ChunkCursorListResponse,
   ChunkEditRequest,
+  ChunkIndexStateResponse,
   ChunkListResponse,
   ChunkResponse,
   DocumentResponse,
@@ -50,6 +51,19 @@ export function useChunksCursor(
       ).data;
     },
     enabled: !!documentId,
+  });
+}
+
+export function useChunkIndexState(documentId: number, chunkId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.chunks.indexState(documentId, chunkId),
+    queryFn: async () =>
+      (
+        await apiClient.get<ChunkIndexStateResponse>(
+          `/admin/documents/${documentId}/chunks/${chunkId}/index-state`,
+        )
+      ).data,
+    enabled: enabled && !!documentId && !!chunkId,
   });
 }
 
