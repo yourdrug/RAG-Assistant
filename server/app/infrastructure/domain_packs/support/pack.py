@@ -19,5 +19,5 @@ SUPPORT_PACK = DomainPack(
         ("support_faq", ("faq", "часто задаваемые вопросы", "вопросы и ответы")),
         ("support_guide", ("инструкция", "руководство", "настройка", "создание")),
     ),
-    benchmark_sets=(BENCHMARKS_DIR / "questions.json", BENCHMARKS_DIR / "chunking"),
+    benchmark_sets=(BENCHMARKS_DIR / "chunking",),
 )

@@ -174,21 +174,16 @@ def test_acceptance_rejects_retrieval_regression(
 @pytest.mark.parametrize("pack_key", ["support", "internal"])
 def test_synthetic_questions_have_valid_annotations_and_verbatim_evidence(pack_key: str) -> None:
     base = selected_pack(pack_key).benchmark_sets[0].parent
-    questions = json.loads((base / "questions.json").read_text())
+    # Full synthetic sets live in the database; the pack keeps the offline chunking subsets.
+    questions = [
+        question
+        for path in sorted((base / "chunking").glob("*.json"))
+        for question in json.loads(path.read_text())
+    ]
     validator = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts/benchmark/validate_v2.py"))
     validator["validate_cases"](questions)
     assert len({question["case_id"] for question in questions}) == len(questions)
-    assert any(question["annotations"]["expected_refusal"] for question in questions)
-    offline = {
-        question["case_id"]: question
-        for path in (base / "chunking").glob("*.json")
-        for question in json.loads(path.read_text())
-    }
-    assert offline == {
-        question["case_id"]: question
-        for question in questions
-        if question["annotations"]["expected_fragments"]
-    }
+    assert all(question["annotations"]["expected_fragments"] for question in questions)
 
     for question in questions:
         annotations = question["annotations"]

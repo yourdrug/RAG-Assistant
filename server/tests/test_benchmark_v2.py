@@ -40,7 +40,12 @@ if TYPE_CHECKING:
     from tests.fakes import FakeUnitOfWorkFactory
 
 
-DATASET = BENCHMARKS_DIR / "benchmark-questions-v2.json"
+# Benchmark questions live in the database; the pack keeps v2 rows only for offline chunking checks.
+V2_ROWS = sorted((BENCHMARKS_DIR / "chunking").glob("*.json"))
+
+
+def load_v2_rows() -> list[dict[str, Any]]:
+    return [row for path in V2_ROWS for row in json.loads(path.read_text())]
 
 
 @pytest.mark.belarus
@@ -48,7 +53,7 @@ DATASET = BENCHMARKS_DIR / "benchmark-questions-v2.json"
 async def test_full_v2_import_roundtrip_and_active_loading(
     fake_uow_factory: FakeUnitOfWorkFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rows = json.loads(DATASET.read_text())
+    rows = load_v2_rows()
     body = BenchmarkQuestionsImportRequest.model_validate({"questions": rows})
     stored = []
 
@@ -68,9 +73,9 @@ async def test_full_v2_import_roundtrip_and_active_loading(
         AsyncMock(side_effect=lambda dataset: [q for q in stored if q.is_active and q.dataset == dataset]),
     )
     service = BenchmarkQuestionService(fake_uow_factory)
-    assert await service.bulk_create([question_create_to_dto(q) for q in body.questions], 1) == 202
+    assert await service.bulk_create([question_create_to_dto(q) for q in body.questions], 1) == len(rows)
     exported = await export_questions(_admin=cast("CurrentUser", SimpleNamespace(id=1)), service=service)
-    assert len(exported) == 202
+    assert len(exported) == len(rows)
     by_key = {(q["case_id"], q["dataset"]): q for q in exported}
 
     for original in rows:
@@ -79,11 +84,10 @@ async def test_full_v2_import_roundtrip_and_active_loading(
         for key, value in original.items():
             assert exported_case[key] == value
 
-    active = await load_benchmark_questions(fake_uow_factory, "main")
-    assert len(active) == 171
-    assert "rag-0023" not in {q["case_id"] for q in active}
-    quick = await load_benchmark_questions(fake_uow_factory, "quick-30")
-    assert len(quick) == 30
+    for dataset in {row["dataset"] for row in rows}:
+        active = await load_benchmark_questions(fake_uow_factory, dataset)
+        expected = {row["case_id"] for row in rows if row["dataset"] == dataset and row["is_active"]}
+        assert {q["case_id"] for q in active} == expected
 
     for entity in await service.export():
         mapped = question_to_response(entity)
@@ -94,7 +98,7 @@ async def test_full_v2_import_roundtrip_and_active_loading(
 @pytest.mark.belarus
 @pytest.mark.asyncio
 async def test_v2_identity_reaches_sql_storage(fake_uow_factory: FakeUnitOfWorkFactory) -> None:
-    rows = json.loads(DATASET.read_text())
+    rows = load_v2_rows()
     body = BenchmarkQuestionsImportRequest.model_validate({"questions": rows})
     session = MagicMock(flush=AsyncMock())
     fake_uow_factory._uow.benchmark_questions = SQLAlchemyBenchmarkQuestionRepository(session)

@@ -339,7 +339,7 @@ tasks:
       - uv run pytest -m integration {{.CLI_ARGS}}
 
   benchmark:validate:
-    desc: "Проверить структуру benchmark v2 без запуска RAG"
+    desc: "Проверить структуру benchmark v2 без запуска RAG: task benchmark:validate -- export.json"
     cmds:
       - python3 scripts/benchmark/validate_v2.py {{.CLI_ARGS}}
 

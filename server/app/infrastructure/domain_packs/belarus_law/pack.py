@@ -21,6 +21,6 @@ BELARUS_LAW_PACK = DomainPack(
     document_profiles=(general_profile, LegalDomainProfile, DecreeDomainProfile, ContractDomainProfile),
     evidence_profile=BelarusEvidenceProfile(),
     doc_type_keywords=DOC_TYPE_KEYWORDS,
-    benchmark_sets=(BENCHMARKS_DIR / "benchmark-questions-v2.json", BENCHMARKS_DIR / "chunking"),
+    benchmark_sets=(BENCHMARKS_DIR / "chunking",),
     repositories=sql_act_repositories,
 )

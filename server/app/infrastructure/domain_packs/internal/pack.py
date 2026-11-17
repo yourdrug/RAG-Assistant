@@ -22,5 +22,5 @@ INTERNAL_PACK = DomainPack(
         ("internal_procedure", ("регламент", "положение", "порядок", "политика")),
         ("internal_instruction", ("инструкция", "руководство", "памятка")),
     ),
-    benchmark_sets=(BENCHMARKS_DIR / "questions.json", BENCHMARKS_DIR / "chunking"),
+    benchmark_sets=(BENCHMARKS_DIR / "chunking",),
 )

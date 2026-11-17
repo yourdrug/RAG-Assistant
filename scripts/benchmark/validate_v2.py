@@ -13,11 +13,6 @@ BEHAVIORS = {
     "factual": "answer", "negative": "answer", "false_premise": "correct_premise",
     "not_in_corpus": "abstain", "out_of_scope": "abstain", "ambiguous": "clarify_ambiguity",
 }
-# Legal benchmark set of the Belarusian law pack.
-DEFAULT_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "server/app/infrastructure/domain_packs/belarus_law/benchmarks/benchmark-questions-v2.json"
-)
 
 
 def require(condition: bool, message: str) -> None:
@@ -57,7 +52,7 @@ def validate_cases(cases: Any) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path", nargs="?", type=Path, default=DEFAULT_PATH)
+    parser.add_argument("path", type=Path, help="JSON list exported from Admin -> Benchmark")
     args = parser.parse_args()
     cases = json.loads(args.path.read_text(encoding="utf-8"))
     try:
