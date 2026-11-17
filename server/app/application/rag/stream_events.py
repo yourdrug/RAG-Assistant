@@ -77,6 +77,7 @@ class PipelineMetaEvent(AnswerMetadata):
     domain: str = ""
     model_used: str | None = None
     config_data: dict[str, Any] | None = None
+    trace_data: dict[str, Any] | None = None
     aux_usage: TokenUsage | None = None
     generation_sec: float | None = None
     ttft_sec: float | None = None

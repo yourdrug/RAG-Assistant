@@ -21,6 +21,7 @@ from config import RetrievalSection, VectorStoreSection, request_section
 from domain.shared.hashing import content_hash
 from infrastructure.corpus.snapshot import pin_corpus_call
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
+from infrastructure.ml.rag.benchmark_evidence import active_evidence
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 from infrastructure.repositories.vector.sparse_vectors import sparse_query
 from infrastructure.resilience.retry import retry_on_transient
@@ -278,6 +279,12 @@ async def run_hybrid_search(
     if not rag.hybrid_search.enabled:
         dense = await qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
         RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - started)
+        evidence = active_evidence.get()
+
+        if evidence is not None and not evidence.benchmark_mode:
+            for _, score, doc in dense:
+                doc.metadata["dense_score"] = score
+
         return [doc for _, _, doc in dense]
 
     dense, sparse = await asyncio.gather(
@@ -296,5 +303,40 @@ async def run_hybrid_search(
         dense_weight=dense_weight if dense_weight is not None else rag.hybrid_search.dense_weight,
         sparse_weight=sparse_weight if sparse_weight is not None else rag.hybrid_search.sparse_weight,
     )
+    capture_search_scores(
+        candidates, dense, sparse, rag, dense_weight=dense_weight, sparse_weight=sparse_weight
+    )
     RAG_STAGE_DURATION.labels("hybrid_search").observe(time.monotonic() - started)
     return candidates
+
+
+def capture_search_scores(
+    candidates: list[LCDocument],
+    dense: list[tuple[str, float, LCDocument]],
+    sparse: list[tuple[str, float, LCDocument]],
+    rag: RagSettings,
+    *,
+    dense_weight: float | None,
+    sparse_weight: float | None,
+) -> None:
+    evidence = active_evidence.get()
+
+    if evidence is not None and not evidence.benchmark_mode:
+        dense_scores = {key: score for key, score, _ in dense}
+        sparse_scores = {key: score for key, score, _ in sparse}
+        fused: dict[str, float] = {}
+
+        for results, weight in (
+            (dense, dense_weight if dense_weight is not None else rag.hybrid_search.dense_weight),
+            (sparse, sparse_weight if sparse_weight is not None else rag.hybrid_search.sparse_weight),
+        ):
+            for rank, (key, _, _) in enumerate(results, 1):
+                fused[key] = fused.get(key, 0.0) + weight / (rag.hybrid_search.rrf_k + rank)
+
+        for doc in candidates:
+            key = str(doc.metadata["chunk_id"])
+            doc.metadata.update(
+                dense_score=dense_scores.get(key),
+                sparse_score=sparse_scores.get(key),
+                rrf_score=fused.get(key) if sparse else None,
+            )

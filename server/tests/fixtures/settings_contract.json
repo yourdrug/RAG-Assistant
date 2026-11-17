@@ -71,6 +71,18 @@
     "metadata": "[]",
     "required": false
   },
+  "chat_log_retention_days": {
+    "annotation": "<class 'int'>",
+    "default": "180",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
+  "chat_trace_retention_days": {
+    "annotation": "<class 'int'>",
+    "default": "30",
+    "metadata": "[Gt(gt=0)]",
+    "required": false
+  },
   "chunk_contextualization_concurrency": {
     "annotation": "<class 'int'>",
     "default": "4",
@@ -944,6 +956,12 @@
   "timezone": {
     "annotation": "<class 'str'>",
     "default": "'UTC'",
+    "metadata": "[]",
+    "required": false
+  },
+  "trace_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
     "metadata": "[]",
     "required": false
   },

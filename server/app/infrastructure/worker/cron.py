@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from config import JobsSection, process_section
+from config import JobsSection, ObservabilitySection, process_section
 from infrastructure.metrics.jobs import record_job_event
 from infrastructure.worker.policy import RetryPolicy, max_tries
 
@@ -121,3 +121,16 @@ async def cron_recover_stuck_processing(ctx: dict[str, Any]) -> None:
 
     for doc_id in stuck_ids:
         logger.warning("Cron: marked stuck PROCESSING document %d as failed", doc_id)
+
+
+async def cron_chat_log_cleanup(ctx: dict[str, Any]) -> None:
+    settings = process_section(ObservabilitySection)
+
+    for _batch in range(20):
+        async with ctx["uow_factory"].create(master=True) as uow:
+            deleted = await uow.chat_logs.delete_expired(
+                settings.chat_trace_retention_days, settings.chat_log_retention_days
+            )
+
+        if deleted < CLEANUP_BATCH_SIZE:
+            break

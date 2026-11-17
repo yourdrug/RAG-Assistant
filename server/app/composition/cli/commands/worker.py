@@ -20,6 +20,7 @@ from infrastructure.redis.redis_client import redis_client
 from infrastructure.resilience.circuit_breaker import init_breakers
 from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_cleanup
 from infrastructure.worker.cron import (
+    cron_chat_log_cleanup,
     cron_job_cleanup,
     cron_recover_orphaned_jobs,
     cron_recover_stuck_processing,
@@ -109,6 +110,12 @@ def worker(
                     cron_sweep_checkpoint_cleanup,
                     job_id="maintenance:cron_sweep_checkpoint_cleanup",
                     minute=set(range(60)),
+                    timeout=CRON_TIMEOUT,
+                ),
+                cron(
+                    cron_chat_log_cleanup,
+                    job_id="maintenance:cron_chat_log_cleanup",
+                    minute=15,
                     timeout=CRON_TIMEOUT,
                 ),
                 cron(

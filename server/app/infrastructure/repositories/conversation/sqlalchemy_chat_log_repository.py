@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import fields
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from domain.chat.chat_log import ChatLog
 from domain.chat.repositories import DEFAULT_CHAT_LOG_FILTER
 from domain.rag.outcome import AnswerOutcome
-from infrastructure.database.models import ChatLogModel, rag_config_snapshots
+from infrastructure.database.models import ChatLogModel, chat_log_traces, rag_config_snapshots
 
 
 if TYPE_CHECKING:
@@ -31,6 +32,42 @@ class SQLAlchemyChatLogRepository:
         self._db.add(orm)
         await self._db.flush()
         log.id = orm.id
+
+    async def save_trace(self, log_id: int, data: dict[str, Any]) -> None:
+        await self._db.execute(
+            insert(chat_log_traces).values(
+                chat_log_id=log_id, schema_version=data["schema_version"], data=data
+            )
+        )
+
+    async def get_trace(self, log_id: int) -> dict[str, Any] | None:
+        result = await self._db.execute(
+            select(chat_log_traces.c.data).where(chat_log_traces.c.chat_log_id == log_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_expired(self, trace_days: int, log_days: int, limit: int = 1000) -> int:
+        now = datetime.now(UTC)
+        trace_ids = (
+            select(chat_log_traces.c.chat_log_id)
+            .join(ChatLogModel, ChatLogModel.id == chat_log_traces.c.chat_log_id)
+            .where(ChatLogModel.creation_date < now - timedelta(days=trace_days))
+            .limit(limit)
+        )
+        traces = await self._db.execute(
+            delete(chat_log_traces)
+            .where(chat_log_traces.c.chat_log_id.in_(trace_ids))
+            .returning(chat_log_traces.c.chat_log_id)
+        )
+        log_ids = (
+            select(ChatLogModel.id)
+            .where(ChatLogModel.creation_date < now - timedelta(days=log_days))
+            .limit(limit)
+        )
+        logs = await self._db.execute(
+            delete(ChatLogModel).where(ChatLogModel.id.in_(log_ids)).returning(ChatLogModel.id)
+        )
+        return len(traces.all()) + len(logs.all())
 
     async def save_snapshot(self, config_hash: str, data: dict[str, Any]) -> None:
         await self._db.execute(

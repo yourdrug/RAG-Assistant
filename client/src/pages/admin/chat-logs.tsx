@@ -6,6 +6,7 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { ChatLogTrace } from "./chat-log-trace";
 
 const outcomes: AnswerOutcome[] = [
   "generated",
@@ -21,6 +22,7 @@ const outcomes: AnswerOutcome[] = [
 
 function LogCard({ entry }: { entry: ChatLogEntry }) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<"answer" | "trace">("answer");
   const { data, isLoading, isError } = useChatLog(entry.id, open);
   const log = data?.entry ?? entry;
   return (
@@ -39,81 +41,105 @@ function LogCard({ entry }: { entry: ChatLogEntry }) {
         <div className="mt-4 space-y-4">
           {isLoading && <p>Загрузка карточки…</p>}
           {isError && <p role="alert">Не удалось загрузить карточку.</p>}
-          <p className="whitespace-pre-wrap">{log.answer || "Ответ не доставлен"}</p>
-          <dl className="grid grid-cols-2 gap-2 text-sm">
-            <dt>Пространство / пакет</dt>
-            <dd>
-              {log.space_id} / {log.pack_key ?? "—"}
-            </dd>
-            <dt>Домен / ширина</dt>
-            <dd>
-              {log.domain ?? "—"} / {log.breadth ?? "—"} (запрошено: {log.depth_requested ?? "авто"}
-              )
-            </dd>
-            <dt>Модель / профиль</dt>
-            <dd>
-              {log.model_used ?? "—"} / {log.evidence_profile ?? "—"}
-            </dd>
-            <dt>Уверенность / код ошибки</dt>
-            <dd>
-              {log.confidence ?? "—"} / {log.error_code ?? "—"}
-            </dd>
-            <dt>Источники / кандидаты / top rerank</dt>
-            <dd>
-              {log.sources_count ?? "—"} / {log.candidates_count ?? "—"} /{" "}
-              {log.top_rerank_score ?? "—"}
-            </dd>
-            <dt>Токены: вход / выход / вспомогательные</dt>
-            <dd>
-              {log.input_tokens ?? "—"} / {log.output_tokens ?? "—"} / {log.aux_tokens ?? "—"}
-            </dd>
-            <dt>TTFT / поиск / реранк / генерация, мс</dt>
-            <dd>
-              {log.ttft_ms ?? "—"} / {log.retrieval_ms ?? "—"} / {log.rerank_ms ?? "—"} /{" "}
-              {log.generation_ms ?? "—"}
-            </dd>
-            <dt>Сообщение / запрос</dt>
-            <dd>
-              {log.message_id ?? "—"} / {log.request_id ?? "—"}
-            </dd>
-            <dt>Дата вопроса</dt>
-            <dd>{log.as_of_date ?? "—"}</dd>
-            <dt>Сокращённый / уточнённый запрос</dt>
-            <dd>
-              {log.condensed_query ?? "—"} / {log.refined_query ?? "—"}
-            </dd>
-            <dt>Подзапросы</dt>
-            <dd>{log.sub_queries?.join("; ") || "—"}</dd>
-          </dl>
-          <div className="space-x-2">
-            {log.sources?.map((source, index) =>
-              source.document_id ? (
-                <a
-                  className="underline"
-                  key={`${source.document_id}-${index}`}
-                  href={`/documents/${source.document_id}`}
-                >
-                  {source.source}
-                </a>
-              ) : (
-                <span key={`${source.source}-${index}`}>{source.source}</span>
-              ),
-            )}
+          <div className="flex gap-2" role="tablist" aria-label="Карточка ответа">
+            <Button
+              role="tab"
+              aria-selected={tab === "answer"}
+              variant="outline"
+              onClick={() => setTab("answer")}
+            >
+              Ответ
+            </Button>
+            <Button
+              role="tab"
+              aria-selected={tab === "trace"}
+              variant="outline"
+              onClick={() => setTab("trace")}
+            >
+              Трасса
+            </Button>
           </div>
-          <details>
-            <summary className="cursor-pointer">
-              Настройки: {log.config_hash ?? "нет снимка"}
-            </summary>
-            <p className="text-sm">Версия процесса: {log.config_version ?? "—"}</p>
-            <p>Отличия от текущих настроек</p>
-            <pre className="overflow-auto text-xs">
-              {JSON.stringify(data?.snapshot.diff ?? "Сравнение недоступно", null, 2)}
-            </pre>
-            <p>Снимок на момент ответа</p>
-            <pre className="overflow-auto text-xs">
-              {JSON.stringify(data?.snapshot.data, null, 2)}
-            </pre>
-          </details>
+          {tab === "trace" ? (
+            <ChatLogTrace key={entry.id} entry={log} />
+          ) : (
+            <>
+              <p className="whitespace-pre-wrap">{log.answer || "Ответ не доставлен"}</p>
+              <dl className="grid grid-cols-2 gap-2 text-sm">
+                <dt>Пространство / пакет</dt>
+                <dd>
+                  {log.space_id} / {log.pack_key ?? "—"}
+                </dd>
+                <dt>Домен / ширина</dt>
+                <dd>
+                  {log.domain ?? "—"} / {log.breadth ?? "—"} (запрошено:{" "}
+                  {log.depth_requested ?? "авто"})
+                </dd>
+                <dt>Модель / профиль</dt>
+                <dd>
+                  {log.model_used ?? "—"} / {log.evidence_profile ?? "—"}
+                </dd>
+                <dt>Уверенность / код ошибки</dt>
+                <dd>
+                  {log.confidence ?? "—"} / {log.error_code ?? "—"}
+                </dd>
+                <dt>Источники / кандидаты / top rerank</dt>
+                <dd>
+                  {log.sources_count ?? "—"} / {log.candidates_count ?? "—"} /{" "}
+                  {log.top_rerank_score ?? "—"}
+                </dd>
+                <dt>Токены: вход / выход / вспомогательные</dt>
+                <dd>
+                  {log.input_tokens ?? "—"} / {log.output_tokens ?? "—"} / {log.aux_tokens ?? "—"}
+                </dd>
+                <dt>TTFT / поиск / реранк / генерация, мс</dt>
+                <dd>
+                  {log.ttft_ms ?? "—"} / {log.retrieval_ms ?? "—"} / {log.rerank_ms ?? "—"} /{" "}
+                  {log.generation_ms ?? "—"}
+                </dd>
+                <dt>Сообщение / запрос</dt>
+                <dd>
+                  {log.message_id ?? "—"} / {log.request_id ?? "—"}
+                </dd>
+                <dt>Дата вопроса</dt>
+                <dd>{log.as_of_date ?? "—"}</dd>
+                <dt>Сокращённый / уточнённый запрос</dt>
+                <dd>
+                  {log.condensed_query ?? "—"} / {log.refined_query ?? "—"}
+                </dd>
+                <dt>Подзапросы</dt>
+                <dd>{log.sub_queries?.join("; ") || "—"}</dd>
+              </dl>
+              <div className="space-x-2">
+                {log.sources?.map((source, index) =>
+                  source.document_id ? (
+                    <a
+                      className="underline"
+                      key={`${source.document_id}-${index}`}
+                      href={`/documents/${source.document_id}`}
+                    >
+                      {source.source}
+                    </a>
+                  ) : (
+                    <span key={`${source.source}-${index}`}>{source.source}</span>
+                  ),
+                )}
+              </div>
+              <details>
+                <summary className="cursor-pointer">
+                  Настройки: {log.config_hash ?? "нет снимка"}
+                </summary>
+                <p className="text-sm">Версия процесса: {log.config_version ?? "—"}</p>
+                <p>Отличия от текущих настроек</p>
+                <pre className="overflow-auto text-xs">
+                  {JSON.stringify(data?.snapshot.diff ?? "Сравнение недоступно", null, 2)}
+                </pre>
+                <p>Снимок на момент ответа</p>
+                <pre className="overflow-auto text-xs">
+                  {JSON.stringify(data?.snapshot.data, null, 2)}
+                </pre>
+              </details>
+            </>
+          )}
         </div>
       )}
     </details>

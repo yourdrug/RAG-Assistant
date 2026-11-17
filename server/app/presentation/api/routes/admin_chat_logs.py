@@ -5,14 +5,17 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from application.chat import ChatLogService
 from application.identity import AssignmentService
 from domain.chat.chat_log import ChatLog
 from domain.chat.repositories import ChatLogFilter
 from domain.identity.capabilities import Capability
-from domain.identity.roles import UserRole
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.rag.outcome import AnswerOutcome
+from domain.shared.exceptions import EntityNotFoundError
 from presentation.api.auth_dependencies import require_capability
 from presentation.api.constants import DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET, MAX_PAGE_LIMIT
 from presentation.api.dependencies import create_assignment_service, create_chat_log_service
@@ -107,3 +110,41 @@ async def get_config_snapshot(
         raise HTTPException(status_code=404, detail="Snapshot not found")
 
     return service.compare_snapshot(snapshot)
+
+
+class TraceChunkRequest(BaseModel):
+    chunk_ids: list[Annotated[int, Field(gt=0)]] = Field(min_length=1, max_length=500)
+
+
+@router.get("/admin/chat-logs/{log_id}/trace")
+async def get_trace(
+    log_id: int,
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.SYSTEM_OBSERVE))],
+    service: Annotated[ChatLogService, Depends(create_chat_log_service)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+) -> dict[str, Any]:
+    try:
+        return await service.traces.get_trace(
+            log_id, await visible_user_ids(current_user, assignment_service)
+        )
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Trace not found") from exc
+
+
+@router.post("/admin/chat-logs/{log_id}/trace/chunks")
+async def get_trace_chunks(
+    log_id: int,
+    body: TraceChunkRequest,
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.SYSTEM_OBSERVE))],
+    service: Annotated[ChatLogService, Depends(create_chat_log_service)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+) -> dict[str, Any]:
+    viewer = UserContext(
+        user_id=current_user.id, user_kind=UserKind(current_user.kind), user_role=UserRole(current_user.role)
+    )
+    try:
+        return await service.traces.read_chunks(
+            log_id, body.chunk_ids, viewer, await visible_user_ids(current_user, assignment_service)
+        )
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Trace or chunk not found") from exc

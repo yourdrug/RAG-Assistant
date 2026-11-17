@@ -241,6 +241,9 @@ class BenchmarkCaseEvaluator:
             evidence.retrieved if evidence else None,
         )
         saved_evidence: dict[str, Any] = asdict(evidence) if evidence else {"schema_version": 1}
+        # Runtime capture controls are not part of the benchmark trace schema.
+        saved_evidence.pop("benchmark_mode", None)
+        saved_evidence.pop("trace_data", None)
         saved_evidence["annotation_validation"] = validation
         stage_evaluation = evaluate_stage_evidence(evaluation_annotations, saved_evidence, generated.answer)
         evidence_metrics.update(

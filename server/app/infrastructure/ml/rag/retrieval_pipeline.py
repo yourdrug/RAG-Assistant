@@ -66,6 +66,23 @@ async def run_retrieval(
     if policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus:
         filters.insert(0, with_domain_filter(retrieval_filter, state.query_domain))
 
+    evidence = active_evidence.get()
+
+    if evidence is not None and not evidence.benchmark_mode and evidence.attempts:
+        evidence.attempts[-1].setdefault(
+            "search",
+            {
+                "fetch_k": state.fetch_k,
+                "rerank_top_n": state.rerank_top_n,
+                "dense_weight": state.effective_dense_weight,
+                "sparse_weight": state.effective_sparse_weight,
+                "exact_ref_boost": state.use_exact_ref_boost,
+                "domain": state.query_domain,
+                "domain_filter": state.query_domain if len(filters) > 1 else None,
+                "corpus_fallback": False,
+            },
+        )
+
     candidates: list[LCDocument] = []
 
     for access_filter in filters:
@@ -83,6 +100,11 @@ async def run_retrieval(
         )
 
         record_origins(candidates, "search", query_for_search)
+
+        if evidence is not None and not evidence.benchmark_mode and evidence.attempts:
+            evidence.attempts[-1]["search"]["corpus_fallback"] = evidence.attempts[-1]["search"][
+                "corpus_fallback"
+            ] or (len(filters) > 1 and access_filter is retrieval_filter)
 
         if access_filter is retrieval_filter:
             state.full_corpus_searches.add(
@@ -231,6 +253,17 @@ async def apply_legal_rerank_fallback(
     if evidence is not None and evidence.attempts:
         begin_attempt(evidence.attempts[-1]["question"], query_for_search)
         evidence.attempts[-1]["kind"] = "legal_fallback"
+
+        if not evidence.benchmark_mode:
+            evidence.attempts[-1]["search"] = {
+                "fetch_k": rag.retriever.fetch_k,
+                "rerank_top_n": top_k,
+                "dense_weight": rag.hybrid_search.dense_weight,
+                "sparse_weight": rag.hybrid_search.sparse_weight,
+                "exact_ref_boost": False,
+                "domain_filter": None,
+                "corpus_fallback": True,
+            }
 
     authorize_capture(fallback_candidates)
     record_origins(fallback_candidates, "fallback_search", query_for_search)

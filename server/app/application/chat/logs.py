@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import fields
 from typing import TYPE_CHECKING, Any
 
+from application.chat.traces import ChatTraceService
 from application.rag.stream_events import PipelineMetaEvent
 from domain.chat.chat_log import ChatLog
 from domain.chat.repositories import DEFAULT_CHAT_LOG_FILTER, ChatLogFilter
@@ -26,6 +27,7 @@ class ChatLogService:
     ) -> None:
         self._uow_factory = uow_factory
         self.current_snapshot = current_snapshot
+        self.traces = ChatTraceService(uow_factory)
 
     async def create(self, command: CreateChatLogCommand, *, uow: UnitOfWork | None = None) -> None:
         metadata = command.metadata or PipelineMetaEvent()
@@ -59,13 +61,20 @@ class ChatLogService:
             if metadata.config_hash and metadata.config_data is not None:
                 await uow.chat_logs.save_snapshot(metadata.config_hash, metadata.config_data)
 
-            await uow.chat_logs.save(chat_log)
+            await self.save_attempt(uow, chat_log, metadata)
         else:
             async with self._uow_factory.create(master=True) as new_uow:
                 if metadata.config_hash and metadata.config_data is not None:
                     await new_uow.chat_logs.save_snapshot(metadata.config_hash, metadata.config_data)
 
-                await new_uow.chat_logs.save(chat_log)
+                await self.save_attempt(new_uow, chat_log, metadata)
+
+    @staticmethod
+    async def save_attempt(uow: UnitOfWork, entry: ChatLog, metadata: PipelineMetaEvent) -> None:
+        await uow.chat_logs.save(entry)
+
+        if metadata.trace_data and entry.id is not None:
+            await uow.chat_logs.save_trace(entry.id, metadata.trace_data)
 
     async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]:
         async with self._uow_factory.create() as uow:

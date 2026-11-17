@@ -1,4 +1,4 @@
-"""Request-local evidence capture; enabled only by benchmark execution."""
+"""Request-local evidence capture; shared by chat and benchmark execution."""
 
 from collections.abc import Sequence
 from contextvars import ContextVar
@@ -30,6 +30,8 @@ class BenchmarkEvidence:
     completion: str | None = None
     authorized: list[str] = field(default_factory=list)
     completion_details: dict[str, Any] | None = None
+    benchmark_mode: bool = field(default=True, kw_only=True)
+    trace_data: dict[str, Any] = field(default_factory=dict, kw_only=True)
 
 
 active_evidence: ContextVar[BenchmarkEvidence | None] = ContextVar("benchmark_evidence", default=None)
@@ -38,6 +40,30 @@ active_evidence: ContextVar[BenchmarkEvidence | None] = ContextVar("benchmark_ev
 def snapshot_documents(
     docs: Sequence[RetrievalDocument | tuple[RetrievalDocument, float]],
 ) -> list[dict[str, Any]]:
+    evidence = active_evidence.get()
+
+    if evidence is not None and not evidence.benchmark_mode:
+        return [
+            {
+                "metadata": {
+                    key: doc.metadata[key]
+                    for key in ("chunk_id", "document_id", "citation_id")
+                    if key in doc.metadata
+                },
+                "content_hash": content_hash(doc.page_content),
+                "position": position,
+                "score": float(score) if score is not None else None,
+                **{
+                    key: doc.metadata[key]
+                    for key in ("dense_score", "sparse_score", "rrf_score")
+                    if key in doc.metadata
+                },
+            }
+            for position, (doc, score) in enumerate(
+                (item if isinstance(item, tuple) else (item, None) for item in docs), 1
+            )
+        ]
+
     return deepcopy(
         [
             {
@@ -70,6 +96,35 @@ def snapshot_documents(
             )
         ]
     )
+
+
+def trace_document(item: dict[str, Any]) -> dict[str, Any]:
+    metadata = item.get("metadata", {})
+    return {
+        "metadata": {
+            key: metadata[key] for key in ("chunk_id", "document_id", "citation_id") if key in metadata
+        },
+        **{
+            key: item[key]
+            for key in (
+                "content_hash",
+                "position",
+                "score",
+                "score_kind",
+                "reason",
+                "stage",
+                "dense_score",
+                "sparse_score",
+                "rrf_score",
+            )
+            if key in item
+        },
+    }
+
+
+def benchmark_mode() -> bool:
+    evidence = active_evidence.get()
+    return evidence is not None and evidence.benchmark_mode
 
 
 def capture_retrieval(docs: Sequence[RetrievalDocument | tuple[RetrievalDocument, float]]) -> None:
@@ -115,7 +170,7 @@ def capture_prompt(
             evidence.retrieved = snapshot_documents(docs)
 
         evidence.selected = snapshot_documents(selected)
-        evidence.context = context
+        evidence.context = context if evidence.benchmark_mode else None
         evidence.prompt_candidates = snapshot_documents(docs)
         evidence.prompt_budget = budget
 
@@ -128,9 +183,9 @@ def capture_prompt(
 
         if evidence.attempts:
             stage = evidence.attempts[-1]["stages"]["prompt"]
-            stage["context"] = context
+            stage["context"] = context if evidence.benchmark_mode else None
             stage["status"] = status
-            stage["messages"] = deepcopy(messages)
+            stage["messages"] = deepcopy(messages) if evidence.benchmark_mode else None
             stage["budget"] = deepcopy(budget)
 
 
@@ -214,7 +269,7 @@ def capture_stage(
     for document in documents:
         document["score_kind"] = score_kind if document["score"] is not None else None
 
-        if not ordered:
+        if not ordered and evidence.benchmark_mode:
             document["position"] = None
 
         document["origins"] = deepcopy(attempt["origins"].get(evidence_identity(document), []))
@@ -260,10 +315,22 @@ def capture_prepared_query(query: str) -> None:
 
 
 def capture_gate(stage: str, question: str, context: str, result: dict[str, Any]) -> None:
-    """Capture judge inputs and structured decisions only in benchmark diagnostics."""
+    """Capture full benchmark inputs or bounded production gate decisions."""
     evidence = active_evidence.get()
 
     if evidence is not None and evidence.attempts:
         evidence.attempts[-1].setdefault("checks", []).append(
             {"stage": stage, "question": question, "context": context, "result": deepcopy(result)}
+            if evidence.benchmark_mode
+            else {
+                "stage": stage,
+                "result": {
+                    ("reasoning" if key == "reason" else key): (
+                        value[:500] if isinstance(value, str) else value
+                    )
+                    for key, value in result.items()
+                    if key
+                    in {"relevant", "sufficient", "reasoning", "reason", "is_relevant", "is_sufficient"}
+                },
+            }
         )

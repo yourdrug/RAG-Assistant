@@ -13,6 +13,7 @@ from application.runtime.enums import RerankApiFormat
 
 
 class DynamicParamCategory(StrEnum):
+    OBSERVABILITY = "observability"
     CORPUS = "corpus"
     HYBRID = "hybrid"
     INGESTION = "ingestion"
@@ -61,6 +62,18 @@ def profile_param_category(key: str, domain_key: str) -> str:
 
 
 DYNAMIC_PARAMS: list[DynamicParam] = [
+    DynamicParam("trace_enabled", bool, DynamicParamCategory.OBSERVABILITY, "Capture answer traces"),
+    DynamicParam(
+        "chat_trace_retention_days", int, DynamicParamCategory.OBSERVABILITY, "Trace retention days", 1, 3650
+    ),
+    DynamicParam(
+        "chat_log_retention_days",
+        int,
+        DynamicParamCategory.OBSERVABILITY,
+        "Answer log retention days",
+        1,
+        3650,
+    ),
     DynamicParam(
         "qdrant_url", str, DynamicParamCategory.CORPUS, "Qdrant endpoint; coordinated corpus switch only"
     ),

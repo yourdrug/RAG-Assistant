@@ -62,6 +62,7 @@ class RagService:
 
     async def events(self, request: RagRequest) -> AsyncGenerator[StreamEvent]:
         meta = PipelineMetaEvent(
+            trace_data=request.trace_data,
             request_id=request.request_id,
             model_used=request.model,
             config_hash=request.config_hash,
@@ -112,6 +113,10 @@ class RagService:
             confidence=completed.confidence,
             usage=answer.usage,
         )
+
+        if request.trace_data is not None:
+            request.trace_data["outcome"] = answer.outcome
+
         yield replace(
             meta,
             outcome=answer.outcome,
@@ -272,6 +277,9 @@ def terminal_events(
                 outcome = event.outcome
         else:
             yield event
+
+    if request.trace_data is not None:
+        request.trace_data["outcome"] = outcome
 
     yield replace(
         meta, outcome=outcome, aux_tokens=auxiliary_tokens(request), aux_usage=auxiliary_usage(request)

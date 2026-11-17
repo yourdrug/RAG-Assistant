@@ -39,6 +39,7 @@ class RagRequest:
     evidence_profile: str | None = None
     usage_records: list[dict[str, Any]] = field(default_factory=list, compare=False)
     usage_start: int = 0
+    trace_data: dict[str, Any] | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

@@ -717,3 +717,13 @@ class BenchmarkCheckpointModel(LinkedBaseModel):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+
+chat_log_traces = Table(
+    "chat_log_traces",
+    BaseModel.metadata,
+    Column("chat_log_id", Integer, ForeignKey("chat_logs.id", ondelete="CASCADE"), primary_key=True),
+    Column("schema_version", Integer, nullable=False),
+    Column("data", JSONB, nullable=False),
+    CheckConstraint("octet_length(data::text) <= 65536", name="ck_chat_log_trace_size"),
+)

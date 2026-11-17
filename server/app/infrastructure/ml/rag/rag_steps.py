@@ -60,11 +60,13 @@ from infrastructure.ml.guardrails.input_scanner import InputScanner
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
 from infrastructure.ml.rag.benchmark_evidence import (
     active_evidence,
+    benchmark_mode,
     capture_completion,
     capture_prepared_query,
     capture_prompt,
     capture_prompt_delivery,
 )
+from infrastructure.ml.rag.chat_trace import chat_trace_scope
 from infrastructure.ml.rag.document_access import cache_is_accessible
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.generation_budget import prepare_generation_budget
@@ -164,6 +166,7 @@ class RagOperations:
         async with AsyncExitStack() as stack:
             stack.enter_context(evidence_profile_scope(self.evidence_profile))
             stack.enter_context(query_vector_scope())
+            stack.enter_context(chat_trace_scope(self.pii_redactor))
 
             if isinstance(self.ml, MLClientRegistry):
                 await stack.enter_async_context(self.ml.corpus_operation())
@@ -220,6 +223,7 @@ class RagOperations:
             self.domain_registry,
         )
         records = active_llm_usage.get()
+        evidence = active_evidence.get()
         return RagRequest(
             question,
             message_values(history_to_messages(self.prepare_history_dicts(history))),
@@ -235,6 +239,7 @@ class RagOperations:
             evidence_profile=config_data["evidence_profile"],
             usage_records=records if records is not None else [],
             usage_start=len(records) if records is not None else 0,
+            trace_data=evidence.trace_data if evidence is not None and not evidence.benchmark_mode else None,
         )
 
     async def condense(self, request: RagRequest) -> PreparedQuery:
@@ -286,7 +291,7 @@ class RagOperations:
     async def lookup(self, query: PreparedQuery) -> PreparedQuery | TerminalResponse:
         request = query.request
 
-        if active_evidence.get() is not None or not request.settings.features.cache_enabled:
+        if benchmark_mode() or not request.settings.features.cache_enabled:
             return query
 
         revision = await get_corpus_revision()
@@ -605,6 +610,7 @@ class RagOperations:
             evidence_assessment,
             context,
         )
+        trace_budget = production_prompt_budget(base_tokens, input_tokens, exclusions, count_context)
         return ContextAssembly(
             result=result,
             token_counter=token_counter,
@@ -623,6 +629,7 @@ class RagOperations:
                 "effective_breadth": effective_breadth.value,
                 "enumerate_cases": state.enumerate_cases,
                 "query_parts": state.sub_queries or [state.question],
+                **trace_budget,
             },
         )
 
@@ -756,7 +763,7 @@ class RagOperations:
         query = result.prepared
 
         if (
-            active_evidence.get() is None
+            not benchmark_mode()
             and query.request.settings.features.cache_enabled
             and query.cache_revision is not None
         ):
@@ -789,3 +796,23 @@ def generation_chunk_text(chunk: LLMMessagePort) -> str:
         raise TypeError(message)
 
     return chunk.content
+
+
+def production_prompt_budget(
+    base_tokens: int,
+    input_tokens: int,
+    exclusions: list[dict[str, Any]],
+    count_context: Callable[[str, list[BaseMessage]], int],
+) -> dict[str, int]:
+    evidence = active_evidence.get()
+
+    if evidence is None or evidence.benchmark_mode:
+        return {}
+
+    tokens_without_history = count_context("", [])
+    return {
+        "base_tokens": tokens_without_history,
+        "history_tokens": base_tokens - tokens_without_history,
+        "context_tokens": input_tokens - base_tokens,
+        "documents_not_fitted": sum(item["reason"] in {"budget", "oversized_block"} for item in exclusions),
+    }

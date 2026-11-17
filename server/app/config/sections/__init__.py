@@ -13,6 +13,7 @@ from config.sections.http import HttpSection
 from config.sections.jobs import JobsSection
 from config.sections.llm import LLMSection
 from config.sections.ml import MLProviderSection
+from config.sections.observability import ObservabilitySection
 from config.sections.ocr import OCRSection
 from config.sections.rag import HybridSearchSection, RagFeaturesSection, RankingSection, RetrievalSection
 from config.sections.rate_limit import RateLimitSection
@@ -29,6 +30,7 @@ ALL_SECTIONS = (
     MLProviderSection,
     ConcurrencySection,
     OCRSection,
+    ObservabilitySection,
     RetrievalSection,
     RankingSection,
     HybridSearchSection,
@@ -59,6 +61,7 @@ __all__ = [
     "LLMSection",
     "MLProviderSection",
     "OCRSection",
+    "ObservabilitySection",
     "RagFeaturesSection",
     "RankingSection",
     "RateLimitSection",

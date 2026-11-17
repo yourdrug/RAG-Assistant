@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 from application.chunks.dto import ChunkCursorQuery
 from application.chunks.mappers import to_chunk_dto
 from application.identity import UserContextFactory
-from domain.knowledge.access_control import check_document_access
-from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
+from domain.knowledge.access_control import check_document_access, validate_chunk_acl
+from domain.shared.exceptions import EntityNotFoundError
 from domain.shared.pagination import CursorPage, decode_cursor
 
 
@@ -17,24 +17,8 @@ if TYPE_CHECKING:
     from application.chunks.dto import ChunkItemDTO
     from application.uow import UnitOfWorkFactory
     from domain.identity.roles import UserKind, UserRole
-    from domain.knowledge.chunk import ChunkRecord
-    from domain.knowledge.document import Document
 
 log = logging.getLogger(__name__)
-
-
-def validate_chunk_acl(document: Document, chunks: list[ChunkRecord]) -> None:
-    # Fail closed on legacy inconsistency or an ACL change between SQL reads.
-
-    for chunk in chunks:
-        if (
-            chunk.document_id != document.id
-            or chunk.visibility != document.visibility
-            or chunk.owner_id != document.owner_id
-            or chunk.group_id != document.group_id
-        ):
-            msg = "Chunk ACL does not match document ACL"
-            raise BusinessRuleViolationError(msg)
 
 
 class ChunkQueryService:

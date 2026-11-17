@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
@@ -25,6 +26,7 @@ from infrastructure.database.models import (
     ConversationModel,
     MessageModel,
     UserModel,
+    chat_log_traces,
     rag_config_snapshots,
 )
 from infrastructure.repositories.conversation.sqlalchemy_chat_log_repository import (
@@ -80,6 +82,7 @@ async def test_persisted_message_log_and_snapshot_share_transaction(pg_engine: A
         metadata=PipelineMetaEvent(
             outcome=AnswerOutcome.GROUNDED,
             breadth=Breadth.BROAD,
+            trace_data={"schema_version": 1, "attempts": []},
             config_hash="a" * 64,
             config_data={"rag": {"fetch_k": 30}},
         ),
@@ -89,6 +92,7 @@ async def test_persisted_message_log_and_snapshot_share_transaction(pg_engine: A
         row = (await session.execute(select(ChatLogModel))).scalar_one()
         assert row.message_id == message_id
         assert row.outcome == "grounded"
+        assert await session.scalar(select(func.count()).select_from(chat_log_traces)) == 1
         assert await session.scalar(select(func.count()).select_from(MessageModel)) == 2
         assert await session.scalar(select(func.count()).select_from(rag_config_snapshots)) == 1
     assert command.metadata is not None
@@ -145,3 +149,31 @@ async def test_concurrent_snapshots_and_log_filters(pg_engine: AsyncEngine) -> N
         first = (await repo.list_logs())[0]
         assert first.id is not None
         assert await repo.get_by_id(first.id, ()) is None
+
+
+@pytest.mark.asyncio
+async def test_trace_failure_rolls_back_log_and_retention_cascades(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+
+    for age in (10, 40, 200):
+        async with sessions.begin() as session:
+            repo = SQLAlchemyChatLogRepository(session)
+            entry = ChatLog(space_id=1, creation_date=datetime.now(UTC) - timedelta(days=age))
+            await repo.save(entry)
+            assert entry.id is not None
+            await repo.save_trace(entry.id, {"schema_version": 1, "attempts": []})
+
+    async with sessions.begin() as session:
+        assert await SQLAlchemyChatLogRepository(session).delete_expired(30, 180) == 3
+    async with sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(ChatLogModel)) == 2
+        assert await session.scalar(select(func.count()).select_from(chat_log_traces)) == 1
+    with pytest.raises(IntegrityError, match="ck_chat_log_trace_size"):  # noqa: PT012 - transaction must exit on failure
+        async with sessions.begin() as session:
+            repo = SQLAlchemyChatLogRepository(session)
+            entry = ChatLog(space_id=1)
+            await repo.save(entry)
+            assert entry.id is not None
+            await repo.save_trace(entry.id, {"schema_version": 1, "oversize": "x" * 65536})
+    async with sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(ChatLogModel)) == 2

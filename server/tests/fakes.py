@@ -791,10 +791,21 @@ class FakeChatLogRepository:
     def __init__(self) -> None:
         self.logs: list[ChatLog] = []
         self.snapshots: dict[str, dict[str, Any]] = {}
+        self.traces: dict[int, dict[str, Any]] = {}
 
     async def save(self, log: ChatLog) -> None:
         log.id = len(self.logs) + 1
         self.logs.append(log)
+
+    async def save_trace(self, log_id: int, data: dict[str, Any]) -> None:
+        self.traces[log_id] = data
+
+    async def get_trace(self, log_id: int) -> dict[str, Any] | None:
+        return self.traces.get(log_id)
+
+    async def delete_expired(self, trace_days: int, log_days: int, limit: int = 1000) -> int:
+        del trace_days, log_days, limit
+        return 0
 
     async def save_snapshot(self, config_hash: str, data: dict[str, Any]) -> None:
         self.snapshots.setdefault(config_hash, data)

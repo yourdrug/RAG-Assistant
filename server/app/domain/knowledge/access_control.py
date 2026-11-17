@@ -14,6 +14,7 @@ from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 
 if TYPE_CHECKING:
     from domain.identity.user_context import UserContext
+    from domain.knowledge.chunk import ChunkRecord
     from domain.knowledge.document import Document
 
 
@@ -322,3 +323,17 @@ def check_ownership(doc: Document, ctx: UserContext, action: str = "modify") -> 
     ):
         msg = f"No permission to {action} this document"
         raise BusinessRuleViolationError(msg)
+
+
+def validate_chunk_acl(document: Document, chunks: list[ChunkRecord]) -> None:
+    # Fail closed on legacy inconsistency or an ACL change between SQL reads.
+
+    for chunk in chunks:
+        if (
+            chunk.document_id != document.id
+            or chunk.visibility != document.visibility
+            or chunk.owner_id != document.owner_id
+            or chunk.group_id != document.group_id
+        ):
+            msg = "Chunk ACL does not match document ACL"
+            raise BusinessRuleViolationError(msg)
