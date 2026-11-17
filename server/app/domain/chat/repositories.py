@@ -11,7 +11,9 @@ if TYPE_CHECKING:
 
     from domain.chat.chat_log import ChatLog
     from domain.chat.conversation import Conversation, ConversationListItem
+    from domain.chat.feedback import MessageFeedback
     from domain.chat.message import Message
+    from domain.chat.review import ChatLogReview
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,14 @@ class ChatLogFilter:
     model: str | None = None
     breadth: str | None = None
     config_hash: str | None = None
+    # Reaction of the asking user to the delivered answer; "none" means not rated.
+    rating: Literal["up", "down", "none"] | None = None
+    reason: str | None = None
+    has_comment: bool | None = None
+    # "new" also matches entries never reviewed.
+    review_status: str | None = None
+    # Triage queue: a negative rating or a not_found/error outcome, still unreviewed.
+    needs_review: bool = False
     sort_by: Literal["date", "latency", "confidence"] = "date"
     sort_order: Literal["asc", "desc"] = "desc"
     date_from: datetime | None = None
@@ -65,11 +75,18 @@ class ConversationRepository(Protocol):
 @runtime_checkable
 class MessageRepository(Protocol):
     async def save(self, message: Message) -> None: ...
+    async def get_by_id(self, message_id: int) -> Message | None: ...
     async def get_history(self, conversation_id: int, window: int = 8) -> list[Message]: ...
 
     async def list_page(
-        self, conversation_id: int, limit: int, before_id: int | None = None
-    ) -> list[Message]: ...
+        self,
+        conversation_id: int,
+        limit: int,
+        before_id: int | None = None,
+        created_before: datetime | None = None,
+    ) -> list[Message]:
+        """The last ``limit`` messages matching the bounds, in chronological order."""
+        ...
 
 
 @runtime_checkable
@@ -84,6 +101,26 @@ class ChatLogRepository(Protocol):
 
     async def save(self, log: ChatLog) -> None: ...
 
+    async def list_reviews(self, log_ids: list[int]) -> list[ChatLogReview]: ...
+    async def lock_review(self, log_id: int) -> ChatLogReview:
+        """Create the review row if absent and lock it for the rest of the transaction."""
+        ...
+
+    async def save_review(self, review: ChatLogReview) -> None: ...
+    async def stats(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> dict[str, Any]: ...
+
     async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]: ...
 
     async def count_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> int: ...
+
+
+@runtime_checkable
+class MessageFeedbackRepository(Protocol):
+    async def upsert(self, feedback: MessageFeedback) -> MessageFeedback:
+        """Insert or replace the reaction of ``(message_id, user_id)``; concurrent calls keep one row."""
+        ...
+
+    async def delete(self, message_id: int, user_id: int) -> bool: ...
+    async def list_for_messages(
+        self, message_ids: list[int], user_id: int | None = None
+    ) -> list[MessageFeedback]: ...

@@ -15,7 +15,11 @@ from presentation.api.schemas.admin_config import (
 )
 from presentation.api.schemas.admin_jobs import JobResponse, JobsListResponse, JobsStatsResponse
 from presentation.api.schemas.admin_logs import (
+    BenchmarkDraftResponse,
+    BenchmarkTransferRequest,
     ChatLogEntry,
+    ChatLogReviewRequest,
+    ChatLogReviewResponse,
     ChatLogsResponse,
     LogEntry,
     LogsResponse,
@@ -84,6 +88,8 @@ from presentation.api.schemas.chat import (
     ConversationHistoryResponse,
     ConversationListItem,
     ConversationListResponse,
+    FeedbackRequest,
+    FeedbackResponse,
     MessageResponse,
     NewConversationResponse,
 )
@@ -129,6 +135,8 @@ __all__ = [
     # benchmark
     "BenchmarkCancelResponse",
     "BenchmarkDeleteResponse",
+    # admin_logs
+    "BenchmarkDraftResponse",
     "BenchmarkHistoryPoint",
     "BenchmarkHistoryResponse",
     "BenchmarkQuestionCreate",
@@ -144,10 +152,12 @@ __all__ = [
     "BenchmarkResultsListResponse",
     "BenchmarkRunResponse",
     "BenchmarkRunsListResponse",
+    "BenchmarkTransferRequest",
     # auth
     "ChangeRoleRequest",
-    # admin_logs
     "ChatLogEntry",
+    "ChatLogReviewRequest",
+    "ChatLogReviewResponse",
     "ChatLogsResponse",
     # chat
     "ChatRequest",
@@ -188,6 +198,8 @@ __all__ = [
     "ExactSearchRequest",
     "ExactSearchResponse",
     "ExactSearchResult",
+    "FeedbackRequest",
+    "FeedbackResponse",
     # validators
     "FileContent",
     "GroupAssignResponse",

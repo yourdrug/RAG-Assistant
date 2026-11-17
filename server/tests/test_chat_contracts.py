@@ -10,7 +10,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from application.chat import ChatLogService, ChatService, ConversationService, CreateChatLogCommand
+from application.chat import (
+    ChatLogRow,
+    ChatLogService,
+    ChatService,
+    ConversationService,
+    CreateChatLogCommand,
+)
 from application.rag.stream_events import (
     MetaEvent,
     PipelineMetaEvent,
@@ -293,10 +299,12 @@ async def test_log_listing_forwards_scope_and_loads_emails_in_same_uow() -> None
     log = ChatLog(user_id=2)
     fixture.uow.chat_logs.list_logs.return_value = [log]
     fixture.uow.users.get_by_ids.return_value = [SimpleNamespace(id=2, email="owner@example.test")]
-    result = await ChatLogService(fixture.factory).list_logs_with_emails(
+    fixture.uow.message_feedback.list_for_messages.return_value = []
+    fixture.uow.chat_logs.list_reviews.return_value = []
+    result = await ChatLogService(fixture.factory).list_rows(
         filters=ChatLogFilter(user_ids=(2,), limit=5, offset=3)
     )
-    assert result == ([log], {2: "owner@example.test"})
+    assert result == [ChatLogRow(entry=log, email="owner@example.test")]
     fixture.uow.chat_logs.list_logs.assert_awaited_once_with(ChatLogFilter(user_ids=(2,), limit=5, offset=3))
     fixture.uow.users.get_by_ids.assert_awaited_once_with([2])
     fixture.factory.create.assert_called_once_with()

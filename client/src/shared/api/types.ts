@@ -85,11 +85,37 @@ export interface NewConversationResponse {
   conversation_id: number;
 }
 
+export type FeedbackRating = "up" | "down";
+
+export type FeedbackReason =
+  | "no_answer"
+  | "wrong_fact"
+  | "irrelevant_sources"
+  | "incomplete"
+  | "outdated"
+  | "too_long"
+  | "other";
+
+export interface MessageFeedback {
+  rating: FeedbackRating;
+  reasons: FeedbackReason[];
+  comment?: string | null;
+  update_date?: string | null;
+}
+
+export interface FeedbackRequest {
+  rating: FeedbackRating;
+  reasons?: FeedbackReason[];
+  comment?: string | null;
+}
+
 export interface MessageResponse {
   id: number;
   role: "user" | "assistant";
   content: string;
   sources?: Source[];
+  /** The current user's reaction; assistant messages only. */
+  feedback?: MessageFeedback | null;
 }
 
 export interface ConversationHistoryResponse {
@@ -479,9 +505,74 @@ export interface ConfigSnapshot {
   diff: { field: string; saved: unknown; current: unknown }[] | null;
 }
 
+export interface ConversationTurn {
+  id: number | null;
+  role: "user" | "assistant";
+  content: string;
+  creation_date: string;
+}
+
 export interface ChatLogDetail {
   entry: ChatLogEntry;
   snapshot: ConfigSnapshot;
+  context: ConversationTurn[];
+}
+
+export type ReviewStatus =
+  | "new"
+  | "benchmark_candidate"
+  | "in_benchmark"
+  | "content_gap"
+  | "pipeline_issue"
+  | "wont_fix";
+
+export interface ChatLogReview {
+  status: ReviewStatus;
+  note?: string | null;
+  reviewer_id?: number | null;
+  benchmark_question_id?: number | null;
+  update_date?: string | null;
+}
+
+export interface BenchmarkDraft {
+  question: string;
+  history: { role: "user" | "assistant"; content: string }[];
+  as_of_date?: string | null;
+  source_hint?: string | null;
+  datasets: string[];
+  benchmark_question_id?: number | null;
+}
+
+export interface ChatLogGroupStats {
+  key: string | number | null;
+  total: number;
+  down: number;
+  not_found: number;
+  errors: number;
+  cache_hits: number;
+  latency_p50: number | null;
+  latency_p95: number | null;
+}
+
+export interface ChatLogStats {
+  total: number;
+  cache_hits: number;
+  up: number;
+  down: number;
+  latency_p50: number | null;
+  latency_p95: number | null;
+  ttft_p50: number | null;
+  ttft_p95: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  aux_tokens: number;
+  outcomes: Record<string, number>;
+  error_codes: Record<string, number>;
+  reasons: Record<string, number>;
+  by_day: ChatLogGroupStats[];
+  by_space: ChatLogGroupStats[];
+  by_model: ChatLogGroupStats[];
+  by_config_hash: ChatLogGroupStats[];
 }
 
 export interface ChatLogEntry {
@@ -522,6 +613,8 @@ export interface ChatLogEntry {
   evidence_profile?: string | null;
   input_tokens?: number | null;
   output_tokens?: number | null;
+  feedback?: MessageFeedback | null;
+  review?: ChatLogReview | null;
 }
 
 export interface ChatLogsResponse {

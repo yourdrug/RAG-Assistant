@@ -9,10 +9,10 @@ import logging
 from typing import Annotated
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
-from application.chat import ChatService
+from application.chat import ChatService, MessageFeedbackService
 from application.ports.action_logger import ActionLoggerPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.rag.stream_events import MetaEvent, StatusEvent, StreamEvent, TextChunk
@@ -25,10 +25,20 @@ from presentation.api.constants import (
     SSE_HEARTBEAT,
     SSE_MEDIA_TYPE,
 )
-from presentation.api.dependencies import create_action_logger, create_chat_service
-from presentation.api.helpers import filter_sources
+from presentation.api.dependencies import (
+    create_action_logger,
+    create_chat_service,
+    create_message_feedback_service,
+)
+from presentation.api.helpers import feedback_response, filter_sources
 from presentation.api.rate_limit import rate_limit
-from presentation.api.schemas import ChatRequest, ChatResponse, CurrentUser
+from presentation.api.schemas import (
+    ChatRequest,
+    ChatResponse,
+    CurrentUser,
+    FeedbackRequest,
+    FeedbackResponse,
+)
 from shared import request_id_ctx
 
 
@@ -195,6 +205,37 @@ async def chat_sync(
         ) from None
     finally:
         request_id_ctx.reset(token)
+
+
+@router.put(
+    "/chat/messages/{message_id}/feedback",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
+async def rate_message(
+    *,
+    message_id: int,
+    body: FeedbackRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[MessageFeedbackService, Depends(create_message_feedback_service)],
+) -> FeedbackResponse:
+    """Rate your own assistant answer; any other message is 404."""
+    feedback = await service.rate(message_id, current_user.id, body.rating, body.reasons, body.comment)
+    return feedback_response(feedback)
+
+
+@router.delete(
+    "/chat/messages/{message_id}/feedback",
+    status_code=204,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
+async def clear_message_feedback(
+    *,
+    message_id: int,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[MessageFeedbackService, Depends(create_message_feedback_service)],
+) -> Response:
+    await service.clear(message_id, current_user.id)
+    return Response(status_code=204)
 
 
 async def stream_chat_events(

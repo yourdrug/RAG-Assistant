@@ -17,7 +17,7 @@ from application.benchmark import (
     BenchmarkSweepLauncher,
     BenchmarkSweepService,
 )
-from application.chat import ChatLogService, ChatService, ConversationService
+from application.chat import ChatLogService, ChatService, ConversationService, MessageFeedbackService
 from application.chunks import ChunkIndexInspectionService, ChunkMutationService, ChunkQueryService
 from application.documents import (
     DocumentAccessService,
@@ -120,6 +120,7 @@ class ApplicationContainer:
     benchmark_result_service: BenchmarkResultService | None = field(default=None)
     job_service: JobService | None = field(default=None)
     chat_log_service: ChatLogService | None = field(default=None)
+    message_feedback_service: MessageFeedbackService | None = field(default=None)
     assignment_service: AssignmentService | None = field(default=None)
 
     def init(self, infra: InfrastructureContainer) -> None:
@@ -147,8 +148,12 @@ class ApplicationContainer:
         summary_updater = require(infra.ml.summary_updater, "summary_updater")
 
         self.chat_log_service = ChatLogService(
-            uow_factory=uow, current_snapshot=build_config_inspector(infra)
+            uow_factory=uow,
+            current_snapshot=build_config_inspector(infra),
+            pii_redactor=pii_redactor,
+            chat_settings=LiveChatSettings(),
         )
+        self.message_feedback_service = MessageFeedbackService(uow, pii_redactor)
         self.conversation_service = ConversationService(
             uow_factory=uow,
             summary_updater=summary_updater,

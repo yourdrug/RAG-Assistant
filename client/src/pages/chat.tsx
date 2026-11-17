@@ -6,7 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
 import { defaultSpaceId, useConversations, useSpaces } from "@/shared/api/hooks";
 import { queryKeys } from "@/shared/api/query-keys";
-import type { ConversationHistoryResponse, Source } from "@/shared/api/types";
+import type { ConversationHistoryResponse, MessageFeedback, Source } from "@/shared/api/types";
 import type { PipelineStage } from "@/shared/lib/sse";
 import { streamChat } from "@/shared/lib/sse";
 import { readTemporalDate, validIsoDate, writeTemporalDate } from "@/shared/lib/temporal-date";
@@ -21,6 +21,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   sources?: Source[];
+  feedback?: MessageFeedback | null;
 }
 
 function formatRuDate(iso: string): string {
@@ -133,6 +134,7 @@ export function ChatPage() {
           role: m.role,
           content: m.content,
           sources: m.sources,
+          feedback: m.feedback ?? null,
         }));
         setMessages(loaded);
         setHistoryCursor(res.data.next_cursor);
@@ -352,6 +354,13 @@ export function ChatPage() {
               content={m.content}
               sources={m.sources}
               onSourcesClick={setSelectedSources}
+              messageId={m.role === "assistant" ? (m.id ?? undefined) : undefined}
+              feedback={m.feedback}
+              onFeedbackChange={(feedback) =>
+                setMessages((current) =>
+                  current.map((item) => (item === m ? { ...item, feedback } : item)),
+                )
+              }
             />
           ))}
           {streamingMsg !== null && (

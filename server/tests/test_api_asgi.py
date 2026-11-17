@@ -10,7 +10,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from application.chat import ConversationService
+from application.chat import ConversationService, MessageFeedbackService
 from application.chunks import AddChunkResult, EditChunkResult
 from application.documents import DocumentDeletionJobs, DocumentDTO, DocumentQueryService
 from application.spaces import KnowledgeSpaceService
@@ -338,6 +338,8 @@ async def test_conversation_cursor_and_ownership(asgi_client: httpx.AsyncClient)
     ]
     service = ConversationService(factory, MagicMock(), MagicMock())
     app.dependency_overrides[deps.create_conversation_service] = lambda: service
+    feedback = MessageFeedbackService(factory, MagicMock())
+    app.dependency_overrides[deps.create_message_feedback_service] = lambda: feedback
     sign_in(user_id=1)
     response = await asgi_client.get("/conversations/7")
     assert response.status_code == 200
@@ -350,6 +352,35 @@ async def test_conversation_cursor_and_ownership(asgi_client: httpx.AsyncClient)
     assert (await asgi_client.get("/conversations/7")).status_code == 403
     sign_in("admin", 2)
     assert (await asgi_client.get("/conversations/7")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_message_feedback_routes_map_ownership_and_invariants(asgi_client: httpx.AsyncClient) -> None:
+    factory = FakeUnitOfWorkFactory()
+    factory._uow.fake_conversations._convs[7] = {"id": 7, "user_id": 1, "summary": None}
+    factory._uow.fake_messages._messages = [
+        Message(id=1, conversation_id=7, role=MessageRole.USER, content="q"),
+        Message(id=2, conversation_id=7, role=MessageRole.ASSISTANT, content="a"),
+    ]
+    feedback = MessageFeedbackService(factory, MagicMock(redact=lambda text: text))
+    app.dependency_overrides[deps.create_message_feedback_service] = lambda: feedback
+    sign_in(user_id=1)
+
+    rated = await asgi_client.put(
+        "/chat/messages/2/feedback", json={"rating": "down", "reasons": ["outdated"], "comment": "old"}
+    )
+    assert rated.status_code == 200
+    assert rated.json()["reasons"] == ["outdated"]
+    invalid = await asgi_client.put(
+        "/chat/messages/2/feedback", json={"rating": "up", "reasons": ["outdated"]}
+    )
+    assert invalid.status_code == 422
+    assert (await asgi_client.put("/chat/messages/1/feedback", json={"rating": "up"})).status_code == 404
+    assert (await asgi_client.delete("/chat/messages/2/feedback")).status_code == 204
+
+    sign_in(user_id=2)
+    assert (await asgi_client.put("/chat/messages/2/feedback", json={"rating": "up"})).status_code == 404
+    assert factory._uow.fake_message_feedback.items == {}
 
 
 @pytest.mark.asyncio

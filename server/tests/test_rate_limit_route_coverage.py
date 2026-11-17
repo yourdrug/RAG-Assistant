@@ -68,6 +68,10 @@ _EXPECTED: dict[tuple[str, str], str] = {
     ("POST", "/admin/benchmark/questions/import"): RateLimitPolicyName.WRITE.value,
     ("POST", "/admin/benchmark/sweep/{sweep_id}/cancel"): "write",
     ("POST", "/admin/benchmark/sweep/{sweep_id}/resume"): RateLimitPolicyName.BENCHMARK.value,
+    ("PUT", "/chat/messages/{message_id}/feedback"): "write",
+    ("DELETE", "/chat/messages/{message_id}/feedback"): "write",
+    ("PUT", "/admin/chat-logs/{log_id}/review"): "write",
+    ("POST", "/admin/chat-logs/{log_id}/benchmark-question"): "write",
     # benchmark
     ("POST", "/benchmark"): "benchmark",
     ("POST", "/admin/benchmark/sweep"): "benchmark",

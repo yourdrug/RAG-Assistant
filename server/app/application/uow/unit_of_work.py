@@ -19,7 +19,12 @@ if TYPE_CHECKING:
         BenchmarkRunRepository,
         BenchmarkSweepRepository,
     )
-    from domain.chat.repositories import ChatLogRepository, ConversationRepository, MessageRepository
+    from domain.chat.repositories import (
+        ChatLogRepository,
+        ConversationRepository,
+        MessageFeedbackRepository,
+        MessageRepository,
+    )
     from domain.identity.repositories import (
         ApiKeyRepository,
         AssignmentRepository,
@@ -47,6 +52,7 @@ class UnitOfWorkRepositories:
     config_parameters: ConfigParameterRepository
     background_jobs: BackgroundJobRepository
     chat_logs: ChatLogRepository
+    message_feedback: MessageFeedbackRepository
     benchmark_questions: BenchmarkQuestionRepository
     benchmark_sweeps: BenchmarkSweepRepository
     benchmark_runs: BenchmarkRunRepository
@@ -73,6 +79,7 @@ class UnitOfWork(BaseUnitOfWork):
         self.config_parameters = repositories.config_parameters
         self.background_jobs = repositories.background_jobs
         self.chat_logs = repositories.chat_logs
+        self.message_feedback = repositories.message_feedback
         self.benchmark_questions = repositories.benchmark_questions
         self.benchmark_sweeps = repositories.benchmark_sweeps
         self.benchmark_runs = repositories.benchmark_runs

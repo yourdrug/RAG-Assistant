@@ -52,7 +52,7 @@ export {
   useSweeps,
   useUpdateBenchmarkQuestion,
 } from "./use-benchmark";
-export { useChatLogs } from "./use-chat-logs";
+export { useChatLogStats, useChatLogs } from "./use-chat-logs";
 export {
   useAddChunk,
   useChunkIndexState,
@@ -88,6 +88,7 @@ export { useHealth } from "./use-health";
 export { useIngestAll, useIngestFile, useIngestRegistry, useUploadFiles } from "./use-ingest";
 export { useJob, useJobAction, useJobStats, useJobs } from "./use-jobs";
 export { useLogs } from "./use-logs";
+export { useMessageFeedback } from "./use-message-feedback";
 export { useMetrics } from "./use-metrics";
 export {
   defaultSpaceId,

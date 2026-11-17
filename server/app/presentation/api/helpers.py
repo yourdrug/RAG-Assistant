@@ -31,6 +31,7 @@ from presentation.api.schemas import (
     BenchmarkRunResponse,
     DryRunPageResult,
     DryRunResponse,
+    FeedbackResponse,
     SweepCreateRequest,
     SweepResponse,
 )
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
 
     from application.documents import DocumentDTO
     from application.ports.action_logger import ActionLoggerPort
+    from domain.chat.feedback import MessageFeedback
 
 logger = logging.getLogger("default")
 
@@ -394,3 +396,12 @@ def persisted_id(value: int | None) -> int:
         raise RuntimeError(message)
 
     return value
+
+
+def feedback_response(feedback: MessageFeedback) -> FeedbackResponse:
+    return FeedbackResponse(
+        rating=feedback.rating,
+        reasons=sorted(feedback.reasons),
+        comment=feedback.comment,
+        update_date=feedback.update_date,
+    )

@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from domain.chat.feedback import MAX_FEEDBACK_COMMENT_CHARS, FeedbackRating, FeedbackReason
 from domain.rag.classification import explicit_question_date
 from domain.shared.dates import parse_date_guess
 
@@ -39,12 +40,29 @@ class ChatResponse(BaseModel):
     output_tokens: int | None = None
 
 
+class FeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rating: FeedbackRating
+    reasons: list[FeedbackReason] = Field(default_factory=list, max_length=len(FeedbackReason))
+    comment: str | None = Field(None, max_length=MAX_FEEDBACK_COMMENT_CHARS)
+
+
+class FeedbackResponse(BaseModel):
+    rating: FeedbackRating
+    reasons: list[FeedbackReason] = Field(default_factory=list)
+    comment: str | None = None
+    update_date: datetime | None = None
+
+
 class MessageResponse(BaseModel):
     id: int
     role: str
     content: str
     sources: list[Any] | None
     creation_date: datetime | None
+    # The current user's reaction; assistant messages only.
+    feedback: FeedbackResponse | None = None
 
 
 class NewConversationResponse(BaseModel):

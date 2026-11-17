@@ -727,3 +727,43 @@ chat_log_traces = Table(
     Column("data", JSONB, nullable=False),
     CheckConstraint("octet_length(data::text) <= 65536", name="ck_chat_log_trace_size"),
 )
+
+
+message_feedback = Table(
+    "message_feedback",
+    BaseModel.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("message_id", Integer, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("rating", String(8), nullable=False),
+    Column("reasons", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column("comment", Text, nullable=True),
+    Column("creation_date", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("update_date", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("message_id", "user_id", name="uq_message_feedback_message_user"),
+    CheckConstraint("rating IN ('up', 'down')", name="ck_message_feedback_rating"),
+    CheckConstraint("rating = 'down' OR reasons = '[]'::jsonb", name="ck_message_feedback_reasons_down"),
+)
+
+
+chat_log_reviews = Table(
+    "chat_log_reviews",
+    BaseModel.metadata,
+    Column("chat_log_id", Integer, ForeignKey("chat_logs.id", ondelete="CASCADE"), primary_key=True),
+    Column("status", String(30), nullable=False),
+    Column("note", Text, nullable=True),
+    Column("reviewer_id", Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    Column(
+        "benchmark_question_id",
+        Integer,
+        ForeignKey("benchmark_questions.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    Column("update_date", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "status IN ('new', 'benchmark_candidate', 'in_benchmark', 'content_gap', "
+        "'pipeline_issue', 'wont_fix')",
+        name="ck_chat_log_reviews_status",
+    ),
+    Index("idx_chat_log_reviews_status", "status"),
+)

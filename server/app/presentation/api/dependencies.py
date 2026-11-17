@@ -45,7 +45,7 @@ if TYPE_CHECKING:
         BenchmarkSweepLauncher,
         BenchmarkSweepService,
     )
-    from application.chat import ChatLogService, ChatService, ConversationService
+    from application.chat import ChatLogService, ChatService, ConversationService, MessageFeedbackService
     from application.chunks import ChunkIndexInspectionService, ChunkMutationService, ChunkQueryService
     from application.documents import DocumentCommandService, DocumentQueryService, ManualDocumentService
     from application.documents.diagnostics import PDFDiagnosticService
@@ -243,6 +243,12 @@ def create_job_service(request: Request) -> JobService:
 
 def create_chat_log_service(request: Request) -> ChatLogService:
     return get_or_raise(create_container(request).application.chat_log_service, "ChatLogService")
+
+
+def create_message_feedback_service(request: Request) -> MessageFeedbackService:
+    return get_or_raise(
+        create_container(request).application.message_feedback_service, "MessageFeedbackService"
+    )
 
 
 def create_api_key_provider(request: Request) -> ApiKeyProviderPort:

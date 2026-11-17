@@ -39,6 +39,9 @@ from infrastructure.repositories.conversation.sqlalchemy_chat_log_repository imp
 from infrastructure.repositories.conversation.sqlalchemy_conversation_repository import (
     SQLAlchemyConversationRepository,
 )
+from infrastructure.repositories.conversation.sqlalchemy_message_feedback_repository import (
+    SQLAlchemyMessageFeedbackRepository,
+)
 from infrastructure.repositories.conversation.sqlalchemy_message_repository import (
     SQLAlchemyMessageRepository,
 )
@@ -133,6 +136,7 @@ class UnitOfWorkFactory:
                 config_parameters=SQLAlchemyConfigParameterRepository(session),
                 background_jobs=SQLAlchemyBackgroundJobRepository(session),
                 chat_logs=SQLAlchemyChatLogRepository(session),
+                message_feedback=SQLAlchemyMessageFeedbackRepository(session),
                 benchmark_questions=SQLAlchemyBenchmarkQuestionRepository(session),
                 benchmark_sweeps=SQLAlchemyBenchmarkSweepRepository(session),
                 benchmark_runs=SQLAlchemyBenchmarkRunRepository(session),

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Any
+from datetime import date, datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from domain.chat.review import MAX_REVIEW_NOTE_CHARS, ReviewStatus
 from domain.rag.outcome import AnswerOutcome
+from presentation.api.schemas.chat import FeedbackResponse
 
 
 class LogEntry(BaseModel):
@@ -23,6 +25,14 @@ class LogEntry(BaseModel):
 class LogsResponse(BaseModel):
     logs: list[LogEntry]
     total: int
+
+
+class ChatLogReviewResponse(BaseModel):
+    status: ReviewStatus
+    note: str | None = None
+    reviewer_id: int | None = None
+    benchmark_question_id: int | None = None
+    update_date: datetime | None = None
 
 
 class ChatLogEntry(BaseModel):
@@ -64,6 +74,39 @@ class ChatLogEntry(BaseModel):
     generation_ms: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    feedback: FeedbackResponse | None = None
+    review: ChatLogReviewResponse | None = None
+
+
+class ChatLogReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ReviewStatus
+    note: str | None = Field(None, max_length=MAX_REVIEW_NOTE_CHARS)
+
+
+class HistoryTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=16000)
+
+
+class BenchmarkDraftResponse(BaseModel):
+    question: str
+    history: list[HistoryTurn]
+    as_of_date: date | None = None
+    source_hint: str | None = None
+    datasets: list[str]
+    benchmark_question_id: int | None = None
+
+
+class BenchmarkTransferRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dataset: str = Field(min_length=1, max_length=100)
+    question: str = Field(min_length=1, max_length=16000)
+    history: list[HistoryTurn] = Field(default_factory=list, max_length=100)
 
 
 class ChatLogsResponse(BaseModel):

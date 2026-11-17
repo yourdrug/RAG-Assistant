@@ -35,6 +35,7 @@ from application.uow.factory import UnitOfWorkFactory
 from application.uow.unit_of_work import UnitOfWork
 from domain.chat.conversation import Conversation
 from domain.chat.repositories import DEFAULT_CHAT_LOG_FILTER
+from domain.chat.review import ChatLogReview
 from domain.identity.api_key import ApiKey
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user import User
@@ -78,6 +79,7 @@ if TYPE_CHECKING:
     from domain.benchmark.sweep import BenchmarkSweep
     from domain.chat.chat_log import ChatLog
     from domain.chat.conversation import ConversationListItem
+    from domain.chat.feedback import MessageFeedback
     from domain.chat.message import Message
     from domain.chat.repositories import ChatLogFilter
     from domain.identity.api_key import ApiKeyClientInfo
@@ -205,19 +207,50 @@ class FakeMessageRepository:
         message.id = len(self._messages) + 1
         self._messages.append(message)
 
+    async def get_by_id(self, message_id: int) -> Message | None:
+        return next((m for m in self._messages if m.id == message_id), None)
+
     async def get_history(self, conversation_id: int, window: int = 8) -> list[Message]:
         return [m for m in self._messages if m.conversation_id == conversation_id][-window:]
 
     async def list_page(
-        self, conversation_id: int, limit: int, before_id: int | None = None
+        self,
+        conversation_id: int,
+        limit: int,
+        before_id: int | None = None,
+        created_before: datetime | None = None,
     ) -> list[Message]:
         messages = [
             m
             for m in self._messages
             if m.conversation_id == conversation_id
             and (before_id is None or (m.id is not None and m.id < before_id))
+            and (created_before is None or m.creation_date < created_before)
         ]
         return sorted(messages, key=lambda m: m.id or 0)[-limit:]
+
+
+class FakeMessageFeedbackRepository:
+    def __init__(self) -> None:
+        self.items: dict[tuple[int, int], MessageFeedback] = {}
+
+    async def upsert(self, feedback: MessageFeedback) -> MessageFeedback:
+        previous = self.items.get((feedback.message_id, feedback.user_id))
+        stored = replace(feedback, creation_date=previous.creation_date) if previous else feedback
+        self.items[(feedback.message_id, feedback.user_id)] = stored
+        return stored
+
+    async def delete(self, message_id: int, user_id: int) -> bool:
+        return self.items.pop((message_id, user_id), None) is not None
+
+    async def list_for_messages(
+        self, message_ids: list[int], user_id: int | None = None
+    ) -> list[MessageFeedback]:
+        return [
+            item
+            for (message_id, owner), item in self.items.items()
+            if message_id in message_ids and (user_id is None or owner == user_id)
+        ]
 
 
 class FakeGroupRepository:
@@ -792,6 +825,7 @@ class FakeChatLogRepository:
         self.logs: list[ChatLog] = []
         self.snapshots: dict[str, dict[str, Any]] = {}
         self.traces: dict[int, dict[str, Any]] = {}
+        self.reviews: dict[int, ChatLogReview] = {}
 
     async def save(self, log: ChatLog) -> None:
         log.id = len(self.logs) + 1
@@ -818,6 +852,19 @@ class FakeChatLogRepository:
             (log for log in self.logs if log.id == log_id and (user_ids is None or log.user_id in user_ids)),
             None,
         )
+
+    async def list_reviews(self, log_ids: list[int]) -> list[ChatLogReview]:
+        return [self.reviews[log_id] for log_id in log_ids if log_id in self.reviews]
+
+    async def lock_review(self, log_id: int) -> ChatLogReview:
+        return deepcopy(self.reviews.setdefault(log_id, ChatLogReview(chat_log_id=log_id)))
+
+    async def save_review(self, review: ChatLogReview) -> None:
+        self.reviews[review.chat_log_id] = deepcopy(review)
+
+    async def stats(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> dict[str, Any]:
+        del filters
+        return {"total": len(self.logs)}
 
     async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]:
         del filters
@@ -1218,6 +1265,9 @@ class FakeApiKeyRepository:
 
 
 class FakeBenchmarkQuestionRepository:
+    def __init__(self) -> None:
+        self.created: list[BenchmarkQuestion] = []
+
     async def list_active(self, *, dataset: str) -> list[BenchmarkQuestion]:
         del dataset
         return []
@@ -1238,7 +1288,8 @@ class FakeBenchmarkQuestionRepository:
         return 0
 
     async def create(self, question: BenchmarkQuestion) -> BenchmarkQuestion:
-        question.id = 1
+        self.created.append(question)
+        question.id = len(self.created)
         return question
 
     async def update(self, question_id: int, **fields: object) -> BenchmarkQuestion | None:
@@ -1257,7 +1308,7 @@ class FakeBenchmarkQuestionRepository:
         return None
 
     async def get_datasets(self) -> list[str]:
-        return []
+        return sorted({question.dataset for question in self.created})
 
     async def count_by_dataset(self) -> dict[str, int]:
         return {}
@@ -1554,6 +1605,7 @@ class FakeUnitOfWork(UnitOfWork):
         self.fake_config_parameters = self.config_parameters = FakeConfigParameterRepository()
         self.fake_background_jobs = self.background_jobs = FakeBackgroundJobRepository()
         self.fake_chat_logs = self.chat_logs = FakeChatLogRepository()
+        self.fake_message_feedback = self.message_feedback = FakeMessageFeedbackRepository()
         self.fake_benchmark_questions = self.benchmark_questions = FakeBenchmarkQuestionRepository()
         self.fake_benchmark_sweeps = self.benchmark_sweeps = FakeBenchmarkSweepRepository()
         self.fake_benchmark_runs = self.benchmark_runs = FakeBenchmarkRunRepository()

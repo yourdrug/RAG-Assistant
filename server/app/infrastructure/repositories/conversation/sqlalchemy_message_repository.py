@@ -11,6 +11,8 @@ from infrastructure.database.models import MessageModel
 
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -28,6 +30,21 @@ class SQLAlchemyMessageRepository:
         self._db.add(orm)
         await self._db.flush()
         message.id = orm.id
+
+    async def get_by_id(self, message_id: int) -> Message | None:
+        orm = await self._db.get(MessageModel, message_id)
+
+        if orm is None or orm.conversation_id is None:
+            return None
+
+        return Message(
+            id=orm.id,
+            conversation_id=orm.conversation_id,
+            role=MessageRole(orm.role),
+            content=orm.content,
+            sources=orm.sources or [],
+            creation_date=orm.creation_date,
+        )
 
     async def get_history(self, conversation_id: int, window: int = 8) -> list[Message]:
         result = await self._db.execute(
@@ -50,12 +67,19 @@ class SQLAlchemyMessageRepository:
         ]
 
     async def list_page(
-        self, conversation_id: int, limit: int, before_id: int | None = None
+        self,
+        conversation_id: int,
+        limit: int,
+        before_id: int | None = None,
+        created_before: datetime | None = None,
     ) -> list[Message]:
         query = select(MessageModel).where(MessageModel.conversation_id == conversation_id)
 
         if before_id is not None:
             query = query.where(MessageModel.id < before_id)
+
+        if created_before is not None:
+            query = query.where(MessageModel.creation_date < created_before)
 
         result = await self._db.execute(query.order_by(MessageModel.id.desc()).limit(limit))
         return [

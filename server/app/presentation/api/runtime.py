@@ -21,7 +21,7 @@ from application.benchmark import (
     BenchmarkSweepLauncher,
     BenchmarkSweepService,
 )
-from application.chat import ChatLogService, ChatService, ConversationService
+from application.chat import ChatLogService, ChatService, ConversationService, MessageFeedbackService
 from application.chunks import ChunkIndexInspectionService, ChunkMutationService, ChunkQueryService
 from application.documents import (
     DocumentCommandService,
@@ -146,6 +146,9 @@ class ApplicationServices(Protocol):
 
     @property
     def chat_log_service(self) -> ChatLogService | None: ...
+
+    @property
+    def message_feedback_service(self) -> MessageFeedbackService | None: ...
 
     @property
     def assignment_service(self) -> AssignmentService | None: ...

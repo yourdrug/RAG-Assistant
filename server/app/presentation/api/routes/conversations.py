@@ -6,11 +6,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from application.chat import ConversationService
+from application.chat import ConversationService, MessageFeedbackService
+from domain.chat.message import MessageRole
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.constants import CONFIDENCE_KEY, DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET
-from presentation.api.dependencies import create_conversation_service
-from presentation.api.helpers import filter_sources, persisted_id
+from presentation.api.dependencies import create_conversation_service, create_message_feedback_service
+from presentation.api.helpers import feedback_response, filter_sources, persisted_id
 from presentation.api.schemas import (
     ConversationHistoryResponse,
     ConversationListItem,
@@ -65,6 +66,7 @@ async def get_conversation_history(
     before_id: Annotated[int | None, Query(ge=1)] = None,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[ConversationService, Depends(create_conversation_service)],
+    feedback_service: Annotated[MessageFeedbackService, Depends(create_message_feedback_service)],
 ) -> ConversationHistoryResponse:
     messages = await service.get_history(
         conversation_id, current_user.id, current_user.role, limit=limit + 1, before_id=before_id
@@ -72,6 +74,9 @@ async def get_conversation_history(
     has_more = len(messages) > limit
     messages = messages[-limit:]
     next_cursor = messages[0].id if has_more else None
+    feedback = await feedback_service.for_messages(
+        [m.id for m in messages if m.id is not None and m.role == MessageRole.ASSISTANT], current_user.id
+    )
     msg_responses = [
         MessageResponse(
             id=persisted_id(m.id),
@@ -79,6 +84,7 @@ async def get_conversation_history(
             content=m.content,
             sources=filter_sources(m.sources, exclude_keys=frozenset({CONFIDENCE_KEY})),
             creation_date=m.creation_date,
+            feedback=feedback_response(feedback[m.id]) if m.id in feedback else None,
         )
         for m in messages
     ]

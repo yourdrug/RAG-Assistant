@@ -1,15 +1,16 @@
 "use client";
-import { Check, Copy, ExternalLink, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
-import type { Source } from "@/shared/api/types";
+import type { MessageFeedback, Source } from "@/shared/api/types";
 import { remarkDocumentCitations } from "@/shared/lib/document-citations";
 import type { PipelineStage } from "@/shared/lib/sse";
 import { cn } from "@/shared/lib/utils";
 import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
+import { MessageFeedbackControls } from "./message-feedback";
 
 interface Props {
   role: "user" | "assistant";
@@ -18,6 +19,10 @@ interface Props {
   streaming?: boolean;
   stage?: PipelineStage | null;
   onSourcesClick?: (s: Source[]) => void;
+  /** Persisted assistant message: enables rating. */
+  messageId?: number;
+  feedback?: MessageFeedback | null;
+  onFeedbackChange?: (feedback: MessageFeedback | null) => void;
 }
 
 const STAGE_LABELS: Record<PipelineStage, string> = {
@@ -45,9 +50,18 @@ function ThinkingDots({ stage }: { stage?: PipelineStage | null }) {
   );
 }
 
-export function MessageBubble({ role, content, sources, streaming, stage, onSourcesClick }: Props) {
+export function MessageBubble({
+  role,
+  content,
+  sources,
+  streaming,
+  stage,
+  onSourcesClick,
+  messageId,
+  feedback,
+  onFeedbackChange,
+}: Props) {
   const [copied, setCopied] = useState(false);
-  const [liked, setLiked] = useState<"like" | "dislike" | null>(null);
   const isUser = role === "user";
   const isPending = streaming && content.length === 0;
 
@@ -123,7 +137,14 @@ export function MessageBubble({ role, content, sources, streaming, stage, onSour
           </button>
         )}
         {!isUser && !streaming && content && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div
+            className={cn(
+              "flex items-center gap-1 transition-opacity",
+              feedback
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+            )}
+          >
             <Button
               variant="ghost"
               size="icon"
@@ -133,24 +154,13 @@ export function MessageBubble({ role, content, sources, streaming, stage, onSour
             >
               {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn("h-6 w-6", liked === "like" && "text-emerald-500")}
-              onClick={() => setLiked(liked === "like" ? null : "like")}
-              aria-label="Like"
-            >
-              <ThumbsUp className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn("h-6 w-6", liked === "dislike" && "text-red-500")}
-              onClick={() => setLiked(liked === "dislike" ? null : "dislike")}
-              aria-label="Dislike"
-            >
-              <ThumbsDown className="h-3 w-3" />
-            </Button>
+            {messageId !== undefined && (
+              <MessageFeedbackControls
+                messageId={messageId}
+                feedback={feedback ?? null}
+                onChange={(next) => onFeedbackChange?.(next)}
+              />
+            )}
           </div>
         )}
       </div>

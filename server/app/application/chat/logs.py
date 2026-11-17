@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import dataclass, fields, replace
 from typing import TYPE_CHECKING, Any
 
+from application.chat.review import ChatLogReviewService
 from application.chat.traces import ChatTraceService
 from application.rag.stream_events import PipelineMetaEvent
 from domain.chat.chat_log import ChatLog
@@ -16,7 +17,29 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from application.chat.dto import CreateChatLogCommand
+    from application.chat.ports import ChatSettingsPort, PIIRedactorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
+    from domain.chat.feedback import MessageFeedback
+    from domain.chat.message import Message
+    from domain.chat.review import ChatLogReview
+
+EXPORT_MAX_ROWS = 5000
+EXPORT_PAGE_SIZE = 500
+
+
+@dataclass(frozen=True)
+class ChatLogRow:
+    entry: ChatLog
+    email: str | None = None
+    feedback: MessageFeedback | None = None
+    review: ChatLogReview | None = None
+
+
+@dataclass(frozen=True)
+class ChatLogDetails:
+    row: ChatLogRow
+    snapshot: dict[str, Any] | None
+    context: list[Message]
 
 
 class ChatLogService:
@@ -24,10 +47,13 @@ class ChatLogService:
         self,
         uow_factory: UnitOfWorkFactory,
         current_snapshot: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        pii_redactor: PIIRedactorPort | None = None,
+        chat_settings: ChatSettingsPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self.current_snapshot = current_snapshot
         self.traces = ChatTraceService(uow_factory)
+        self.reviews = ChatLogReviewService(uow_factory, pii_redactor, chat_settings)
 
     async def create(self, command: CreateChatLogCommand, *, uow: UnitOfWork | None = None) -> None:
         metadata = command.metadata or PipelineMetaEvent()
@@ -84,24 +110,63 @@ class ChatLogService:
         async with self._uow_factory.create() as uow:
             return await uow.chat_logs.count_logs(filters)
 
-    async def list_logs_with_emails(
-        self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER
-    ) -> tuple[list[ChatLog], dict[int, str]]:
+    async def list_rows(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLogRow]:
         async with self._uow_factory.create() as uow:
-            logs = await uow.chat_logs.list_logs(filters)
-            unique_ids = list({log.user_id for log in logs if log.user_id is not None})
+            return await self.rows(uow, await uow.chat_logs.list_logs(filters))
 
-            if unique_ids:
-                users = await uow.users.get_by_ids(unique_ids)
-                email_map = {u.id: u.email for u in users if u.id is not None}
-            else:
-                email_map = {}
+    async def stats(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> dict[str, Any]:
+        async with self._uow_factory.create() as uow:
+            return await uow.chat_logs.stats(filters)
 
-            return logs, email_map
+    async def export_rows(
+        self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER, max_rows: int = EXPORT_MAX_ROWS
+    ) -> list[ChatLogRow]:
+        """Rows of the filter in its sort order, at most ``max_rows`` from ``filters.offset``."""
+        result: list[ChatLogRow] = []
 
-    async def get_log(
-        self, log_id: int, user_ids: tuple[int, ...] | None = None
-    ) -> tuple[ChatLog, dict[str, Any] | None] | None:
+        async with self._uow_factory.create() as uow:
+            while len(result) < max_rows:
+                page = replace(
+                    filters,
+                    offset=filters.offset + len(result),
+                    limit=min(EXPORT_PAGE_SIZE, max_rows - len(result)),
+                )
+                logs = await uow.chat_logs.list_logs(page)
+                result.extend(await self.rows(uow, logs))
+
+                if len(logs) < page.limit:
+                    break
+
+        return result
+
+    @staticmethod
+    async def rows(uow: UnitOfWork, logs: list[ChatLog]) -> list[ChatLogRow]:
+        user_ids = list({log.user_id for log in logs if log.user_id is not None})
+        users = await uow.users.get_by_ids(user_ids) if user_ids else []
+        emails = {user.id: user.email for user in users if user.id is not None}
+        message_ids = [log.message_id for log in logs if log.message_id is not None]
+        feedback = {
+            (item.message_id, item.user_id): item
+            for item in await uow.message_feedback.list_for_messages(message_ids)
+        }
+        reviews = {
+            item.chat_log_id: item
+            for item in await uow.chat_logs.list_reviews([log.id for log in logs if log.id is not None])
+        }
+        return [
+            ChatLogRow(
+                entry=log,
+                email=emails.get(log.user_id) if log.user_id is not None else None,
+                # Only the asking user's reaction belongs to the entry.
+                feedback=feedback.get((log.message_id, log.user_id))
+                if log.message_id is not None and log.user_id is not None
+                else None,
+                review=reviews.get(log.id) if log.id is not None else None,
+            )
+            for log in logs
+        ]
+
+    async def get_log(self, log_id: int, user_ids: tuple[int, ...] | None = None) -> ChatLogDetails | None:
         async with self._uow_factory.create() as uow:
             entry = await uow.chat_logs.get_by_id(log_id, user_ids)
 
@@ -109,7 +174,10 @@ class ChatLogService:
                 return None
 
             snapshot = await uow.chat_logs.get_snapshot(entry.config_hash) if entry.config_hash else None
-            return entry, snapshot
+            [row] = await self.rows(uow, [entry])
+            return ChatLogDetails(
+                row=row, snapshot=snapshot, context=await self.reviews.previous_turns(uow, entry)
+            )
 
     async def get_snapshot(
         self, config_hash: str, user_ids: tuple[int, ...] | None = None

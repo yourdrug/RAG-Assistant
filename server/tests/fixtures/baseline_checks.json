@@ -25,6 +25,11 @@
     "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'done'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))"
   ],
   [
+    "chat_log_reviews",
+    "ck_chat_log_reviews_status",
+    "CHECK (((status)::text = ANY ((ARRAY['new'::character varying, 'benchmark_candidate'::character varying, 'in_benchmark'::character varying, 'content_gap'::character varying, 'pipeline_issue'::character varying, 'wont_fix'::character varying])::text[])))"
+  ],
+  [
     "chat_log_traces",
     "ck_chat_log_trace_size",
     "CHECK ((octet_length((data)::text) <= 65536))"
@@ -73,6 +78,16 @@
     "documents",
     "documents_visibility_check",
     "CHECK (((visibility)::text = ANY ((ARRAY['internal_public'::character varying, 'internal_group'::character varying, 'internal_private'::character varying, 'client_private'::character varying, 'client_public'::character varying])::text[])))"
+  ],
+  [
+    "message_feedback",
+    "ck_message_feedback_rating",
+    "CHECK (((rating)::text = ANY ((ARRAY['up'::character varying, 'down'::character varying])::text[])))"
+  ],
+  [
+    "message_feedback",
+    "ck_message_feedback_reasons_down",
+    "CHECK ((((rating)::text = 'down'::text) OR (reasons = '[]'::jsonb)))"
   ],
   [
     "messages",
