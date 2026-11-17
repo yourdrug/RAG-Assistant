@@ -202,6 +202,7 @@ class FakeMessageRepository:
         self._messages: list[Message] = []
 
     async def save(self, message: Message) -> None:
+        message.id = len(self._messages) + 1
         self._messages.append(message)
 
     async def get_history(self, conversation_id: int, window: int = 8) -> list[Message]:
@@ -787,8 +788,25 @@ class FakeDocumentRepository:
 
 
 class FakeChatLogRepository:
+    def __init__(self) -> None:
+        self.logs: list[ChatLog] = []
+        self.snapshots: dict[str, dict[str, Any]] = {}
+
     async def save(self, log: ChatLog) -> None:
-        pass
+        log.id = len(self.logs) + 1
+        self.logs.append(log)
+
+    async def save_snapshot(self, config_hash: str, data: dict[str, Any]) -> None:
+        self.snapshots.setdefault(config_hash, data)
+
+    async def get_snapshot(self, config_hash: str) -> dict[str, Any] | None:
+        return self.snapshots.get(config_hash)
+
+    async def get_by_id(self, log_id: int, user_ids: tuple[int, ...] | None = None) -> ChatLog | None:
+        return next(
+            (log for log in self.logs if log.id == log_id and (user_ids is None or log.user_id in user_ids)),
+            None,
+        )
 
     async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]:
         del filters
@@ -1639,7 +1657,7 @@ class FakeChatRAGPort:
 
     async def stream(
         self, question: str, history: list[Message], ctx: RagContext
-    ) -> AsyncIterator[StreamEvent]:
+    ) -> AsyncGenerator[StreamEvent]:
         del question, history, ctx
         yield TextChunk(text=self._answer)
         yield SourcesEvent(sources=self._sources, confidence=0.9)
@@ -1652,8 +1670,7 @@ class FakeChatRAGPort:
             sources=self._sources,
             breadth=self._breadth,
             domain=self._domain,
-            retrieval_count=len(self._sources),
-            reranker_score=None,
+            sources_count=len(self._sources),
             model_used="fake-model",
         )
 

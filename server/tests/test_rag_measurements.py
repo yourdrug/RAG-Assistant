@@ -13,6 +13,7 @@ from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
+from domain.rag.outcome import AnswerOutcome
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.judging.token_usage import judge_usage, record_judge_usage
@@ -67,6 +68,7 @@ async def test_rag_elapsed_includes_retrieval_and_usage_without_judge() -> None:
         await asyncio.sleep(0.02)  # Retrieval/selection time must belong to the RAG measurement.
         return SimpleNamespace(
             answer="answer",
+            outcome=AnswerOutcome.GENERATED,
             sources=[],
             input_tokens=None,
             output_tokens=None,

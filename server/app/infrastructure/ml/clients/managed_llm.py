@@ -146,6 +146,7 @@ class ManagedLLM(Runnable[object, BaseMessage]):
                     accumulated.response_metadata = metadata
                     record_model_response(
                         SimpleNamespace(**raw_response) if raw_response.get("usage") else accumulated,
+                        operation="generate",
                         model=getattr(self.client, "model_name", "") or getattr(self.client, "model", ""),
                     )
 

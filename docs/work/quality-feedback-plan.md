@@ -39,7 +39,7 @@
 
 | Этап | Статус |
 |---|---|
-| A. Исправить и обогатить запись журнала | не начат |
+| A. Исправить и обогатить запись журнала | выполнен (2026-11-17) |
 | B. Трасса запроса | не начат |
 | C. Реакция пользователя | не начат |
 | D. Админка: разбор, перенос в benchmark, сводка | не начат |
@@ -96,86 +96,106 @@ CRUD, импорт и экспорт benchmark-вопросов (`routes/benchma
 
 ## Этап A. Исправить и обогатить запись журнала
 
+**Статус: выполнен в коде (2026-11-17).** Миграция `0016_answer_attempts` подготовлена; применение к
+рабочей БД — отдельный шаг. При применении старые `chat_logs` будут очищены.
+
 **Цель.** Каждая попытка ответа (включая отказы, кэш, ошибки и обрывы) даёт полную запись:
 что спросили, что ответили, каким путём, за сколько, при каких настройках, в каком пространстве.
 
 **Запись журнала и сообщение.** Запись журнала — попытка ответа; сообщение ассистента —
 доставленный ответ; связь 1:0..1.
-- Завершённые попытки (любой исход, кроме `error`/`cancelled`, включая `not_found`,
+- [x] Завершённые попытки (любой исход, кроме `error`/`cancelled`, включая `not_found`,
   блокировки и кэш) сохраняют вопрос и ответ в беседу и запись журнала с `message_id`.
-- `error`/`cancelled`: только запись журнала с частичным ответом, `message_id = NULL`;
+- [x] `error`/`cancelled`: только запись журнала с частичным ответом, `message_id = NULL`;
   в истории беседы хода нет, оценить его нельзя.
 
 **Domain.**
-- `domain/rag/outcome.py`: `AnswerOutcome(StrEnum)` — `generated`, `grounded` (ответ собран
+- [x] `domain/rag/outcome.py`: `AnswerOutcome(StrEnum)` — `generated`, `grounded` (ответ собран
   без LLM), `cache_hit`, `not_found` (любой отказ evidence gate), `out_of_domain`,
   `input_blocked`, `output_blocked`, `error`, `cancelled`. Единый словарь вместо строк
   `capture_completion`; используется и журналом, и benchmark (этап E).
   Один плоский исход на запись; какая проверка отказала — только в трассе.
   Переполнение бюджета промпта — `error` с `error_code=prompt_budget`.
-- `ChatLog`: новые поля (все nullable, кроме `outcome` и `space_id`):
-  - связь: `message_id` (сообщение ассистента), `request_id`;
-  - пространство: `space_id` (FK, из беседы), `pack_key` (снимок пакета на момент ответа);
-  - запрос: `depth_requested`, `as_of_date`, `condensed_query`, `sub_queries`, `refined_query`;
-  - результат: `outcome`, `error_code`, `breadth` (фактическая), `domain` (фактический), `confidence`,
+- [x] `ChatLog`: новые поля (все nullable, кроме `outcome` и `space_id`):
+  - [x] связь: `message_id` (сообщение ассистента), `request_id`;
+  - [x] пространство: `space_id` (FK, из беседы), `pack_key` (снимок пакета на момент ответа);
+  - [x] запрос: `depth_requested`, `as_of_date`, `condensed_query`, `sub_queries`, `refined_query`;
+  - [x] результат: `outcome`, `error_code`, `breadth` (фактическая), `domain` (фактический), `confidence`,
     `sources_count` (вместо `retrieval_count`), `candidates_count`, `top_rerank_score`;
-  - стоимость и время: `model_used`, `input_tokens`, `output_tokens`, `aux_tokens`
+  - [x] стоимость и время: `model_used`, `input_tokens`, `output_tokens`, `aux_tokens`
     (condense/relevance/sufficiency/decomposition суммарно), `latency_ms`, `ttft_ms`,
     `retrieval_ms`, `rerank_ms`, `generation_ms`;
-  - настройки: `config_hash`, `config_version` (справочно), `evidence_profile` (`key@version`).
-- Убрать `retrieval_count`/`reranker_score` с неверной семантикой (переименование, не алиас).
+  - [x] настройки: `config_hash`, `config_version` (справочно), `evidence_profile` (`key@version`).
+- [x] Убрать `retrieval_count`/`reranker_score` с неверной семантикой (переименование, не алиас).
 
 **Application.**
-- `application/rag/stream_events.py`: `PipelineMetaEvent` дополнить `outcome`, `request_id`,
+- [x] `application/rag/stream_events.py`: `PipelineMetaEvent` дополнить `outcome`, `request_id`,
   стадийными таймингами, `candidates_count`, `top_rerank_score`, `condensed_query`,
   `sub_queries`, `refined_query`, `aux_usage`, `config_hash`. Терминальные ответы
   (`TerminalResponse`) тоже завершаются `PipelineMetaEvent` с соответствующим `outcome`,
   в т. ч. `cache_hit`.
-- `RagService.invoke` возвращает те же поля в `RagResult`, чтобы sync и stream писали одинаково.
-- `ChatService.stream_chat`: обрабатывать `PipelineMetaEvent`. Границы записи:
-  - успех — журнал в той же UoW, что и сообщения (`persist_chat`);
-  - исключение — `outcome=error` в отдельной короткой UoW, без текста исключения
+- [x] `RagService.invoke` возвращает те же поля в `RagResult`, чтобы sync и stream писали одинаково.
+- [x] `ChatService.stream_chat`: обрабатывать `PipelineMetaEvent`. Границы записи:
+  - [x] успех — журнал в той же UoW, что и сообщения (`persist_chat`);
+  - [x] исключение — `outcome=error` в отдельной короткой UoW, без текста исключения
     (только код из `_known_stream_error`);
-  - `CancelledError`/`GeneratorExit` — `cancelled` с частичным ответом; запись выполняется
+  - [x] `CancelledError`/`GeneratorExit` — `cancelled` с частичным ответом; запись выполняется
     задачей, отвязанной от отмены генератора (shield/фоновая задача с таймаутом),
     сбой записи логируется.
   Ошибка записи журнала логируется и не маскирует исходную ошибку.
-- `persist_chat` возвращает id сообщения ассистента; он сохраняется в `chat_logs.message_id`
+- [x] `persist_chat` возвращает id сообщения ассистента; он сохраняется в `chat_logs.message_id`
   и отдаётся клиенту: `MetaEvent.message_id` → SSE `done`, `ChatResult.message_id`,
   `MessageResponse.id` в истории беседы.
-- `sync_chat` передаёт `usage`, фактические `breadth`/`domain`/`model_used`.
+- [x] `sync_chat` передаёт `usage`, фактические `breadth`/`domain`/`model_used`.
 
 **Снимок настроек.**
-- Таблица `rag_config_snapshots(hash PK, data JSONB, creation_date)`. `config_hash` — хеш
+- [x] Таблица `rag_config_snapshots(hash PK, data JSONB, creation_date)`. `config_hash` — хеш
   нормализованного *содержимого* настроек, действующих для этого запроса: применённый снимок
   процесса (`RagSection`, `RetrievalSection`/rerank/generation), параметры области пространства
   и пакета, имена моделей LLM/эмбеддингов/реранкера, evidence profile, версия промптов.
   Строка вставляется `ON CONFLICT DO NOTHING`. `applied_version` хранится рядом как
   `config_version` только для справки: он свой у каждого процесса и не говорит, совпали ли параметры.
-- Только несекретные значения из `request_section(...)`; ключи и URL с credentials не попадают (тест).
-- Хеш вычисляется в Infrastructure (там, где уже собирается `generation_config`
+- [x] Только несекретные значения из `request_section(...)`; ключи и URL с credentials не попадают (тест).
+- [x] Хеш вычисляется в Infrastructure (там, где уже собирается `generation_config`
   и ключ кэша, `infrastructure/ml/cache/keys.py`) и проходит наверх как строка.
 
-**Миграция.** Разрушающая: очистка `chat_logs`, новые колонки, индексы `(outcome)`,
+**Миграция — реализована и проверена на временном PostgreSQL.** Разрушающая: очистка `chat_logs`, новые
+колонки, индексы `(outcome)`,
 `(message_id)` unique, `(config_hash)`, `(space_id, creation_date)`, `(creation_date, outcome)`.
 
 **API/UI (минимум этапа).**
-- `ChatLogEntry` с новыми полями; фильтры `space_id`, `outcome`, `model`, `breadth`, `config_hash`;
+- [x] `ChatLogEntry` с новыми полями; фильтры `space_id`, `outcome`, `model`, `breadth`, `config_hash`;
   сортировка по дате/латентности/уверенности.
-- `GET /admin/chat-logs/{id}` — карточка записи + снимок настроек
+- [x] `GET /admin/chat-logs/{id}` — карточка записи + снимок настроек
   (`GET /admin/rag-config-snapshots/{hash}`), с диффом против текущих настроек.
-- В клиенте: колонка-бейдж исхода, раскрывающаяся карточка вместо строки таблицы.
+- [x] В клиенте: колонка-бейдж исхода, раскрывающаяся карточка вместо строки таблицы.
 
 **Готово, когда.**
-- Для каждого `AnswerOutcome` есть тест, что stream и sync пишут одну и ту же запись
+- [x] Для каждого `AnswerOutcome` есть тест, что stream и sync пишут одну и ту же запись
   (кроме таймингов).
-- Ошибка генерации и отмена потока дают запись `error`/`cancelled` без сообщений в беседе.
-- `domain`/`breadth`/`space_id`/`pack_key` в журнале совпадают с фактическими.
-- Тест: снимок настроек не содержит значений `*_API_KEY` и credentials в URL.
+- [x] Ошибка генерации и отмена потока дают запись `error`/`cancelled` без сообщений в беседе.
+- [x] `domain`/`breadth`/`space_id`/`pack_key` в журнале совпадают с фактическими.
+- [x] Тест: снимок настроек не содержит значений `*_API_KEY` и credentials в URL.
 
 **Тесты.** Новые в `tests/test_chat_logs.py` (или существующий файл журнала);
 затрагиваемые: `test_rag_service_stream.py`, `test_rag_pipeline.py`, `test_answer_cache.py`
 (cache hit теперь журналируется исходом, ключ кэша не меняется).
+
+**Результаты проверок.**
+
+- [x] Группа из 99 тестов: журнал, исходы RAG и CURATOR.
+- [x] Группа из 165 тестов: benchmark, characterization, контракты чата, пространства и RAG.
+- [x] Четыре PostgreSQL-сценария: атомарность сообщений/журнала/снимка, конкурентная вставка снимка и
+  фильтры, очистка старого журнала с сохранением сообщений, upgrade/downgrade с проверкой соответствия
+  ORM.
+- [x] `task lint`: Ruff, форматирование, mypy, границы импортов, зависимости и неиспользуемый код.
+- [x] Клиент: `npm run check` и все 6 тестов `npm test`.
+- [x] `graphify update .`.
+
+**Уточнение реализации.** `ChatService.sync_chat` собирает результат из того же потока событий, что и
+`stream_chat`; `RagService.invoke` также возвращает обогащённый `RagResult`. Внутренние
+`PipelineMetaEvent` передаются перед стадиями и при завершении, чтобы сохранить уже известные метаданные
+при ошибке или отмене.
 
 ## Этап B. Трасса запроса
 

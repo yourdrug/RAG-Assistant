@@ -24,7 +24,7 @@ from application.rag.dto import (
     TerminalResponse,
 )
 from application.rag.stream_events import SourcesEvent, TextChunk, UsageReport
-from config import LLMSection, request_section
+from config import LLMSection, config_version, request_section
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.rag.breadth import BREADTH_ALIASES, Breadth
@@ -33,6 +33,7 @@ from domain.rag.classification import (
     is_out_of_domain,
 )
 from domain.rag.exceptions import ContextBudgetExceededError
+from domain.rag.outcome import AnswerOutcome
 from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.domain_profile.answer_policy import classify_query_domain
 from infrastructure.metrics.metrics import (
@@ -47,7 +48,7 @@ from infrastructure.metrics.metrics import (
 from infrastructure.ml.cache.answers import (
     get_corpus_revision,
 )
-from infrastructure.ml.cache.keys import CacheKeyBuilder, generation_identity
+from infrastructure.ml.cache.keys import CacheKeyBuilder, config_snapshot, generation_identity
 from infrastructure.ml.cache.pipeline import check_cache, handle_cache_hit, store_answer_cache
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.evidence_profiles.profiles import (
@@ -91,7 +92,7 @@ from infrastructure.ml.rag.rag_retrieval import query_vector_scope
 from infrastructure.ml.rag.rag_sources import extract_sources
 from infrastructure.ml.rag.retrieval_pipeline import RetrievalPipeline
 from infrastructure.ml.rag.retrieval_work import RetrievalWork
-from infrastructure.ml.usage_capture import extract_usage_from_langchain
+from infrastructure.ml.usage_capture import active_llm_usage, extract_usage_from_langchain
 from infrastructure.repositories.vector.acl import build_qdrant_filter, build_search_filter
 from infrastructure.resilience.circuit_breaker import get_breaker
 from shared import request_id_ctx
@@ -170,7 +171,12 @@ class RagOperations:
             if isinstance(self.ml, MLClientRegistry):
                 await stack.enter_async_context(self.ml.request_operation())
 
-            yield
+            token = active_llm_usage.set([]) if active_llm_usage.get() is None else None
+            try:
+                yield
+            finally:
+                if token is not None:
+                    active_llm_usage.reset(token)
 
     @staticmethod
     def prepare_history_dicts(history: list[Any]) -> list[dict[str, Any]]:
@@ -202,15 +208,33 @@ class RagOperations:
             req_id = uuid.uuid4().hex[:12]
             request_id_ctx.set(req_id)
 
+        settings = build_rag_settings()
+        config_hash, config_data = config_snapshot(
+            settings,
+            {
+                "id": ctx.space.id,
+                "pack_key": ctx.space.pack_key,
+            }
+            if ctx.space is not None
+            else None,
+            self.domain_registry,
+        )
+        records = active_llm_usage.get()
         return RagRequest(
             question,
             message_values(history_to_messages(self.prepare_history_dicts(history))),
             ctx,
-            build_rag_settings(),
+            settings,
             time.monotonic(),
             req_id,
             request_section(LLMSection).llm_model,
             generation_config=generation_identity(),
+            config_hash=config_hash,
+            config_version=config_version(),
+            config_data=config_data,
+            evidence_profile=config_data["evidence_profile"],
+            usage_records=records if records is not None else [],
+            usage_start=len(records) if records is not None else 0,
         )
 
     async def condense(self, request: RagRequest) -> PreparedQuery:
@@ -244,8 +268,8 @@ class RagOperations:
 
         if verdict.blocked:
             log.warning("Input injection blocked [request_id=%s]: %s", request.request_id, verdict.reason)
-            capture_completion("input_safety")
-            return self.empty_response(request)
+            capture_completion(AnswerOutcome.INPUT_BLOCKED)
+            return replace(self.empty_response(request), outcome=AnswerOutcome.INPUT_BLOCKED)
 
         if verdict.flagged:
             log.info(
@@ -291,7 +315,8 @@ class RagOperations:
                             pii_redactor=self.pii_redactor,
                         )
                     ]
-                )
+                ),
+                outcome=AnswerOutcome.CACHE_HIT,
             )
 
         if cached is not None:
@@ -402,14 +427,18 @@ class RagOperations:
             tuple(work.sub_queries),
             work.enumerate_cases,
             work.avg_sim,
+            (work.retrieval_ms or 0) + (previous.retrieval_ms or 0 if previous else 0),
+            (work.rerank_ms or 0) + (previous.rerank_ms or 0 if previous else 0),
+            query.query if previous is not None else None,
+            work.top_rerank_score,
         )
 
     async def reject_ood(self, result: RetrievalResult) -> TerminalResponse | None:
         if not result.documents and is_out_of_domain(result.prepared.query):
             log.info("Out-of-domain question rejected: query_chars=%d", len(result.prepared.query))
             RAG_RELEVANCE_GATE_TOTAL.labels(result="out_of_domain").inc()
-            capture_completion("out_of_domain")
-            return self.empty_response(result.prepared.request)
+            capture_completion(AnswerOutcome.OUT_OF_DOMAIN)
+            return replace(self.empty_response(result.prepared.request), outcome=AnswerOutcome.OUT_OF_DOMAIN)
 
         return None
 
@@ -446,7 +475,7 @@ class RagOperations:
         RAG_SELF_RAG_RETRIES.inc()
 
     async def reject(self, result: RetrievalResult) -> TerminalResponse:
-        capture_completion("relevance_refusal")
+        capture_completion(AnswerOutcome.NOT_FOUND)
         return TerminalResponse(
             tuple(
                 [
@@ -611,7 +640,6 @@ class RagOperations:
             )
         else:
             capture_prompt_delivery(sent=False)
-            capture_completion("grounded_response")
             answer_parts, last_chunk, first_token_at = [context.grounded_answer], None, None
 
         RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
@@ -621,7 +649,6 @@ class RagOperations:
         full_answer = mark_partial_answer(full_answer)
 
         if not output_verdict.safe:
-            capture_completion("output_safety")
             log.warning(
                 "Output security issue [request_id=%s]: %s",
                 request_id_ctx.get(""),
@@ -650,12 +677,19 @@ class RagOperations:
                 input_tokens=input_tokens, output_tokens=output_tokens, model=model_name, operation="generate"
             )
 
+        outcome = AnswerOutcome.GROUNDED if context.grounded_answer is not None else AnswerOutcome.GENERATED
+
+        if not output_verdict.safe:
+            outcome = AnswerOutcome.OUTPUT_BLOCKED
+
+        capture_completion(outcome)
         return SanitizedAnswer(
             context,
             full_answer,
             usage_report,
             round(time.monotonic() - t0, 4) if full_answer else None,
             round(first_token_at - t0, 4) if first_token_at is not None else None,
+            outcome,
         )
 
     async def collect_generation(
@@ -734,6 +768,11 @@ class RagOperations:
                 completed.answer.text,
                 sources=[dict(source) for source in completed.sources],
                 expected_revision=query.cache_revision,
+                answer_metadata={
+                    "breadth": result.breadth.value,
+                    "domain": result.domain,
+                    "confidence": completed.confidence,
+                },
             )
 
 

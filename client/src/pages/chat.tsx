@@ -17,6 +17,7 @@ import { MessageBubble } from "@/widgets/chat/message-bubble";
 import { SourcePanel } from "@/widgets/chat/source-panel";
 
 interface Message {
+  id?: number;
   role: "user" | "assistant";
   content: string;
   sources?: Source[];
@@ -128,6 +129,7 @@ export function ChatPage() {
       })
       .then((res) => {
         const loaded: Message[] = res.data.messages.map((m) => ({
+          id: m.id,
           role: m.role,
           content: m.content,
           sources: m.sources,
@@ -213,6 +215,7 @@ export function ChatPage() {
           ...p,
           {
             role: "assistant",
+            id: data.message_id,
             content: streamingContentRef.current,
             sources: data.sources,
           },

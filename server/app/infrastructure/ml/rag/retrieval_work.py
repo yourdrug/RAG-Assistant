@@ -44,6 +44,9 @@ class RetrievalWork:
     breadth: Breadth | None = None
     fetch_k: int = 0
     rerank_top_n: int = 0
+    retrieval_ms: int | None = None
+    rerank_ms: int | None = None
+    top_rerank_score: float | None = None
     effective_dense_weight: float = 0.0
     effective_sparse_weight: float = 0.0
     use_exact_ref_boost: bool = False

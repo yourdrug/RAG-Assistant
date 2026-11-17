@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from config import settings_overrides
 from domain.rag.exceptions import ContextBudgetExceededError
+from domain.rag.outcome import AnswerOutcome
 from infrastructure.benchmark.evaluation.case_metrics import (
     compute_retriever_metrics_from_sources,
 )
@@ -91,7 +92,7 @@ class RagBenchmarkGenerator:
         try:
             result = await self._rag.invoke(question=question["question"], history=history, ctx=ctx)
             elapsed = time.monotonic() - started
-            evidence.completion = evidence.completion or "completed"
+            evidence.completion = result.outcome
             evidence.answer = {
                 "text": result.answer,
                 "sources": result.sources,
@@ -128,10 +129,10 @@ class RagBenchmarkGenerator:
 
 
 def capture_failure(evidence: BenchmarkEvidence, error: BaseException) -> None:
-    evidence.completion = "error" if isinstance(error, Exception) else "cancelled"
+    evidence.completion = AnswerOutcome.ERROR if isinstance(error, Exception) else AnswerOutcome.CANCELLED
 
     if isinstance(error, ContextBudgetExceededError):
-        evidence.completion = "prompt_budget"
+        evidence.completion_details = {**(evidence.completion_details or {}), "error_code": "prompt_budget"}
 
     evidence.answer = {
         "text": None,

@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    from application.rag.stream_events import UsageReport
+    from datetime import date
+
+    from application.rag.stream_events import PipelineMetaEvent, UsageReport
     from domain.chat.message import Message
 
 
@@ -15,6 +17,7 @@ if TYPE_CHECKING:
 class ChatResult:
     answer: str
     conversation_id: int
+    message_id: int | None = None
     sources: list[dict[str, Any]] = field(default_factory=list)
     confidence: float | None = None
     input_tokens: int | None = None
@@ -30,8 +33,13 @@ class CreateChatLogCommand:
     sources: list[dict[str, Any]]
     latency_ms: int
     depth: str | None
-    retrieval_count: int
-    reranker_score: float | None
+    space_id: int
+    pack_key: str | None = None
+    message_id: int | None = None
+    depth_requested: str | None = None
+    as_of_date: date | None = None
+    confidence: float | None = None
+    metadata: PipelineMetaEvent | None = None
     model_used: str | None = None
     domain: str | None = None
     input_tokens: int | None = None
@@ -48,6 +56,12 @@ class PersistChatCommand:
     latency_ms: int
     depth: str | None
     history: list[Message]
+    space_id: int = 0
+    pack_key: str | None = None
+    depth_requested: str | None = None
+    as_of_date: date | None = None
+    confidence: float | None = None
+    metadata: PipelineMetaEvent | None = None
     usage: UsageReport | None = None
     model_used: str | None = None
     domain: str | None = None

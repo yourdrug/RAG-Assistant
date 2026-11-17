@@ -31,6 +31,8 @@ async def test_chat_routes_log_only_question_length() -> None:
         return_value=SimpleNamespace(
             answer="Ответ",
             conversation_id=3,
+            message_id=9,
+            confidence=None,
             sources=[],
             input_tokens=1,
             output_tokens=2,

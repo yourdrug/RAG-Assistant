@@ -558,3 +558,94 @@ class TestStreamHelperMethods:
         sources = [{"source": "a.pdf"}]
         result = apply_citation_filter(rag, "answer", sources)
         assert result == sources
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "generated",
+        "grounded",
+        "cache_hit",
+        "not_found",
+        "out_of_domain",
+        "input_blocked",
+        "output_blocked",
+    ],
+)
+async def test_pipeline_outcome_matches_stream_and_invoke(outcome: str) -> None:
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "infrastructure.ml.rag.rag_steps.build_rag_settings",
+                return_value=make_rag_settings(cache_enabled=outcome == "cache_hit"),
+            )
+        )
+
+        if outcome == "cache_hit":
+            stack.enter_context(
+                patch(
+                    "infrastructure.ml.cache.pipeline.find_cached_answer",
+                    AsyncMock(
+                        return_value={
+                            "document_ids": [1],
+                            "answer": "cached",
+                            "sources": [{"source": "a.pdf", "document_id": 1}],
+                            "metadata": {"breadth": "broad", "domain": "legal"},
+                        }
+                    ),
+                )
+            )
+        elif outcome == "input_blocked":
+            stack.enter_context(
+                patch(
+                    "infrastructure.ml.rag.rag_steps.InputScanner",
+                    return_value=SimpleNamespace(
+                        scan=lambda _text: SimpleNamespace(blocked=True, flagged=False, reason="blocked")
+                    ),
+                )
+            )
+        elif outcome == "out_of_domain":
+            stack.enter_context(patch("infrastructure.ml.rag.rag_steps.is_out_of_domain", return_value=True))
+        elif outcome == "not_found":
+            stack.enter_context(
+                patch("infrastructure.ml.rag.rag_steps.handle_relevance_gate", AsyncMock(return_value=False))
+            )
+            stack.enter_context(
+                patch(
+                    "infrastructure.ml.rag.rag_steps.assess_sufficiency",
+                    AsyncMock(return_value=SimpleNamespace(is_sufficient=False, suggested_refinement=None)),
+                )
+            )
+        elif outcome == "grounded":
+            stack.enter_context(
+                patch(
+                    "infrastructure.ml.evidence_profiles.profiles.GenericEvidenceProfile.scoped_response",
+                    return_value=("Grounded answer", None),
+                )
+            )
+        elif outcome == "output_blocked":
+            stack.enter_context(
+                patch(
+                    "infrastructure.ml.rag.rag_steps.OutputScanner",
+                    return_value=SimpleNamespace(
+                        sanitize_output=lambda _text: (
+                            NOT_FOUND_ANSWER,
+                            SimpleNamespace(safe=False, reason="blocked"),
+                        )
+                    ),
+                )
+            )
+
+        service = make_stream_service()
+        events = await collect_events(service, "question")
+        meta = next(event for event in reversed(events) if isinstance(event, PipelineMetaEvent))
+        result = await service.invoke("question", [], _make_context())
+        assert meta.outcome == result.outcome == outcome
+        assert meta.request_id == result.request_id
+        assert meta.config_hash == result.config_hash
+        assert meta.candidates_count == result.candidates_count
+
+        if outcome == "cache_hit":
+            assert meta.breadth == result.breadth == Breadth.BROAD
+            assert meta.domain == result.domain == "legal"

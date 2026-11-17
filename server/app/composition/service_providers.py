@@ -48,11 +48,13 @@ from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
     IngestionDocumentSplitter,
 )
+from infrastructure.ml.cache.keys import config_snapshot
 from infrastructure.ml.config.settings_adapters import LiveIngestionSettings
 from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile, evidence_profile_scope
 from infrastructure.ml.guardrails.text_quality_adapter import TextQualityAssessorAdapter
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer, RedisNoteCache
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_steps import RagOperations
 from infrastructure.redis.redis_client import redis_client
 
@@ -357,3 +359,16 @@ def create_space_rag_router(
         )
 
     return SpaceRagRouter(services)
+
+
+def build_config_inspector(infra: InfrastructureContainer) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    catalog = pack_catalog(infra)
+
+    def inspect(saved: dict[str, Any]) -> dict[str, Any]:
+        space = saved.get("space")
+        pack_key = space["pack_key"] if space is not None else NEUTRAL_PACK_KEY
+        profile = catalog.pack(pack_key).evidence_profile
+        with evidence_profile_scope(profile):
+            return config_snapshot(build_rag_settings(), space, catalog.domain_registry(pack_key))[1]
+
+    return inspect

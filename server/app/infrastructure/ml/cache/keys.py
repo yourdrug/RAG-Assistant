@@ -4,9 +4,18 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+import hashlib
+import json
+from typing import TYPE_CHECKING, Any
 
-from config import LLMSection, MLProviderSection, RetrievalSection, request_section
+from config import (
+    HybridSearchSection,
+    LLMSection,
+    MLProviderSection,
+    RankingSection,
+    RetrievalSection,
+    request_section,
+)
 from domain.rag.breadth import Breadth
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.cache.answers import compute_question_hash, compute_visibility_scope_hash
@@ -19,6 +28,7 @@ if TYPE_CHECKING:
 
     from application.rag.dto import PreparedQuery
     from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.rag.settings import RagSettings
 
 
 class CacheKeyBuilder:
@@ -91,3 +101,38 @@ def generation_identity() -> tuple[tuple[str, str | float], ...]:
 
 def cache_today() -> date:
     return datetime.now(UTC).astimezone().date()
+
+
+def config_snapshot(
+    settings: RagSettings, space: dict[str, Any] | None, domain_registry: DomainProfileRegistry | None = None
+) -> tuple[str, dict[str, Any]]:
+    """Hash an explicit non-secret projection; never dump the runtime Settings object."""
+    profile = current_evidence_profile()
+    data: dict[str, Any] = {
+        "rag": asdict(settings),
+        "space": space,
+        "evidence_profile": f"{profile.key}@{profile.version}",
+        "evidence_focus_chars": profile.max_focus_chars,
+        "domain_prompt_versions": {
+            domain.key: hashlib.sha256(
+                (policy_for(domain.key, domain_registry).prompt_addendum(None) or "").encode()
+            ).hexdigest()
+            for domain in domain_registry.all()
+        }
+        if domain_registry is not None
+        else {},
+        "prompt_version": hashlib.sha256(
+            "\n".join(build_system_prompt(breadth) for breadth in Breadth).encode()
+        ).hexdigest(),
+    }
+
+    for section in (LLMSection, MLProviderSection, RetrievalSection, RankingSection, HybridSearchSection):
+        current = request_section(section)
+        data[section.__name__] = {
+            name: getattr(current, name)
+            for name in section.model_fields
+            if not any(part in name.lower() for part in ("key", "url", "origin", "secret", "password"))
+        }
+
+    normalized = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(normalized.encode()).hexdigest(), json.loads(normalized)

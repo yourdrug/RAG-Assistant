@@ -339,6 +339,7 @@ async def rerank_and_enrich(
             min_score=state.rag.rerank.min_score,
             score_gap_ratio=state.rag.rerank.score_gap_ratio,
         )
+    state.rerank_ms = int((time.monotonic() - t0) * 1000)
     RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
     docs = retained_temporal_candidates(docs)
@@ -374,6 +375,8 @@ async def rerank_and_enrich(
 
     # The reranker already applies min_score/score_gap_ratio. Keep its eligible
     # tail for context packing instead of discarding evidence at narrow top_k.
+    state.top_rerank_score = max((score for _, score in docs), default=None)
+    state.rerank_ms = int((time.monotonic() - t0) * 1000)
     capture_stage("retained", docs, score_kind="reranker")
     capture_retrieval(docs)
 
@@ -439,6 +442,7 @@ class RetrievalPipeline:
         self.document_access = document_access
 
     async def run(self, query: str, state: RetrievalWork) -> RetrievalWork:
+        retrieval_start = time.monotonic()
         begin_attempt(state.question, query)
         state.full_corpus_searches.clear()
         candidates, sub_queries = await retrieve_with_decomposition(query, state, self.ml_clients)
@@ -461,6 +465,7 @@ class RetrievalPipeline:
         )
         state.candidates = merge_evidence_candidates(pooled)
         state.enumerate_cases = should_enumerate_cases([doc.page_content for doc in state.candidates])
+        state.retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
         state.docs, _, state.avg_sim = await rerank_and_enrich(
             state.evidence_query or query,
             state.candidates,

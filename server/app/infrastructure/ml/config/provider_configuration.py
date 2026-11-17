@@ -26,7 +26,7 @@ from application.admin import ConfigurationStatus, EffectiveParameter
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType, parse_bool
 from application.runtime.dynamic_params import DYNAMIC_PARAMS, profile_param_category
 from application.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
-from config import settings
+from config import set_config_version, settings
 from domain.shared.exceptions import ValidationError
 from infrastructure.benchmark.judging.clients import retire_judge_clients
 from infrastructure.events.in_process_event_bus import event_bus
@@ -432,6 +432,7 @@ class SettingsProviderConfiguration:
             self.publish_prepared_events(events, prepared)
 
             self._status = ConfigurationStatus(version, version, ready=True, error=None)
+            set_config_version(version)
             self.require_complete = require_complete
         except Exception:
             self.settings.__dict__.update(previous_global)

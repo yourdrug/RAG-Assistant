@@ -54,6 +54,7 @@ return 1
 class CacheOptions(TypedDict, total=False):
     cache_enabled: bool
     expected_revision: str | None
+    answer_metadata: dict[str, Any]
 
 
 class CacheWriteOptions(CacheOptions, total=False):
@@ -197,6 +198,7 @@ async def store_cached_answer(
             "document_ids": document_ids or [],
             "hit_count": 0,
             "created_at": time.time(),
+            "metadata": options.get("answer_metadata", {}),
         }
 
         if expected_revision is not None:

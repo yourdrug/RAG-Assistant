@@ -460,6 +460,15 @@ class DocumentNodeModel(BaseModel):
     text_hash: Mapped[str] = mapped_column(String(16), nullable=False)
 
 
+rag_config_snapshots = Table(
+    "rag_config_snapshots",
+    BaseModel.metadata,
+    Column("hash", String(64), primary_key=True),
+    Column("data", JSONB, nullable=False),
+    Column("creation_date", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+
 class ChatLogModel(BaseModel):
     """Persistent Q&A log for quality tracking."""
 
@@ -468,6 +477,11 @@ class ChatLogModel(BaseModel):
         Index("idx_chat_logs_user_id", "user_id"),
         Index("idx_chat_logs_creation_date", "creation_date"),
         Index("idx_chat_logs_domain", "domain"),
+        Index("idx_chat_logs_outcome", "outcome"),
+        Index("idx_chat_logs_message_id", "message_id", unique=True),
+        Index("idx_chat_logs_config_hash", "config_hash"),
+        Index("idx_chat_logs_space_date", "space_id", "creation_date"),
+        Index("idx_chat_logs_date_outcome", "creation_date", "outcome"),
     )
 
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -481,8 +495,35 @@ class ChatLogModel(BaseModel):
     model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
     breadth: Mapped[str | None] = mapped_column(String(20), nullable=True)
     domain: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    retrieval_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    reranker_score: Mapped[float | None] = mapped_column(nullable=True)
+    message_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+    space_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("knowledge_spaces.id", ondelete="RESTRICT"), nullable=False
+    )
+    pack_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    depth_requested: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    as_of_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(30), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    condensed_query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sub_queries: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    refined_query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sources_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    candidates_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    top_rerank_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    aux_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ttft_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retrieval_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rerank_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    generation_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    config_hash: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("rag_config_snapshots.hash", ondelete="RESTRICT"), nullable=True
+    )
+    config_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    evidence_profile: Mapped[str | None] = mapped_column(String(200), nullable=True)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

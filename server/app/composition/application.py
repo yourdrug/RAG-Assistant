@@ -44,6 +44,7 @@ from application.jobs.service import JobService
 from application.search import SearchService
 from application.spaces import KnowledgeSpaceService
 from composition.service_providers import (
+    build_config_inspector,
     create_ingestion_service,
     create_space_pack_hooks,
     create_space_rag_router,
@@ -145,7 +146,9 @@ class ApplicationContainer:
 
         summary_updater = require(infra.ml.summary_updater, "summary_updater")
 
-        self.chat_log_service = ChatLogService(uow_factory=uow)
+        self.chat_log_service = ChatLogService(
+            uow_factory=uow, current_snapshot=build_config_inspector(infra)
+        )
         self.conversation_service = ConversationService(
             uow_factory=uow,
             summary_updater=summary_updater,

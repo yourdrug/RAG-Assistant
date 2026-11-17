@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
@@ -19,6 +19,13 @@ class ChatLogFilter:
     user_id: int | None = None
     user_ids: tuple[int, ...] | None = None
     domain: str | None = None
+    space_id: int | None = None
+    outcome: str | None = None
+    model: str | None = None
+    breadth: str | None = None
+    config_hash: str | None = None
+    sort_by: Literal["date", "latency", "confidence"] = "date"
+    sort_order: Literal["asc", "desc"] = "desc"
     date_from: datetime | None = None
     date_to: datetime | None = None
     search: str | None = None
@@ -67,6 +74,10 @@ class MessageRepository(Protocol):
 
 @runtime_checkable
 class ChatLogRepository(Protocol):
+    async def save_snapshot(self, config_hash: str, data: dict[str, Any]) -> None: ...
+    async def get_snapshot(self, config_hash: str) -> dict[str, Any] | None: ...
+    async def get_by_id(self, log_id: int, user_ids: tuple[int, ...] | None = None) -> ChatLog | None: ...
+
     async def save(self, log: ChatLog) -> None: ...
 
     async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]: ...

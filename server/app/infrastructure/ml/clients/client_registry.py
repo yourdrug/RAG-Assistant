@@ -19,7 +19,14 @@ import threading
 from typing import TYPE_CHECKING, Self, cast
 
 from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
-from config import ConcurrencySection, process_section, request_settings, settings
+from config import (
+    ConcurrencySection,
+    config_version,
+    process_section,
+    request_config_version,
+    request_settings,
+    settings,
+)
 from domain.shared.exceptions import SemaphoreTimeoutError
 from infrastructure.corpus.resources import CorpusResources
 from infrastructure.ml.clients import factories
@@ -161,6 +168,7 @@ class MLClientRegistry(MLClientPort):
 
         # No suspension between snapshot and family capture: config publication is
         # synchronous on this event loop. Factories construct pools without I/O.
+        version = config_version()
         model = settings.model_copy(deep=True)
         clients: dict[str, object] = {
             "embeddings": self.embeddings(),
@@ -175,6 +183,7 @@ class MLClientRegistry(MLClientPort):
             for client in clients.values():
                 await leases.enter_async_context(client_operation(client))
 
+            version_token = request_config_version.set(version)
             config_token = request_settings.set(model)
             client_token = active_request_clients.set((self, clients))
             try:
@@ -182,6 +191,7 @@ class MLClientRegistry(MLClientPort):
             finally:
                 active_request_clients.reset(client_token)
                 request_settings.reset(config_token)
+                request_config_version.reset(version_token)
 
     # ------------------------------------------------------------------
     # Accessors (lazy init via factories, thread-safe)

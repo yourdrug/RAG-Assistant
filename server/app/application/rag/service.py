@@ -1,8 +1,9 @@
 """Order RAG stages, bounded retry, and public stream events."""
 
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Iterator, Sequence
 from contextlib import aclosing
-from dataclasses import replace
+from dataclasses import fields, replace
+import time
 from typing import Any
 
 from application.rag.dto import PreparedQuery, RagRequest, RetrievalResult, TerminalResponse
@@ -21,7 +22,8 @@ from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, Statu
 from domain.knowledge.enums import DocDomain, DomainKey
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
-from domain.rag.ranking import compute_reranker_score
+from domain.rag.metadata import AnswerMetadata, TokenUsage
+from domain.rag.outcome import AnswerOutcome
 from domain.rag.result import RagResult
 
 
@@ -59,29 +61,46 @@ class RagService:
                     yield event
 
     async def events(self, request: RagRequest) -> AsyncGenerator[StreamEvent]:
+        meta = PipelineMetaEvent(
+            request_id=request.request_id,
+            model_used=request.model,
+            config_hash=request.config_hash,
+            config_data=request.config_data,
+            config_version=request.config_version,
+            evidence_profile=request.evidence_profile,
+        )
+        yield meta
         query = await self.prepare(request)
 
         if isinstance(query, TerminalResponse):
-            for event in query.events:
+            for event in terminal_events(query, meta, request):
                 yield event
 
             return
 
+        meta = replace(meta, condensed_query=query.query)
+        yield meta
         yield StatusEvent(stage="searching")
         result = await self.retrieval.retrieve(query)
         yield StatusEvent(stage="reranking")
+        meta = retrieval_metadata(meta, result)
+        yield meta
         approved = await self.approve(result)
 
         if isinstance(approved, TerminalResponse):
-            for event in approved.events:
+            for event in terminal_events(approved, meta, request):
                 yield event
 
             return
 
         result = approved
+        meta = retrieval_metadata(meta, result)
+        yield meta
         yield StatusEvent(stage="generating")
         context = self.context.build(result)
         answer = await self.generation.generate(context)
+
+        ttft_sec = (time.monotonic() - request.started) if answer.text else None
 
         if answer.text:
             yield TextChunk(text=answer.text)
@@ -93,11 +112,13 @@ class RagService:
             confidence=completed.confidence,
             usage=answer.usage,
         )
-        yield PipelineMetaEvent(
-            breadth=result.breadth,
-            domain=result.domain,
+        yield replace(
+            meta,
+            outcome=answer.outcome,
             generation_sec=answer.generation_sec,
-            ttft_sec=answer.ttft_sec,
+            ttft_sec=ttft_sec,
+            aux_tokens=auxiliary_tokens(request),
+            aux_usage=auxiliary_usage(request),
         )
 
     async def prepare(self, request: RagRequest) -> PreparedQuery | TerminalResponse:
@@ -105,15 +126,22 @@ class RagService:
         terminal = await self.safety.scan(query)
 
         if terminal is not None:
-            return terminal
+            return replace(
+                terminal, events=(PipelineMetaEvent(condensed_query=query.query), *terminal.events)
+            )
 
-        return await self.cache.lookup(query)
+        cached = await self.cache.lookup(query)
+
+        if isinstance(cached, TerminalResponse):
+            return replace(cached, events=(PipelineMetaEvent(condensed_query=query.query), *cached.events))
+
+        return cached
 
     async def approve(self, result: RetrievalResult) -> RetrievalResult | TerminalResponse:
         terminal = await self.evidence.reject_ood(result)
 
         if terminal is not None:
-            return terminal
+            return replace(terminal, retrieval=result)
 
         for attempt in range(2):
             if await self.evidence.relevant(result):
@@ -133,7 +161,7 @@ class RagService:
                 query = replace(result.prepared, query=assessment.refinement)
                 result = await self.retrieval.retrieve(query, previous=result)
 
-        return await self.evidence.reject(result)
+        return replace(await self.evidence.reject(result), retrieval=result)
 
     async def invoke(
         self,
@@ -150,12 +178,9 @@ class RagService:
         sources: list[dict[str, Any]] = []
         breadth = Breadth.NARROW
         domain = DocDomain.GENERAL.value
-        retrieval_count = 0
-        reranker_score: float | None = None
         confidence: float | None = None
         usage_report = None
-        generation_sec: float | None = None
-        ttft_sec: float | None = None
+        meta = PipelineMetaEvent()
 
         async for event in self.events(request):
             if isinstance(event, SourcesEvent):
@@ -163,34 +188,91 @@ class RagService:
                 confidence = event.confidence
                 usage_report = event.usage
             elif isinstance(event, PipelineMetaEvent):
-                breadth = event.breadth or breadth
-
-                domain = event.domain or domain
-
-                if event.generation_sec is not None:
-                    generation_sec = event.generation_sec
-
-                if event.ttft_sec is not None:
-                    ttft_sec = event.ttft_sec
+                meta = event
             elif isinstance(event, TextChunk):
                 answer_parts.append(event.text)
-
-        retrieval_count = len(sources)
-
-        if sources:
-            reranker_score = compute_reranker_score(sources)
 
         return RagResult(
             answer="".join(answer_parts),
             sources=sources,
-            breadth=Breadth(breadth),
-            domain=DomainKey(domain),
-            retrieval_count=retrieval_count,
-            reranker_score=reranker_score,
+            breadth=meta.breadth or breadth,
+            domain=DomainKey(meta.domain or domain),
+            sources_count=len(sources),
             confidence=confidence,
-            model_used=request.model,
+            model_used=meta.model_used,
             input_tokens=usage_report.input_tokens if usage_report else None,
             output_tokens=usage_report.output_tokens if usage_report else None,
-            generation_sec=generation_sec,
-            ttft_sec=ttft_sec,
+            generation_sec=meta.generation_sec,
+            ttft_sec=meta.ttft_sec,
+            config_data=meta.config_data,
+            aux_usage=meta.aux_usage,
+            **{field.name: getattr(meta, field.name) for field in fields(AnswerMetadata)},
         )
+
+
+def auxiliary_usage(request: RagRequest) -> TokenUsage:
+    records = [
+        record
+        for record in request.usage_records[request.usage_start :]
+        if record.get("operation") not in {"generate", "embedding", "reranking"}
+    ]
+    return TokenUsage(
+        input_tokens=sum(int(record["input_tokens"]) for record in records)
+        if all(record.get("input_tokens") is not None for record in records)
+        else None,
+        output_tokens=sum(int(record["output_tokens"]) for record in records)
+        if all(record.get("output_tokens") is not None for record in records)
+        else None,
+    )
+
+
+def auxiliary_tokens(request: RagRequest) -> int | None:
+    usage = auxiliary_usage(request)
+
+    if usage.input_tokens is None or usage.output_tokens is None:
+        return None
+
+    return usage.input_tokens + usage.output_tokens
+
+
+def retrieval_metadata(meta: PipelineMetaEvent, result: RetrievalResult) -> PipelineMetaEvent:
+    return replace(
+        meta,
+        breadth=result.breadth,
+        domain=result.domain,
+        candidates_count=len(result.candidates),
+        top_rerank_score=result.top_rerank_score,
+        condensed_query=result.prepared.query,
+        sub_queries=list(result.sub_queries),
+        refined_query=result.refined_query,
+        retrieval_ms=result.retrieval_ms,
+        rerank_ms=result.rerank_ms,
+    )
+
+
+def terminal_events(
+    terminal: TerminalResponse, meta: PipelineMetaEvent, request: RagRequest
+) -> Iterator[StreamEvent]:
+    if terminal.retrieval is not None:
+        meta = retrieval_metadata(meta, terminal.retrieval)
+
+    outcome = terminal.outcome
+
+    for event in terminal.events:
+        if isinstance(event, PipelineMetaEvent):
+            meta = replace(
+                meta,
+                breadth=event.breadth or meta.breadth,
+                domain=event.domain or meta.domain,
+                condensed_query=event.condensed_query or meta.condensed_query,
+                generation_sec=event.generation_sec,
+            )
+
+            if terminal.outcome == AnswerOutcome.CACHE_HIT:
+                outcome = event.outcome
+        else:
+            yield event
+
+    yield replace(
+        meta, outcome=outcome, aux_tokens=auxiliary_tokens(request), aux_usage=auxiliary_usage(request)
+    )

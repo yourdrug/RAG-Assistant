@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 import json
 import logging
 from typing import Annotated
@@ -59,6 +60,7 @@ def format_sse_event(event: StreamEvent, req_id: str) -> str | None:
         sources = filter_sources(event.sources, exclude_keys=frozenset({CONFIDENCE_KEY}))
         payload = {
             "conversation_id": event.conversation_id,
+            "message_id": event.message_id,
             "sources": sources,
             "confidence": event.confidence,
             "as_of_date": event.as_of_date.isoformat() if event.as_of_date else None,
@@ -86,7 +88,7 @@ def format_sse_event(event: StreamEvent, req_id: str) -> str | None:
                 "each data field contains JSON. Events: "
                 '`message` (no event field): {"text": string}, an answer fragment; '
                 '`status`: {"stage": string}, a progress update; '
-                '`done`: {"conversation_id": integer, "sources": object[]|null, '
+                '`done`: {"conversation_id": integer, "message_id": integer|null, "sources": object[]|null, '
                 '"confidence": number|null, "as_of_date": string|null, "request_id": string}, '
                 "final metadata (as_of_date is an ISO date); "
                 '`error`: {"error": string, "code": string}, a terminal stream error. '
@@ -100,7 +102,7 @@ def format_sse_event(event: StreamEvent, req_id: str) -> str | None:
                         ": heartbeat\n\n"
                         'event: status\ndata: {"stage": "retrieval"}\n\n'
                         'data: {"text": "Hello"}\n\n'
-                        'event: done\ndata: {"conversation_id": 1, "sources": null, '
+                        'event: done\ndata: {"conversation_id": 1, "message_id": null, "sources": null, '
                         '"confidence": null, "as_of_date": null, "request_id": "abc123"}\n\n'
                     ),
                 },
@@ -178,6 +180,8 @@ async def chat_sync(
         return ChatResponse(
             answer=result.answer,
             conversation_id=result.conversation_id,
+            message_id=result.message_id,
+            confidence=result.confidence,
             sources=result.sources,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
@@ -200,24 +204,28 @@ async def stream_chat_events(
     try:
         yield SSE_HEARTBEAT
 
-        async for event in chat_service.stream_chat(
-            req.question,
-            req.conversation_id,
-            current_user.id,
-            current_user.kind,
-            current_user.role,
-            depth=req.depth,
-            as_of_date=req.as_of_date,
-            space_id=req.space_id,
-        ):
-            if await request.is_disconnected():
-                logger.info("Client disconnected, stopping stream (request_id=%s)", req_id)
-                break
+        async with aclosing(
+            chat_service.stream_chat(
+                req.question,
+                req.conversation_id,
+                current_user.id,
+                current_user.kind,
+                current_user.role,
+                depth=req.depth,
+                as_of_date=req.as_of_date,
+                space_id=req.space_id,
+            )
+        ) as stream:
+            async for event in stream:
+                if await request.is_disconnected():
+                    logger.info("Client disconnected, stopping stream (request_id=%s)", req_id)
+                    break
 
-            sse_data = format_sse_event(event, req_id)
+                sse_data = format_sse_event(event, req_id)
 
-            if sse_data is not None:
-                yield sse_data
+                if sse_data is not None:
+                    yield sse_data
+
     except (ContextBudgetExceededError, LLMUnavailableError, SemaphoreTimeoutError) as exc:
         yield _known_stream_error(exc)
     except TimeoutError:

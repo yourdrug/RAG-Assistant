@@ -8,7 +8,7 @@ from application.spaces.ports import DomainPackNotLoadedError
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping, Sequence
+    from collections.abc import AsyncGenerator, Mapping, Sequence
 
     from application.rag.service import RagService
     from application.rag.stream_events import StreamEvent
@@ -38,7 +38,9 @@ class SpaceRagRouter:
 
         return service
 
-    def stream(self, question: str, history: Sequence[object], ctx: RagContext) -> AsyncIterator[StreamEvent]:
+    def stream(
+        self, question: str, history: Sequence[object], ctx: RagContext
+    ) -> AsyncGenerator[StreamEvent]:
         return self.service(ctx).stream(question, history, ctx)
 
     async def invoke(self, question: str, history: Sequence[object], ctx: RagContext) -> RagResult:

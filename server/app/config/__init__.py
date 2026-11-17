@@ -19,6 +19,7 @@ package namespace at call time, so ``patch("config.settings")`` keeps working.
 from __future__ import annotations
 
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Literal, cast, overload
 
 from pydantic import BaseModel, ValidationError
@@ -56,6 +57,25 @@ SECTION_TYPES: frozenset[type[BaseModel]] = frozenset(ALL_SECTIONS)
 settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
 
 request_settings: ContextVar[Settings | None] = ContextVar("request_settings", default=None)
+request_config_version: ContextVar[str | None] = ContextVar("request_config_version", default=None)
+
+
+@dataclass
+class ConfigurationVersion:
+    applied: str | None = None
+
+
+configuration_version = ConfigurationVersion()
+
+
+def set_config_version(version: str | None) -> None:
+    configuration_version.applied = version
+
+
+def config_version() -> str | None:
+    return (
+        request_config_version.get() if request_settings.get() is not None else configuration_version.applied
+    )
 
 
 @overload

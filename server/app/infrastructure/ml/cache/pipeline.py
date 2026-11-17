@@ -23,6 +23,7 @@ import time
 
 from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, TextChunk
 from domain.rag.breadth import Breadth
+from domain.rag.outcome import AnswerOutcome
 from infrastructure.metrics.metrics import (
     RAG_CACHE_HITS_TOTAL,
     RAG_CACHE_MISSES_TOTAL,
@@ -84,8 +85,14 @@ async def handle_cache_hit(
     record_rag_answer(breadth=Breadth.NARROW.value, answer=answer_text, retrieved_count=0, avg_similarity=0.0)
     RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
     sources = [] if output_verdict.leak_detected or output_verdict.echo_detected else cached["sources"]
-    yield SourcesEvent(sources=sources, confidence=None)
-    yield PipelineMetaEvent(breadth=None, domain="", generation_sec=0.0)
+    metadata = cached.get("metadata") or {}
+    yield SourcesEvent(sources=sources, confidence=metadata.get("confidence"))
+    yield PipelineMetaEvent(
+        outcome=AnswerOutcome.CACHE_HIT if output_verdict.safe else AnswerOutcome.OUTPUT_BLOCKED,
+        breadth=Breadth(metadata["breadth"]) if metadata.get("breadth") else None,
+        domain=metadata.get("domain", ""),
+        generation_sec=0.0,
+    )
 
 
 async def store_answer_cache(

@@ -56,6 +56,7 @@ export interface ChatRequest {
 }
 
 export interface ChatResponse {
+  message_id: number;
   answer: string;
   conversation_id: number;
   sources: Source[];
@@ -85,6 +86,7 @@ export interface NewConversationResponse {
 }
 
 export interface MessageResponse {
+  id: number;
   role: "user" | "assistant";
   content: string;
   sources?: Source[];
@@ -460,6 +462,28 @@ export interface LogsResponse {
 
 // ─── Chat Logs (Q&A quality tracking) ────────────────────────────────────────
 
+export type AnswerOutcome =
+  | "generated"
+  | "grounded"
+  | "cache_hit"
+  | "not_found"
+  | "out_of_domain"
+  | "input_blocked"
+  | "output_blocked"
+  | "error"
+  | "cancelled";
+
+export interface ConfigSnapshot {
+  data: Record<string, unknown> | null;
+  current: Record<string, unknown> | null;
+  diff: { field: string; saved: unknown; current: unknown }[] | null;
+}
+
+export interface ChatLogDetail {
+  entry: ChatLogEntry;
+  snapshot: ConfigSnapshot;
+}
+
 export interface ChatLogEntry {
   id: number;
   creation_date: string;
@@ -473,8 +497,29 @@ export interface ChatLogEntry {
   model_used?: string | null;
   breadth?: string | null;
   domain?: string | null;
-  retrieval_count?: number | null;
-  reranker_score?: number | null;
+  outcome: AnswerOutcome;
+  space_id: number;
+  message_id?: number | null;
+  request_id?: string | null;
+  pack_key?: string | null;
+  depth_requested?: string | null;
+  as_of_date?: string | null;
+  condensed_query?: string | null;
+  sub_queries?: string[] | null;
+  refined_query?: string | null;
+  error_code?: string | null;
+  confidence?: number | null;
+  sources_count?: number | null;
+  candidates_count?: number | null;
+  top_rerank_score?: number | null;
+  aux_tokens?: number | null;
+  ttft_ms?: number | null;
+  retrieval_ms?: number | null;
+  rerank_ms?: number | null;
+  generation_ms?: number | null;
+  config_hash?: string | null;
+  config_version?: string | null;
+  evidence_profile?: string | null;
   input_tokens?: number | null;
   output_tokens?: number | null;
 }

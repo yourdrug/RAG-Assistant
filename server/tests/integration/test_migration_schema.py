@@ -92,8 +92,8 @@ def test_baseline_round_trip_matches_metadata(migration_connection: Connection) 
 
     inspector = inspect(migration_connection)
     tables = set(inspector.get_table_names()) - {"alembic_version"}
-    # 0009 dropped cost_rates and cost_usage from the 26-table baseline; 0013 added the two space tables.
-    assert len(tables) == 26
+    # 0016 adds the non-secret RAG configuration snapshot table.
+    assert len(tables) == 27
 
     # Only the starting knowledge space exists in a new installation.
     assert [
@@ -279,3 +279,25 @@ def test_standalone_migration_uses_manager_with_special_password(
         migration_connection.execute(text(f'DROP OWNED BY "{role}"'))
         migration_connection.execute(text(f'DROP ROLE "{role}"'))
         migration_connection.commit()
+
+
+def test_answer_attempt_migration_clears_legacy_logs_and_preserves_messages(
+    migration_connection: Connection,
+) -> None:
+    config = Config("alembic.ini")
+    config.attributes["connection"] = migration_connection
+    command.upgrade(config, "0015")
+    migration_connection.execute(text("INSERT INTO chat_logs (question, answer) VALUES ('old', 'answer')"))
+    migration_connection.execute(
+        text("INSERT INTO messages (role, content) VALUES ('assistant', 'delivered')")
+    )
+    migration_connection.commit()
+    command.upgrade(config, "head")
+    assert migration_connection.scalar(text("SELECT count(*) FROM chat_logs")) == 0
+    assert migration_connection.scalar(text("SELECT count(*) FROM messages")) == 1
+    columns = {column["name"] for column in inspect(migration_connection).get_columns("chat_logs")}
+    assert {"outcome", "space_id", "message_id", "config_hash", "sources_count"} <= columns
+    assert not columns & {"retrieval_count", "reranker_score"}
+    migration_connection.commit()
+    command.downgrade(config, "0015")
+    assert migration_connection.scalar(text("SELECT count(*) FROM messages")) == 1

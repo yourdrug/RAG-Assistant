@@ -7,7 +7,9 @@ method opens its own async UnitOfWork via the injected UnitOfWorkFactory.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+from contextlib import aclosing
+from dataclasses import dataclass, field, replace
 import html
 import logging
 import time
@@ -17,6 +19,7 @@ from application.chat.dto import ChatResult, CreateChatLogCommand, PersistChatCo
 from application.identity import UserContextFactory
 from application.rag.stream_events import (
     MetaEvent,
+    PipelineMetaEvent,
     SourcesEvent,
     StatusEvent,
     TextChunk,
@@ -25,12 +28,18 @@ from application.spaces.resolution import client_space, resolve_space
 from domain.chat.message import Message, MessageRole
 from domain.identity.roles import UserKind
 from domain.rag.context import RagContext
-from domain.rag.ranking import compute_reranker_score
-from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
+from domain.rag.exceptions import ContextBudgetExceededError
+from domain.rag.outcome import AnswerOutcome
+from domain.shared.exceptions import (
+    BusinessRuleViolationError,
+    LLMUnavailableError,
+    SemaphoreTimeoutError,
+    ValidationError,
+)
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
     from datetime import date
 
     from application.chat.conversations import ConversationService
@@ -38,6 +47,7 @@ if TYPE_CHECKING:
     from application.chat.ports import ChatRAGPort, ChatSettingsPort, PIIRedactorPort
     from application.rag.stream_events import (
         StreamEvent,
+        UsageReport,
     )
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.chat.conversation import Conversation
@@ -55,6 +65,37 @@ class ChatSetup:
     pii_question: str
 
 
+@dataclass
+class ChatAttempt:
+    setup: ChatSetup
+    conv_id: int
+    user_id: int
+    depth: str | None
+    started: float = field(default_factory=time.monotonic)
+    full_answer: str = ""
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    confidence: float | None = None
+    usage: UsageReport | None = None
+    metadata: PipelineMetaEvent = field(default_factory=PipelineMetaEvent)
+    first_text_at: float | None = None
+
+    def observe(self, event: StreamEvent) -> bool:
+        if isinstance(event, SourcesEvent):
+            self.sources, self.confidence, self.usage = event.sources, event.confidence, event.usage
+        elif isinstance(event, PipelineMetaEvent):
+            self.metadata = event
+        elif isinstance(event, StatusEvent):
+            return True
+        elif isinstance(event, TextChunk):
+            if self.first_text_at is None and event.text:
+                self.first_text_at = time.monotonic()
+
+            self.full_answer += event.text
+            return True
+
+        return False
+
+
 class ChatService:
     def __init__(
         self,
@@ -67,6 +108,7 @@ class ChatService:
         pii_redactor: PIIRedactorPort,
         user_ctx_factory: UserContextFactory | None = None,
     ) -> None:
+        self.pending_log_tasks: set[asyncio.Task[None]] = set()
         self._uow_factory = uow_factory
         self._rag_service = rag_service
         self._settings = chat_settings
@@ -173,55 +215,108 @@ class ChatService:
 
         return space
 
-    async def persist_chat(self, command: PersistChatCommand) -> None:
-        safe_question = html.escape(command.question)
+    async def persist_chat(self, command: PersistChatCommand) -> int:
         async with self._uow_factory.create(master=True) as uow:
             await uow.messages.save(
                 Message(
                     conversation_id=command.conv_id,
                     role=MessageRole.USER,
-                    content=safe_question,
+                    content=html.escape(command.question),
                 )
             )
-            await uow.messages.save(
-                Message(
-                    conversation_id=command.conv_id,
-                    role=MessageRole.ASSISTANT,
-                    content=command.full_answer,
-                    sources=command.sources,
-                )
+            assistant = Message(
+                conversation_id=command.conv_id,
+                role=MessageRole.ASSISTANT,
+                content=command.full_answer,
+                sources=command.sources,
             )
-            await self._chat_log_service.create(
-                CreateChatLogCommand(
-                    user_id=command.user_id,
-                    conv_id=command.conv_id,
-                    question=command.question,
-                    full_answer=command.full_answer,
-                    sources=command.sources,
-                    latency_ms=command.latency_ms,
-                    depth=command.depth,
-                    retrieval_count=len(command.sources),
-                    reranker_score=compute_reranker_score(command.sources),
-                    model_used=command.model_used,
-                    domain=command.domain,
-                    input_tokens=command.usage.input_tokens if command.usage else None,
-                    output_tokens=command.usage.output_tokens if command.usage else None,
-                ),
-                uow=uow,
-            )
+            await uow.messages.save(assistant)
 
-        if command.usage:
-            log.info(
-                "chat_token_usage conversation=%d input=%s output=%s model=%s",
-                command.conv_id,
-                command.usage.input_tokens,
-                command.usage.output_tokens,
-                command.usage.model,
-            )
+            if assistant.id is None:
+                msg = "Saved assistant message has no id"
+                raise RuntimeError(msg)
 
-        await self._conversation_service.update_rolling_summary(
-            command.conv_id, command.question, command.full_answer, command.history
+            await self._chat_log_service.create(self.log_command(command, assistant.id), uow=uow)
+        return assistant.id
+
+    async def update_summary(self, command: PersistChatCommand) -> None:
+        try:
+            await self._conversation_service.update_rolling_summary(
+                command.conv_id, command.question, command.full_answer, command.history
+            )
+        except Exception:  # noqa: BLE001 - committed chat must survive summary failure; omit private error text.
+            log.warning("Rolling summary update failed conversation=%d", command.conv_id)
+        except asyncio.CancelledError:
+            # The transaction already committed: this remains a completed attempt.
+            log.info("Summary update cancelled conversation=%d", command.conv_id)
+
+    @staticmethod
+    def log_command(command: PersistChatCommand, message_id: int | None = None) -> CreateChatLogCommand:
+        return CreateChatLogCommand(
+            user_id=command.user_id,
+            conv_id=command.conv_id,
+            question=command.question,
+            full_answer=command.full_answer,
+            sources=command.sources,
+            latency_ms=command.latency_ms,
+            depth=command.depth,
+            depth_requested=command.depth_requested,
+            space_id=command.space_id,
+            pack_key=command.pack_key,
+            message_id=message_id,
+            as_of_date=command.as_of_date,
+            confidence=command.confidence,
+            metadata=command.metadata,
+            model_used=command.model_used,
+            domain=command.domain,
+            input_tokens=command.usage.input_tokens if command.usage else None,
+            output_tokens=command.usage.output_tokens if command.usage else None,
         )
+
+    def attempt_command(self, attempt: ChatAttempt) -> PersistChatCommand:
+        space = attempt.setup.ctx.space
+        safe_meta = replace(
+            attempt.metadata,
+            condensed_query=self._pii_redactor.redact(attempt.metadata.condensed_query)
+            if attempt.metadata.condensed_query
+            else None,
+            sub_queries=[self._pii_redactor.redact(q) for q in attempt.metadata.sub_queries]
+            if attempt.metadata.sub_queries is not None
+            else None,
+            refined_query=self._pii_redactor.redact(attempt.metadata.refined_query)
+            if attempt.metadata.refined_query
+            else None,
+            ttft_sec=(attempt.first_text_at - attempt.started)
+            if attempt.first_text_at is not None
+            else attempt.metadata.ttft_sec,
+        )
+        return PersistChatCommand(
+            conv_id=attempt.conv_id,
+            user_id=attempt.user_id,
+            question=attempt.setup.pii_question,
+            full_answer=self._pii_redactor.redact(attempt.full_answer),
+            sources=attempt.sources,
+            latency_ms=int((time.monotonic() - attempt.started) * 1000),
+            depth=attempt.metadata.breadth.value if attempt.metadata.breadth else None,
+            depth_requested=attempt.depth,
+            history=attempt.setup.history,
+            usage=attempt.usage,
+            model_used=attempt.metadata.model_used or (attempt.usage.model if attempt.usage else None),
+            domain=attempt.metadata.domain or None,
+            space_id=space.id if space else 0,
+            pack_key=space.pack_key if space else None,
+            as_of_date=attempt.setup.ctx.as_of_date,
+            confidence=attempt.confidence,
+            metadata=safe_meta,
+        )
+
+    async def record_failed_attempt(self, command: PersistChatCommand) -> None:
+        try:
+            async with asyncio.timeout(5):
+                await self._chat_log_service.create(self.log_command(command))
+        except Exception:  # noqa: BLE001 - bounded best-effort logging must preserve the original failure.
+            # Never include exception text: driver errors may contain private parameters.
+            log.warning("Failed to record chat attempt conversation=%d", command.conv_id)
 
     # ------------------------------------------------------------------
     # Streaming chat
@@ -238,7 +333,7 @@ class ChatService:
         depth: str | None = None,
         as_of_date: date | None = None,
         space_id: int | None = None,
-    ) -> AsyncIterator[StreamEvent]:
+    ) -> AsyncGenerator[StreamEvent]:
         setup = await self.prepare_chat(
             question,
             conversation_id,
@@ -250,51 +345,40 @@ class ChatService:
             space_id=space_id,
         )
 
-        full_answer = ""
-        sources: list[dict[str, Any]] = []
-        confidence: float | None = None
-        usage = None
-        t_start = time.monotonic()
-
-        async for event in self._rag_service.stream(
-            question=question,
-            history=setup.history,
-            ctx=setup.ctx,
-        ):
-            if isinstance(event, SourcesEvent):
-                sources = event.sources
-                confidence = event.confidence
-                usage = event.usage
-            elif isinstance(event, StatusEvent):
-                yield event
-            elif isinstance(event, TextChunk):
-                full_answer += event.text
-                yield event
-
-        latency_ms = int((time.monotonic() - t_start) * 1000)
-
         if setup.conv.id is None:
-            msg = "Conversation id is None during stream_chat"
+            msg = "Conversation id is required"
             raise RuntimeError(msg)
 
-        await self.persist_chat(
-            PersistChatCommand(
-                conv_id=setup.conv.id,
-                user_id=user_id,
-                question=setup.pii_question,
-                full_answer=full_answer,
-                sources=sources,
-                latency_ms=latency_ms,
-                depth=depth,
-                history=setup.history,
-                usage=usage,
-            ),
-        )
+        attempt = ChatAttempt(setup=setup, conv_id=setup.conv.id, user_id=user_id, depth=depth)
+        try:
+            async with aclosing(
+                self._rag_service.stream(question=question, history=setup.history, ctx=setup.ctx)
+            ) as stream:
+                async for event in stream:
+                    if attempt.observe(event):
+                        yield event
+            message_id = await self.persist_chat(self.attempt_command(attempt))
+        except (asyncio.CancelledError, GeneratorExit):
+            attempt.metadata = replace(attempt.metadata, outcome=AnswerOutcome.CANCELLED)
+            task = asyncio.create_task(self.record_failed_attempt(self.attempt_command(attempt)))
+            self.pending_log_tasks.add(task)
+            task.add_done_callback(self.pending_log_tasks.discard)
+            await asyncio.shield(task)
+            raise
+        except Exception as exc:
+            attempt.metadata = replace(
+                attempt.metadata, outcome=AnswerOutcome.ERROR, error_code=chat_error_code(exc)
+            )
+            await self.record_failed_attempt(self.attempt_command(attempt))
+            raise
 
+        await self.update_summary(self.attempt_command(attempt))
         yield MetaEvent(
-            conversation_id=setup.conv.id,
-            sources=sources,
-            confidence=confidence,
+            conversation_id=attempt.conv_id,
+            message_id=message_id,
+            sources=attempt.sources,
+            confidence=attempt.confidence,
+            usage=attempt.usage,
             as_of_date=setup.ctx.as_of_date,
         )
 
@@ -314,50 +398,49 @@ class ChatService:
         as_of_date: date | None = None,
         space_id: int | None = None,
     ) -> ChatResult:
-        setup = await self.prepare_chat(
-            question,
-            conversation_id,
-            user_id,
-            user_kind,
-            user_role,
-            depth=depth,
-            as_of_date=as_of_date,
-            space_id=space_id,
-        )
+        answer: list[str] = []
+        final: MetaEvent | None = None
+        async with aclosing(
+            self.stream_chat(
+                question,
+                conversation_id,
+                user_id,
+                user_kind,
+                user_role,
+                depth=depth,
+                as_of_date=as_of_date,
+                space_id=space_id,
+            )
+        ) as stream:
+            async for event in stream:
+                if isinstance(event, TextChunk):
+                    answer.append(event.text)
+                elif isinstance(event, MetaEvent):
+                    final = event
 
-        t_start = time.monotonic()
-        rag_result = await self._rag_service.invoke(
-            question=question,
-            history=setup.history,
-            ctx=setup.ctx,
-        )
-        latency_ms = int((time.monotonic() - t_start) * 1000)
-
-        if setup.conv.id is None:
-            msg = "Conversation id is None during sync_chat"
+        if final is None:
+            msg = "Chat stream completed without metadata"
             raise RuntimeError(msg)
 
-        await self.persist_chat(
-            PersistChatCommand(
-                conv_id=setup.conv.id,
-                user_id=user_id,
-                question=setup.pii_question,
-                full_answer=rag_result.answer,
-                sources=rag_result.sources,
-                latency_ms=latency_ms,
-                depth=None,
-                history=setup.history,
-                usage=None,
-                model_used=rag_result.model_used,
-                domain=rag_result.domain,
-            ),
+        return ChatResult(
+            answer="".join(answer),
+            conversation_id=final.conversation_id,
+            message_id=final.message_id,
+            sources=final.sources,
+            confidence=final.confidence,
+            input_tokens=final.usage.input_tokens if final.usage else None,
+            output_tokens=final.usage.output_tokens if final.usage else None,
         )
 
-        return ChatResult(
-            answer=rag_result.answer,
-            conversation_id=setup.conv.id,
-            sources=rag_result.sources,
-            confidence=rag_result.confidence,
-            input_tokens=rag_result.input_tokens,
-            output_tokens=rag_result.output_tokens,
-        )
+
+def chat_error_code(exc: Exception) -> str:
+    if isinstance(exc, ContextBudgetExceededError):
+        return "prompt_budget"
+
+    if isinstance(exc, SemaphoreTimeoutError):
+        return "server_busy"
+
+    if isinstance(exc, (LLMUnavailableError, TimeoutError)):
+        return "llm_unavailable"
+
+    return "internal_error"

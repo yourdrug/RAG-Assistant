@@ -9,11 +9,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from domain.rag.metadata import AnswerMetadata
+
 
 if TYPE_CHECKING:
     from datetime import date
 
     from domain.rag.breadth import Breadth
+    from domain.rag.metadata import TokenUsage
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,19 +61,23 @@ class MetaEvent:
     confidence: float | None = None
     usage: UsageReport | None = None
     as_of_date: date | None = None
+    message_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class PipelineMetaEvent:
+class PipelineMetaEvent(AnswerMetadata):
     """Pipeline metadata: breadth, domain, TTFT, timings.
 
-    Yielded once by RagService.stream() after pipeline completes, carries
-    the actual breadth/domain classification that was used inside the
-    pipeline (not the re-classified version on the original question).
+    Internal snapshots are emitted before fallible stages and on completion,
+    so ChatService can record the known metadata even on error or cancellation.
+    The final snapshot includes the actual classification and terminal outcome.
     """
 
     breadth: Breadth | None = None
     domain: str = ""
+    model_used: str | None = None
+    config_data: dict[str, Any] | None = None
+    aux_usage: TokenUsage | None = None
     generation_sec: float | None = None
     ttft_sec: float | None = None
 

@@ -1,16 +1,18 @@
 """Admin chat logs endpoint — persistent Q&A quality tracking."""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from application.chat import ChatLogService
 from application.identity import AssignmentService
+from domain.chat.chat_log import ChatLog
 from domain.chat.repositories import ChatLogFilter
 from domain.identity.capabilities import Capability
 from domain.identity.roles import UserRole
+from domain.rag.outcome import AnswerOutcome
 from presentation.api.auth_dependencies import require_capability
 from presentation.api.constants import DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET, MAX_PAGE_LIMIT
 from presentation.api.dependencies import create_assignment_service, create_chat_log_service
@@ -21,6 +23,13 @@ from presentation.api.schemas import ChatLogEntry, ChatLogsResponse, CurrentUser
 class ChatLogQuery:
     user_id: Annotated[int | None, Query()] = None
     domain: Annotated[str | None, Query()] = None
+    space_id: Annotated[int | None, Query(gt=0)] = None
+    outcome: Annotated[AnswerOutcome | None, Query()] = None
+    model: Annotated[str | None, Query()] = None
+    breadth: Annotated[Literal["narrow", "broad"] | None, Query()] = None
+    config_hash: Annotated[str | None, Query(pattern="^[a-f0-9]{64}$")] = None
+    sort_by: Annotated[Literal["date", "latency", "confidence"], Query()] = "date"
+    sort_order: Annotated[Literal["asc", "desc"], Query()] = "desc"
     date_from: Annotated[datetime | None, Query()] = None
     date_to: Annotated[datetime | None, Query()] = None
     search: Annotated[str | None, Query()] = None
@@ -39,57 +48,62 @@ async def list_chat_logs(
     service: Annotated[ChatLogService, Depends(create_chat_log_service)],
     assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
 ) -> ChatLogsResponse:
-    # Curator sees only logs of managed users (+ self); admin sees all
-    user_ids_filter = None
-
-    if current_user.role == UserRole.CURATOR:
-        scope = await assignment_service.get_scope(current_user.id)
-        managed_ids = scope["managed_client_ids"] + scope["managed_internal_ids"] + [current_user.id]
-        user_ids_filter = managed_ids
-
-    total = await service.count_logs(
-        filters=ChatLogFilter(
-            user_id=options.user_id,
-            user_ids=tuple(user_ids_filter) if user_ids_filter is not None else None,
-            domain=options.domain,
-            date_from=options.date_from,
-            date_to=options.date_to,
-            search=options.search,
-        )
-    )
-    logs, email_map = await service.list_logs_with_emails(
-        filters=ChatLogFilter(
-            user_id=options.user_id,
-            user_ids=tuple(user_ids_filter) if user_ids_filter is not None else None,
-            domain=options.domain,
-            date_from=options.date_from,
-            date_to=options.date_to,
-            search=options.search,
-            limit=options.limit,
-            offset=options.offset,
-        )
-    )
-
+    user_ids = await visible_user_ids(current_user, assignment_service)
+    filters = ChatLogFilter(**asdict(options), user_ids=user_ids)
+    total = await service.count_logs(filters)
+    logs, email_map = await service.list_logs_with_emails(filters)
     entries = [
-        ChatLogEntry(
-            id=log.id,
-            creation_date=log.creation_date.isoformat(),
-            user_id=log.user_id,
-            user_email=email_map.get(log.user_id) if log.user_id else None,
-            conversation_id=log.conversation_id,
-            question=log.question,
-            answer=log.answer,
-            sources=log.sources,
-            latency_ms=log.latency_ms,
-            model_used=log.model_used,
-            breadth=log.breadth,
-            domain=log.domain,
-            retrieval_count=log.retrieval_count,
-            reranker_score=log.reranker_score,
-            input_tokens=log.input_tokens,
-            output_tokens=log.output_tokens,
-        )
+        entry_response(log, email_map.get(log.user_id) if log.user_id is not None else None)
         for log in logs
         if log.id is not None
     ]
     return ChatLogsResponse(logs=entries, total=total)
+
+
+async def visible_user_ids(
+    current_user: CurrentUser, assignment_service: AssignmentService
+) -> tuple[int, ...] | None:
+    if current_user.role != UserRole.CURATOR:
+        return None
+
+    scope = await assignment_service.get_scope(current_user.id)
+    return tuple(scope["managed_client_ids"] + scope["managed_internal_ids"] + [current_user.id])
+
+
+def entry_response(entry: ChatLog, email: str | None = None) -> ChatLogEntry:
+    data = asdict(entry)
+    data["creation_date"] = entry.creation_date.isoformat()
+    return ChatLogEntry(**data, user_email=email)
+
+
+@router.get("/admin/chat-logs/{log_id}")
+async def get_chat_log(
+    log_id: int,
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.SYSTEM_OBSERVE))],
+    service: Annotated[ChatLogService, Depends(create_chat_log_service)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+) -> dict[str, Any]:
+    result = await service.get_log(log_id, await visible_user_ids(current_user, assignment_service))
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Chat log not found")
+
+    entry, snapshot = result
+    return {"entry": entry_response(entry), "snapshot": service.compare_snapshot(snapshot)}
+
+
+@router.get("/admin/rag-config-snapshots/{config_hash}")
+async def get_config_snapshot(
+    config_hash: str,
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.SYSTEM_OBSERVE))],
+    service: Annotated[ChatLogService, Depends(create_chat_log_service)],
+    assignment_service: Annotated[AssignmentService, Depends(create_assignment_service)],
+) -> dict[str, Any]:
+    snapshot = await service.get_snapshot(
+        config_hash, await visible_user_ids(current_user, assignment_service)
+    )
+
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    return service.compare_snapshot(snapshot)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 import importlib
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -13,6 +13,7 @@ import pytest
 from application.chat import ChatLogService, ChatService, ConversationService, CreateChatLogCommand
 from application.rag.stream_events import (
     MetaEvent,
+    PipelineMetaEvent,
     SourcesEvent,
     StatusEvent,
     TextChunk,
@@ -23,9 +24,8 @@ from domain.chat.conversation import Conversation
 from domain.chat.message import Message, MessageRole
 from domain.chat.repositories import ChatLogFilter
 from domain.identity.roles import UserKind, UserRole
-from domain.knowledge.enums import DocDomain
 from domain.knowledge.space import KnowledgeSpace
-from domain.rag.breadth import Breadth
+from domain.rag.outcome import AnswerOutcome
 from domain.rag.result import RagResult
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, PermissionDeniedError
 
@@ -52,6 +52,11 @@ def chat_fixture() -> SimpleNamespace:
     uow.assignments.get_managed_client_ids.return_value = [10]
     uow.assignments.get_managed_internal_ids.return_value = [11]
     uow.assignments.get_managed_group_ids.return_value = [12]
+
+    async def save_message(message: Message) -> None:
+        message.id = uow.messages.save.await_count
+
+    uow.messages.save.side_effect = save_message
     factory = Mock()
     events = []
 
@@ -66,6 +71,22 @@ def chat_fixture() -> SimpleNamespace:
     factory.create.return_value.__aenter__ = AsyncMock(side_effect=enter)
     factory.create.return_value.__aexit__ = AsyncMock(side_effect=leave)
     rag = Mock(invoke=AsyncMock(return_value=RagResult(answer="answer", confidence=0.8)))
+
+    async def stream(**kwargs: Any) -> AsyncIterator[StreamEvent]:
+        result = await rag.invoke(**kwargs)
+        yield TextChunk(result.answer)
+        yield SourcesEvent(
+            result.sources,
+            result.confidence,
+            UsageReport(
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                model=result.model_used or "",
+            ),
+        )
+        yield PipelineMetaEvent(breadth=result.breadth, domain=result.domain, model_used=result.model_used)
+
+    rag.stream.side_effect = stream
     conversations = Mock(update_rolling_summary=AsyncMock())
     settings = SimpleNamespace(history_window=8, curator_scope_max_ids=3)
     service = ChatService(
@@ -74,7 +95,7 @@ def chat_fixture() -> SimpleNamespace:
         settings,
         chat_log_service=ChatLogService(factory),
         conversation_service=conversations,
-        pii_redactor=Mock(redact=Mock(return_value="<safe>")),
+        pii_redactor=Mock(redact=Mock(side_effect=lambda text: "<safe>" if text == "original" else text)),
     )
     return SimpleNamespace(
         service=service,
@@ -149,10 +170,16 @@ async def test_stream_preserves_order_and_usage_then_emits_meta() -> None:
             "original", 7, 1, UserKind.INTERNAL, UserRole.USER, depth="wide"
         )
     ]
-    assert events == [status, TextChunk("an"), TextChunk("swer"), MetaEvent(7, sources, 0.7)]
+    assert events == [
+        status,
+        TextChunk("an"),
+        TextChunk("swer"),
+        MetaEvent(7, sources, 0.7, usage=usage, message_id=2),
+    ]
     log = fixture.uow.chat_logs.save.await_args.args[0]
     assert log.answer == "answer"
-    assert log.breadth == "wide"
+    assert log.depth_requested == "wide"
+    assert log.breadth is None
     assert (log.input_tokens, log.output_tokens) == (5, 6)
     assert fixture.factory.create.call_count == 2
 
@@ -168,13 +195,13 @@ async def test_excessive_curator_scope_stops_before_retrieval() -> None:
 
 
 @pytest.mark.asyncio
-async def test_failed_rag_does_not_persist_messages_or_log() -> None:
+async def test_failed_rag_logs_error_without_messages() -> None:
     fixture = chat_fixture()
     fixture.rag.invoke.side_effect = RuntimeError("RAG failed")
     with pytest.raises(RuntimeError, match="RAG failed"):
         await fixture.service.sync_chat("question", 7, 1, UserKind.INTERNAL, UserRole.USER)
     fixture.uow.messages.save.assert_not_awaited()
-    fixture.uow.chat_logs.save.assert_not_awaited()
+    assert fixture.uow.chat_logs.save.await_args.args[0].outcome == AnswerOutcome.ERROR
     fixture.conversations.update_rolling_summary.assert_not_awaited()
 
 
@@ -230,7 +257,7 @@ async def test_log_failure_uses_message_transaction_and_stops_summary() -> None:
     fixture.uow.chat_logs.save.side_effect = RuntimeError("save failed")
     with pytest.raises(RuntimeError, match="save failed"):
         await fixture.service.sync_chat("question", 7, 1, UserKind.INTERNAL, UserRole.USER)
-    assert fixture.factory.create.call_count == 2
+    assert fixture.factory.create.call_count == 3
     assert fixture.uow.messages.save.await_count == 2
     exit_args = fixture.factory.create.return_value.__aexit__.await_args.args
     assert exit_args[0] is RuntimeError
@@ -249,16 +276,15 @@ async def test_log_creation_without_existing_uow_opens_master_transaction() -> N
             sources=[],
             latency_ms=10,
             depth=None,
-            retrieval_count=0,
-            reranker_score=None,
+            space_id=1,
         )
     )
     fixture.factory.create.assert_called_once_with(master=True)
     log = fixture.uow.chat_logs.save.await_args.args[0]
     assert log.question == "question"
     assert log.answer == "answer"
-    assert log.breadth == Breadth.NARROW.value
-    assert log.domain == DocDomain.GENERAL.value
+    assert log.breadth is None
+    assert log.domain is None
 
 
 @pytest.mark.asyncio
@@ -291,5 +317,5 @@ async def test_failed_stream_does_not_persist_partial_answer() -> None:
     with pytest.raises(RuntimeError, match="stream failed"):
         await anext(iterator)
     fixture.uow.messages.save.assert_not_awaited()
-    fixture.uow.chat_logs.save.assert_not_awaited()
+    assert fixture.uow.chat_logs.save.await_args.args[0].outcome == AnswerOutcome.ERROR
     fixture.conversations.update_rolling_summary.assert_not_awaited()

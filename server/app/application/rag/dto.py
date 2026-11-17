@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, TypedDict
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
+
+from domain.rag.outcome import AnswerOutcome
 
 
 if TYPE_CHECKING:
@@ -31,6 +33,12 @@ class RagRequest:
     request_id: str
     model: str
     generation_config: tuple[tuple[str, str | float], ...] = ()
+    config_hash: str | None = None
+    config_data: dict[str, Any] | None = None
+    config_version: str | None = None
+    evidence_profile: str | None = None
+    usage_records: list[dict[str, Any]] = field(default_factory=list, compare=False)
+    usage_start: int = 0
 
 
 @dataclass(frozen=True)
@@ -63,6 +71,10 @@ class RetrievalResult:
     sub_queries: tuple[str, ...]
     enumerate_cases: bool
     average_similarity: float
+    retrieval_ms: int | None = None
+    rerank_ms: int | None = None
+    refined_query: str | None = None
+    top_rerank_score: float | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +108,7 @@ class SanitizedAnswer:
     # Time from generation start (including the LLM semaphore wait) to the first non-empty LLM chunk;
     # None when no LLM was called (grounded answer) or it produced no text.
     ttft_sec: float | None = None
+    outcome: AnswerOutcome = AnswerOutcome.GENERATED
 
 
 class SourceMetadata(TypedDict, total=False):
@@ -128,6 +141,8 @@ class CompletedAnswer:
 @dataclass(frozen=True)
 class TerminalResponse:
     events: tuple[StreamEvent, ...]
+    outcome: AnswerOutcome = AnswerOutcome.NOT_FOUND
+    retrieval: RetrievalResult | None = None
 
 
 @dataclass(frozen=True)

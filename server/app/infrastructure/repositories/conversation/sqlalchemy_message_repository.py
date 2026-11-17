@@ -27,6 +27,7 @@ class SQLAlchemyMessageRepository:
         )
         self._db.add(orm)
         await self._db.flush()
+        message.id = orm.id
 
     async def get_history(self, conversation_id: int, window: int = 8) -> list[Message]:
         result = await self._db.execute(

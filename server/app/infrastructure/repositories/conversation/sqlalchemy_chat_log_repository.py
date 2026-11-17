@@ -1,20 +1,20 @@
-"""SQLAlchemy implementation of ChatLogRepository."""
+"""SQLAlchemy persistence for answer attempts and non-secret configuration snapshots."""
 
 from __future__ import annotations
 
+from dataclasses import fields
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 
 from domain.chat.chat_log import ChatLog
 from domain.chat.repositories import DEFAULT_CHAT_LOG_FILTER
-from infrastructure.database.models import ChatLogModel
+from domain.rag.outcome import AnswerOutcome
+from infrastructure.database.models import ChatLogModel, rag_config_snapshots
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from datetime import datetime
-
     from sqlalchemy.ext.asyncio import AsyncSession
     from sqlalchemy.sql import Select
 
@@ -26,115 +26,83 @@ class SQLAlchemyChatLogRepository:
         self._db = db
 
     async def save(self, log: ChatLog) -> None:
-        orm = ChatLogModel(
-            user_id=log.user_id,
-            conversation_id=log.conversation_id,
-            question=log.question,
-            answer=log.answer,
-            sources=log.sources or None,
-            latency_ms=log.latency_ms,
-            model_used=log.model_used,
-            breadth=log.breadth,
-            domain=log.domain,
-            retrieval_count=log.retrieval_count,
-            reranker_score=log.reranker_score,
-            input_tokens=log.input_tokens,
-            output_tokens=log.output_tokens,
-        )
+        data = {field.name: getattr(log, field.name) for field in fields(ChatLog) if field.name != "id"}
+        orm = ChatLogModel(**data)
         self._db.add(orm)
         await self._db.flush()
+        log.id = orm.id
 
-    async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]:
-        user_id = filters.user_id
-        user_ids = filters.user_ids
-        domain = filters.domain
-        date_from = filters.date_from
-        date_to = filters.date_to
-        search = filters.search
-        limit = filters.limit
-        offset = filters.offset
-        stmt = select(ChatLogModel).order_by(ChatLogModel.creation_date.desc())
-        stmt = self.apply_filters(
-            stmt,
-            user_id=user_id,
-            user_ids=user_ids,
-            domain=domain,
-            date_from=date_from,
-            date_to=date_to,
-            search=search,
+    async def save_snapshot(self, config_hash: str, data: dict[str, Any]) -> None:
+        await self._db.execute(
+            insert(rag_config_snapshots)
+            .values(hash=config_hash, data=data)
+            .on_conflict_do_nothing(index_elements=["hash"])
         )
-        stmt = stmt.offset(offset).limit(limit)
-        result = await self._db.execute(stmt)
-        return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    async def count_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> int:
-        user_id = filters.user_id
-        user_ids = filters.user_ids
-        domain = filters.domain
-        date_from = filters.date_from
-        date_to = filters.date_to
-        search = filters.search
-        stmt = select(func.count()).select_from(ChatLogModel)
-        stmt = self.apply_filters(
-            stmt,
-            user_id=user_id,
-            user_ids=user_ids,
-            domain=domain,
-            date_from=date_from,
-            date_to=date_to,
-            search=search,
+    async def get_snapshot(self, config_hash: str) -> dict[str, Any] | None:
+        result = await self._db.execute(
+            select(rag_config_snapshots.c.data).where(rag_config_snapshots.c.hash == config_hash)
         )
-        result = await self._db.execute(stmt)
-        return result.scalar_one()
+        return result.scalar_one_or_none()
 
-    @staticmethod
-    def apply_filters[T: tuple[Any, ...]](
-        stmt: Select[T],
-        *,
-        user_id: int | None = None,
-        user_ids: Sequence[int] | None = None,
-        domain: str | None = None,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
-        search: str | None = None,
-    ) -> Select[T]:
-        if user_id is not None:
-            stmt = stmt.where(ChatLogModel.user_id == user_id)
+    async def get_by_id(self, log_id: int, user_ids: tuple[int, ...] | None = None) -> ChatLog | None:
+        stmt = select(ChatLogModel).where(ChatLogModel.id == log_id)
 
         if user_ids is not None:
             stmt = stmt.where(ChatLogModel.user_id.in_(user_ids))
 
-        if domain is not None:
-            stmt = stmt.where(ChatLogModel.domain == domain)
+        result = await self._db.execute(stmt)
+        orm = result.scalar_one_or_none()
+        return self.to_entity(orm) if orm is not None else None
 
-        if date_from is not None:
-            stmt = stmt.where(ChatLogModel.creation_date >= date_from)
+    async def list_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> list[ChatLog]:
+        column = {
+            "date": ChatLogModel.creation_date,
+            "latency": ChatLogModel.latency_ms,
+            "confidence": ChatLogModel.confidence,
+        }[filters.sort_by]
+        ordering = column.asc() if filters.sort_order == "asc" else column.desc()
+        stmt = self.apply_filters(select(ChatLogModel), filters).order_by(
+            ordering.nulls_last(), ChatLogModel.id.desc()
+        )
+        result = await self._db.execute(stmt.offset(filters.offset).limit(filters.limit))
+        return [self.to_entity(orm) for orm in result.scalars().all()]
 
-        if date_to is not None:
-            stmt = stmt.where(ChatLogModel.creation_date <= date_to)
+    async def count_logs(self, filters: ChatLogFilter = DEFAULT_CHAT_LOG_FILTER) -> int:
+        result = await self._db.execute(
+            self.apply_filters(select(func.count()).select_from(ChatLogModel), filters)
+        )
+        return result.scalar_one()
 
-        if search:
-            pattern = f"%{search}%"
+    @staticmethod
+    def apply_filters[T: tuple[Any, ...]](stmt: Select[T], filters: ChatLogFilter) -> Select[T]:
+        for name in ("user_id", "domain", "space_id", "outcome", "breadth", "config_hash"):
+            value = getattr(filters, name)
+
+            if value is not None:
+                stmt = stmt.where(getattr(ChatLogModel, name) == value)
+
+        if filters.model is not None:
+            stmt = stmt.where(ChatLogModel.model_used == filters.model)
+
+        if filters.user_ids is not None:
+            stmt = stmt.where(ChatLogModel.user_id.in_(filters.user_ids))
+
+        if filters.date_from is not None:
+            stmt = stmt.where(ChatLogModel.creation_date >= filters.date_from)
+
+        if filters.date_to is not None:
+            stmt = stmt.where(ChatLogModel.creation_date <= filters.date_to)
+
+        if filters.search:
+            pattern = f"%{filters.search}%"
             stmt = stmt.where(ChatLogModel.question.ilike(pattern) | ChatLogModel.answer.ilike(pattern))
 
         return stmt
 
     @staticmethod
-    def _to_entity(orm: ChatLogModel) -> ChatLog:
-        return ChatLog(
-            id=orm.id,
-            creation_date=orm.creation_date,
-            user_id=orm.user_id,
-            conversation_id=orm.conversation_id,
-            question=orm.question,
-            answer=orm.answer,
-            sources=orm.sources or [],
-            latency_ms=orm.latency_ms,
-            model_used=orm.model_used,
-            breadth=orm.breadth,
-            domain=orm.domain,
-            retrieval_count=orm.retrieval_count,
-            reranker_score=orm.reranker_score,
-            input_tokens=orm.input_tokens,
-            output_tokens=orm.output_tokens,
-        )
+    def to_entity(orm: ChatLogModel) -> ChatLog:
+        data = {field.name: getattr(orm, field.name) for field in fields(ChatLog)}
+        data["sources"] = data["sources"] or []
+        data["outcome"] = AnswerOutcome(data["outcome"])
+        return ChatLog(**data)

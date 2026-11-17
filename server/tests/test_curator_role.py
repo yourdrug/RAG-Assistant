@@ -31,6 +31,7 @@ from domain.knowledge.document import Document
 from domain.rag.context import RagContext
 from tests.document_node_sql import DOCUMENT_ID, POINT, parent_scope_repository
 from tests.fakes import FakeMLClientRegistry, require_present
+from tests.test_rag_pipeline import make_rag
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
@@ -612,7 +613,7 @@ class TestRagServiceCuratorScope:
         with patch("infrastructure.ml.rag.rag_steps.build_qdrant_filter") as mock_filter:
             mock_filter.return_value = type("F", (), {"should": []})()
             with (
-                patch("infrastructure.ml.rag.rag_steps.build_rag_settings"),
+                patch("infrastructure.ml.rag.rag_steps.build_rag_settings", return_value=make_rag()),
                 patch("infrastructure.ml.rag.rag_steps.build_search_filter"),
             ):
                 svc = create_rag_service(

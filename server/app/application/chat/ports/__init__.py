@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from application.rag.stream_events import StreamEvent
     from domain.chat.message import Message
@@ -21,7 +21,7 @@ class ChatRAGPort(Protocol):
         question: str,
         history: list[Message],
         ctx: RagContext,
-    ) -> AsyncIterator[StreamEvent]: ...
+    ) -> AsyncGenerator[StreamEvent]: ...
 
     async def invoke(
         self,

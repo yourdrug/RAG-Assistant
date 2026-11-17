@@ -32,6 +32,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     conversation_id: int
+    message_id: int | None = None
     sources: list[dict[str, Any]] | None = None
     confidence: float | None = Field(None, description="Answer confidence score (0.0-1.0)")
     input_tokens: int | None = None

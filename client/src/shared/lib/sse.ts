@@ -1,6 +1,7 @@
 import type { Source } from "@/shared/api/types";
 
 export interface SSEDone {
+  message_id: number;
   conversation_id: number;
   sources: Source[];
   confidence?: number | null;

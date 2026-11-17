@@ -9,6 +9,7 @@ from typing import Any
 from domain.knowledge.chunk import extract_chunk_context
 from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from domain.rag.evidence.context import content_with_parent_scope
+from domain.rag.outcome import AnswerOutcome
 from domain.rag.ranking import RetrievalDocument
 from domain.shared.hashing import content_hash
 
@@ -231,7 +232,7 @@ def capture_stage(
     attempt["stages"][stage] = {"status": "executed", "ordered": ordered, "documents": documents}
 
 
-def capture_completion(reason: str) -> None:
+def capture_completion(reason: AnswerOutcome) -> None:
     evidence = active_evidence.get()
 
     if evidence is not None:
