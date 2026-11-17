@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import Text, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from tests.integration.uow import SessionDatabase
@@ -29,6 +29,7 @@ from infrastructure.database.models import (
     chat_log_traces,
     rag_config_snapshots,
 )
+from infrastructure.ml.rag.chat_trace import bounded_trace
 from infrastructure.repositories.conversation.sqlalchemy_chat_log_repository import (
     SQLAlchemyChatLogRepository,
 )
@@ -177,3 +178,31 @@ async def test_trace_failure_rolls_back_log_and_retention_cascades(pg_engine: As
             await repo.save_trace(entry.id, {"schema_version": 1, "oversize": "x" * 65536})
     async with sessions() as session:
         assert await session.scalar(select(func.count()).select_from(ChatLogModel)) == 2
+
+
+@pytest.mark.asyncio
+async def test_bounded_trace_with_small_scores_fits_database_limit(pg_engine: AsyncEngine) -> None:
+    # PostgreSQL prints 1e-07 as 0.0000001, so the bound must use its number format.
+    documents = [{"metadata": {"chunk_id": i}, "score": 1e-07, "rrf_score": 1e-07} for i in range(3000)]
+    trace = bounded_trace(
+        {
+            "schema_version": 1,
+            "attempts": [{"exclusions": [], "stages": {"retrieved": {"documents": documents}}}],
+        }
+    )
+    assert trace["truncated"]
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        repo = SQLAlchemyChatLogRepository(session)
+        entry = ChatLog(space_id=1)
+        await repo.save(entry)
+        assert entry.id is not None
+        await repo.save_trace(entry.id, trace)
+    async with sessions() as session:
+        stored = await session.scalar(
+            select(func.octet_length(func.cast(chat_log_traces.c.data, Text))).where(
+                chat_log_traces.c.chat_log_id == entry.id
+            )
+        )
+        assert stored is not None
+        assert stored <= 65536

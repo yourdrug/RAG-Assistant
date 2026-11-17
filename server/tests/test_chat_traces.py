@@ -41,7 +41,13 @@ from infrastructure.ml.rag.benchmark_evidence import (
     capture_prompt_delivery,
     capture_stage,
 )
-from infrastructure.ml.rag.chat_trace import MAX_TRACE_BYTES, bounded_trace, chat_trace_scope
+from infrastructure.ml.rag.chat_trace import (
+    MAX_TRACE_BYTES,
+    bounded_trace,
+    chat_trace_scope,
+    refusal_stage,
+    stored_size,
+)
 from presentation.api.routes.admin_chat_logs import TraceChunkRequest, get_trace, get_trace_chunks
 from presentation.api.schemas.auth import CurrentUser
 from tests.rag_stage_fixtures import prepared_query, stage_fixture
@@ -162,6 +168,48 @@ def test_disabled_and_size_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     result = bounded_trace(data)
     assert result["truncated"]
     assert len(json.dumps(result, ensure_ascii=False).encode()) <= MAX_TRACE_BYTES
+
+
+def test_size_limit_counts_numbers_as_postgres_prints_them() -> None:
+    # Python writes 1e-07 (5 bytes); jsonb::text writes 0.0000001 (9 bytes).
+    documents = [{"metadata": {"chunk_id": i}, "score": 1e-07, "rrf_score": 1e-07} for i in range(3000)]
+    data = {
+        "schema_version": 1,
+        "attempts": [{"exclusions": [], "stages": {"retrieved": {"documents": documents}}}],
+    }
+    jsonb_text = json.dumps(data, ensure_ascii=False).replace("1e-07", "0.0000001")
+    assert stored_size(data) >= len(jsonb_text.encode())
+
+    result = bounded_trace(data)
+    assert result["truncated"]
+    jsonb_text = json.dumps(result, ensure_ascii=False).replace("1e-07", "0.0000001")
+    assert len(jsonb_text.encode()) <= MAX_TRACE_BYTES
+
+
+@pytest.mark.parametrize(
+    "checks, expected",
+    [
+        ([], "retrieval"),
+        ([{"stage": "relevance", "result": {"is_relevant": True}}], "retrieval"),
+        ([{"stage": "relevance", "result": {"is_relevant": False}}], "relevance"),
+        (
+            [
+                {"stage": "relevance", "result": {"is_relevant": False}},
+                {"stage": "sufficiency", "result": {"is_sufficient": False}},
+            ],
+            "sufficiency",
+        ),
+        (
+            [
+                {"stage": "relevance", "result": {"is_relevant": False}},
+                {"stage": "sufficiency", "result": {"is_sufficient": True}},
+            ],
+            "relevance",
+        ),
+    ],
+)
+def test_refusal_stage_is_last_negative_gate(checks: list[dict[str, Any]], expected: str) -> None:
+    assert refusal_stage([{"checks": checks}]) == expected
 
 
 @pytest.mark.asyncio

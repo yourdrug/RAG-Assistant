@@ -92,8 +92,8 @@ def test_baseline_round_trip_matches_metadata(migration_connection: Connection) 
 
     inspector = inspect(migration_connection)
     tables = set(inspector.get_table_names()) - {"alembic_version"}
-    # 0016 adds the non-secret RAG configuration snapshot table.
-    assert len(tables) == 27
+    # 0016 adds RAG configuration snapshots; 0017 adds request traces.
+    assert len(tables) == 28
 
     # Only the starting knowledge space exists in a new installation.
     assert [

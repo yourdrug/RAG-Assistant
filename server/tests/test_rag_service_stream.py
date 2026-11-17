@@ -9,7 +9,7 @@ the event sequence produced by stream().
 from __future__ import annotations
 
 import asyncio
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -29,6 +29,8 @@ from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
 from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER
 from infrastructure.ml.rag.rag_postprocess import apply_citation_filter
 from infrastructure.ml.rag.rag_steps import RagOperations
+from tests.test_chat_contracts import chat_fixture
+from tests.test_chat_logs import run_attempt
 from tests.test_rag_pipeline import make_rag
 
 
@@ -560,20 +562,19 @@ class TestStreamHelperMethods:
         assert result == sources
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "outcome",
-    [
-        "generated",
-        "grounded",
-        "cache_hit",
-        "not_found",
-        "out_of_domain",
-        "input_blocked",
-        "output_blocked",
-    ],
-)
-async def test_pipeline_outcome_matches_stream_and_invoke(outcome: str) -> None:
+PIPELINE_OUTCOMES = [
+    "generated",
+    "grounded",
+    "cache_hit",
+    "not_found",
+    "out_of_domain",
+    "input_blocked",
+    "output_blocked",
+]
+
+
+@contextmanager
+def outcome_patches(outcome: str) -> Iterator[None]:
     with ExitStack() as stack:
         stack.enter_context(
             patch(
@@ -637,6 +638,13 @@ async def test_pipeline_outcome_matches_stream_and_invoke(outcome: str) -> None:
                 )
             )
 
+        yield
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", PIPELINE_OUTCOMES)
+async def test_pipeline_outcome_matches_stream_and_invoke(outcome: str) -> None:
+    with outcome_patches(outcome):
         service = make_stream_service()
         events = await collect_events(service, "question")
         meta = next(event for event in reversed(events) if isinstance(event, PipelineMetaEvent))
@@ -649,3 +657,58 @@ async def test_pipeline_outcome_matches_stream_and_invoke(outcome: str) -> None:
         if outcome == "cache_hit":
             assert meta.breadth == result.breadth == Breadth.BROAD
             assert meta.domain == result.domain == "legal"
+
+
+CHAT_LOG_FIELDS = (
+    "outcome",
+    "answer",
+    "breadth",
+    "domain",
+    "model_used",
+    "config_hash",
+    "evidence_profile",
+    "candidates_count",
+    "top_rerank_score",
+    "sources_count",
+    "error_code",
+    "space_id",
+    "pack_key",
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", PIPELINE_OUTCOMES)
+async def test_chat_log_records_real_pipeline_metadata_in_stream_and_sync(outcome: str) -> None:
+    """ChatService over the real RagService: the journal records what the pipeline reported."""
+    records = []
+
+    for mode in ("stream", "sync"):
+        with outcome_patches(outcome):
+            rag = make_stream_service()
+            seen: list[StreamEvent] = []
+
+            async def stream(
+                rag: RagService = rag, seen: list[StreamEvent] = seen, **kwargs: Any
+            ) -> AsyncIterator[StreamEvent]:
+                async for event in rag.stream(**kwargs):
+                    seen.append(event)
+                    yield event
+
+            fixture = chat_fixture()
+            fixture.service._rag_service = SimpleNamespace(stream=stream)
+            await run_attempt(fixture, mode)
+
+        meta = next(event for event in reversed(seen) if isinstance(event, PipelineMetaEvent))
+        entry = fixture.uow.chat_logs.save.await_args.args[0]
+        assert entry.outcome == meta.outcome == outcome
+        assert entry.request_id == meta.request_id
+        assert entry.request_id is not None
+        assert entry.config_hash == meta.config_hash
+        assert entry.config_hash is not None
+        assert entry.breadth == (meta.breadth.value if meta.breadth else None)
+        assert entry.domain == (meta.domain or None)
+        assert entry.candidates_count == meta.candidates_count
+        assert entry.message_id is not None
+        records.append({name: getattr(entry, name) for name in CHAT_LOG_FIELDS})
+
+    assert records[0] == records[1]

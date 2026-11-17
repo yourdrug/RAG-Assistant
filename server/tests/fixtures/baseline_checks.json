@@ -25,6 +25,11 @@
     "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'done'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))"
   ],
   [
+    "chat_log_traces",
+    "ck_chat_log_trace_size",
+    "CHECK ((octet_length((data)::text) <= 65536))"
+  ],
+  [
     "chunks",
     "chk_chunks_context_metadata_object",
     "CHECK ((jsonb_typeof(context_metadata) = 'object'::text))"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+from decimal import Decimal
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -19,11 +20,46 @@ if TYPE_CHECKING:
     from application.chat.ports import PIIRedactorPort
 
 MAX_TRACE_BYTES = 64 * 1024
+VERDICT_KEYS = ("relevant", "is_relevant", "sufficient", "is_sufficient")
+
+
+def fixed_point(value: object) -> object:
+    if isinstance(value, float):
+        # Quoted, so each number is counted two bytes longer than PostgreSQL prints it.
+        return format(Decimal(repr(value)), "f")
+
+    if isinstance(value, dict):
+        return {key: fixed_point(item) for key, item in value.items()}
+
+    if isinstance(value, list):
+        return [fixed_point(item) for item in value]
+
+    return value
+
+
+def stored_size(data: dict[str, Any]) -> int:
+    """Upper bound of ``jsonb::text`` bytes checked by ``ck_chat_log_trace_size``.
+
+    PostgreSQL prints numbers without an exponent (``1e-05`` becomes ``0.00001``),
+    so measuring Python's float repr could pass here and fail the INSERT, rolling
+    back the whole answer transaction.
+    """
+    return len(json.dumps(fixed_point(data), ensure_ascii=False).encode())
+
+
+def refusal_stage(attempts: list[dict[str, Any]]) -> str:
+    """The last gate that returned a negative verdict; otherwise retrieval refused."""
+    for attempt in reversed(attempts):
+        for check in reversed(attempt["checks"]):
+            if any(check["result"].get(key) is False for key in VERDICT_KEYS):
+                return str(check["stage"])
+
+    return "retrieval"
 
 
 def bounded_trace(data: dict[str, Any]) -> dict[str, Any]:
     """Drop stage tails first, preserving an explicit truncation marker."""
-    while len(json.dumps(data, ensure_ascii=False).encode()) > MAX_TRACE_BYTES:
+    while stored_size(data) > MAX_TRACE_BYTES:
         data["truncated"] = True
         lists = [
             value
@@ -107,18 +143,9 @@ def production_trace(evidence: BenchmarkEvidence, redactor: PIIRedactorPort | No
             "schema_version": 1,
             "attempts": attempts,
             "completion": evidence.completion or evidence.trace_data.get("outcome"),
-            "refusal_stage": (
-                next(
-                    (
-                        check["stage"]
-                        for attempt in reversed(attempts)
-                        for check in reversed(attempt["checks"])
-                    ),
-                    "retrieval",
-                )
-                if evidence.completion == AnswerOutcome.NOT_FOUND
-                else None
-            ),
+            "refusal_stage": refusal_stage(attempts)
+            if evidence.completion == AnswerOutcome.NOT_FOUND
+            else None,
             "generation": evidence.completion_details or {"generator_called": False, "finish_reason": None},
         }
     )
