@@ -259,10 +259,23 @@ def test_standalone_migration_uses_manager_with_special_password(
     migration_connection: Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url = migration_connection.engine.url
-    monkeypatch.setattr(settings, "db_user", url.username)
-    monkeypatch.setattr(settings, "db_password", SecretStr("p@ss:/?#%"))
+    # The password must really authenticate: a role of its own owns the disposable database.
+    role = f"migrator_{uuid.uuid4().hex[:12]}"
+    password = "p@ss:/?#%"  # noqa: S105 - disposable test role
+    migration_connection.execute(text(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}'"))
+    migration_connection.execute(text(f'ALTER DATABASE "{url.database}" OWNER TO "{role}"'))
+    migration_connection.commit()
+    monkeypatch.setattr(settings, "db_user", role)
+    monkeypatch.setattr(settings, "db_password", SecretStr(password))
     monkeypatch.setattr(settings, "db_host", url.host or url.query.get("host", "localhost"))
     monkeypatch.setattr(settings, "db_port", str(url.port or url.query.get("port", 5432)))
     monkeypatch.setattr(settings, "db_name", url.database)
-    migrate.main()
-    assert "config_parameters" in inspect(migration_connection).get_table_names()
+    try:
+        migrate.main()
+        assert "config_parameters" in inspect(migration_connection).get_table_names()
+    finally:
+        migration_connection.rollback()
+        migration_connection.execute(text(f'REASSIGN OWNED BY "{role}" TO CURRENT_USER'))
+        migration_connection.execute(text(f'DROP OWNED BY "{role}"'))
+        migration_connection.execute(text(f'DROP ROLE "{role}"'))
+        migration_connection.commit()

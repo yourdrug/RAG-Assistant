@@ -67,7 +67,7 @@
   [
     "documents",
     "documents_visibility_check",
-    "CHECK (((visibility)::text = ANY ((ARRAY['internal_public'::character varying, 'internal_group'::character varying, 'internal_private'::character varying, 'client_private'::character varying])::text[])))"
+    "CHECK (((visibility)::text = ANY ((ARRAY['internal_public'::character varying, 'internal_group'::character varying, 'internal_private'::character varying, 'client_private'::character varying, 'client_public'::character varying])::text[])))"
   ],
   [
     "messages",
@@ -78,6 +78,11 @@
     "users",
     "chk_client_not_privileged",
     "CHECK ((NOT (((kind)::text = 'client'::text) AND ((role)::text = ANY ((ARRAY['admin'::character varying, 'curator'::character varying])::text[])))))"
+  ],
+  [
+    "users",
+    "chk_client_space_kind",
+    "CHECK (((client_space_id IS NULL) OR ((kind)::text = 'client'::text)))"
   ],
   [
     "users",

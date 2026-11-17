@@ -54,9 +54,10 @@ def load_model_modules() -> None:
 
 
 def init_alembic_config() -> None:
-    """Configure migration logging."""
-    if config.config_file_name is not None:
-        fileConfig(config.config_file_name)
+    """Configure migration logging unless the caller that supplied the connection owns it."""
+    if config.config_file_name is not None and config.attributes.get("connection") is None:
+        # Keep loggers created before migrations (application modules, migrate.py) enabled.
+        fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 
 def run_migrations_offline() -> None:
