@@ -140,7 +140,7 @@ _STREAM_PATCHES = {
     "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity": MagicMock(return_value="test:model:v1"),
     "infrastructure.ml.rag.rag_steps.build_qdrant_filter": MagicMock(return_value=MagicMock(should=[])),
     "infrastructure.ml.rag.rag_steps.build_search_filter": MagicMock(return_value=MagicMock(should=[])),
-    "infrastructure.ml.rag.rag_steps.handle_relevance_gate": AsyncMock(return_value=True),
+    "infrastructure.ml.rag.rag_steps.handle_relevance_gate": AsyncMock(return_value=(True, "")),
     "infrastructure.ml.cache.keys.compute_visibility_scope_hash": MagicMock(return_value="vis_hash"),
     "infrastructure.ml.cache.keys.compute_question_hash": MagicMock(return_value="q_hash"),
     "infrastructure.ml.rag.rag_steps.classify_query_domain": MagicMock(return_value="general"),
@@ -307,11 +307,7 @@ class TestStreamRelevanceGate:
             ),
             patch(
                 "infrastructure.ml.rag.rag_steps.handle_relevance_gate",
-                AsyncMock(return_value=False),
-            ),
-            patch(
-                "infrastructure.ml.rag.rag_steps.assess_sufficiency",
-                AsyncMock(return_value=MagicMock(is_sufficient=False, suggested_refinement="better query")),
+                AsyncMock(return_value=(False, "better query")),
             ),
         ):
             service = make_stream_service()
@@ -329,7 +325,7 @@ class TestStreamRelevanceGate:
             ),
             patch(
                 "infrastructure.ml.rag.rag_steps.handle_relevance_gate",
-                AsyncMock(return_value=True),
+                AsyncMock(return_value=(True, "")),
             ),
         ):
             service = make_stream_service(llm_response="good answer")
@@ -481,11 +477,7 @@ class TestStreamRejection:
             ),
             patch(
                 "infrastructure.ml.rag.rag_steps.handle_relevance_gate",
-                AsyncMock(return_value=False),
-            ),
-            patch(
-                "infrastructure.ml.rag.rag_steps.assess_sufficiency",
-                AsyncMock(return_value=MagicMock(is_sufficient=False, suggested_refinement="better q")),
+                AsyncMock(return_value=(False, "better q")),
             ),
         ):
             service = make_stream_service()
@@ -610,12 +602,9 @@ def outcome_patches(outcome: str) -> Iterator[None]:
             stack.enter_context(patch("infrastructure.ml.rag.rag_steps.is_out_of_domain", return_value=True))
         elif outcome == "not_found":
             stack.enter_context(
-                patch("infrastructure.ml.rag.rag_steps.handle_relevance_gate", AsyncMock(return_value=False))
-            )
-            stack.enter_context(
                 patch(
-                    "infrastructure.ml.rag.rag_steps.assess_sufficiency",
-                    AsyncMock(return_value=SimpleNamespace(is_sufficient=False, suggested_refinement=None)),
+                    "infrastructure.ml.rag.rag_steps.handle_relevance_gate",
+                    AsyncMock(return_value=(False, "")),
                 )
             )
         elif outcome == "grounded":

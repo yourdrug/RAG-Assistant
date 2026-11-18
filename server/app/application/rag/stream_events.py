@@ -43,6 +43,8 @@ class SourcesEvent:
     sources: list[dict[str, Any]]
     confidence: float | None = None
     usage: UsageReport | None = None
+    # The final sanitized answer of a generated response; streamed chunks are only its prefix.
+    answer: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +64,7 @@ class MetaEvent:
     usage: UsageReport | None = None
     as_of_date: date | None = None
     message_id: int | None = None
+    answer: str = ""
 
 
 @dataclass(frozen=True, slots=True)

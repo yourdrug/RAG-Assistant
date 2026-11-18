@@ -53,12 +53,12 @@ async def handle_relevance_gate(
     ml_clients: MLClientPort,
     *,
     context: str | None = None,
-) -> bool:
-    """Check relevance gate. Returns True if relevant, False if rejected."""
+) -> tuple[bool, str]:
+    """Check relevance gate: (relevant, refined query for a retry when rejected, else "")."""
     del breadth
 
     if not rag.features.relevance_gate_enabled:
-        return True
+        return True, ""
 
     t0 = time.monotonic()
 
@@ -67,20 +67,20 @@ async def handle_relevance_gate(
 
     async with ml_clients.auxiliary_semaphore:
         try:
-            is_relevant, reason = await check_relevance(ml_clients, query_for_search, docs, context=context)
+            verdict = await check_relevance(ml_clients, query_for_search, docs, context=context)
         except Exception:
             await breaker.report_failure()
             raise
         await breaker.report_success()
     RAG_STAGE_DURATION.labels("relevance_gate").observe(time.monotonic() - t0)
 
-    if not is_relevant:
+    if not verdict.is_relevant:
         RAG_RELEVANCE_GATE_TOTAL.labels(result="rejected").inc()
-        log.info("Relevance gate: rejected (reason_chars=%d)", len(reason))
-        return False
+        log.info("Relevance gate: rejected (reason_chars=%d)", len(verdict.reason))
+        return False, verdict.suggested_refinement.strip()
 
     RAG_RELEVANCE_GATE_TOTAL.labels(result="passed").inc()
-    return True
+    return True, ""
 
 
 async def reject_not_relevant(

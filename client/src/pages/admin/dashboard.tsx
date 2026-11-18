@@ -22,7 +22,6 @@ import {
   useDocuments,
   useGroups,
   useHealth,
-  useIngestRegistry,
   useMetrics,
   useUsers,
 } from "@/shared/api/hooks";
@@ -161,7 +160,6 @@ export function AdminDashboardPage() {
   const { data: groups, isLoading: groupsLoading } = useGroups();
   const { data: documents, isLoading: dl } = useDocuments();
   const { data: metrics, isLoading: ml } = useMetrics();
-  const { data: registry } = useIngestRegistry();
   // Chat logs persist in Postgres, unlike per-process Prometheus counters that reset on restart.
   const { data: ragStats, isLoading: ragLoading } = useChatLogStats({});
   const ragNotFound = ragStats?.outcomes?.not_found ?? 0;
@@ -552,27 +550,27 @@ export function AdminDashboardPage() {
             <CardDescription>Document processing totals</CardDescription>
           </CardHeader>
           <CardContent className="min-h-52">
+            {/* Persisted document rows: uploads bypass the batch-ingest registry and
+                ingestion counters live in worker processes, not in the API. */}
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Indexed Files</span>
-                <span className="font-mono font-bold">{registry?.total_files ?? "—"}</span>
+                <span className="font-mono font-bold">{documents ? docsDone : "—"}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Total Chunks</span>
                 <span className="font-mono font-bold">
-                  {registry?.total_chunks?.toLocaleString() ?? "—"}
+                  {documents ? totalChunks.toLocaleString() : "—"}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Documents Ingested</span>
-                <span className="font-mono font-bold">
-                  {metrics ? Number(metrics.ingestion?.documents_total) || 0 : "—"}
-                </span>
+                <span className="font-mono font-bold">{documents ? documents.length : "—"}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Files Processed</span>
                 <span className="font-mono font-bold">
-                  {metrics ? Number(metrics.ingestion?.files_total) || 0 : "—"}
+                  {documents ? docsDone + docsFailed : "—"}
                 </span>
               </div>
               {metrics?.ingestion?.duration &&

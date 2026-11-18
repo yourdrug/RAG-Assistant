@@ -75,6 +75,7 @@ def format_sse_event(event: StreamEvent, req_id: str) -> str | None:
             "confidence": event.confidence,
             "as_of_date": event.as_of_date.isoformat() if event.as_of_date else None,
             "request_id": req_id,
+            "answer": event.answer,
         }
         return f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -99,8 +100,10 @@ def format_sse_event(event: StreamEvent, req_id: str) -> str | None:
                 '`message` (no event field): {"text": string}, an answer fragment; '
                 '`status`: {"stage": string}, a progress update; '
                 '`done`: {"conversation_id": integer, "message_id": integer|null, "sources": object[]|null, '
-                '"confidence": number|null, "as_of_date": string|null, "request_id": string}, '
-                "final metadata (as_of_date is an ISO date); "
+                '"confidence": number|null, "as_of_date": string|null, "request_id": string, '
+                '"answer": string}, '
+                "final metadata (as_of_date is an ISO date; answer is the authoritative final text, "
+                "which replaces the streamed fragments); "
                 '`error`: {"error": string, "code": string}, a terminal stream error. '
                 "Errors after streaming starts retain HTTP 200. "
                 "Comment frames (`: heartbeat`) carry no event data and should be ignored."
@@ -113,7 +116,7 @@ def format_sse_event(event: StreamEvent, req_id: str) -> str | None:
                         'event: status\ndata: {"stage": "retrieval"}\n\n'
                         'data: {"text": "Hello"}\n\n'
                         'event: done\ndata: {"conversation_id": 1, "message_id": null, "sources": null, '
-                        '"confidence": null, "as_of_date": null, "request_id": "abc123"}\n\n'
+                        '"confidence": null, "as_of_date": null, "request_id": "abc123", "answer": ""}\n\n'
                     ),
                 },
             },

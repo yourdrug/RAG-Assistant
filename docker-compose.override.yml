@@ -17,10 +17,9 @@ services:
     # Direct API access for local tools (Taskfile); dev runs a single replica.
     ports:
       - "127.0.0.1:8001:8001"
-    # Host VPN DNS is unreachable from Docker; keep external lookups container-local.
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
+    # DOCKER_DNS (server/.env) overrides external DNS, e.g. 1.1.1.1 when the host VPN DNS
+    # is unreachable from Docker; empty = the host's resolver.
+    dns: ${DOCKER_DNS:-}
     build:
       context: .
       dockerfile: Dockerfile
@@ -46,9 +45,7 @@ services:
           selinux: Z
 
   worker:
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
+    dns: ${DOCKER_DNS:-}
     volumes:
       - type: bind
         source: server/app
@@ -67,9 +64,7 @@ services:
           selinux: Z
 
   worker-batch:
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
+    dns: ${DOCKER_DNS:-}
     volumes:
       - type: bind
         source: server/app
@@ -88,9 +83,7 @@ services:
           selinux: Z
 
   maintenance:
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
+    dns: ${DOCKER_DNS:-}
     volumes:
       - type: bind
         source: server/app

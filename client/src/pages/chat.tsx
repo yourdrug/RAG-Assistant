@@ -217,7 +217,7 @@ export function ChatPage() {
           {
             role: "assistant",
             id: data.message_id,
-            content: streamingContentRef.current,
+            content: data.answer ?? streamingContentRef.current,
             sources: data.sources,
           },
         ]);

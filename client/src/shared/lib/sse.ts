@@ -6,6 +6,8 @@ export interface SSEDone {
   sources: Source[];
   confidence?: number | null;
   as_of_date?: string | null;
+  /** Authoritative final answer; replaces the streamed fragments (guardrails may rewrite them). */
+  answer?: string;
 }
 
 export type PipelineStage = "searching" | "reranking" | "generating";

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, aclosing, asynccontextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import logging
 import time
 from typing import TYPE_CHECKING, Any, cast
@@ -58,6 +58,7 @@ from infrastructure.ml.evidence_profiles.profiles import (
 )
 from infrastructure.ml.guardrails.input_scanner import InputScanner
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
+from infrastructure.ml.rag.answer_stream import GuardedAnswerStream
 from infrastructure.ml.rag.benchmark_evidence import (
     active_evidence,
     benchmark_mode,
@@ -89,7 +90,7 @@ from infrastructure.ml.rag.rag_postprocess import (
 from infrastructure.ml.rag.rag_prompts import (
     condense_question,
 )
-from infrastructure.ml.rag.rag_relevance import assess_sufficiency, filter_cited_documents
+from infrastructure.ml.rag.rag_relevance import filter_cited_documents
 from infrastructure.ml.rag.rag_retrieval import query_vector_scope
 from infrastructure.ml.rag.rag_sources import extract_sources
 from infrastructure.ml.rag.retrieval_pipeline import RetrievalPipeline
@@ -101,7 +102,7 @@ from shared import request_id_ctx
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncGenerator, AsyncIterator, Callable
 
     from langchain_core.messages import BaseMessage
     from langchain_core.runnables import Runnable
@@ -115,7 +116,9 @@ if TYPE_CHECKING:
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.rag.context import RagContext
     from domain.rag.ports import ChunkRetrievalRepository
+    from domain.rag.settings import RagSettings
     from infrastructure.ml.evidence_profiles.profiles import EvidenceProfile
+    from infrastructure.ml.guardrails.output_scanner import OutputVerdict
 
 
 MIN_HISTORY_CHARS = 3
@@ -447,13 +450,13 @@ class RagOperations:
 
         return None
 
-    async def relevant(self, result: RetrievalResult) -> bool:
+    async def gate(self, result: RetrievalResult) -> Sufficiency:
         context = (
             self.build(result, capture=False)
             if result.prepared.request.settings.features.relevance_gate_enabled
             else None
         )
-        return await handle_relevance_gate(
+        relevant, refinement = await handle_relevance_gate(
             result.prepared.query,
             lc_documents(result.documents),
             result.breadth,
@@ -461,19 +464,7 @@ class RagOperations:
             self.ml,
             context=context.evidence_context if context is not None else None,
         )
-
-    async def assess(self, result: RetrievalResult) -> Sufficiency:
-        t0 = time.monotonic()
-        context = self.build(result, capture=False)
-        assessment = await assess_sufficiency(
-            result.prepared.query, lc_documents(result.documents), self.ml, context=context.evidence_context
-        )
-        RAG_STAGE_DURATION.labels("sufficiency_assess").observe(time.monotonic() - t0)
-
-        if assessment.is_sufficient:
-            log.info("Self-RAG: context deemed sufficient despite relevance gate rejection")
-
-        return Sufficiency(assessment.is_sufficient, assessment.suggested_refinement)
+        return Sufficiency(relevant, refinement or None)
 
     def retry(self, refinement: str) -> None:
         log.info("Self-RAG: retrying with refined query (attempt 1/1, query_chars=%d)", len(refinement))
@@ -633,27 +624,70 @@ class RagOperations:
             },
         )
 
-    async def generate(self, context: PreparedContext) -> SanitizedAnswer:
-        result = context.retrieval
-        request = result.prepared.request
-        messages = lc_messages(context.messages)
-        effective_breadth = Breadth.BROAD if result.enumerate_cases else result.breadth
+    def sanitize_answer(self, text: str, rag: RagSettings) -> tuple[str, OutputVerdict, list[str]]:
+        """Apply the output scanner, partial-answer marking and PII redaction."""
+        answer, verdict = OutputScanner().sanitize_output(text)
+        answer = mark_partial_answer(answer)
+        pii_found: list[str] = []
 
-        t0 = time.monotonic()
+        if rag.pii_redaction_enabled and self.pii_redactor is not None:
+            answer, pii_found = self.pii_redactor.scan_and_redact(answer)
+
+        return answer, verdict, pii_found
+
+    async def stream_answer(self, context: PreparedContext) -> AsyncGenerator[TextChunk | SanitizedAnswer]:
+        """Yield sanitized answer text as it is generated, then the final answer.
+
+        Released chunks form a prefix of the final answer when the guardrails
+        allow it; otherwise streaming stops and only the final answer is
+        authoritative.
+        """
+        run = GenerationRun(started=time.monotonic())
 
         if context.grounded_answer is None:
-            answer_parts, last_chunk, first_token_at = await self.collect_generation(
-                messages, effective_breadth
-            )
+            async with aclosing(self.released_text(context, run)) as released:
+                async for text in released:
+                    yield TextChunk(text=text)
         else:
             capture_prompt_delivery(sent=False)
-            answer_parts, last_chunk, first_token_at = [context.grounded_answer], None, None
+            run.parts.append(context.grounded_answer)
 
-        RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
+        RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - run.started)
+        answer = self.sanitized(context, run)
+        rest = run.guard.finish(answer.text) if run.guard is not None else answer.text
 
-        capture_generation_finish(last_chunk)
-        full_answer, output_verdict = OutputScanner().sanitize_output("".join(answer_parts))
-        full_answer = mark_partial_answer(full_answer)
+        if rest:
+            yield TextChunk(text=rest)
+
+        yield answer
+
+    async def released_text(self, context: PreparedContext, run: GenerationRun) -> AsyncGenerator[str]:
+        result = context.retrieval
+        settings = result.prepared.request.settings
+        breadth = Breadth.BROAD if result.enumerate_cases else result.breadth
+        run.guard = GuardedAnswerStream(lambda text: self.stream_check(text, settings))
+
+        async with aclosing(self.generation_chunks(lc_messages(context.messages), breadth)) as chunks:
+            async for chunk in chunks:
+                run.last_chunk = chunk
+                text = generation_chunk_text(chunk)
+
+                if not text:
+                    continue
+
+                if run.first_token_at is None:
+                    run.first_token_at = time.monotonic()
+
+                run.parts.append(text)
+                released = run.guard.push(text)
+
+                if released:
+                    yield released
+
+    def sanitized(self, context: PreparedContext, run: GenerationRun) -> SanitizedAnswer:
+        request = context.retrieval.prepared.request
+        capture_generation_finish(run.last_chunk)
+        full_answer, output_verdict, pii_found = self.sanitize_answer("".join(run.parts), request.settings)
 
         if not output_verdict.safe:
             log.warning(
@@ -662,26 +696,11 @@ class RagOperations:
                 output_verdict.reason,
             )
 
-        if request.settings.pii_redaction_enabled and self.pii_redactor is not None:
-            full_answer, pii_found = self.pii_redactor.scan_and_redact(full_answer)
-
-            if pii_found:
-                log.warning(
-                    "PII detected in LLM output [request_id=%s]: types=%s",
-                    request_id_ctx.get(""),
-                    pii_found,
-                )
-
-        usage_report = None
-
-        if last_chunk is not None:
-            input_tokens, output_tokens = extract_usage_from_langchain(last_chunk)
-            model_name = request.model
-            record_llm_usage(
-                model=model_name, operation="generate", input_tokens=input_tokens, output_tokens=output_tokens
-            )
-            usage_report = UsageReport(
-                input_tokens=input_tokens, output_tokens=output_tokens, model=model_name, operation="generate"
+        if pii_found:
+            log.warning(
+                "PII detected in LLM output [request_id=%s]: types=%s",
+                request_id_ctx.get(""),
+                pii_found,
             )
 
         outcome = AnswerOutcome.GROUNDED if context.grounded_answer is not None else AnswerOutcome.GENERATED
@@ -693,38 +712,39 @@ class RagOperations:
         return SanitizedAnswer(
             context,
             full_answer,
-            usage_report,
-            round(time.monotonic() - t0, 4) if full_answer else None,
-            round(first_token_at - t0, 4) if first_token_at is not None else None,
+            generation_usage(request.model, run.last_chunk),
+            round(time.monotonic() - run.started, 4) if full_answer else None,
+            round(run.first_token_at - run.started, 4) if run.first_token_at is not None else None,
             outcome,
         )
 
-    async def collect_generation(
+    def stream_check(self, text: str, rag: RagSettings) -> tuple[str, bool]:
+        answer, verdict, _ = self.sanitize_answer(text, rag)
+        return answer, verdict.safe
+
+    async def generation_chunks(
         self, messages: list[BaseMessage], breadth: Breadth
-    ) -> tuple[list[str], LLMMessagePort | None, float | None]:
-        """Stream the LLM answer; also return the monotonic time of the first non-empty chunk."""
-        answer_parts: list[str] = []
-        last_chunk: LLMMessagePort | None = None
-        first_token_at: float | None = None
+    ) -> AsyncGenerator[LLMMessagePort]:
+        """Stream raw LLM chunks under the generation semaphore and circuit breaker."""
         breaker = get_breaker("llm_generate")
         breaker.check_open()
         capture_prompt_delivery(sent=True)
         async with self.ml.generation_semaphore:
             try:
-                async for chunk in self.ml.llm_for_breadth(breadth).astream(messages):
-                    last_chunk = chunk
-                    text = generation_chunk_text(chunk)
+                stream = self.ml.llm_for_breadth(breadth).astream(messages)
+                try:
+                    async for chunk in stream:
+                        yield chunk
+                finally:
+                    # A closed consumer must release the provider stream and its client lease now.
+                    aclose = getattr(stream, "aclose", None)
 
-                    if text:
-                        if first_token_at is None:
-                            first_token_at = time.monotonic()
-
-                        answer_parts.append(text)
+                    if aclose is not None:
+                        await aclose()
             except Exception:
                 await breaker.report_failure()
                 raise
             await breaker.report_success()
-        return answer_parts, last_chunk, first_token_at
 
     def finalize(self, answer: SanitizedAnswer) -> CompletedAnswer:
         context = answer.context
@@ -781,6 +801,30 @@ class RagOperations:
                     "confidence": completed.confidence,
                 },
             )
+
+
+@dataclass
+class GenerationRun:
+    """Mutable state of one answer generation, shared by its streaming steps."""
+
+    started: float
+    parts: list[str] = field(default_factory=list)
+    last_chunk: LLMMessagePort | None = None
+    first_token_at: float | None = None
+    guard: GuardedAnswerStream | None = None
+
+
+def generation_usage(model: str, last_chunk: LLMMessagePort | None) -> UsageReport | None:
+    if last_chunk is None:
+        return None
+
+    input_tokens, output_tokens = extract_usage_from_langchain(last_chunk)
+    record_llm_usage(
+        model=model, operation="generate", input_tokens=input_tokens, output_tokens=output_tokens
+    )
+    return UsageReport(
+        input_tokens=input_tokens, output_tokens=output_tokens, model=model, operation="generate"
+    )
 
 
 def capture_generation_finish(last_chunk: LLMMessagePort | None) -> None:

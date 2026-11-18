@@ -180,7 +180,7 @@ async def test_stream_preserves_order_and_usage_then_emits_meta() -> None:
         status,
         TextChunk("an"),
         TextChunk("swer"),
-        MetaEvent(7, sources, 0.7, usage=usage, message_id=2),
+        MetaEvent(7, sources, 0.7, usage=usage, message_id=2, answer="answer"),
     ]
     log = fixture.uow.chat_logs.save.await_args.args[0]
     assert log.answer == "answer"

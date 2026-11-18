@@ -8,15 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 from config import LLMSection, request_section
 from infrastructure.ml.clients.client_lease import client_operation
-from infrastructure.ml.clients.llm_schemas import (
-    RelevanceCheck,
-    SufficiencyAssessment,
-    create_structured_response,
-)
+from infrastructure.ml.clients.llm_schemas import RelevanceCheck, create_structured_response
 from infrastructure.ml.rag.benchmark_evidence import capture_gate
-from infrastructure.ml.rag.prompts import SUFFICIENCY_ASSESSMENT_SYSTEM
 from infrastructure.ml.rag.rag_formatting import format_docs
-from infrastructure.resilience.circuit_breaker import get_breaker
 
 
 if TYPE_CHECKING:
@@ -25,17 +19,23 @@ if TYPE_CHECKING:
 RELEVANCE_SYSTEM = (
     "Оцени, достаточно ли предоставленного контекста для ответа на вопрос пользователя.\n"
     "Если контекст достаточен — установи is_relevant=true.\n"
-    "Если контекст недостаточен — установи is_relevant=false и кратко укажи причину.\n"
+    "Если контекст недостаточен — установи is_relevant=false, кратко укажи причину и "
+    "предложи в suggested_refinement уточнённый поисковый запрос, который найдёт недостающее; "
+    "если уточнить нечего, оставь suggested_refinement пустым.\n"
     "Не отвечай на сам вопрос — только оцени достаточность контекста.\n"
-    "Верни JSON-объект с полями is_relevant (boolean) и reason (строка) на верхнем уровне, "
-    'без дополнительных обёрток. Пример: {"is_relevant": false, "reason": "Нет данных"}.'
+    "Верни JSON-объект с полями is_relevant (boolean), reason (строка) и "
+    "suggested_refinement (строка) на верхнем уровне, без дополнительных обёрток. "
+    'Пример: {"is_relevant": false, "reason": "Нет данных", '
+    '"suggested_refinement": "Уточнённый запрос"}.'
 )
 
 
 async def check_relevance(
     ml_clients: MLClientPort, question: str, docs: list[Any], *, context: str | None = None
-) -> tuple[bool, str]:
-    """Semantic check: check if the retrieved context is sufficient to answer the question.
+) -> RelevanceCheck:
+    """Semantic check: is the retrieved context sufficient, and if not, what to search next.
+
+    One call replaces a separate sufficiency assessment after a rejection.
 
     Allows two Instructor attempts (one format correction), bounded together by
     the auxiliary timeout.
@@ -43,7 +43,7 @@ async def check_relevance(
     llm_settings = request_section(LLMSection)
 
     if not docs:
-        return False, "Нет документов для проверки"
+        return RelevanceCheck(is_relevant=False, reason="Нет документов для проверки")
 
     if context is None:
         context = format_docs(docs)
@@ -78,7 +78,7 @@ async def check_relevance(
             raise TimeoutError(message) from exc
 
     capture_gate("relevance", question, context, result.model_dump())
-    return result.is_relevant, result.reason
+    return result
 
 
 def filter_cited_sources(answer: str, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -103,63 +103,3 @@ def filter_cited_documents(answer: str, docs: list[Any]) -> list[Any]:
         for index, item in enumerate(docs, 1)
         if (item[0] if isinstance(item, tuple) else item).metadata.get("citation_id", index) in cited
     ]
-
-
-async def assess_sufficiency(
-    question: str,
-    docs: list[Any],
-    ml_clients: MLClientPort,
-    llm_client: object | None = None,
-    model: str = "",
-    *,
-    context: str | None = None,
-) -> SufficiencyAssessment:
-    """Self-RAG: assess whether retrieved context is sufficient to answer.
-
-    Allows two Instructor attempts (one format correction), bounded together by
-    the auxiliary timeout.
-    """
-    llm_settings = request_section(LLMSection)
-
-    if not docs:
-        return SufficiencyAssessment(
-            is_sufficient=False,
-            reasoning="No documents retrieved",
-            suggested_refinement=question,
-        )
-
-    if llm_client is None:
-        llm_client = ml_clients.instructor_client
-
-        model = llm_settings.active_auxiliary_model
-
-    if context is None:
-        context = format_docs(docs)
-
-    user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"
-
-    breaker = get_breaker("llm_auxiliary")
-    breaker.check_open()
-
-    async with client_operation(llm_client), ml_clients.auxiliary_semaphore:
-        try:
-            result = await asyncio.wait_for(
-                create_structured_response(
-                    llm_client,
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": SUFFICIENCY_ASSESSMENT_SYSTEM},
-                        {"role": "user", "content": user_msg},
-                    ],
-                    max_tokens=llm_settings.llm_num_predict_narrow,
-                    response_model=SufficiencyAssessment,
-                    max_retries=2,
-                ),
-                timeout=llm_settings.llm_auxiliary_timeout,
-            )
-        except Exception:
-            await breaker.report_failure()
-            raise
-        await breaker.report_success()
-    capture_gate("sufficiency", question, context, result.model_dump())
-    return result

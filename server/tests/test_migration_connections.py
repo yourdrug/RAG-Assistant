@@ -46,7 +46,7 @@ def test_online_migrations_use_transactional_manager_connection(monkeypatch: pyt
     )
     runpy.run_path(str(ENV_PATH))
     database.async_master_connection.assert_called_once_with(
-        connect_args={"options": "-c statement_timeout=0"}
+        connect_args={"options": "-c statement_timeout=0 -c lock_timeout=60s"}
     )
     connection.execution_options.assert_awaited_once_with(isolation_level="READ COMMITTED")
     connection.run_sync.assert_awaited_once()

@@ -10,13 +10,13 @@ from unittest.mock import AsyncMock
 from langchain_core.documents import Document
 import pytest
 
-from application.rag.dto import PreparedQuery, RagRequest
+from application.rag.dto import PreparedQuery, RagRequest, Sufficiency
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.chunk import ChunkRecord
 from domain.rag.context import RagContext
 from domain.rag.ranking import prioritize_distinct_provisions
-from infrastructure.ml.clients.llm_schemas import RelevanceCheck, SufficiencyAssessment
+from infrastructure.ml.clients.llm_schemas import RelevanceCheck
 from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile, evidence_profile_scope
 from infrastructure.ml.rag import rag_relevance, retrieval_pipeline
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence, active_evidence
@@ -151,7 +151,7 @@ async def test_text_neighbors_complete_only_same_provision_without_enumeration()
 
 
 @pytest.mark.asyncio
-async def test_both_judges_receive_generation_context_and_capture_decisions(
+async def test_relevance_judge_receives_generation_context_and_proposes_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # More than the previous 2000-token cap, spread across independent sources.
@@ -176,12 +176,8 @@ async def test_both_judges_receive_generation_context_and_capture_decisions(
 
     async def structured(client: Any, **kwargs: Any) -> Any:
         calls.append(kwargs)
-
-        if kwargs["response_model"] is RelevanceCheck:
-            return RelevanceCheck(is_relevant=False, reason="missing condition")
-
-        return SufficiencyAssessment(
-            is_sufficient=True, reasoning="all conditions present", suggested_refinement=""
+        return RelevanceCheck(
+            is_relevant=False, reason="missing condition", suggested_refinement="rule details"
         )
 
     monkeypatch.setattr(rag_relevance, "create_structured_response", structured)
@@ -190,20 +186,19 @@ async def test_both_judges_receive_generation_context_and_capture_decisions(
     try:
         with evidence_profile_scope(GenericEvidenceProfile()):
             result = await ops.retrieve(PreparedQuery(request, "rule conditions"))
-            assert not await ops.relevant(result)
-            assert (await ops.assess(result)).sufficient
+            assert await ops.gate(result) == Sufficiency(False, "rule details")
             assert "prompt" not in evidence.attempts[-1]["stages"]
             context = ops.build(result)
     finally:
         active_evidence.reset(token)
     assert len(context.documents) == 3
 
-    for call in calls:
-        assert call["messages"][1]["content"].endswith(context.evidence_context)
+    # One judgment: no separate sufficiency call after the rejection.
+    assert len(calls) == 1
+    assert calls[0]["messages"][1]["content"].endswith(context.evidence_context)
 
     checks = evidence.attempts[-1]["checks"]
     assert [(check["stage"], check["context"]) for check in checks] == [
         ("relevance", context.evidence_context),
-        ("sufficiency", context.evidence_context),
     ]
     assert checks[0]["result"]["reason"] == "missing condition"

@@ -17,15 +17,16 @@ from langchain_core.messages import AIMessage, HumanMessage
 from openai.types.chat import ChatCompletion
 import pytest
 
+from config import LLMSection, request_section
 from domain.rag.breadth import Breadth
 from domain.rag.classification import classify_question_breadth, needs_decomposition, should_enumerate_cases
+from infrastructure.ml.clients.llm_schemas import RelevanceCheck
 from infrastructure.ml.ingestion import docx_table_to_markdown, pymupdf_table_to_markdown
 from infrastructure.ml.rag.prompt_blocks import CRITICAL_RULES_BLOCK, NOT_FOUND_PATTERNS
 import infrastructure.ml.rag.rag_formatting as rag_fmt
 from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
 from infrastructure.ml.rag.rag_prompts import decompose_question
 import infrastructure.ml.rag.rag_relevance as rag_rel
-from infrastructure.ml.rag.rag_relevance import assess_sufficiency
 import infrastructure.ml.rag.rag_reranking as rag_rr
 import infrastructure.ml.rag.rag_sources as rag_src
 
@@ -535,7 +536,11 @@ class TestCheckRelevance:
                 await rag_rel.check_relevance(ml_clients, "question", [_doc("context")])
         else:
             result = await rag_rel.check_relevance(ml_clients, "question", [_doc("context")])
-            assert result == (is_relevant, "checked")
+            assert (result.is_relevant, result.reason, result.suggested_refinement) == (
+                is_relevant,
+                "checked",
+                "",
+            )
 
         assert create.await_count == 2
         assert "Field required" in str(create.call_args.kwargs["messages"])
@@ -568,7 +573,27 @@ class TestCheckRelevance:
 
     def test_empty_docs_returns_false(self) -> None:
         result = asyncio.run(rag_rel.check_relevance(MagicMock(), "question", []))
-        assert result == (False, "Нет документов для проверки")
+        assert result == RelevanceCheck(is_relevant=False, reason="Нет документов для проверки")
+
+    @pytest.mark.asyncio
+    async def test_rejection_carries_refined_query_from_the_same_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        create = AsyncMock(
+            return_value=RelevanceCheck(
+                is_relevant=False, reason="нет условий", suggested_refinement="уточнение"
+            )
+        )
+        monkeypatch.setattr(rag_rel, "create_structured_response", create)
+
+        result = await rag_rel.check_relevance(
+            SimpleNamespace(instructor_client=MagicMock()), "question", [_doc("context")]
+        )
+
+        assert result.suggested_refinement == "уточнение"
+        create.assert_awaited_once()
+        assert create.call_args.kwargs["model"] == request_section(LLMSection).active_auxiliary_model
+        assert "suggested_refinement" in create.call_args.kwargs["messages"][0]["content"]
 
     def test_relevant_answer_detected(self) -> None:
 
@@ -589,7 +614,7 @@ class TestCheckRelevance:
             mock_settings.llm_model = "test-model"
             mock_settings.llm_auxiliary_timeout = 30
             result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
-            assert result[0] is True
+            assert result.is_relevant is True
 
     def test_irrelevant_answer_detected(self) -> None:
 
@@ -610,139 +635,7 @@ class TestCheckRelevance:
             mock_settings.llm_model = "test-model"
             mock_settings.llm_auxiliary_timeout = 30
             result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
-            assert result[0] is False
-
-
-# ---------------------------------------------------------------------------
-# assess_sufficiency (mocked LLM)
-# ---------------------------------------------------------------------------
-
-
-class TestAssessSufficiency:
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("is_sufficient", [True, False, None])
-    async def test_schema_response_gets_one_correction_attempt(self, is_sufficient: bool | None) -> None:
-        malformed = (
-            '{"/description": "Structured response for self-RAG sufficiency check.", '
-            '"/properties": {"/is_sufficient": {"type": "boolean", "value": true}}}'
-        )
-        corrected = (
-            malformed
-            if is_sufficient is None
-            else f'{{"is_sufficient": {str(is_sufficient).lower()}, '
-            '"reasoning": "checked", "suggested_refinement": "refined query"}'
-        )
-        create = AsyncMock(
-            side_effect=[
-                ChatCompletion.model_validate(
-                    {
-                        "id": "sufficiency-test",
-                        "object": "chat.completion",
-                        "created": 0,
-                        "model": "test-model",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "finish_reason": "stop",
-                                "message": {"role": "assistant", "content": content},
-                            }
-                        ],
-                    },
-                )
-                for content in [malformed, corrected]
-            ]
-        )
-        client = instructor.AsyncInstructor(
-            client=None,
-            create=instructor.patch(create=create, mode=instructor.Mode.JSON),
-            mode=instructor.Mode.JSON,
-        )
-        ml_clients = SimpleNamespace(instructor_client=client, auxiliary_semaphore=asyncio.Semaphore(1))
-        breaker = SimpleNamespace(
-            check_open=MagicMock(), report_success=AsyncMock(), report_failure=AsyncMock()
-        )
-        with patch.object(rag_rel, "get_breaker", return_value=breaker):
-            if is_sufficient is None:
-                with pytest.raises(InstructorRetryException):
-                    await assess_sufficiency("question", [_doc("context")], ml_clients)
-                breaker.report_failure.assert_awaited_once()
-                breaker.report_success.assert_not_awaited()
-            else:
-                result = await assess_sufficiency("question", [_doc("context")], ml_clients)
-                assert result.is_sufficient is is_sufficient
-                assert result.reasoning == "checked"
-                assert result.suggested_refinement == "refined query"
-                breaker.report_success.assert_awaited_once()
-                breaker.report_failure.assert_not_awaited()
-
-        assert create.await_count == 2
-        assert "Field required" in str(create.call_args.kwargs["messages"])
-
-    def test_empty_docs_returns_insufficient(self) -> None:
-
-        result = asyncio.run(assess_sufficiency("question", [], MagicMock()))
-        assert result.is_sufficient is False
-        assert "No documents" in result.reasoning
-
-    def test_configured_model_used_for_sufficiency(self) -> None:
-
-        mock_result = MagicMock()
-        mock_result.is_sufficient = True
-        mock_result.reasoning = "Context is good"
-        mock_result.suggested_refinement = None
-
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
-
-        mock_ml = MagicMock()
-        mock_ml.instructor_client = mock_client
-        mock_ml.auxiliary_semaphore = AsyncMock()
-        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
-        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
-
-        doc = MagicMock()
-        doc.page_content = "some legal context"
-        doc.metadata = {"source": "test.pdf", "document_id": 1}
-
-        with patch("config.settings") as mock_settings:
-            mock_settings.llm_model = "qwen2.5"
-            mock_settings.active_auxiliary_model = "qwen2.5"
-            mock_settings.llm_auxiliary_timeout = 30
-
-            result = asyncio.run(assess_sufficiency("question", [doc], mock_ml))
-            assert result.is_sufficient is True
-            call_kwargs = mock_client.chat.completions.create.call_args
-            assert call_kwargs.kwargs["model"] == "qwen2.5"
-
-    def test_sufficiency_uses_auxiliary_model(self) -> None:
-
-        mock_result = MagicMock()
-        mock_result.is_sufficient = False
-        mock_result.reasoning = "Not enough"
-        mock_result.suggested_refinement = "refined question"
-
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
-
-        mock_ml = MagicMock()
-        mock_ml.instructor_client = mock_client
-        mock_ml.auxiliary_semaphore = AsyncMock()
-        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
-        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
-
-        doc = MagicMock()
-        doc.page_content = "some legal context"
-        doc.metadata = {"source": "test.pdf", "document_id": 1}
-
-        with patch("config.settings") as mock_settings:
-            mock_settings.llm_model = "qwen/qwen-2.5-7b-instruct"
-            mock_settings.active_auxiliary_model = "qwen/qwen-2.5-7b-instruct"
-            mock_settings.llm_auxiliary_timeout = 30
-
-            result = asyncio.run(assess_sufficiency("question", [doc], mock_ml))
-            assert result.is_sufficient is False
-            call_kwargs = mock_client.chat.completions.create.call_args
-            assert call_kwargs.kwargs["model"] == "qwen/qwen-2.5-7b-instruct"
+            assert result.is_relevant is False
 
 
 # ---------------------------------------------------------------------------
@@ -757,7 +650,7 @@ class TestHandleRelevanceGate:
         rag.features.relevance_gate_enabled = False
 
         result = asyncio.run(handle_relevance_gate("q", [], Breadth.NARROW, rag, MagicMock()))
-        assert result is True
+        assert result == (True, "")
 
     def test_gate_enabled_relevant_returns_true(self) -> None:
 
@@ -771,13 +664,13 @@ class TestHandleRelevanceGate:
 
         target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
         with patch(target, new_callable=AsyncMock) as mock_check:
-            mock_check.return_value = (True, "good context")
+            mock_check.return_value = RelevanceCheck(is_relevant=True, reason="good context")
             result = asyncio.run(
                 handle_relevance_gate(
                     "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
                 )
             )
-            assert result is True
+            assert result == (True, "")
 
     def test_gate_enabled_not_relevant_returns_false(self) -> None:
 
@@ -791,13 +684,15 @@ class TestHandleRelevanceGate:
 
         target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
         with patch(target, new_callable=AsyncMock) as mock_check:
-            mock_check.return_value = (False, "not relevant")
+            mock_check.return_value = RelevanceCheck(
+                is_relevant=False, reason="not relevant", suggested_refinement="  refined  "
+            )
             result = asyncio.run(
                 handle_relevance_gate(
                     "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
                 )
             )
-            assert result is False
+            assert result == (False, "refined")
 
     def test_uses_auxiliary_semaphore(self) -> None:
 
@@ -813,7 +708,7 @@ class TestHandleRelevanceGate:
 
         target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
         with patch(target, new_callable=AsyncMock) as mock_check:
-            mock_check.return_value = (True, "ok")
+            mock_check.return_value = RelevanceCheck(is_relevant=True, reason="ok")
             asyncio.run(
                 handle_relevance_gate(
                     "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
@@ -1084,7 +979,7 @@ class TestCircuitBreakerIntegration:
         with patch("infrastructure.resilience.circuit_breaker.get_breaker", return_value=mock_breaker):
             target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
             with patch(target, new_callable=AsyncMock) as mock_check:
-                mock_check.return_value = (True, "ok")
+                mock_check.return_value = RelevanceCheck(is_relevant=True, reason="ok")
                 await handle_relevance_gate(
                     "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
                 )
@@ -1114,64 +1009,3 @@ class TestCircuitBreakerIntegration:
                         "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
                     )
                 mock_breaker.report_failure.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_assess_sufficiency_calls_breaker_check_open(self) -> None:
-
-        mock_breaker = MagicMock()
-        mock_breaker.report_success = AsyncMock()
-        mock_breaker.report_failure = AsyncMock()
-        mock_ml = MagicMock()
-        mock_ml.auxiliary_semaphore = MagicMock()
-        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
-        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
-
-        mock_result = MagicMock()
-        mock_result.is_sufficient = True
-        mock_result.reasoning = "ok"
-        mock_result.suggested_refinement = None
-
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
-        mock_ml.instructor_client = mock_client
-
-        with (
-            patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker),
-            patch("config.settings") as mock_settings,
-        ):
-            mock_settings.llm_model = "test"
-            mock_settings.llm_auxiliary_timeout = 30
-            doc = MagicMock()
-            doc.page_content = "context"
-            doc.metadata = {"source": "test.pdf", "document_id": 1}
-            await assess_sufficiency("q", [doc], mock_ml)
-            mock_breaker.check_open.assert_called_once()
-            mock_breaker.report_success.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_assess_sufficiency_calls_breaker_on_failure(self) -> None:
-
-        mock_breaker = MagicMock()
-        mock_breaker.report_success = AsyncMock()
-        mock_breaker.report_failure = AsyncMock()
-        mock_ml = MagicMock()
-        mock_ml.auxiliary_semaphore = MagicMock()
-        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
-        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
-
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("LLM down"))
-        mock_ml.instructor_client = mock_client
-
-        with (
-            patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker),
-            patch("config.settings") as mock_settings,
-        ):
-            mock_settings.llm_model = "test"
-            mock_settings.llm_auxiliary_timeout = 30
-            doc = MagicMock()
-            doc.page_content = "context"
-            doc.metadata = {"source": "test.pdf", "document_id": 1}
-            with pytest.raises(RuntimeError, match="LLM down"):
-                await assess_sufficiency("q", [doc], mock_ml)
-            mock_breaker.report_failure.assert_awaited_once()

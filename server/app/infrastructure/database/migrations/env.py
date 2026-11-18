@@ -26,6 +26,7 @@ target_metadata = Base.metadata
 
 
 PACK_MODELS = "persistence.models"
+MIGRATION_LOCK_TIMEOUT = "60s"
 
 
 def pack_model_modules() -> tuple[str, ...]:
@@ -86,8 +87,9 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     """Run transactional migrations on a manager-owned connection."""
     database = DatabaseManager(process_section(DatabaseSection))
+    # DDL waits for locks held by the running release; fail fast instead of queueing every query behind it.
     async with database.async_master_connection(
-        connect_args={"options": "-c statement_timeout=0"}
+        connect_args={"options": f"-c statement_timeout=0 -c lock_timeout={MIGRATION_LOCK_TIMEOUT}"}
     ) as connection:
         configured_connection = await connection.execution_options(isolation_level="READ COMMITTED")
         await configured_connection.run_sync(do_run_migrations)

@@ -23,6 +23,10 @@ class RelevanceCheck(BaseModel):
 
     is_relevant: bool = Field(description="Whether the context is sufficient to answer the question")
     reason: str = Field(default="", description="Brief explanation if not relevant")
+    suggested_refinement: str = Field(
+        default="",
+        description="If not relevant, a refined search query for one more retrieval attempt",
+    )
 
 
 class DecompositionCheck(BaseModel):
@@ -32,22 +36,6 @@ class DecompositionCheck(BaseModel):
     sub_queries: list[str] = Field(
         default_factory=list,
         description="List of sub-queries if decomposition is needed (2-4 items)",
-    )
-
-
-class SufficiencyAssessment(BaseModel):
-    """Structured response for self-RAG sufficiency check."""
-
-    is_sufficient: bool = Field(
-        description="Whether the retrieved context is sufficient to answer the question"
-    )
-    reasoning: str = Field(
-        default="",
-        description="Brief explanation of why context is or isn't sufficient",
-    )
-    suggested_refinement: str = Field(
-        default="",
-        description="If insufficient, a refined query for broader retrieval",
     )
 
 

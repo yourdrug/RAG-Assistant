@@ -151,9 +151,10 @@ async def generate(
             state.evidence_assessment,
         ),
     )
-    answer = await RagOperations(ml, document_access=MagicMock()).generate(context)
-    state.full_answer = answer.text
-    state.output_sanitized = True
 
-    if answer.text:
-        yield TextChunk(text=answer.text)
+    async for part in RagOperations(ml, document_access=MagicMock()).stream_answer(context):
+        if isinstance(part, TextChunk):
+            yield part
+        else:
+            state.full_answer = part.text
+            state.output_sanitized = True

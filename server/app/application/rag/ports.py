@@ -1,6 +1,6 @@
 """Stage contracts for application-owned RAG orchestration."""
 
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
@@ -14,6 +14,7 @@ from application.rag.dto import (
     Sufficiency,
     TerminalResponse,
 )
+from application.rag.stream_events import TextChunk
 from domain.rag.context import RagContext
 
 
@@ -42,8 +43,10 @@ class Retrieval(Protocol):
 
 class EvidenceGate(Protocol):
     async def reject_ood(self, result: RetrievalResult) -> TerminalResponse | None: ...
-    async def relevant(self, result: RetrievalResult) -> bool: ...
-    async def assess(self, result: RetrievalResult) -> Sufficiency: ...
+    async def gate(self, result: RetrievalResult) -> Sufficiency:
+        """Judge the evidence once; a rejection may carry a refined query for one retry."""
+        ...
+
     async def reject(self, result: RetrievalResult) -> TerminalResponse: ...
     def retry(self, refinement: str) -> None: ...
 
@@ -53,7 +56,9 @@ class ContextPreparation(Protocol):
 
 
 class Generation(Protocol):
-    async def generate(self, context: PreparedContext) -> SanitizedAnswer: ...
+    def stream_answer(self, context: PreparedContext) -> AsyncGenerator[TextChunk | SanitizedAnswer]:
+        """Yield sanitized answer text as it is released, ending with the final answer."""
+        ...
 
 
 class Finalization(Protocol):

@@ -103,8 +103,8 @@ class SanitizedAnswer:
     context: PreparedContext
     text: str
     usage: UsageReport | None
-    # Full answer production time (LLM stream + output scan/redaction), not time to first token:
-    # the answer is emitted only after the whole text has been checked.
+    # Full answer production time (LLM stream + output scan/redaction), not time to first token.
+    # ``text`` is authoritative: streamed chunks may stop early when the guardrails rewrite the answer.
     generation_sec: float | None
     # Time from generation start (including the LLM semaphore wait) to the first non-empty LLM chunk;
     # None when no LLM was called (grounded answer) or it produced no text.

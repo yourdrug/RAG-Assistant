@@ -499,20 +499,18 @@ export function DashboardPage() {
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Documents Ingested</span>
-                  <span className="font-mono font-bold">
-                    {Number(metrics.ingestion?.documents_total) || 0}
-                  </span>
+                  <span className="font-mono font-bold">{documents ? documents.length : "—"}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Chunks Created</span>
                   <span className="font-mono font-bold">
-                    {Number(metrics.ingestion?.chunks_total) || 0}
+                    {documents ? totalChunks.toLocaleString() : "—"}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Files Processed</span>
                   <span className="font-mono font-bold">
-                    {Number(metrics.ingestion?.files_total) || 0}
+                    {documents ? docsDone + docsFailed : "—"}
                   </span>
                 </div>
                 {metrics.ingestion?.duration &&

@@ -18,6 +18,7 @@ from application.rag.dto import (
     PreparedContext,
     SanitizedAnswer,
 )
+from application.rag.stream_events import TextChunk
 from composition.service_providers import create_rag_service
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import CuratorScope, UserContext
@@ -35,6 +36,8 @@ from tests.test_rag_pipeline import make_rag
 
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from application.rag.dto import (
         PreparedQuery,
         RetrievalResult,
@@ -277,11 +280,8 @@ def retry_fixture(
     monkeypatch.setattr(retrieval_pipeline, "retrieve_with_decomposition", retrieve)
     monkeypatch.setattr(retrieval_pipeline, "rerank_and_enrich", rerank)
     monkeypatch.setattr(retrieval_pipeline, "apply_exact_search", exact)
-    monkeypatch.setattr(rag_steps, "handle_relevance_gate", AsyncMock(side_effect=[False, True]))
     monkeypatch.setattr(
-        rag_steps,
-        "assess_sufficiency",
-        AsyncMock(return_value=SimpleNamespace(is_sufficient=False, suggested_refinement="refined")),
+        rag_steps, "handle_relevance_gate", AsyncMock(side_effect=[(False, "refined"), (True, "")])
     )
     rag = replace(make_rag(), features=replace(make_rag().features, condense_enabled=False))
     monkeypatch.setattr(rag_steps, "build_rag_settings", lambda: rag)
@@ -312,10 +312,11 @@ def capture_retry(
         return PreparedContext(result, (), (), result.documents, ContextBudget(0, 0, 0, 0), "answer", None)
 
     monkeypatch.setattr(service.context, "build", build)
-    monkeypatch.setattr(
-        service.generation,
-        "generate",
-        AsyncMock(side_effect=lambda context: SanitizedAnswer(context, "answer", None, 0)),
-    )
+
+    async def stream_answer(context: PreparedContext) -> AsyncIterator[TextChunk | SanitizedAnswer]:
+        yield TextChunk("answer")
+        yield SanitizedAnswer(context, "answer", None, 0)
+
+    monkeypatch.setattr(service.generation, "stream_answer", stream_answer)
     monkeypatch.setattr(service.finalization, "finalize", lambda answer: CompletedAnswer(answer, (), 0.9))
     return captured

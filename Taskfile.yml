@@ -105,7 +105,13 @@ tasks:
           esac
         done
         COMPOSE_PROFILES="$PROFILES" {{.COMPOSE}} $FILES up -d
+      - task: storage:init
       - task: ps
+
+  storage:init:
+    desc: "Создать бакет S3/MinIO для загрузок, если его нет (идемпотентно)"
+    cmds:
+      - "{{.COMPOSE}} exec -T server python app/scripts/ensure_bucket.py"
 
   ocr-vl:models:
     desc: Однократно скачать модели PaddleOCR-VL в volume (сервис работает в сети backend без интернета)

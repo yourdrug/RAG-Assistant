@@ -34,6 +34,7 @@ def test_chat_openapi_describes_stream_and_event_payloads() -> None:
         "confidence",
         "as_of_date",
         "request_id",
+        "answer",
         "code",
     ):
         assert f'"{field}"' in response["description"]

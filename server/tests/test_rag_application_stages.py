@@ -39,6 +39,16 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
+def answer_stream(answer: SanitizedAnswer) -> MagicMock:
+    async def stream(_context: PreparedContext) -> AsyncIterator[TextChunk | SanitizedAnswer]:
+        if answer.text:
+            yield TextChunk(answer.text)
+
+        yield answer
+
+    return MagicMock(side_effect=stream)
+
+
 def workflow() -> tuple[RagService, MagicMock, list[str]]:
     request = RagRequest(
         "question",
@@ -60,11 +70,10 @@ def workflow() -> tuple[RagService, MagicMock, list[str]]:
     operations.lookup = AsyncMock(return_value=query)
     operations.retrieve = AsyncMock(return_value=retrieval)
     operations.reject_ood = AsyncMock(return_value=None)
-    operations.relevant = AsyncMock(return_value=True)
-    operations.assess = AsyncMock(return_value=Sufficiency(False, "refined"))
+    operations.gate = AsyncMock(return_value=Sufficiency(True, None))
     operations.reject = AsyncMock(return_value=TerminalResponse((TextChunk("rejected"),)))
     operations.build.return_value = context
-    operations.generate = AsyncMock(return_value=answer)
+    operations.stream_answer = answer_stream(answer)
     operations.finalize.return_value = CompletedAnswer(answer, (), 0)
     operations.store = AsyncMock()
     leases = []
@@ -105,9 +114,9 @@ async def test_corpus_lease_covers_all_stream_exits(exit_at: str) -> None:
     elif exit_at == "cache":
         operations.lookup.return_value = terminal
     elif exit_at == "relevance":
-        operations.relevant.return_value = False
+        operations.gate.return_value = Sufficiency(False, "refined")
     elif exit_at == "error":
-        operations.generate.side_effect = RuntimeError("failed")
+        operations.stream_answer.side_effect = RuntimeError("failed")
 
     stream = service.stream(
         "question", [], RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL))
@@ -127,7 +136,8 @@ async def test_corpus_lease_covers_all_stream_exits(exit_at: str) -> None:
 
     if exit_at == "relevance":
         assert operations.retrieve.await_count == 2
-        operations.assess.assert_awaited_once()
+        # One judgment per evidence set: the rejection itself carried the refined query.
+        assert operations.gate.await_count == 2
         retried = operations.retrieve.await_args.args[0]
         assert retried.query == "refined"
         assert retried.request is operations.request.return_value
@@ -138,12 +148,12 @@ async def test_cancellation_releases_corpus_while_generation_is_waiting() -> Non
     service, operations, leases = workflow()
     generating = asyncio.Event()
 
-    async def generate(context: PreparedContext) -> SanitizedAnswer:
+    async def generate(context: PreparedContext) -> AsyncIterator[SanitizedAnswer]:
         generating.set()
         await asyncio.Event().wait()
-        return SanitizedAnswer(context, "", None, None)
+        yield SanitizedAnswer(context, "", None, None)
 
-    operations.generate.side_effect = generate
+    operations.stream_answer.side_effect = generate
 
     async def consume() -> None:
         async for _ in service.stream(
@@ -181,7 +191,7 @@ def test_mypy_rejects_generation_and_finalization_before_required_stages(
         "from application.rag.dto import PreparedQuery, RetrievalResult\n"
         "from application.rag.ports import Generation, Finalization\n"
         "async def invalid(g: Generation, f: Finalization, q: PreparedQuery, r: RetrievalResult) -> None:\n"
-        "    await g.generate(q)\n"
+        "    g.stream_answer(q)\n"
         "    f.finalize(r)\n"
     )
     monkeypatch.chdir(Path(__file__).parents[1])
@@ -242,8 +252,7 @@ def test_document_stage_conversion_preserves_acl_temporal_and_structural_metadat
 @pytest.mark.asyncio
 async def test_rejection_without_refinement_does_not_regate_unchanged_evidence() -> None:
     service, operations, _ = workflow()
-    operations.relevant.return_value = False
-    operations.assess.return_value = Sufficiency(False, None)
+    operations.gate.return_value = Sufficiency(False, None)
 
     events = [event async for event in service.stream("question", [], operations.request.return_value.ctx)]
 
@@ -251,6 +260,31 @@ async def test_rejection_without_refinement_does_not_regate_unchanged_evidence()
     assert [event for event in events if isinstance(event, TextChunk)] == [TextChunk("rejected")]
     assert isinstance(events[-1], PipelineMetaEvent)
     assert events[-1].outcome == AnswerOutcome.NOT_FOUND
-    operations.relevant.assert_awaited_once()
+    operations.gate.assert_awaited_once()
     operations.retrieve.assert_awaited_once()
     operations.reject.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rejected_evidence_is_retried_once_with_refinement_from_the_same_judgment() -> None:
+    service, operations, _ = workflow()
+    operations.gate.side_effect = [Sufficiency(False, "refined"), Sufficiency(True, None)]
+
+    events = [event async for event in service.stream("question", [], operations.request.return_value.ctx)]
+
+    assert [event for event in events if isinstance(event, TextChunk)] == [TextChunk("safe answer")]
+    assert operations.gate.await_count == 2
+    assert operations.retrieve.await_args.args[0].query == "refined"
+    operations.reject.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refinement_equal_to_query_rejects_without_another_retrieval() -> None:
+    service, operations, _ = workflow()
+    operations.gate.return_value = Sufficiency(False, "question")
+
+    events = [event async for event in service.stream("question", [], operations.request.return_value.ctx)]
+
+    assert [event for event in events if isinstance(event, TextChunk)] == [TextChunk("rejected")]
+    operations.gate.assert_awaited_once()
+    operations.retrieve.assert_awaited_once()

@@ -6,7 +6,7 @@ from dataclasses import fields, replace
 import time
 from typing import Any
 
-from application.rag.dto import PreparedQuery, RagRequest, RetrievalResult, TerminalResponse
+from application.rag.dto import PreparedQuery, RagRequest, RetrievalResult, SanitizedAnswer, TerminalResponse
 from application.rag.ports import (
     AnswerCache,
     ContextPreparation,
@@ -94,17 +94,33 @@ class RagService:
 
             return
 
-        result = approved
-        meta = retrieval_metadata(meta, result)
+        meta = retrieval_metadata(meta, approved)
         yield meta
         yield StatusEvent(stage="generating")
+        async with aclosing(self.answer_events(request, approved, meta)) as answer_events:
+            async for event in answer_events:
+                yield event
+
+    async def answer_events(
+        self, request: RagRequest, result: RetrievalResult, meta: PipelineMetaEvent
+    ) -> AsyncGenerator[StreamEvent]:
         context = self.context.build(result)
-        answer = await self.generation.generate(context)
+        answer: SanitizedAnswer | None = None
+        ttft_sec: float | None = None
 
-        ttft_sec = (time.monotonic() - request.started) if answer.text else None
+        async with aclosing(self.generation.stream_answer(context)) as parts:
+            async for part in parts:
+                if isinstance(part, SanitizedAnswer):
+                    answer = part
+                elif part.text:
+                    if ttft_sec is None:
+                        ttft_sec = time.monotonic() - request.started
 
-        if answer.text:
-            yield TextChunk(text=answer.text)
+                    yield part
+
+        if answer is None:
+            message = "Generation finished without an answer"
+            raise RuntimeError(message)
 
         completed = self.finalization.finalize(answer)
         await self.cache.store(completed)
@@ -112,6 +128,7 @@ class RagService:
             sources=[dict(source) for source in completed.sources],
             confidence=completed.confidence,
             usage=answer.usage,
+            answer=answer.text,
         )
 
         if request.trace_data is not None:
@@ -148,23 +165,20 @@ class RagService:
         if terminal is not None:
             return replace(terminal, retrieval=result)
 
-        for attempt in range(2):
-            if await self.evidence.relevant(result):
+        verdict = await self.evidence.gate(result)
+
+        if verdict.sufficient:
+            return result
+
+        # The rejecting judgment already proposes the retry query: no separate assessment call.
+        # Without a new query, re-gating the unchanged evidence would only repeat the rejection.
+        if verdict.refinement and verdict.refinement != result.prepared.query:
+            self.evidence.retry(verdict.refinement)
+            query = replace(result.prepared, query=verdict.refinement)
+            result = await self.retrieval.retrieve(query, previous=result)
+
+            if (await self.evidence.gate(result)).sufficient:
                 return result
-
-            if attempt == 0:
-                assessment = await self.evidence.assess(result)
-
-                if assessment.sufficient:
-                    return result
-
-                if not assessment.refinement:
-                    # Re-gating the unchanged evidence would only repeat the rejection.
-                    break
-
-                self.evidence.retry(assessment.refinement)
-                query = replace(result.prepared, query=assessment.refinement)
-                result = await self.retrieval.retrieve(query, previous=result)
 
         return replace(await self.evidence.reject(result), retrieval=result)
 
@@ -180,6 +194,7 @@ class RagService:
 
     async def result(self, request: RagRequest) -> RagResult:
         answer_parts: list[str] = []
+        final_answer: str | None = None
         sources: list[dict[str, Any]] = []
         breadth = Breadth.NARROW
         domain = DocDomain.GENERAL.value
@@ -192,13 +207,16 @@ class RagService:
                 sources = event.sources
                 confidence = event.confidence
                 usage_report = event.usage
+
+                if event.answer is not None:
+                    final_answer = event.answer
             elif isinstance(event, PipelineMetaEvent):
                 meta = event
             elif isinstance(event, TextChunk):
                 answer_parts.append(event.text)
 
         return RagResult(
-            answer="".join(answer_parts),
+            answer=final_answer if final_answer is not None else "".join(answer_parts),
             sources=sources,
             breadth=meta.breadth or breadth,
             domain=DomainKey(meta.domain or domain),

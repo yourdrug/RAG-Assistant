@@ -173,7 +173,13 @@ if [[ "$legacy_frontend" == true ]]; then
 fi
 compose up -d --no-deps --no-recreate --pull never --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" gateway
 # Migrations must be backward-compatible with the running release (expand/contract).
-timeout "${DEPLOY_MIGRATION_TIMEOUT:-300}" docker compose "${compose_args[@]}" run --rm --no-deps migrate
+migrate_container="rag-migrate-$$"
+# timeout kills only the compose client; remove the container so it cannot keep the advisory lock and pending DDL.
+if ! timeout "${DEPLOY_MIGRATION_TIMEOUT:-300}" docker compose "${compose_args[@]}" run --rm --no-deps --name "$migrate_container" migrate; then
+  docker rm -f "$migrate_container" >/dev/null 2>&1 || true
+  echo "Migration failed or timed out; application containers left on the previous release" >&2
+  exit 1
+fi
 update_started=true
 rolling_replace server 60
 rolling_replace worker 120

@@ -82,6 +82,10 @@ class ChatAttempt:
     def observe(self, event: StreamEvent) -> bool:
         if isinstance(event, SourcesEvent):
             self.sources, self.confidence, self.usage = event.sources, event.confidence, event.usage
+
+            if event.answer is not None:
+                # Streamed chunks stop early when the guardrails rewrite the answer.
+                self.full_answer = event.answer
         elif isinstance(event, PipelineMetaEvent):
             self.metadata = event
         elif isinstance(event, StatusEvent):
@@ -373,6 +377,7 @@ class ChatService:
             confidence=attempt.confidence,
             usage=attempt.usage,
             as_of_date=setup.ctx.as_of_date,
+            answer=attempt.full_answer,
         )
 
     # ------------------------------------------------------------------
@@ -391,7 +396,6 @@ class ChatService:
         as_of_date: date | None = None,
         space_id: int | None = None,
     ) -> ChatResult:
-        answer: list[str] = []
         final: MetaEvent | None = None
         async with aclosing(
             self.stream_chat(
@@ -406,9 +410,7 @@ class ChatService:
             )
         ) as stream:
             async for event in stream:
-                if isinstance(event, TextChunk):
-                    answer.append(event.text)
-                elif isinstance(event, MetaEvent):
+                if isinstance(event, MetaEvent):
                     final = event
 
         if final is None:
@@ -416,7 +418,7 @@ class ChatService:
             raise RuntimeError(msg)
 
         return ChatResult(
-            answer="".join(answer),
+            answer=final.answer,
             conversation_id=final.conversation_id,
             message_id=final.message_id,
             sources=final.sources,

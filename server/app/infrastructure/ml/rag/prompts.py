@@ -28,17 +28,6 @@ DECOMPOSITION_ASSESSMENT_SYSTEM = (
 )
 
 
-SUFFICIENCY_ASSESSMENT_SYSTEM = (
-    "Оцени, достаточно ли контекста для ответа на вопрос.\n"
-    "Если достаточно — is_sufficient=true.\n"
-    "Если нет — is_sufficient=false и предложи уточнённый поисковый запрос для retry.\n"
-    "Верни JSON-объект с полями is_sufficient (boolean), reasoning (строка) и "
-    "suggested_refinement (строка) на верхнем уровне, без обёрток и описания JSON Schema. "
-    'Пример: {"is_sufficient": false, "reasoning": "Нет данных", '
-    '"suggested_refinement": "Уточнённый запрос"}.'
-)
-
-
 def build_context_message() -> str:
     """Return the document-context message template with ``{context}`` placeholder.
 

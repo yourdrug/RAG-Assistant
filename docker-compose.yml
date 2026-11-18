@@ -20,8 +20,10 @@ services:
     logging: *bounded-logging
     stop_grace_period: 60s
     ports:
+      # Public entry point: UI at /, backend API at /api/* (also for third-party API clients).
+      # PUBLIC_BIND_ADDRESS=127.0.0.1 hides it behind a host reverse proxy.
       # deploy.sh sets 0 (ephemeral port) during the one-time legacy frontend handoff.
-      - "127.0.0.1:${GATEWAY_HOST_PORT:-3001}:80"
+      - "${PUBLIC_BIND_ADDRESS:-0.0.0.0}:${GATEWAY_HOST_PORT:-3001}:80"
     environment:
       TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1}
       NGINX_ENVSUBST_FILTER: TRUSTED_PROXY_CIDR
@@ -630,10 +632,11 @@ services:
         host_ip: 127.0.0.1
         protocol: tcp
         mode: host
+      # Web console is public (PUBLIC_BIND_ADDRESS); the S3 API above stays local.
       - name: minio-console
         target: 9001
         published: 9001
-        host_ip: 127.0.0.1
+        host_ip: ${PUBLIC_BIND_ADDRESS:-0.0.0.0}
         protocol: tcp
         mode: host
     env_file:
