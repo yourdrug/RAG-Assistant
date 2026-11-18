@@ -25,11 +25,12 @@ from application.rag.dto import (
     TerminalResponse,
 )
 from application.rag.service import RagService
-from application.rag.stream_events import TextChunk
+from application.rag.stream_events import PipelineMetaEvent, TextChunk
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
+from domain.rag.outcome import AnswerOutcome
 from infrastructure.ml.rag.langchain_mapping import lc_documents, scored_values
 from infrastructure.ml.rag.rag_config import build_rag_settings
 
@@ -192,8 +193,12 @@ def test_mypy_rejects_generation_and_finalization_before_required_stages(
 
 
 @pytest.mark.asyncio
-async def test_invoke_collects_stream_values_using_one_request_snapshot() -> None:
+async def test_invoke_collects_stream_values_using_one_request_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, operations, leases = workflow()
+    # TTFT spans the whole request: the fixture request starts at monotonic 0.
+    monkeypatch.setattr("application.rag.service.time.monotonic", lambda: 1.25)
     result = await service.invoke(
         "question", [], RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL))
     )
@@ -203,7 +208,7 @@ async def test_invoke_collects_stream_values_using_one_request_snapshot() -> Non
     assert result.breadth == Breadth.NARROW
     assert result.domain == "general"
     assert result.generation_sec == 0.1
-    assert result.ttft_sec == 0.02
+    assert result.ttft_sec == 1.25
     assert result.model_used == "model"
     operations.request.assert_called_once()
     assert leases == ["acquired", "released"]
@@ -242,7 +247,10 @@ async def test_rejection_without_refinement_does_not_regate_unchanged_evidence()
 
     events = [event async for event in service.stream("question", [], operations.request.return_value.ctx)]
 
-    assert events[-1] == TextChunk("rejected")
+    # The final metadata event records the outcome after the rejection text.
+    assert [event for event in events if isinstance(event, TextChunk)] == [TextChunk("rejected")]
+    assert isinstance(events[-1], PipelineMetaEvent)
+    assert events[-1].outcome == AnswerOutcome.NOT_FOUND
     operations.relevant.assert_awaited_once()
     operations.retrieve.assert_awaited_once()
     operations.reject.assert_awaited_once()

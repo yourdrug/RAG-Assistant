@@ -99,9 +99,11 @@ async def test_document_status_update_observes_expected_version() -> None:
 @pytest.mark.asyncio
 async def test_message_pagination_handles_unsaved_message_ids() -> None:
     repo = FakeMessageRepository()
-    persisted = Message(id=2, conversation_id=1)
-    await repo.save(Message(conversation_id=1))
+    persisted = Message(conversation_id=1)
+    # save() assigns ids, so an unsaved message is placed directly.
+    repo._messages.append(Message(conversation_id=1))
     await repo.save(persisted)
+    assert persisted.id == 2
     assert await repo.list_page(1, limit=2, before_id=3) == [persisted]
 
 

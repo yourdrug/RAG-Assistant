@@ -32,6 +32,7 @@ def test_registry_and_seed_preserve_category_strings() -> None:
         "llm",
         "llm_connection",
         "ml",
+        "observability",
         "ocr",
         "rag",
         "rate_limit",

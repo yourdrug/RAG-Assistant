@@ -15,6 +15,7 @@ from config import get_setting, settings, settings_overrides
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
+from domain.rag.outcome import AnswerOutcome
 from infrastructure.benchmark.evaluation import metrics
 from infrastructure.benchmark.evaluation.runner import run_benchmark_async
 from infrastructure.benchmark.judging import context_judge, evidence_judge, judge
@@ -66,6 +67,7 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(
         capture_prompt(docs, docs, "context")
         return SimpleNamespace(
             answer="answer",
+            outcome=AnswerOutcome.GENERATED,
             input_tokens=20,
             output_tokens=10,
             generation_sec=0.5,
