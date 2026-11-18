@@ -1,6 +1,6 @@
 """Shared semantic criteria for grouped and individual benchmark judges."""
 
-JUDGE_RUBRIC_VERSION = "2026-11-04-answer-types-v2"
+JUDGE_RUBRIC_VERSION = "2026-11-18-xml-prompts-v3"
 
 CORRECTNESS_CRITERIA = (
     "CORRECTNESS: оцени совпадение по смыслу с эталоном, включая полноту, ограничения "

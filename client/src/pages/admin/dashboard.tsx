@@ -18,6 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  useChatLogStats,
   useDocuments,
   useGroups,
   useHealth,
@@ -36,6 +37,10 @@ function formatUptime(seconds: number): string {
   if (d > 0) return `${d}d ${h}h`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+function formatSeconds(ms: number | null | undefined): string {
+  return ms === null || ms === undefined ? "—" : `${(ms / 1000).toFixed(1)}s`;
 }
 
 function StatusIndicator({ status }: { status: string }) {
@@ -157,6 +162,10 @@ export function AdminDashboardPage() {
   const { data: documents, isLoading: dl } = useDocuments();
   const { data: metrics, isLoading: ml } = useMetrics();
   const { data: registry } = useIngestRegistry();
+  // Chat logs persist in Postgres, unlike per-process Prometheus counters that reset on restart.
+  const { data: ragStats, isLoading: ragLoading } = useChatLogStats({});
+  const ragNotFound = ragStats?.outcomes?.not_found ?? 0;
+  const ragErrors = ragStats?.outcomes?.error ?? 0;
 
   const apiStatus = health ? health.checks?.api?.status || "—" : undefined;
   const qdrantStatus = health ? health.checks?.qdrant?.status || "—" : undefined;
@@ -416,56 +425,51 @@ export function AdminDashboardPage() {
             <CardDescription>Query statistics and performance</CardDescription>
           </CardHeader>
           <CardContent className="min-h-48">
-            {metrics ? (
+            {ragStats ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center p-3 rounded-lg bg-blue-500/5">
-                    <div className="text-2xl font-bold">
-                      {Number(metrics.rag?.queries_total) || 0}
-                    </div>
+                    <div className="text-2xl font-bold">{ragStats.total}</div>
                     <div className="text-xs text-muted-foreground">Total Queries</div>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-amber-500/5">
                     <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                      {Number(metrics.rag?.not_found_total) || 0}
+                      {ragNotFound}
                     </div>
                     <div className="text-xs text-muted-foreground">Not Found</div>
                   </div>
                 </div>
-                {metrics.rag?.stage_latency &&
-                  typeof metrics.rag.stage_latency === "object" &&
-                  "count" in metrics.rag.stage_latency && (
-                    <div className="pt-3 border-t">
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-muted-foreground">Avg Latency</span>
-                        <span className="font-mono font-bold">
-                          {Number((metrics.rag.stage_latency as Record<string, number>).count) > 0
-                            ? `${(Number((metrics.rag.stage_latency as Record<string, number>).sum) / Number((metrics.rag.stage_latency as Record<string, number>).count)).toFixed(1)}s`
-                            : "—"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Total Time</span>
-                        <span className="font-mono">
-                          {Number(
-                            (metrics.rag.stage_latency as Record<string, number>).sum || 0,
-                          ).toFixed(1)}
-                          s
-                        </span>
-                      </div>
+                {ragStats.total > 0 ? (
+                  <div className="pt-3 border-t space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Latency p50 / p95</span>
+                      <span className="font-mono font-bold">
+                        {formatSeconds(ragStats.latency_p50)} /{" "}
+                        {formatSeconds(ragStats.latency_p95)}
+                      </span>
                     </div>
-                  )}
-                {Number(metrics.rag?.queries_total) === 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Cache hits</span>
+                      <span className="font-mono">{ragStats.cache_hits}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Errors</span>
+                      <span className="font-mono">{ragErrors}</span>
+                    </div>
+                  </div>
+                ) : (
                   <p className="text-sm text-muted-foreground text-center py-2">No queries yet</p>
                 )}
               </div>
-            ) : ml ? (
+            ) : ragLoading ? (
               <div className="grid grid-cols-2 gap-3">
                 <Skeleton className="h-19" />
                 <Skeleton className="h-19" />
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">Metrics unavailable</p>
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Statistics unavailable
+              </p>
             )}
           </CardContent>
         </Card>

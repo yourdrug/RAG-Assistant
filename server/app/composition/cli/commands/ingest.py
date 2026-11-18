@@ -40,8 +40,9 @@ async def run_with_infrastructure[T](action: Callable[[InfrastructureContainer],
     try:
         await redis_client.init()
         redis_started = True
-        await database.connect()
+        # connect() may fail after creating some engines; disconnect() skips unset ones.
         database_started = True
+        await database.connect()
         infra.init(database)
         job_principal.set("system:ingest-cli")
         await infra.bootstrap_configuration()

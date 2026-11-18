@@ -156,27 +156,6 @@ export function AdminIngestPage() {
           <CardDescription>Trigger ingestion for all files under an S3 prefix</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="w-72">
-            <Label>Knowledge Space</Label>
-            <Select
-              value={spaceId != null ? String(spaceId) : ""}
-              onValueChange={(v) => {
-                setSpaceChoice(Number(v));
-                setDomain("auto");
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a space" />
-              </SelectTrigger>
-              <SelectContent>
-                {spaces?.map((s) => (
-                  <SelectItem key={s.id} value={String(s.id)}>
-                    {s.name} ({s.pack_key})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <div className="flex gap-2">
             <div className="flex-1">
               <Label>S3 Prefix</Label>
@@ -210,6 +189,27 @@ export function AdminIngestPage() {
               <Upload className="h-4 w-4 mr-2" />
               {allMut.isPending ? "Starting..." : "Ingest All"}
             </Button>
+          </div>
+          <div className="w-72">
+            <Label>Knowledge Space</Label>
+            <Select
+              value={spaceId != null ? String(spaceId) : ""}
+              onValueChange={(v) => {
+                setSpaceChoice(Number(v));
+                setDomain("auto");
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a space" />
+              </SelectTrigger>
+              <SelectContent>
+                {spaces?.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    {s.name} ({s.pack_key})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex gap-2">
             <div className="w-48">

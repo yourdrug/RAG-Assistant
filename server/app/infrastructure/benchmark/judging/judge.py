@@ -13,7 +13,8 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 from config import BenchmarkSection, LLMSection, process_section
 from infrastructure.benchmark.judging.callbacks import AsyncMetricOptions
 from infrastructure.benchmark.judging.clients import get_judge_client, get_judge_model
-from infrastructure.benchmark.judging.prompts import CORRECTNESS_PROMPT, FAITHFULNESS_PROMPT, RELEVANCY_PROMPT
+from infrastructure.benchmark.judging.judge_rubric import CORRECTNESS_CRITERIA, FAITHFULNESS_CRITERIA
+from infrastructure.benchmark.judging.prompts import RELEVANCY_CRITERIA, metric_prompt
 from infrastructure.ml.clients.client_lease import sync_client_operation
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
@@ -88,6 +89,23 @@ def judge_with_structured_output(
 # ---------------------------------------------------------------------------
 
 
+def answer_prompts(question: str, answer: str, context: str, expected_answer: str | None) -> dict[str, str]:
+    prompts = {
+        "faithfulness": metric_prompt(
+            FAITHFULNESS_CRITERIA, {"question": question, "answer": answer, "context": context}
+        ),
+        "relevancy": metric_prompt(RELEVANCY_CRITERIA, {"question": question, "answer": answer}),
+    }
+
+    if expected_answer:
+        prompts["correctness"] = metric_prompt(
+            CORRECTNESS_CRITERIA,
+            {"question": question, "expected_answer": expected_answer, "answer": answer},
+        )
+
+    return prompts
+
+
 def judge_answer(
     question: str,
     answer: str,
@@ -96,15 +114,7 @@ def judge_answer(
 ) -> dict[str, Any]:
     """Run judge LLM synchronously with structured output (instructor only)."""
     model = get_judge_model()
-    prompts = {
-        "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
-        "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
-    }
-
-    if expected_answer:
-        prompts["correctness"] = CORRECTNESS_PROMPT.format(
-            question=question, expected=expected_answer, answer=answer
-        )
+    prompts = answer_prompts(question, answer, context, expected_answer)
 
     scores: dict[str, float | str | None] = {}
 
@@ -143,15 +153,7 @@ async def judge_answer_async(
 ) -> dict[str, Any]:
     """Judge answer quality with structured output (instructor + timeout)."""
     model = judge_model or get_judge_model()
-    prompts = {
-        "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
-        "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
-    }
-
-    if expected_answer:
-        prompts["correctness"] = CORRECTNESS_PROMPT.format(
-            question=question, expected=expected_answer, answer=answer
-        )
+    prompts = answer_prompts(question, answer, context, expected_answer)
 
     async def judge_one(prompt: str) -> JudgeScore:
         client = get_judge_client(model)

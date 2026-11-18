@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, Self
 
 import pytest
 
+from tests.test_grouped_benchmark_judge import case_payload
+
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -46,7 +48,7 @@ async def test_exact_criteria_and_resume_preserve_frozen_answers(
             _ = url
             prompt = json["messages"][0]["content"]
             calls.append(prompt)
-            payload = experiment.json.loads(prompt.split("Данные JSON:\n")[1])
+            payload = case_payload(prompt)
 
             if "answer" in payload:
                 assert payload["answer"] == "saved answer"

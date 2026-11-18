@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import html
 import json
 import logging
 from pathlib import Path
+import re
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Self, cast
 from unittest.mock import AsyncMock
@@ -81,6 +83,24 @@ def response(values: dict[str, Any]) -> SimpleNamespace:
     )
 
 
+CASE_FIELD = re.compile(r"<(\w+)>(.*?)</\1>", re.DOTALL)
+
+
+def case_payload(prompt: str) -> dict[str, Any]:
+    """Decode the escaped <case_data> block of a judge prompt back into its fields."""
+    block = prompt.split("<case_data>\n", 1)[1].rsplit("\n</case_data>", 1)[0]
+    payload: dict[str, Any] = {}
+
+    for key, raw in CASE_FIELD.findall(block):
+        text = html.unescape(raw)
+        try:
+            payload[key] = json.loads(text)
+        except json.JSONDecodeError:
+            payload[key] = text
+
+    return payload
+
+
 def requested_metrics(kwargs: Mapping[str, Any]) -> list[str]:
     prompt = kwargs["messages"][0]["content"]
     return [key for key in judge_prompts.INSTRUCTIONS if f"\n{key}:" in prompt]
@@ -142,7 +162,7 @@ async def test_three_parallel_calls_with_context_only_twice_and_reference_for_re
         1, case(), 1, RagContext(UserContext(user_id=1, user_kind=UserKind.INTERNAL))
     )
     assert len(calls) == peak == 3
-    payloads = [json.loads(call["messages"][0]["content"].split("Данные JSON:\n")[1]) for call in calls]
+    payloads = [case_payload(call["messages"][0]["content"]) for call in calls]
     assert sum("context" in payload for payload in payloads) == 2
     retrieval = next(payload for payload in payloads if "context" in payload and "answer" not in payload)
     assert retrieval["expected_answer"] == "reference"
@@ -330,7 +350,7 @@ async def test_resume_24_of_30_retries_six_scores_without_regenerating_or_writin
 
     async def create(**kwargs: Any) -> Any:
         keys = requested_metrics(kwargs)
-        payload = json.loads(kwargs["messages"][0]["content"].split("Данные JSON:\n")[1])
+        payload = case_payload(kwargs["messages"][0]["content"])
         calls.append((payload["question"], keys))
         return response(
             {

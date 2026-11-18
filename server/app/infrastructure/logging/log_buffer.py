@@ -8,6 +8,7 @@ buffer to display recent application logs in the admin dashboard.
 from __future__ import annotations
 
 from collections import deque
+from datetime import UTC, datetime
 import logging
 import threading
 from typing import Any
@@ -24,7 +25,10 @@ class LogBufferHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             entry = {
-                "timestamp": self.format(record),
+                # ISO-8601 with an explicit offset so the UI can parse and localize it.
+                "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(
+                    timespec="milliseconds"
+                ),
                 "level": record.levelname,
                 "logger": record.name,
                 "request_id": getattr(record, "request_id", "-"),
@@ -34,7 +38,7 @@ class LogBufferHandler(logging.Handler):
             }
             with self._lock:
                 self._buffer.append(entry)
-        except Exception:  # noqa: BLE001 - Handler.emit must isolate arbitrary formatter failures.
+        except Exception:  # noqa: BLE001 - Handler.emit must isolate arbitrary record formatting failures.
             self.handleError(record)
 
     def get_logs(
@@ -58,9 +62,6 @@ class LogBufferHandler(logging.Handler):
 
 
 log_buffer = LogBufferHandler(capacity=2000)
-log_buffer.setFormatter(
-    logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-)
 
 
 def attach_log_buffer() -> None:

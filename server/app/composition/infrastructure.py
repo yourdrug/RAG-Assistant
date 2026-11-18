@@ -266,11 +266,12 @@ class EventContainer:
 
     async def dispose(self) -> None:
         """Stop listeners and close dispatcher."""
-        if self.config_listener is not None:
-            await self.config_listener.stop()
-
-        if self.outbox_listener is not None:
-            await self.outbox_listener.stop()
+        try:
+            if self.config_listener is not None:
+                await self.config_listener.stop()
+        finally:
+            if self.outbox_listener is not None:
+                await self.outbox_listener.stop()
 
 
 class PreviewStrategyFactoryAdapter:
@@ -547,10 +548,11 @@ class InfrastructureContainer:
         return issues
 
     async def close_corpus_and_judges(self) -> None:
-        if self.corpus_control is not None:
-            await self.corpus_control.close()
-
-        await close_judge_clients()
+        try:
+            if self.corpus_control is not None:
+                await self.corpus_control.close()
+        finally:
+            await close_judge_clients()
 
     async def dispose(self) -> None:
         """Tear down all resources in reverse order.

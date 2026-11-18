@@ -2,6 +2,7 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 import logging
 import threading
 from unittest.mock import Mock
@@ -89,12 +90,22 @@ async def test_async_exception_handler_propagates_cancellation() -> None:
         await action()
 
 
-def test_log_buffer_uses_logging_error_handler_for_formatter_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_log_buffer_routes_formatting_failure_to_error_handler(monkeypatch: pytest.MonkeyPatch) -> None:
     handler = LogBufferHandler()
     failed = Mock()
     monkeypatch.setattr(handler, "handleError", failed)
-    monkeypatch.setattr(handler, "format", Mock(side_effect=RuntimeError("broken formatter")))
-    record = logging.LogRecord("test", logging.INFO, __file__, 1, "message", (), None)
+    record = logging.LogRecord("test", logging.INFO, __file__, 1, "%s %s", ("only-one",), None)
     handler.emit(record)
     failed.assert_called_once_with(record)
     assert handler.get_logs() == []
+
+
+def test_log_buffer_timestamp_is_parseable_iso_utc() -> None:
+    handler = LogBufferHandler()
+    record = logging.LogRecord("actions", logging.INFO, __file__, 1, "login | user=%s", (7,), None)
+    record.created = 1_700_000_000.5
+    handler.emit(record)
+    [entry] = handler.get_logs()
+    assert entry["timestamp"] == "2023-11-14T22:13:20.500+00:00"
+    assert entry["message"] == "login | user=7"
+    assert datetime.fromisoformat(entry["timestamp"]).tzinfo is not None

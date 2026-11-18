@@ -13,8 +13,9 @@ import {
   User,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLogs } from "@/shared/api/hooks";
+import type { LogEntry } from "@/shared/api/types";
 import { formatDateTime, formatTime } from "@/shared/lib/date-time";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -49,7 +50,7 @@ const levelConfig: Record<string, { color: string; icon: React.ReactNode; bg: st
   },
 };
 
-function LogEntryRow({ log }: { log: any }) {
+function LogEntryRow({ log }: { log: LogEntry }) {
   const [expanded, setExpanded] = useState(false);
   const level = log.level?.toUpperCase() || "INFO";
   const config = levelConfig[level] || levelConfig.INFO;
@@ -145,26 +146,32 @@ export function LogsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [levelFilter, setLevelFilter] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const {
     data: logsData,
     isLoading,
+    isError,
+    isFetching,
     refetch,
-  } = useLogs({
-    limit: 200,
-    search: search || undefined,
-    level: levelFilter || undefined,
-  });
+  } = useLogs(
+    {
+      limit: 200,
+      search: search.trim() || undefined,
+      level: levelFilter || undefined,
+    },
+    { autoRefresh },
+  );
 
-  useEffect(() => {
-    if (autoRefresh) {
-      intervalRef.current = setInterval(() => refetch(), 5000);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [autoRefresh, refetch]);
+  // Newest entries arrive at the top, so index keys would move expanded state between rows.
+  const keyedLogs = useMemo(() => {
+    const seen = new Map<string, number>();
+    return (logsData?.logs ?? []).map((log) => {
+      const base = `${log.timestamp}|${log.logger}|${log.request_id}|${log.message}`;
+      const occurrence = seen.get(base) ?? 0;
+      seen.set(base, occurrence + 1);
+      return { key: `${base}|${occurrence}`, log };
+    });
+  }, [logsData]);
 
   const handleSearch = () => {
     setSearch(searchInput);
@@ -196,8 +203,14 @@ export function LogsPage() {
           >
             {autoRefresh ? "Auto: ON" : "Auto: OFF"}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            aria-label="Refresh logs"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </Button>
         </div>
       </div>
@@ -208,7 +221,10 @@ export function LogsPage() {
           <Input
             placeholder="Search logs..."
             value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            onChange={(e) => {
+              setSearchInput(e.target.value);
+              if (!e.target.value) setSearch("");
+            }}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             className="max-w-sm"
           />
@@ -253,11 +269,14 @@ export function LogsPage() {
         ) : (
           <ScrollArea className="h-[calc(100vh-280px)]">
             <div className="divide-y divide-border/30">
-              {logsData?.logs?.length === 0 && (
+              {isError && !logsData && (
+                <p className="text-center text-destructive py-12">Failed to load logs</p>
+              )}
+              {logsData && keyedLogs.length === 0 && (
                 <p className="text-center text-muted-foreground py-12">No logs found</p>
               )}
-              {logsData?.logs?.map((log, i) => (
-                <LogEntryRow key={i} log={log} />
+              {keyedLogs.map(({ key, log }) => (
+                <LogEntryRow key={key} log={log} />
               ))}
             </div>
           </ScrollArea>

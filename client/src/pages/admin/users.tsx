@@ -120,7 +120,9 @@ export function AdminUsersPage() {
       id: "client_spaces",
       header: "Support spaces",
       cell: ({ row }) => {
-        if (row.original.kind !== "client") return null;
+        if (row.original.kind !== "client") {
+          return <span className="text-muted-foreground">Not applicable</span>;
+        }
         const assigned = row.original.client_space_ids ?? [];
         const names = (spaces ?? []).filter((s) => assigned.includes(s.id)).map((s) => s.name);
         const toggle = async (spaceId: number, checked: boolean) => {

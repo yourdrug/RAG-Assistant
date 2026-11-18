@@ -1,9 +1,9 @@
 "use client";
-import { useQueryClient } from "@tanstack/react-query";
 import { History, LogOut, Menu, MessageSquare, Plus, Shield, User, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ThemeToggle } from "@/features/auth/theme-toggle";
+import { useLogout } from "@/features/auth/use-logout";
 import { useConversations, useCurrentUser } from "@/shared/api/hooks";
 import { adminNavItems, userNavItems } from "@/shared/config/nav";
 import { formatDate } from "@/shared/lib/date-time";
@@ -26,8 +26,8 @@ export function DashboardLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { token, user, isAuthenticated, logout } = useAuthStore();
-  const queryClient = useQueryClient();
+  const { token, user, isAuthenticated } = useAuthStore();
+  const logout = useLogout();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [convPanelOpen, setConvPanelOpen] = useState(false);
   const convPanelRef = useRef<HTMLDivElement>(null);
@@ -78,11 +78,6 @@ export function DashboardLayout() {
     return () => document.removeEventListener("click", handleClickOutside);
   }, [convPanelOpen]);
 
-  const handleLogout = () => {
-    queryClient.clear();
-    logout();
-    navigate("/login");
-  };
   const displayUser = currentUser || user;
   const isAdmin = displayUser?.role === "admin";
   const isCurator = displayUser?.role === "curator";
@@ -356,7 +351,7 @@ export function DashboardLayout() {
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout}>
+                <DropdownMenuItem onClick={logout}>
                   <LogOut className="mr-2 h-4 w-4" />
                   Log out
                 </DropdownMenuItem>

@@ -7,7 +7,11 @@ from langchain.schema import Document
 
 from infrastructure.benchmark.judging import judge
 from infrastructure.benchmark.judging.callbacks import SyncMetricOptions
-from infrastructure.benchmark.judging.prompts import CONTEXT_PRECISION_PROMPT, CONTEXT_RECALL_PROMPT
+from infrastructure.benchmark.judging.prompts import (
+    CONTEXT_PRECISION_CRITERIA,
+    CONTEXT_RECALL_CRITERIA,
+    metric_prompt,
+)
 
 
 logger = logging.getLogger("default")
@@ -59,9 +63,9 @@ def compute_context_precision_recall(
     result = dict(options.get("saved_metrics") or {})
     metric_callback = options.get("metric_callback")
 
-    for key, template in (
-        ("context_precision", CONTEXT_PRECISION_PROMPT),
-        ("context_recall", CONTEXT_RECALL_PROMPT),
+    for key, criteria in (
+        ("context_precision", CONTEXT_PRECISION_CRITERIA),
+        ("context_recall", CONTEXT_RECALL_CRITERIA),
     ):
         if result.get(key) is not None:
             continue
@@ -69,7 +73,9 @@ def compute_context_precision_recall(
         try:
             client = judge.get_judge_client(model)
             score = judge.judge_with_structured_output(
-                client, template.format(question=question, answer=answer, context=context), model
+                client,
+                metric_prompt(criteria, {"question": question, "answer": answer, "context": context}),
+                model,
             )
             result[key] = max(0.0, min(10.0, score.score))
             result[f"{key}_reason"] = score.reason
