@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from langchain.schema import Document
 
 from domain.ingestion.chunking_policy import ChunkingPolicy
+from domain.ingestion.content_splitter import HEADING_INTRO_MAX_CHARS
 from domain.ingestion.document_tree import DocNode, NodeKind
 from domain.ingestion.embed_text import context_prefix
 from domain.ingestion.text_budget import fallback_split, locate_span, overlap_tail
@@ -46,7 +47,7 @@ def step_documents(doc: Document) -> list[Document]:
 
     for i, match in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(doc.page_content)
-        heading = match.group().strip()
+        heading = step_heading(match)
         parent = doc.metadata.get("section")
         step = document_slice(doc, doc.page_content[match.start() : end].strip(), match.start())
         step.metadata.update(
@@ -62,6 +63,16 @@ def step_documents(doc: Document) -> list[Document]:
         result.append(step)
 
     return result
+
+
+def step_heading(match: re.Match[str]) -> str:
+    """A step line that is body prose is not a title; keep only its number marker."""
+    heading = match.group().strip()
+
+    if len(heading) > HEADING_INTRO_MAX_CHARS:
+        return match.group()[: match.start(2) - match.start()].strip()
+
+    return heading
 
 
 def pack_instruction_tree(

@@ -54,6 +54,9 @@ const LogsPage = lazy(() => import("@/pages/admin/logs").then((m) => ({ default:
 const ChatLogsPage = lazy(() =>
   import("@/pages/admin/chat-logs").then((m) => ({ default: m.AdminChatLogsPage })),
 );
+const ChatLogKnowledgePage = lazy(() =>
+  import("@/pages/admin/chat-log-knowledge").then((m) => ({ default: m.ChatLogKnowledgePage })),
+);
 const AdminBenchmarkPage = lazy(() =>
   import("@/pages/admin/benchmark").then((m) => ({ default: m.AdminBenchmarkPage })),
 );
@@ -121,14 +124,6 @@ export default function App() {
                       }
                     />
                     <Route
-                      path="spaces"
-                      element={
-                        <Suspense fallback={<AdminFallback />}>
-                          <AdminSpacesPage />
-                        </Suspense>
-                      }
-                    />
-                    <Route
                       path="curators"
                       element={
                         <Suspense fallback={<AdminFallback />}>
@@ -137,6 +132,14 @@ export default function App() {
                       }
                     />
                   </Route>
+                  <Route
+                    path="spaces"
+                    element={
+                      <Suspense fallback={<AdminFallback />}>
+                        <AdminSpacesPage />
+                      </Suspense>
+                    }
+                  />
                   <Route
                     path="api-keys"
                     element={
@@ -214,6 +217,14 @@ export default function App() {
                     element={
                       <Suspense fallback={<AdminFallback />}>
                         <LogsPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="chat-logs/:logId/knowledge"
+                    element={
+                      <Suspense fallback={<AdminFallback />}>
+                        <ChatLogKnowledgePage />
                       </Suspense>
                     }
                   />

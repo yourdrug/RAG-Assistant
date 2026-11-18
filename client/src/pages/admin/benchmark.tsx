@@ -42,6 +42,7 @@ import {
   useSweeps,
   useUpdateBenchmarkQuestion,
 } from "@/shared/api/hooks";
+import { useExportBenchmarkQuestions } from "@/shared/api/hooks/use-benchmark";
 import type {
   BenchmarkQuestion,
   BenchmarkQuestionCreate,
@@ -51,7 +52,14 @@ import type {
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Progress } from "@/shared/ui/progress";
@@ -61,6 +69,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Textarea } from "@/shared/ui/textarea";
 import { BenchmarkJudgeModel } from "./benchmark-judge-model";
+import {
+  AcceptanceTab,
+  DiagnosisCounts,
+  DiagnosisTransitions,
+  RunQuestionResults,
+} from "./benchmark-quality";
 import { SweepProgressDialog } from "./benchmark-sweep-progress";
 import { BenchmarkTrendsTab } from "./benchmark-trends";
 
@@ -172,7 +186,7 @@ function SourceHintPicker({
 
   return (
     <div className="relative">
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
         <Input
           ref={inputRef}
           value={value || ""}
@@ -193,14 +207,18 @@ function SourceHintPicker({
           }}
           onKeyDown={handleKeyDown}
           placeholder="file1.pdf; file2.pdf"
-          className="flex-1"
+          className="min-w-0 flex-1"
+          aria-label="Expected source documents"
+          title={value || undefined}
         />
         {value && (
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-8 w-8 p-0 shrink-0"
+            className="h-9 w-9 p-0 shrink-0"
+            aria-label="Clear expected sources"
+            title="Clear expected sources"
             onClick={() => {
               onChange(null);
               setQuery("");
@@ -214,7 +232,9 @@ function SourceHintPicker({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-8 w-8 p-0 shrink-0"
+          className="h-9 w-9 p-0 shrink-0"
+          aria-label="Browse source documents"
+          title="Browse source documents"
           onClick={() => {
             setOpen(true);
             setQuery("");
@@ -246,7 +266,24 @@ function SourceHintPicker({
           ))}
         </div>
       )}
-      <p className="mt-1 text-xs text-muted-foreground">
+      {value && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {value
+            .split(";")
+            .map((source) => source.trim())
+            .filter(Boolean)
+            .map((source, index) => (
+              <Badge
+                key={`${source}-${index}`}
+                variant="secondary"
+                className="max-w-full whitespace-normal break-words px-2.5 py-1 text-xs font-normal leading-relaxed [overflow-wrap:anywhere]"
+              >
+                {source}
+              </Badge>
+            ))}
+        </div>
+      )}
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
         Separate sources with ;. A match with any source counts as a hit. Leave blank to skip Hit
         Rate and MRR.
       </p>
@@ -329,9 +366,25 @@ function QuestionsTab() {
     expected_answer: "",
     source_hint: "",
     tags: [],
-    dataset: "main",
+    dataset: "belarus_law-main",
     notes: "",
   });
+
+  const tagCatalog = useExportBenchmarkQuestions(undefined, { enabled: dialogOpen });
+  const availableTags = useMemo(
+    () =>
+      [
+        ...new Set(
+          [
+            ...(tagCatalog.data ?? []).flatMap((question) => question.tags ?? []),
+            ...(form.tags ?? []),
+          ]
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+        ),
+      ].sort((a, b) => a.localeCompare(b)),
+    [tagCatalog.data, form.tags],
+  );
 
   const handleCreate = async () => {
     if (!form.question.trim()) return;
@@ -350,7 +403,7 @@ function QuestionsTab() {
         expected_answer: "",
         source_hint: "",
         tags: [],
-        dataset: "main",
+        dataset: "belarus_law-main",
         notes: "",
       });
       refetch();
@@ -471,7 +524,7 @@ function QuestionsTab() {
               expected_answer: "",
               source_hint: "",
               tags: [],
-              dataset: "main",
+              dataset: "belarus_law-main",
               notes: "",
             });
             setDialogOpen(true);
@@ -584,68 +637,171 @@ function QuestionsTab() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{editQuestion ? "Edit Question" : "Add Question"}</DialogTitle>
+        <DialogContent className="flex max-h-[90dvh] w-[95vw] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b px-6 py-6 text-left sm:px-8">
+            <DialogTitle className="pr-8 text-2xl font-semibold tracking-tight">
+              {editQuestion ? "Edit question" : "Add question"}
+            </DialogTitle>
+            <DialogDescription className="pt-1 leading-relaxed">
+              Define the question, reference answer and sources used to evaluate a benchmark
+              response.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Question *</Label>
-              <Textarea
-                value={form.question}
-                onChange={(e) => setForm({ ...form, question: e.target.value })}
-                placeholder="Enter the test question..."
-              />
-            </div>
-            <div>
-              <Label>Expected Answer</Label>
-              <Textarea
-                value={form.expected_answer || ""}
-                onChange={(e) => setForm({ ...form, expected_answer: e.target.value || null })}
-                placeholder="Optional expected answer for correctness scoring"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Source Hint</Label>
-                <SourceHintPicker
-                  value={form.source_hint || null}
-                  onChange={(v) => setForm({ ...form, source_hint: v })}
+          <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-6 py-6 sm:px-8">
+            <section className="space-y-5" aria-label="Question and expected answer">
+              <div className="flex flex-col gap-2.5">
+                <Label htmlFor="benchmark-question">
+                  Question <span className="text-destructive">*</span>
+                </Label>
+                <Textarea
+                  id="benchmark-question"
+                  className="min-h-28 resize-y px-3 py-3 text-sm leading-relaxed"
+                  value={form.question}
+                  onChange={(e) => setForm({ ...form, question: e.target.value })}
+                  placeholder="Enter the question as a user would ask it…"
                 />
               </div>
-              <div>
-                <Label>Dataset</Label>
-                <Input
-                  value={form.dataset}
-                  onChange={(e) => setForm({ ...form, dataset: e.target.value })}
+              <div className="flex flex-col gap-2.5">
+                <Label htmlFor="benchmark-expected-answer">Expected answer</Label>
+                <Textarea
+                  id="benchmark-expected-answer"
+                  aria-describedby="benchmark-answer-help"
+                  className="min-h-40 resize-y px-3 py-3 text-sm leading-relaxed"
+                  value={form.expected_answer || ""}
+                  onChange={(e) => setForm({ ...form, expected_answer: e.target.value || null })}
+                  placeholder="Describe the correct answer, including required facts and calculations…"
+                />
+                <p
+                  id="benchmark-answer-help"
+                  className="text-xs leading-relaxed text-muted-foreground"
+                >
+                  Reference answer for correctness scoring. Include the details a successful
+                  response should cover.
+                </p>
+              </div>
+            </section>
+            <section
+              className="space-y-3 rounded-xl border bg-muted/20 p-4 sm:p-5"
+              aria-label="Expected sources"
+            >
+              <h3 className="text-sm font-semibold">Expected sources</h3>
+              <SourceHintPicker
+                value={form.source_hint || null}
+                onChange={(v) => setForm({ ...form, source_hint: v })}
+              />
+            </section>
+            <section className="space-y-5 border-t pt-6" aria-label="Question details">
+              <h3 className="text-sm font-semibold">Question details</h3>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-2.5">
+                  <Label htmlFor="benchmark-dataset">Dataset</Label>
+                  <Input
+                    id="benchmark-dataset"
+                    value={form.dataset}
+                    onChange={(e) => setForm({ ...form, dataset: e.target.value })}
+                  />
+                </div>
+                <div className="flex min-w-0 flex-col gap-2.5">
+                  <Label htmlFor="benchmark-tags">Tags</Label>
+                  <Input
+                    id="benchmark-tags"
+                    aria-describedby="benchmark-tags-help"
+                    value={(form.tags || []).join(", ")}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        tags: e.target.value
+                          .split(",")
+                          .map((tag) => tag.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                    placeholder="legal, narrow, regression"
+                  />
+                  <p id="benchmark-tags-help" className="text-xs text-muted-foreground">
+                    Separate tags with commas.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Available tags</p>
+                <p className="text-xs text-muted-foreground">
+                  Tags used across benchmark questions. Click to select or remove; you can also
+                  enter new tags above.
+                </p>
+                {tagCatalog.isFetching && !tagCatalog.data && (
+                  <p role="status" className="text-xs text-muted-foreground">
+                    Loading tags…
+                  </p>
+                )}
+                {tagCatalog.isError && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <p role="alert" className="text-destructive">
+                      Could not load available tags.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => tagCatalog.refetch()}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                )}
+                {!tagCatalog.isPending && !tagCatalog.isError && availableTags.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No tags yet. Enter the first tag above.
+                  </p>
+                )}
+                {availableTags.length > 0 && (
+                  <div
+                    className="flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-lg border bg-muted/20 p-3"
+                    role="group"
+                    aria-label="Available benchmark tags"
+                  >
+                    {availableTags.map((tag) => {
+                      const selected = form.tags?.includes(tag) ?? false;
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() =>
+                            setForm((previous) => ({
+                              ...previous,
+                              tags: selected
+                                ? (previous.tags ?? []).filter((value) => value !== tag)
+                                : [...new Set([...(previous.tags ?? []), tag])],
+                            }))
+                          }
+                          className={`max-w-full rounded-full border px-3 py-1.5 text-left text-xs leading-relaxed break-words transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"}`}
+                        >
+                          {selected && (
+                            <span aria-hidden="true" className="mr-1">
+                              ✓
+                            </span>
+                          )}
+                          {tag}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-2.5">
+                <Label htmlFor="benchmark-notes">Internal notes</Label>
+                <Textarea
+                  id="benchmark-notes"
+                  className="min-h-20 resize-y leading-relaxed"
+                  value={form.notes || ""}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value || null })}
+                  placeholder="Context for reviewers or a link to the original issue…"
                 />
               </div>
-            </div>
-            <div>
-              <Label>Tags (comma-separated)</Label>
-              <Input
-                value={(form.tags || []).join(", ")}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    tags: e.target.value
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  })
-                }
-                placeholder="legal, narrow, regression"
-              />
-            </div>
-            <div>
-              <Label>Notes</Label>
-              <Input
-                value={form.notes || ""}
-                onChange={(e) => setForm({ ...form, notes: e.target.value || null })}
-              />
-            </div>
+            </section>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 gap-2 border-t bg-muted/20 px-6 py-4 sm:items-center sm:px-8">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
@@ -653,7 +809,11 @@ function QuestionsTab() {
               onClick={handleCreate}
               disabled={createQuestion.isPending || updateQuestion.isPending}
             >
-              {editQuestion ? "Update" : "Create"}
+              {createQuestion.isPending || updateQuestion.isPending
+                ? "Saving…"
+                : editQuestion
+                  ? "Save changes"
+                  : "Create question"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -737,7 +897,7 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
   const [topNLlm, setTopNLlm] = useState(3);
   const [evaluationMode, setEvaluationMode] = useState<"fast" | "full">("fast");
   const [judgeModel, setJudgeModel] = useState<string | null>(null);
-  const [dataset, setDataset] = useState("main");
+  const [dataset, setDataset] = useState("belarus_law-main");
   const { data: spaces } = useSpaces();
   const [spaceId, setSpaceId] = useState<string>("");
   const selectedSpaceId = spaceId
@@ -976,12 +1136,12 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setDataset("quick-30");
+                  setDataset("belarus_law-quick");
                   setEvaluationMode("fast");
                   setTopNLlm(1);
                 }}
               >
-                Quick-30 · Top-N 1
+                Quick · Top-N 1
               </Button>
               <BenchmarkDatasetSelect value={dataset} onChange={setDataset} />
             </div>
@@ -1355,6 +1515,7 @@ function LeaderboardTab() {
                 </TableBody>
               </Table>
             </div>
+            <DiagnosisTransitions transitions={compareData?.diagnosis_transitions} />
             <Button variant="outline" size="sm" className="mt-2" onClick={() => setSelectedIds([])}>
               Clear selection
             </Button>
@@ -1550,91 +1711,14 @@ function LeaderboardTab() {
                                 {run.summary_metrics.retrieval_unavailable_count}.
                               </p>
                             )}
+                            <div className="mb-2">
+                              <DiagnosisCounts counts={run.summary_metrics.diagnosis_counts} />
+                            </div>
                             {runDetail?.per_question_results ? (
-                              <div className="space-y-2">
-                                <h4 className="text-sm font-medium flex items-center gap-1">
-                                  <ListChecks className="h-4 w-4" /> Per-question results (
-                                  {runDetail.per_question_results.length})
-                                </h4>
-                                <div className="overflow-auto max-h-[300px] border rounded-md">
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow>
-                                        <TableHead className="text-xs">#</TableHead>
-                                        <TableHead className="text-xs">Question</TableHead>
-                                        <TableHead className="text-xs">Hit</TableHead>
-                                        <TableHead className="text-xs">MRR</TableHead>
-                                        <TableHead className="text-xs">Fragment recall</TableHead>
-                                        <TableHead className="text-xs">Context fragments</TableHead>
-                                        <TableHead className="text-xs">Context facts</TableHead>
-                                        <TableHead className="text-xs">Source hit</TableHead>
-                                        <TableHead className="text-xs">Faith</TableHead>
-                                        <TableHead className="text-xs">Rel</TableHead>
-                                        <TableHead className="text-xs">Latency</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {runDetail.per_question_results.map((qr, idx) => (
-                                        <TableRow key={qr.id ?? idx}>
-                                          <TableCell className="text-xs text-muted-foreground">
-                                            {idx + 1}
-                                          </TableCell>
-                                          <TableCell className="text-xs max-w-[300px] truncate">
-                                            {qr.question}
-                                          </TableCell>
-                                          <TableCell className="text-xs">
-                                            {qr.hit_rate != null ? (
-                                              <span
-                                                className={
-                                                  qr.hit_rate >= 0.5
-                                                    ? "text-green-500"
-                                                    : "text-red-500"
-                                                }
-                                              >
-                                                {qr.hit_rate >= 0.5 ? "Hit" : "Miss"}
-                                              </span>
-                                            ) : (
-                                              "-"
-                                            )}
-                                          </TableCell>
-                                          <TableCell className="text-xs font-mono">
-                                            {qr.mrr?.toFixed(2) ?? "-"}
-                                          </TableCell>
-                                          <TableCell className="text-xs font-mono">
-                                            {qr.evidence_metrics?.fragment_recall_at_k?.toFixed(
-                                              2,
-                                            ) ?? "-"}
-                                          </TableCell>
-                                          <TableCell className="text-xs font-mono">
-                                            {qr.evidence_metrics?.context_fragment_recall?.toFixed(
-                                              2,
-                                            ) ?? "-"}
-                                          </TableCell>
-                                          <TableCell className="text-xs font-mono">
-                                            {qr.evidence_metrics?.context_fact_coverage?.toFixed(
-                                              2,
-                                            ) ?? "-"}
-                                          </TableCell>
-                                          <TableCell className="text-xs font-mono">
-                                            {qr.source_hit_rate?.toFixed(0) ?? "-"}
-                                          </TableCell>
-                                          <TableCell className="text-xs">
-                                            <ScoreBadge score={qr.faithfulness} />
-                                          </TableCell>
-                                          <TableCell className="text-xs">
-                                            <ScoreBadge score={qr.relevancy} />
-                                          </TableCell>
-                                          <TableCell className="text-xs text-muted-foreground">
-                                            {qr.latency_sec != null
-                                              ? `${qr.latency_sec.toFixed(1)}s`
-                                              : "-"}
-                                          </TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </div>
-                              </div>
+                              <RunQuestionResults
+                                runId={run.id}
+                                rows={runDetail.per_question_results}
+                              />
                             ) : (
                               <p className="text-sm text-muted-foreground">
                                 No per-question data available for this run.
@@ -1662,7 +1746,9 @@ export function AdminBenchmarkPage() {
   const requestedTab = searchParams.get("tab");
   const activeTab =
     requestedTab &&
-    ["questions", "sweep-builder", "progress", "leaderboard", "trends"].includes(requestedTab)
+    ["questions", "sweep-builder", "progress", "leaderboard", "trends", "acceptance"].includes(
+      requestedTab,
+    )
       ? requestedTab
       : "questions";
   const sweepId = Number(searchParams.get("sweep"));
@@ -1707,6 +1793,9 @@ export function AdminBenchmarkPage() {
           </TabsTrigger>
           <TabsTrigger value="trends">
             <History className="h-4 w-4 mr-1" /> Trends
+          </TabsTrigger>
+          <TabsTrigger value="acceptance">
+            <Target className="h-4 w-4 mr-1" /> Acceptance
           </TabsTrigger>
         </TabsList>
 
@@ -1770,6 +1859,21 @@ export function AdminBenchmarkPage() {
             </CardHeader>
             <CardContent>
               <BenchmarkTrendsTab />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="acceptance" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Acceptance</CardTitle>
+              <CardDescription>
+                Per-dataset thresholds, question composition, run-to-run noise and judge calibration
+                used by the regression check.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AcceptanceTab />
             </CardContent>
           </Card>
         </TabsContent>

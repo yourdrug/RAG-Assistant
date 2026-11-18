@@ -1,0 +1,214 @@
+{
+  "label": "offline-gate reference",
+  "pack": "support",
+  "date": "2026-11-17",
+  "tokenizer": "BAAI/bge-m3",
+  "retrieval": "proxy: BM25 (prod tokenizer) / bge-m3 cosine / RRF k=60, no reranker, depth 50",
+  "domains": {
+    "general": {
+      "chunks": 1,
+      "avg_tokens": 116,
+      "p50_tokens": 116,
+      "p95_tokens": 116,
+      "max_tokens": 116,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 112,
+      "avg_prefix_share": 0.0345,
+      "documents": 1,
+      "chunks_per_document_avg": 1.0,
+      "dataset_questions": 2,
+      "fragments": 2,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 2,
+          "recall_at_5": 0.5,
+          "recall_at_10": 0.5,
+          "mrr": 0.5,
+          "misses_at_10": [
+            "synthetic-support-019"
+          ]
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 2,
+          "recall_at_5": 0.5,
+          "recall_at_10": 0.5,
+          "mrr": 0.5,
+          "misses_at_10": [
+            "synthetic-support-019"
+          ]
+        }
+      }
+    },
+    "support_faq": {
+      "chunks": 15,
+      "avg_tokens": 45.5,
+      "p50_tokens": 46,
+      "p95_tokens": 53,
+      "max_tokens": 58,
+      "share_under_50_tokens": 0.6,
+      "avg_body_tokens": 42.2,
+      "avg_prefix_share": 0.0732,
+      "documents": 3,
+      "chunks_per_document_avg": 5.0,
+      "dataset_questions": 12,
+      "fragments": 12,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 12,
+          "recall_at_5": 0.9167,
+          "recall_at_10": 0.9167,
+          "mrr": 0.8611,
+          "misses_at_10": [
+            "synthetic-support-012"
+          ]
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 12,
+          "recall_at_5": 0.9167,
+          "recall_at_10": 0.9167,
+          "mrr": 0.8611,
+          "misses_at_10": [
+            "synthetic-support-012"
+          ]
+        }
+      }
+    },
+    "support_guide": {
+      "chunks": 8,
+      "avg_tokens": 43.6,
+      "p50_tokens": 45,
+      "p95_tokens": 53,
+      "max_tokens": 53,
+      "share_under_50_tokens": 0.625,
+      "avg_body_tokens": 40.1,
+      "avg_prefix_share": 0.0802,
+      "documents": 2,
+      "chunks_per_document_avg": 4.0,
+      "dataset_questions": 6,
+      "fragments": 6,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 6,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0,
+          "mrr": 0.9167,
+          "misses_at_10": []
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 6,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0,
+          "mrr": 0.9167,
+          "misses_at_10": []
+        }
+      }
+    }
+  },
+  "documents": [
+    {
+      "file": "account-faq.txt",
+      "domain": "support_faq",
+      "chunks": 5,
+      "avg_tokens": 42,
+      "p50_tokens": 38,
+      "p95_tokens": 52,
+      "max_tokens": 52,
+      "share_under_50_tokens": 0.8,
+      "avg_body_tokens": 39,
+      "avg_prefix_share": 0.0714
+    },
+    {
+      "file": "connect-guide.txt",
+      "domain": "support_guide",
+      "chunks": 4,
+      "avg_tokens": 43.8,
+      "p50_tokens": 50,
+      "p95_tokens": 53,
+      "max_tokens": 53,
+      "share_under_50_tokens": 0.5,
+      "avg_body_tokens": 40.8,
+      "avg_prefix_share": 0.0686
+    },
+    {
+      "file": "connections-faq.txt",
+      "domain": "support_faq",
+      "chunks": 5,
+      "avg_tokens": 51,
+      "p50_tokens": 52,
+      "p95_tokens": 58,
+      "max_tokens": 58,
+      "share_under_50_tokens": 0.2,
+      "avg_body_tokens": 47,
+      "avg_prefix_share": 0.0784
+    },
+    {
+      "file": "export-faq.txt",
+      "domain": "support_faq",
+      "chunks": 5,
+      "avg_tokens": 43.6,
+      "p50_tokens": 44,
+      "p95_tokens": 51,
+      "max_tokens": 51,
+      "share_under_50_tokens": 0.8,
+      "avg_body_tokens": 40.6,
+      "avg_prefix_share": 0.0688
+    },
+    {
+      "file": "notifications-guide.txt",
+      "domain": "support_guide",
+      "chunks": 4,
+      "avg_tokens": 43.5,
+      "p50_tokens": 45,
+      "p95_tokens": 53,
+      "max_tokens": 53,
+      "share_under_50_tokens": 0.75,
+      "avg_body_tokens": 39.5,
+      "avg_prefix_share": 0.092
+    },
+    {
+      "file": "service-notice.txt",
+      "domain": "general",
+      "chunks": 1,
+      "avg_tokens": 116,
+      "p50_tokens": 116,
+      "p95_tokens": 116,
+      "max_tokens": 116,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 112,
+      "avg_prefix_share": 0.0345
+    }
+  ],
+  "overall": {
+    "dataset_questions": 20,
+    "fragments": 20,
+    "fragment_reachability": 1.0,
+    "unreachable_cases": [],
+    "retrieval": {
+      "bm25": {
+        "questions": 20,
+        "recall_at_5": 0.9,
+        "recall_at_10": 0.9,
+        "mrr": 0.8417,
+        "misses_at_10": [
+          "synthetic-support-019",
+          "synthetic-support-012"
+        ]
+      }
+    }
+  }
+}

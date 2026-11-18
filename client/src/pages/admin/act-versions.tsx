@@ -5,10 +5,12 @@ import { useState } from "react";
 import toast from "react-hot-toast";
 import { useActVersions, useUpdateActVersion } from "@/shared/api/hooks";
 import type { ActSummary, ActVersionReviewItem } from "@/shared/api/types";
+import { formatDate } from "@/shared/lib/date-time";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { DataTable } from "@/shared/ui/data-table";
+import { DateInput } from "@/shared/ui/date-input";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +19,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
@@ -104,12 +105,12 @@ export function AdminActVersionsPage() {
     {
       accessorKey: "effective_from",
       header: "From",
-      cell: ({ row }) => row.original.effective_from ?? "—",
+      cell: ({ row }) => formatDate(row.original.effective_from),
     },
     {
       accessorKey: "effective_to",
       header: "To",
-      cell: ({ row }) => row.original.effective_to ?? "—",
+      cell: ({ row }) => formatDate(row.original.effective_to),
     },
     {
       accessorKey: "date_source",
@@ -184,18 +185,16 @@ export function AdminActVersionsPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Effective From</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={form.effective_from}
-                onChange={(e) => setForm({ ...form, effective_from: e.target.value })}
+                onValueChange={(value) => setForm({ ...form, effective_from: value })}
               />
             </div>
             <div className="space-y-2">
               <Label>Effective To (exclusive)</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={form.effective_to}
-                onChange={(e) => setForm({ ...form, effective_to: e.target.value })}
+                onValueChange={(value) => setForm({ ...form, effective_to: value })}
               />
             </div>
             <div className="space-y-2">

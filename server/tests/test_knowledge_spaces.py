@@ -23,6 +23,7 @@ from application.identity import UserContextFactory
 from application.ingestion.sync import DocumentSyncService
 from application.rag.dto import PreparedQuery
 from application.rag.space_router import SpaceRagRouter, SpaceRequiredError
+from application.search.service import SearchService
 from application.spaces import (
     DomainPackNotLoadedError,
     KnowledgeSpaceService,
@@ -501,18 +502,26 @@ async def test_concurrent_first_questions_use_one_conversation_space(same_space:
         assert isinstance(results[1], ValidationError)
 
 
+THIRD_SPACE_ID = 3
+
+
 @pytest.mark.asyncio
-async def test_admin_assigns_client_and_listing_only_returns_assigned_space() -> None:
+async def test_admin_assigns_client_spaces_and_listing_only_returns_assigned_spaces() -> None:
     uow = FakeUnitOfWork()
     add_space(uow, SUPPORT_SPACE_ID)
+    add_space(uow, THIRD_SPACE_ID)
     uow.fake_users.add_user(9, kind=UserKind.CLIENT)
     service = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
     assert await service.list_for_user(9, UserKind.CLIENT, UserRole.USER) == []
-    await service.assign_client(ADMIN, 9, SUPPORT_SPACE_ID)
-    [assigned] = await service.list_for_user(9, UserKind.CLIENT, UserRole.USER)
-    assert assigned.id == SUPPORT_SPACE_ID
-    assert not assigned.can_upload
-    await service.assign_client(ADMIN, 9, None)
+    await service.assign_client(ADMIN, 9, [THIRD_SPACE_ID, SUPPORT_SPACE_ID])
+    listed = await service.list_for_user(9, UserKind.CLIENT, UserRole.USER)
+    assert [space.id for space in listed] == [SUPPORT_SPACE_ID, THIRD_SPACE_ID]
+    assert not any(space.can_upload for space in listed)
+    await service.assign_client(ADMIN, 9, [SUPPORT_SPACE_ID])
+    assert [space.id for space in await service.list_for_user(9, UserKind.CLIENT, UserRole.USER)] == [
+        SUPPORT_SPACE_ID
+    ]
+    await service.assign_client(ADMIN, 9, [])
     assert await service.list_for_user(9, UserKind.CLIENT, UserRole.USER) == []
 
 
@@ -523,21 +532,22 @@ async def test_client_assignment_rejects_non_admin_non_client_and_unknown_ids() 
     uow.fake_users.add_user(10)
     service = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
     with pytest.raises(BusinessRuleViolationError):
-        await service.assign_client(UserContext(2, UserKind.INTERNAL, UserRole.CURATOR), 9, DEFAULT_SPACE_ID)
+        await service.assign_client(
+            UserContext(2, UserKind.INTERNAL, UserRole.CURATOR), 9, [DEFAULT_SPACE_ID]
+        )
     with pytest.raises(BusinessRuleViolationError):
-        await service.assign_client(ADMIN, 10, DEFAULT_SPACE_ID)
+        await service.assign_client(ADMIN, 10, [DEFAULT_SPACE_ID])
     with pytest.raises(EntityNotFoundError):
-        await service.assign_client(ADMIN, 404, DEFAULT_SPACE_ID)
+        await service.assign_client(ADMIN, 404, [DEFAULT_SPACE_ID])
+    # One unknown space rejects the whole assignment.
     with pytest.raises(EntityNotFoundError):
-        await service.assign_client(ADMIN, 9, 404)
+        await service.assign_client(ADMIN, 9, [DEFAULT_SPACE_ID, 404])
+    client = await uow.users.get_by_id(9)
+    assert client is not None
+    assert client.client_space_ids == frozenset()
 
 
-@pytest.mark.asyncio
-async def test_client_chat_uses_current_assignment_and_rejects_old_conversation_after_reassignment() -> None:
-    uow = FakeUnitOfWork()
-    add_space(uow, SUPPORT_SPACE_ID)
-    uow.fake_users.add_user(9, kind=UserKind.CLIENT)
-    spaces = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
+def client_asker(uow: FakeUnitOfWork) -> Any:
     service = chat_service(uow, FakeChatRAGPort())
 
     async def ask(conversation_id: int | None = None, space_id: int | None = None) -> Any:
@@ -552,22 +562,96 @@ async def test_client_chat_uses_current_assignment_and_rejects_old_conversation_
             space_id=space_id,
         )
 
+    return ask
+
+
+@pytest.mark.asyncio
+async def test_client_chat_uses_current_assignment_and_rejects_old_conversation_after_reassignment() -> None:
+    uow = FakeUnitOfWork()
+    add_space(uow, SUPPORT_SPACE_ID)
+    uow.fake_users.add_user(9, kind=UserKind.CLIENT)
+    spaces = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
+    ask = client_asker(uow)
+
     with pytest.raises(ValidationError):
         await ask()
-    await spaces.assign_client(ADMIN, 9, SUPPORT_SPACE_ID)
+    await spaces.assign_client(ADMIN, 9, [SUPPORT_SPACE_ID])
     setup = await ask()
     assert setup.ctx.space == SpaceRef(SUPPORT_SPACE_ID, "generic")
     assert (await ask(setup.conv.id)).ctx.space == setup.ctx.space
     with pytest.raises(ValidationError):
         await ask(space_id=DEFAULT_SPACE_ID)
 
-    await spaces.assign_client(ADMIN, 9, DEFAULT_SPACE_ID)
+    await spaces.assign_client(ADMIN, 9, [DEFAULT_SPACE_ID])
     with pytest.raises(ValidationError):
         await ask(setup.conv.id)
     assert (await ask()).ctx.space == SpaceRef(DEFAULT_SPACE_ID, "generic")
-    await spaces.assign_client(ADMIN, 9, None)
+    await spaces.assign_client(ADMIN, 9, [])
     with pytest.raises(ValidationError):
         await ask(setup.conv.id)
+
+
+@pytest.mark.asyncio
+async def test_client_with_several_spaces_chooses_one_of_them_per_conversation() -> None:
+    uow = FakeUnitOfWork()
+    add_space(uow, SUPPORT_SPACE_ID, pack_key="belarus_law")
+    add_space(uow, THIRD_SPACE_ID)
+    uow.fake_users.add_user(9, kind=UserKind.CLIENT)
+    spaces = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
+    await spaces.assign_client(ADMIN, 9, [SUPPORT_SPACE_ID, THIRD_SPACE_ID])
+    ask = client_asker(uow)
+
+    # Several assigned spaces: a new conversation must name one, and only an assigned one.
+    with pytest.raises(ValidationError):
+        await ask()
+    with pytest.raises(ValidationError):
+        await ask(space_id=DEFAULT_SPACE_ID)
+
+    law = await ask(space_id=SUPPORT_SPACE_ID)
+    other = await ask(space_id=THIRD_SPACE_ID)
+    assert law.ctx.space == SpaceRef(SUPPORT_SPACE_ID, "belarus_law")
+    assert other.ctx.space == SpaceRef(THIRD_SPACE_ID, "generic")
+    # A follow-up stays in the conversation's space without naming it, and cannot switch it.
+    assert (await ask(law.conv.id)).ctx.space == law.ctx.space
+    with pytest.raises(ValidationError):
+        await ask(law.conv.id, space_id=THIRD_SPACE_ID)
+
+    # Revoking one space closes its conversations and keeps the other.
+    await spaces.assign_client(ADMIN, 9, [THIRD_SPACE_ID])
+    with pytest.raises(ValidationError):
+        await ask(law.conv.id)
+    assert (await ask(other.conv.id)).ctx.space == other.ctx.space
+    assert (await ask()).ctx.space == other.ctx.space
+
+
+@pytest.mark.asyncio
+async def test_client_search_is_limited_to_assigned_spaces() -> None:
+    uow = FakeUnitOfWork()
+    add_space(uow, SUPPORT_SPACE_ID)
+    add_space(uow, THIRD_SPACE_ID)
+    uow.fake_users.add_user(9, kind=UserKind.CLIENT)
+    uow.fake_users.add_user(10)
+    spaces = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
+    await spaces.assign_client(ADMIN, 9, [SUPPORT_SPACE_ID, THIRD_SPACE_ID])
+    search_page = AsyncMock(return_value=([], 0))
+    uow.chunks.search_substring_page = search_page  # type: ignore[method-assign]
+    service = SearchService(FakeUnitOfWorkFactory(uow))
+    client = UserContext(9, UserKind.CLIENT, UserRole.USER)
+
+    await service.exact_search("договор", client, space_id=THIRD_SPACE_ID)
+    assert search_page.await_args is not None
+    assert search_page.await_args.kwargs["space_id"] == THIRD_SPACE_ID
+    with pytest.raises(ValidationError):
+        await service.exact_search("договор", client, space_id=DEFAULT_SPACE_ID)
+    with pytest.raises(ValidationError):
+        await service.exact_search("договор", client)
+    assert search_page.await_count == 1
+
+    # Internal users keep searching any space.
+    await service.exact_search(
+        "договор", UserContext(10, UserKind.INTERNAL, UserRole.USER), space_id=DEFAULT_SPACE_ID
+    )
+    assert search_page.await_args.kwargs["space_id"] == DEFAULT_SPACE_ID
 
 
 @pytest.mark.asyncio

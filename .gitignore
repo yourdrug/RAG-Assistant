@@ -15,8 +15,12 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# Сырые результаты бенчмарка
-/docs/quality/artifacts/
+# Сырые результаты бенчмарка; эталоны офлайн-гейта коммитятся
+/docs/quality/artifacts/*
+!/docs/quality/artifacts/offline-gate/
+
+# Логи браузерного MCP-инструмента
+.playwright-mcp/
 
 # IDE / OS
 .DS_Store

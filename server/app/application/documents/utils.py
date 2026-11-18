@@ -6,8 +6,13 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.enums import DocumentVisibility
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
+
 
 if TYPE_CHECKING:
+    from application.uow import UnitOfWork
     from domain.knowledge.repositories.document import DocumentCrudRepository
 
 log = logging.getLogger(__name__)
@@ -49,3 +54,36 @@ async def resolve_unique_filename(
         log.info("Renamed conflict: %s -> %s", filename, candidate)
 
     return candidate
+
+
+async def resolve_effective_owner_id(
+    uow: UnitOfWork,
+    vis: DocumentVisibility,
+    user_id: int,
+    user_kind: str,
+    *,
+    client_id: int | None,
+    user_role: str = UserRole.USER,
+    managed_client_ids: tuple[int, ...] | None = None,
+) -> int:
+    if vis != DocumentVisibility.CLIENT_PRIVATE:
+        return user_id
+
+    if user_kind == UserKind.CLIENT:
+        return user_id
+
+    if client_id is None:
+        msg = "client_id required for client_private upload"
+        raise ValidationError(msg)
+
+    client_user = await uow.users.get_by_id(client_id)
+
+    if client_user is None or client_user.kind != UserKind.CLIENT:
+        msg = "client_id must be a user with kind='client'"
+        raise ValidationError(msg)
+
+    if user_role == UserRole.CURATOR and (managed_client_ids is None or client_id not in managed_client_ids):
+        msg = "You can only upload documents for assigned clients"
+        raise BusinessRuleViolationError(msg)
+
+    return client_id

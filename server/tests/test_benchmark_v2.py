@@ -226,7 +226,7 @@ async def test_v2_report_and_no_reference_leak_to_generator(monkeypatch: pytest.
 def test_summary_deduplicates_dataset_copies_preserves_runs_and_groups() -> None:
     row = {
         "case_id": "rag-1",
-        "dataset": "main",
+        "dataset": "belarus_law-main",
         "question_style": "natural",
         "run": 1,
         "annotations": {"answer_type": "negative"},
@@ -235,7 +235,7 @@ def test_summary_deduplicates_dataset_copies_preserves_runs_and_groups() -> None
         "retriever_metrics": {"hit_rate": 1, "mrr": 1, "avg_similarity": 1},
         "latency_sec": 1,
     }
-    quick: dict[str, Any] = {**copy.deepcopy(row), "dataset": "quick-30"}
+    quick: dict[str, Any] = {**copy.deepcopy(row), "dataset": "belarus_law-quick"}
     quick["generator_metrics"]["correctness"] = 0
     summary = summarize_benchmark_results([quick, row, {**row, "run": 2}])
     assert summary["total_questions"] == 2
@@ -243,8 +243,8 @@ def test_summary_deduplicates_dataset_copies_preserves_runs_and_groups() -> None
     assert summary["avg_correctness"] == 10
     assert summary["by_answer_type"]["negative"]["total_questions"] == 2
     assert summary["by_question_style"]["natural"]["total_questions"] == 2
-    assert summary["by_dataset"]["main"]["total_questions"] == 2
-    assert summary["by_dataset"]["quick-30"]["avg_correctness"] == 0
+    assert summary["by_dataset"]["belarus_law-main"]["total_questions"] == 2
+    assert summary["by_dataset"]["belarus_law-quick"]["avg_correctness"] == 0
 
 
 @pytest.mark.asyncio

@@ -48,7 +48,7 @@ class UserResponse(BaseModel):
     role: str
     kind: str
     is_active: bool
-    client_space_id: int | None = None
+    client_space_ids: list[int] = Field(default_factory=list)
 
 
 class MeResponse(BaseModel):

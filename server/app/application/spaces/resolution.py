@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from application.indexing.pack_hooks import DocumentPackHooks
     from application.spaces.ports import DomainPackCatalog
     from application.uow import UnitOfWork, UnitOfWorkFactory
+    from domain.identity.user import User
     from domain.knowledge.document import Document
     from domain.knowledge.space import KnowledgeSpace, SpaceRef
 
@@ -38,18 +39,25 @@ async def resolve_space(uow: UnitOfWork, space_id: int | None) -> KnowledgeSpace
     raise ValidationError(msg, field="space_id")
 
 
-async def client_space(uow: UnitOfWork, user_id: int) -> KnowledgeSpace | None:
-    """Read the current client routing assignment, including API-key requests."""
+async def client_user(uow: UnitOfWork, user_id: int) -> User:
+    """Read the current support-space assignment of a user, including API-key requests."""
     user = await uow.users.get_by_id(user_id)
 
     if user is None:
         entity = "User"
         raise EntityNotFoundError(entity, user_id)
 
-    if user.kind != UserKind.CLIENT or user.client_space_id is None:
-        return None
+    return user
 
-    return await resolve_space(uow, user.client_space_id)
+
+async def client_spaces(uow: UnitOfWork, user_id: int) -> list[KnowledgeSpace]:
+    """Support spaces assigned to a CLIENT user; none for other users."""
+    user = await client_user(uow, user_id)
+
+    if user.kind != UserKind.CLIENT or not user.client_space_ids:
+        return []
+
+    return [space for space in await uow.knowledge_spaces.list_all() if space.id in user.client_space_ids]
 
 
 async def default_space(uow_factory: UnitOfWorkFactory) -> KnowledgeSpace:

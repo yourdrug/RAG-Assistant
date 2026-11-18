@@ -11,8 +11,9 @@ import type {
   UploadStatusResponse,
 } from "../types";
 
-export function useUploadableClients() {
+export function useUploadableClients(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: queryKeys.documents.clients(),
     queryFn: async () =>
       (await apiClient.get<{ id: number; email: string }[]>("/documents/clients")).data,

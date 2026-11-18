@@ -40,7 +40,7 @@ if TYPE_CHECKING:
         ("application.benchmark", "application.benchmark.dto", "BenchmarkResultSummary"),
         ("application.benchmark", "application.benchmark.dto", "BenchmarkResultDetail"),
         ("application.benchmark", "application.benchmark.dto", "BenchmarkResultsList"),
-        ("application.benchmark", "application.benchmark.result_service", "normalize_metrics"),
+        ("application.benchmark", "application.benchmark.regression", "normalize_metrics"),
         ("application.benchmark", "application.benchmark.services", "BenchmarkQuestionService"),
         ("application.benchmark", "application.benchmark.services", "BenchmarkRunService"),
         ("application.benchmark", "application.benchmark.services", "BenchmarkSweepService"),

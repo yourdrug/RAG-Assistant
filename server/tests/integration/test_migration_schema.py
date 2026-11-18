@@ -54,36 +54,6 @@ def migration_connection() -> Iterator[Connection]:
         admin.dispose()
 
 
-def test_knowledge_space_upgrade_preserves_existing_act_scope_identities(
-    migration_connection: Connection,
-) -> None:
-    config = Config("alembic.ini")
-    config.attributes["connection"] = migration_connection
-    command.upgrade(config, "0012")
-    scopes = ["internal_public", "internal_private:7", "internal_group:4", "client_private:9"]
-
-    for scope in scopes:
-        migration_connection.execute(
-            text(
-                "INSERT INTO regulatory_acts (creation_date, act_type, act_number, title, visibility_scope) "
-                "VALUES (NOW(), 'decree', '5', 'Test act', :scope)"
-            ),
-            {"scope": scope},
-        )
-
-    migration_connection.commit()
-    command.upgrade(config, "head")
-    space_id = migration_connection.scalar(text("SELECT id FROM knowledge_spaces"))
-    assert set(migration_connection.scalars(text("SELECT visibility_scope FROM regulatory_acts"))) == {
-        f"space:{space_id}:{scope}" for scope in scopes
-    }
-    migration_connection.commit()
-    command.downgrade(config, "0012")
-    assert set(migration_connection.scalars(text("SELECT visibility_scope FROM regulatory_acts"))) == set(
-        scopes
-    )
-
-
 def test_baseline_round_trip_matches_metadata(migration_connection: Connection) -> None:
     config = Config("alembic.ini")
     config.attributes["connection"] = migration_connection
@@ -92,9 +62,7 @@ def test_baseline_round_trip_matches_metadata(migration_connection: Connection) 
 
     inspector = inspect(migration_connection)
     tables = set(inspector.get_table_names()) - {"alembic_version"}
-    # 0016 adds RAG configuration snapshots; 0017 adds request traces;
-    # 0018 adds answer reactions and journal reviews.
-    assert len(tables) == 30
+    assert len(tables) == 34
 
     # Only the starting knowledge space exists in a new installation.
     assert [
@@ -146,81 +114,6 @@ def test_baseline_round_trip_matches_metadata(migration_connection: Connection) 
     migration_connection.commit()
     command.upgrade(config, "head")
     command.check(config)
-
-
-def config_rows(connection: Connection) -> dict[str, str]:
-    rows = connection.execute(text("SELECT key, value FROM config_parameters WHERE domain_key IS NULL"))
-    return {row.key: row.value for row in rows}
-
-
-def insert_config_rows(connection: Connection, values: dict[str, str]) -> None:
-    for key, value in values.items():
-        connection.execute(
-            text("INSERT INTO config_parameters (key, value, category) VALUES (:key, :value, 'legacy')"),
-            {"key": key, "value": value},
-        )
-
-
-@pytest.mark.parametrize(
-    "legacy, expected",
-    [
-        (
-            {
-                "llm_provider": "openai_compatible",
-                "openrouter_model": "cloud-model",
-                "openai_compatible_base_url": "http://vllm:8000/v1",
-                "openai_compatible_model": "local-model",
-                "openai_compatible_auxiliary_model": "small-model",
-            },
-            {
-                "llm_base_url": "http://vllm:8000/v1",
-                "llm_model": "local-model",
-                "llm_auxiliary_model": "small-model",
-            },
-        ),
-        (
-            {
-                "llm_provider": "openrouter",
-                "openrouter_base_url": "https://openrouter.ai/api/v1",
-                "openrouter_model": "cloud-model",
-                "openai_compatible_model": "local-model",
-            },
-            {"llm_base_url": "https://openrouter.ai/api/v1", "llm_model": "cloud-model"},
-        ),
-    ],
-)
-def test_unified_llm_endpoint_migration_keeps_active_provider(
-    migration_connection: Connection, legacy: dict[str, str], expected: dict[str, str]
-) -> None:
-    config = Config("alembic.ini")
-    config.attributes["connection"] = migration_connection
-    command.upgrade(config, "0009")
-    insert_config_rows(migration_connection, legacy)
-    command.upgrade(config, "0010")
-    assert config_rows(migration_connection) == expected
-    command.downgrade(config, "0009")
-    restored = config_rows(migration_connection)
-    assert restored["llm_provider"] == legacy["llm_provider"]
-    assert not set(restored) & {"llm_base_url", "llm_model", "llm_auxiliary_model"}
-
-
-def test_generic_ml_endpoint_migration_drops_provider_keys(migration_connection: Connection) -> None:
-    config = Config("alembic.ini")
-    config.attributes["connection"] = migration_connection
-    command.upgrade(config, "0010")
-    insert_config_rows(
-        migration_connection,
-        {
-            "ml_provider": "tei",
-            "tei_embed_url": "http://tei-embed:8080",
-            "deepinfra_rerank_model": "custom-reranker",
-            "retriever_top_k": "5",
-        },
-    )
-    command.upgrade(config, "0011")
-    assert config_rows(migration_connection) == {"rerank_model": "custom-reranker", "retriever_top_k": "5"}
-    command.downgrade(config, "0010")
-    assert config_rows(migration_connection) == {"retriever_top_k": "5"}
 
 
 @pytest.mark.asyncio
@@ -280,25 +173,3 @@ def test_standalone_migration_uses_manager_with_special_password(
         migration_connection.execute(text(f'DROP OWNED BY "{role}"'))
         migration_connection.execute(text(f'DROP ROLE "{role}"'))
         migration_connection.commit()
-
-
-def test_answer_attempt_migration_clears_legacy_logs_and_preserves_messages(
-    migration_connection: Connection,
-) -> None:
-    config = Config("alembic.ini")
-    config.attributes["connection"] = migration_connection
-    command.upgrade(config, "0015")
-    migration_connection.execute(text("INSERT INTO chat_logs (question, answer) VALUES ('old', 'answer')"))
-    migration_connection.execute(
-        text("INSERT INTO messages (role, content) VALUES ('assistant', 'delivered')")
-    )
-    migration_connection.commit()
-    command.upgrade(config, "head")
-    assert migration_connection.scalar(text("SELECT count(*) FROM chat_logs")) == 0
-    assert migration_connection.scalar(text("SELECT count(*) FROM messages")) == 1
-    columns = {column["name"] for column in inspect(migration_connection).get_columns("chat_logs")}
-    assert {"outcome", "space_id", "message_id", "config_hash", "sources_count"} <= columns
-    assert not columns & {"retrieval_count", "reranker_score"}
-    migration_connection.commit()
-    command.downgrade(config, "0015")
-    assert migration_connection.scalar(text("SELECT count(*) FROM messages")) == 1

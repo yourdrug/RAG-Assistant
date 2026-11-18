@@ -2,15 +2,10 @@
 import { CalendarClock, FileText, Hash, Pencil, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Source } from "@/shared/api/types";
+import { formatDate } from "@/shared/lib/date-time";
 import { documentUrl } from "@/shared/lib/document-citations";
 import { Button } from "@/shared/ui/button";
 import { ScrollArea } from "@/shared/ui/scroll-area";
-
-function formatRuDate(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const [y, m, d] = iso.split("-");
-  return d && m && y ? `${d}.${m}.${y}` : iso;
-}
 
 interface Props {
   sources: Source[];
@@ -78,15 +73,15 @@ export function SourcePanel({ sources, onClose }: Props) {
                   <CalendarClock className="h-3 w-3" />
                   <span>
                     {s.act_number ? `Акт №${s.act_number}` : null}
-                    {s.effective_from ? ` · с ${formatRuDate(s.effective_from)}` : ""}
-                    {s.effective_to ? ` по ${formatRuDate(s.effective_to)}` : ""}
+                    {s.effective_from ? ` · с ${formatDate(s.effective_from)}` : ""}
+                    {s.effective_to ? ` по ${formatDate(s.effective_to)}` : ""}
                   </span>
                 </div>
               )}
               {s.edited_at && (
                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Pencil className="h-3 w-3" />
-                  <span>Изменён: {new Date(s.edited_at).toLocaleDateString("ru-RU")}</span>
+                  <span>Изменён: {formatDate(s.edited_at)}</span>
                 </div>
               )}
             </div>

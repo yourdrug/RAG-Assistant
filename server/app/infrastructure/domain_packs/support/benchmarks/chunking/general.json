@@ -29,7 +29,7 @@
       "support",
       "general"
     ],
-    "dataset": "synthetic-support-v1",
+    "dataset": "support-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -63,7 +63,7 @@
       "support",
       "general"
     ],
-    "dataset": "synthetic-support-v1",
+    "dataset": "support-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"

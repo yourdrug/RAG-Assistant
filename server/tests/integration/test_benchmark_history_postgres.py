@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from tests.integration.uow import session_factory
 
@@ -17,10 +17,14 @@ from application.benchmark import BenchmarkExportService
 from composition.service_providers import build_sweep_engine
 from config import settings
 from domain.benchmark.evaluation import EVIDENCE_METRICS
+from domain.benchmark.policy import JudgeCalibration, JudgeIdentity
 from domain.benchmark.run import BenchmarkRun
 from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.database.models import BenchmarkCheckpointModel, BenchmarkRunModel
+from infrastructure.repositories.benchmark.sqlalchemy_benchmark_quality_repository import (
+    SQLAlchemyBenchmarkQualityRepository,
+)
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository import (
     SQLAlchemyBenchmarkRunRepository,
 )
@@ -284,3 +288,38 @@ async def test_concurrent_sweeps_with_equal_configs_keep_separate_results(pg_eng
     assert two.sweep_id == second.id
     assert one.summary_metrics["hit_rate"] == 0.9
     assert two.summary_metrics["hit_rate"] == 0.4
+
+
+async def test_calibration_history_survives_run_deletion(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    measured = datetime(2026, 11, 1, tzinfo=UTC)
+    async with sessions.begin() as session:
+        run = await SQLAlchemyBenchmarkRunRepository(session).save_once(BenchmarkRun(job_id=91))
+        repo = SQLAlchemyBenchmarkQualityRepository(session)
+
+        for offset, run_id in enumerate((run.id, None)):
+            saved = await repo.add_calibration(
+                "support-main",
+                JudgeCalibration(
+                    run_id=run_id,
+                    judge=JudgeIdentity(model="judge-a", rubric_version=f"r{offset}"),
+                    metrics={"correctness": {"n": offset}},
+                    measured_at=measured + timedelta(days=offset),
+                ),
+            )
+            assert saved.id is not None
+
+        await repo.add_calibration(
+            "other-main",
+            JudgeCalibration(run_id=None, judge=JudgeIdentity(model=None, rubric_version=None), metrics={}),
+        )
+
+    async with sessions.begin() as session:
+        await session.execute(delete(BenchmarkRunModel).where(BenchmarkRunModel.id == run.id))
+
+    async with sessions.begin() as session:
+        history = await SQLAlchemyBenchmarkQualityRepository(session).list_calibrations("support-main", 10)
+
+    assert [item.judge.rubric_version for item in history] == ["r1", "r0"]
+    assert history[1].run_id is None
+    assert history[1].metrics == {"correctness": {"n": 0}}

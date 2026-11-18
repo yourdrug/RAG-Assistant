@@ -2,6 +2,7 @@
 import { CalendarDays, Send, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/shared/ui/button";
+import { DateInput } from "@/shared/ui/date-input";
 import { Textarea } from "@/shared/ui/textarea";
 
 export type DepthOption = "narrow" | "broad" | null;
@@ -10,6 +11,7 @@ interface Props {
   onSend: (msg: string) => void;
   onStop: () => void;
   disabled?: boolean;
+  isStreaming: boolean;
   depth: DepthOption;
   onDepthChange: (d: DepthOption) => void;
   /** ISO date (YYYY-MM-DD) or null for current state */
@@ -21,6 +23,7 @@ export function ChatInput({
   onSend,
   onStop,
   disabled,
+  isStreaming,
   depth,
   onDepthChange,
   asOfDate,
@@ -37,7 +40,7 @@ export function ChatInput({
   }, [value]);
 
   const submit = () => {
-    if (!value.trim() || disabled) return;
+    if (!value.trim() || disabled || isStreaming) return;
     onSend(value.trim());
     setValue("");
   };
@@ -55,7 +58,7 @@ export function ChatInput({
   ];
 
   return (
-    <div className="border-t p-4">
+    <div className="shrink-0 border-t bg-background p-3 sm:p-4">
       <div className="max-w-3xl mx-auto space-y-2">
         <div className="flex items-center gap-1 flex-wrap">
           <span className="text-xs text-muted-foreground mr-1">Ответ:</span>
@@ -63,7 +66,7 @@ export function ChatInput({
             <button
               key={opt.label}
               onClick={() => onDepthChange(opt.value)}
-              disabled={disabled}
+              disabled={disabled || isStreaming}
               className={`text-xs px-2 py-1 rounded-md transition-colors ${
                 depth === opt.value
                   ? "bg-primary text-primary-foreground"
@@ -77,20 +80,18 @@ export function ChatInput({
             <CalendarDays className="h-3 w-3" />
             Редакция:
           </span>
-          <input
-            type="date"
-            lang="ru"
+          <DateInput
             value={asOfDate ?? ""}
             max={new Date().toISOString().slice(0, 10)}
-            onChange={(e) => onAsOfDateChange(e.target.value || null)}
-            disabled={disabled}
+            onValueChange={(value) => onAsOfDateChange(value || null)}
+            disabled={disabled || isStreaming}
             title="Ответ по состоянию на дату (пусто = текущая редакция)"
             className="text-xs px-2 py-1 rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors outline-none"
           />
           {asOfDate && (
             <button
               onClick={() => onAsOfDateChange(null)}
-              disabled={disabled}
+              disabled={disabled || isStreaming}
               title="Вернуть текущую редакцию"
               className="text-xs px-1.5 py-1 rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors flex items-center gap-0.5"
             >
@@ -106,16 +107,28 @@ export function ChatInput({
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKey}
             placeholder="Ask a question about your documents..."
-            disabled={disabled}
-            className="min-h-[44px] max-h-[200px] resize-none"
+            disabled={disabled || isStreaming}
+            className="min-h-[44px] min-w-0 max-h-[200px] resize-none"
             rows={1}
           />
-          {disabled ? (
-            <Button size="icon" variant="destructive" onClick={onStop} className="shrink-0">
+          {isStreaming ? (
+            <Button
+              size="icon"
+              variant="destructive"
+              onClick={onStop}
+              aria-label="Остановить ответ"
+              className="shrink-0"
+            >
               <Square className="h-4 w-4" />
             </Button>
           ) : (
-            <Button size="icon" onClick={submit} disabled={!value.trim()} className="shrink-0">
+            <Button
+              size="icon"
+              onClick={submit}
+              disabled={disabled || !value.trim()}
+              aria-label="Отправить сообщение"
+              className="shrink-0"
+            >
               <Send className="h-4 w-4" />
             </Button>
           )}

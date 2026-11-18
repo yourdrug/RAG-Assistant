@@ -6,7 +6,13 @@ import argparse
 from collections import Counter, defaultdict
 import json
 from pathlib import Path
+import sys
 from typing import Any
+
+
+# The composition rule is the same pure domain function the admin API uses.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "server/app"))
+from domain.benchmark.composition import dataset_composition  # noqa: E402
 
 
 BEHAVIORS = {
@@ -53,16 +59,30 @@ def validate_cases(cases: Any) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path, help="JSON list exported from Admin -> Benchmark")
+    parser.add_argument(
+        "--composition",
+        metavar="DATASET",
+        help="also require the acceptance-set composition of DATASET (`<pack>-main`); failures exit nonzero",
+    )
     args = parser.parse_args()
     cases = json.loads(args.path.read_text(encoding="utf-8"))
     try:
         validate_cases(cases)
     except ValueError as exc:
         parser.error(str(exc))
-    active = [case for case in cases if case["dataset"] == "main" and case["is_active"]]
-    print(f"OK: {len(cases)} records; {len({c['case_id'] for c in cases})} unique IDs; {len(active)} active main tests")
-    print("Categories (main only):", dict(Counter(c["annotations"]["answer_type"] for c in cases if c["dataset"] == "main")))
+    main_sets = [case for case in cases if case["dataset"].endswith("-main")]
+    active = [case for case in main_sets if case["is_active"]]
+    print(f"OK: {len(cases)} records; {len({c['case_id'] for c in cases})} unique IDs; {len(active)} active -main tests")
+    print("Categories (-main only):", dict(Counter(c["annotations"]["answer_type"] for c in main_sets)))
     print("Manual review:", [c["case_id"] for c in cases if c["annotations"]["review_required"]])
+    if args.composition:
+        report = dataset_composition(
+            [case for case in cases if case["dataset"] == args.composition],
+            pack_key=args.composition.partition("-")[0],
+        )
+        print(f"Composition {args.composition}:", json.dumps(report.to_dict(), ensure_ascii=False))
+        if not report.passed:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

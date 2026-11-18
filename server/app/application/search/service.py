@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from application.identity import UserContextFactory
-from application.spaces.resolution import document_space, resolve_space
+from application.spaces.resolution import client_user, document_space, resolve_space
+from domain.identity.roles import UserKind
 from domain.knowledge.enums import SearchMode
 
 
@@ -45,12 +46,21 @@ class SearchService:
         offset: int = 0,
         space_id: int | None = None,
     ) -> tuple[list[ChunkRecord], int]:
-        """Search one space: the given one, the space of ``document_id``, or the only space."""
+        """Search one space: the given one, the space of ``document_id``, or the only space.
+
+        A client searches only its support spaces: the given one or its only one.
+        """
         async with self._uow_factory.create() as uow:
             full_ctx = await self._user_ctx_factory.build(uow, user.user_id, user.user_kind, user.user_role)
+            client = await client_user(uow, user.user_id) if full_ctx.user_kind == UserKind.CLIENT else None
+
+            # A client searches only its support spaces, like it asks only in them.
+            if client is not None and document_id is None:
+                space_id = client.choose_client_space(space_id)
+
             space = await self.search_space(uow, space_id, document_id)
 
-            if space is None:
+            if space is None or (client is not None and space.id not in client.client_space_ids):
                 return [], 0
 
             selection = self._chunk_selections.get(space.pack_key)

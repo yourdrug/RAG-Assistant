@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLogs } from "@/shared/api/hooks";
+import { formatDateTime, formatTime } from "@/shared/lib/date-time";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { ScrollArea } from "@/shared/ui/scroll-area";
@@ -48,26 +49,11 @@ const levelConfig: Record<string, { color: string; icon: React.ReactNode; bg: st
   },
 };
 
-function formatTimestamp(ts: string) {
-  try {
-    const d = new Date(ts);
-    const time = d.toLocaleTimeString("ru-RU", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    const date = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
-    return { time, date };
-  } catch {
-    return { time: ts, date: "" };
-  }
-}
-
 function LogEntryRow({ log }: { log: any }) {
   const [expanded, setExpanded] = useState(false);
   const level = log.level?.toUpperCase() || "INFO";
   const config = levelConfig[level] || levelConfig.INFO;
-  const { time } = formatTimestamp(log.timestamp);
+  const time = formatTime(log.timestamp);
 
   return (
     <div
@@ -114,7 +100,7 @@ function LogEntryRow({ log }: { log: any }) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <Clock className="h-3 w-3" />
-              <span>{log.timestamp}</span>
+              <span>{formatDateTime(log.timestamp)}</span>
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <AlertCircle className="h-3 w-3" />

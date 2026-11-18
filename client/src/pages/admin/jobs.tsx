@@ -2,6 +2,7 @@
 import { Clock, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useJobAction, useJobStats, useJobs } from "@/shared/api/hooks";
+import { formatDateTime } from "@/shared/lib/date-time";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -144,7 +145,7 @@ export function JobsPage() {
                         {job.error_message ?? "-"}
                       </TableCell>
                       <TableCell className="text-xs">
-                        {job.creation_date ? new Date(job.creation_date).toLocaleString() : "-"}
+                        {job.creation_date ? formatDateTime(job.creation_date) : "-"}
                       </TableCell>
                       <TableCell>
                         {job.retryable && (

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from domain.benchmark.agreement import HumanLabel, LabelMetric
+    from domain.benchmark.policy import DatasetPolicy, JudgeCalibration
     from domain.benchmark.question import BenchmarkQuestion
     from domain.benchmark.run import BenchmarkRun
     from domain.benchmark.sweep import BenchmarkSweep
@@ -139,3 +141,34 @@ class BenchmarkSweepRepository(Protocol):
     async def delete_checkpoints(self, sweep_id: int) -> None: ...
 
     async def cleanup_checkpoints(self, cutoff: datetime) -> int: ...
+
+
+@runtime_checkable
+class BenchmarkQualityRepository(Protocol):
+    """Dataset acceptance policies and human labels of judged answers."""
+
+    async def get_policy(self, dataset: str) -> DatasetPolicy | None: ...
+
+    async def list_policies(self) -> list[DatasetPolicy]: ...
+
+    async def save_policy(self, policy: DatasetPolicy) -> DatasetPolicy:
+        """Insert or replace the policy of its dataset."""
+        ...
+
+    async def add_calibration(self, dataset: str, calibration: JudgeCalibration) -> JudgeCalibration:
+        """Append a calibration to the dataset history; earlier ones are never replaced."""
+        ...
+
+    async def list_calibrations(self, dataset: str, limit: int) -> list[JudgeCalibration]:
+        """Calibrations of a dataset, newest first."""
+        ...
+
+    async def list_labels(self, run_id: int) -> list[HumanLabel]: ...
+
+    async def save_label(self, label: HumanLabel) -> HumanLabel:
+        """Insert or replace one labeler's score of one case metric."""
+        ...
+
+    async def delete_label(
+        self, run_id: int, question_key: str, metric: LabelMetric, labeler_id: int
+    ) -> bool: ...

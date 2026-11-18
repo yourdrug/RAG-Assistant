@@ -136,5 +136,9 @@ async def assign_client_space(
     service: Annotated[KnowledgeSpaceService, Depends(create_knowledge_space_service)],
     log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
 ) -> None:
-    await service.assign_client(admin_context(admin), client_id, req.space_id)
-    log("space.assign_client", user_id=admin.id, details={"client_id": client_id, "space_id": req.space_id})
+    await service.assign_client(admin_context(admin), client_id, req.space_ids)
+    log(
+        "space.assign_client",
+        user_id=admin.id,
+        details={"client_id": client_id, "space_ids": sorted(set(req.space_ids))},
+    )

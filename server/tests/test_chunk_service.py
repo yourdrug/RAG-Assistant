@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
@@ -531,6 +532,33 @@ class TestCreateManualDocument:
         assert result.id == 42
         assert result.source_type == SourceType.MANUAL.value
         uow.documents.save.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("client_kind", [UserKind.CLIENT, UserKind.INTERNAL])
+    async def test_manual_client_private_uses_validated_client_owner(self, client_kind: UserKind) -> None:
+        uow = _make_uow()
+        uow.users.get_by_id = AsyncMock(return_value=MagicMock(kind=client_kind))
+        uow.documents.save = AsyncMock(return_value=_make_doc(id=42))
+        svc = make_manual_service(uow)
+        outcome = (
+            pytest.raises(ValidationError, match="client_id must be a user")
+            if client_kind == UserKind.INTERNAL
+            else nullcontext()
+        )
+        with outcome:
+            await svc.create_manual_document(
+                title="Client note",
+                visibility=DocumentVisibility.CLIENT_PRIVATE,
+                user_id=100,
+                user_kind=UserKind.INTERNAL,
+                user_role=UserRole.ADMIN,
+                client_id=200,
+            )
+
+        if client_kind == UserKind.INTERNAL:
+            uow.documents.save.assert_not_awaited()
+        else:
+            assert uow.documents.save.await_args.args[0].owner_id == 200
 
     @pytest.mark.asyncio
     async def test_create_manual_document_user_cannot_publish_public(self) -> None:

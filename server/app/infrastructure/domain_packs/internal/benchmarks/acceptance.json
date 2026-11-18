@@ -2,7 +2,7 @@
   "pack": "internal",
   "provenance": "synthetic",
   "status": "provisional",
-  "dataset": "synthetic-internal-v1",
+  "dataset": "internal-synthetic",
   "scope": "Offline chunking and BM25 retrieval only; refusal and generated answer quality require a separate online run.",
   "expected_profiles": {
     "access-policy.txt": "internal_procedure",

@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
 import type { ChatLogEntry } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
@@ -58,12 +59,12 @@ function Fragment({ logId, chunkId }: { logId: number; chunkId: number }) {
         if (event.currentTarget.open && !chunk.data && !chunk.isPending) chunk.mutate();
       }}
     >
-      <summary className="cursor-pointer">Фрагмент #{chunkId}</summary>
-      {chunk.isPending && <p>Загрузка…</p>}
-      {chunk.isError && <p role="alert">Не удалось загрузить фрагмент.</p>}
-      {chunk.data?.hidden && <p>Нет доступа</p>}
-      {chunk.data?.missing && <p>Фрагмент удалён или переиндексирован</p>}
-      {chunk.data?.changed && <p>Фрагмент изменился</p>}
+      <summary className="cursor-pointer">Chunk #{chunkId}</summary>
+      {chunk.isPending && <p>Loading…</p>}
+      {chunk.isError && <p role="alert">Could not load this chunk.</p>}
+      {chunk.data?.hidden && <p>Access denied</p>}
+      {chunk.data?.missing && <p>Chunk deleted or reindexed</p>}
+      {chunk.data?.changed && <p>Chunk has changed</p>}
       <p className="whitespace-pre-wrap">{chunk.data?.content}</p>
     </details>
   );
@@ -94,17 +95,17 @@ export function ChatLogTrace({ entry }: { entry: ChatLogEntry }) {
       setReasoning(response.data.checks);
     },
   });
-  if (trace.isPending) return <p>Загрузка трассы…</p>;
+  if (trace.isPending) return <p>Loading trace…</p>;
   if (trace.isError)
-    return <p role="alert">Трасса недоступна: она отключена, истекла или отсутствует.</p>;
+    return <p role="alert">Trace unavailable: tracing is disabled, expired or missing.</p>;
   return (
     <div className="space-y-4">
       <ol className="flex flex-wrap gap-4 text-sm">
-        <li>Поиск: {entry.retrieval_ms ?? "—"} мс →</li>
-        <li>Реранкер: {entry.rerank_ms ?? "—"} мс →</li>
-        <li>Генерация: {entry.generation_ms ?? "—"} мс</li>
+        <li>Retrieval: {entry.retrieval_ms ?? "—"} ms →</li>
+        <li>Reranking: {entry.rerank_ms ?? "—"} ms →</li>
+        <li>Generation: {entry.generation_ms ?? "—"} ms</li>
       </ol>
-      {trace.data.truncated && <p>Трасса усечена по лимиту размера.</p>}
+      {trace.data.truncated && <p>Trace truncated due to its size limit.</p>}
       {trace.data.attempts.map((attempt, index) => {
         const docs = new Map<number, TraceDocument>();
         for (const doc of [
@@ -123,31 +124,39 @@ export function ChatLogTrace({ entry }: { entry: ChatLogEntry }) {
           }
         }
         return (
-          <section key={`${index}-${attempt.query}`} className="space-y-2">
+          <section key={`${index}-${attempt.query}`} className="space-y-4 rounded-lg border p-5">
             <h3 className="font-semibold">
-              Попытка {index + 1}: {attempt.query}
+              Attempt {index + 1}: {attempt.query}
             </h3>
-            <p>Подзапросы: {attempt.sub_queries.join("; ") || "—"}</p>
+            <p>Subqueries: {attempt.sub_queries.join("; ") || "—"}</p>
             <pre className="text-xs overflow-auto">{JSON.stringify(attempt.search, null, 2)}</pre>
             <div className="overflow-auto">
-              <table className="w-full text-sm text-left">
+              <table className="w-full text-sm text-left [&_th]:px-3 [&_th]:py-3">
                 <thead>
                   <tr>
-                    <th>Кандидат</th>
+                    <th>Candidate</th>
                     {Object.keys(attempt.stages).map((stage) => (
                       <th key={stage}>
-                        {stage} ({attempt.stages[stage].status}): позиция / скор
+                        {stage} ({attempt.stages[stage].status}): position / score
                       </th>
                     ))}
-                    <th>Исключение</th>
-                    <th>Цитата</th>
+                    <th>Exclusion</th>
+                    <th>Citation</th>
                   </tr>
                 </thead>
                 <tbody>
                   {[...docs].map(([id, doc]) => (
-                    <tr key={id} className="border-t align-top">
+                    <tr key={id} className="border-t align-top [&_td]:px-3 [&_td]:py-4">
                       <td>
                         <Fragment logId={entry.id} chunkId={id} />
+                        {doc.metadata.document_id && (
+                          <Link
+                            className="mt-2 inline-block text-xs underline"
+                            to={`/admin/chat-logs/${entry.id}/knowledge?docId=${doc.metadata.document_id}`}
+                          >
+                            Edit document chunks
+                          </Link>
+                        )}
                       </td>
                       {Object.entries(attempt.stages).map(([stage, value]) => {
                         const item = value.documents.find(
@@ -184,17 +193,17 @@ export function ChatLogTrace({ entry }: { entry: ChatLogEntry }) {
                 </tbody>
               </table>
             </div>
-            <p>Бюджет промпта</p>
+            <p>Prompt budget</p>
             <pre className="text-xs overflow-auto">
               {JSON.stringify(attempt.stages.prompt?.budget ?? null, null, 2)}
             </pre>
-            <p>Проверки gates</p>
+            <p>Gate checks</p>
             <pre className="text-xs overflow-auto">{JSON.stringify(attempt.checks, null, 2)}</pre>
           </section>
         );
       })}
       <p>
-        Промпт отправлен: {trace.data.generation.generator_called ? "да" : "нет"} · Завершение:{" "}
+        Prompt sent: {trace.data.generation.generator_called ? "yes" : "no"} · Finish reason:{" "}
         {trace.data.generation.finish_reason ?? "—"}
       </p>
       <Button
@@ -202,14 +211,14 @@ export function ChatLogTrace({ entry }: { entry: ChatLogEntry }) {
         disabled={reasoningRequest.isPending || !trace.data.attempts.length}
         onClick={() => reasoningRequest.mutate()}
       >
-        Показать пояснения проверок
+        Show check explanations
       </Button>
-      {reasoningRequest.isError && <p role="alert">Не удалось загрузить пояснения.</p>}
+      {reasoningRequest.isError && <p role="alert">Could not load explanations.</p>}
       {reasoning && (
         <pre className="text-xs whitespace-pre-wrap">
           {reasoning.length
             ? JSON.stringify(reasoning, null, 2)
-            : "Пояснения недоступны: нет доступа ко всем исходным фрагментам либо фрагменты изменились."}
+            : "Explanations unavailable: some source chunks are inaccessible or have changed."}
         </pre>
       )}
     </div>

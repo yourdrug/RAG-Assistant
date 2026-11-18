@@ -62,6 +62,7 @@ class ManualDocumentRequest(BaseModel):
     visibility: DocumentVisibility
     group_id: int | None = None
     space_id: int | None = None
+    client_id: int | None = None
 
 
 class DeleteDocumentResponse(BaseModel):

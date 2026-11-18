@@ -1,0 +1,495 @@
+{
+  "label": "offline-gate reference",
+  "pack": "belarus_law",
+  "date": "2026-11-17",
+  "tokenizer": "BAAI/bge-m3",
+  "retrieval": "proxy: BM25 (prod tokenizer) / bge-m3 cosine / RRF k=60, no reranker, depth 50",
+  "domains": {
+    "contract": {
+      "chunks": 28,
+      "avg_tokens": 115.4,
+      "p50_tokens": 114,
+      "p95_tokens": 173,
+      "max_tokens": 198,
+      "share_under_50_tokens": 0.0357,
+      "avg_body_tokens": 89.2,
+      "avg_prefix_share": 0.2272,
+      "documents": 3,
+      "chunks_per_document_avg": 9.3,
+      "dataset_questions": 37,
+      "fragments": 40,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 37,
+          "recall_at_5": 0.8108,
+          "recall_at_10": 0.8378,
+          "mrr": 0.7069,
+          "misses_at_10": [
+            "rag-c-011",
+            "rag-c-014",
+            "rag-c-027",
+            "rag-c-032",
+            "rag-c-033",
+            "rag-c-034"
+          ]
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 37,
+          "recall_at_5": 0.8108,
+          "recall_at_10": 0.8378,
+          "mrr": 0.7069,
+          "misses_at_10": [
+            "rag-c-011",
+            "rag-c-014",
+            "rag-c-027",
+            "rag-c-032",
+            "rag-c-033",
+            "rag-c-034"
+          ]
+        }
+      }
+    },
+    "decree": {
+      "chunks": 3500,
+      "avg_tokens": 375.8,
+      "p50_tokens": 368,
+      "p95_tokens": 710,
+      "max_tokens": 1406,
+      "share_under_50_tokens": 0.0111,
+      "avg_body_tokens": 293.4,
+      "avg_prefix_share": 0.2193,
+      "documents": 8,
+      "chunks_per_document_avg": 437.5,
+      "dataset_questions": 50,
+      "fragments": 82,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 50,
+          "recall_at_5": 0.3533,
+          "recall_at_10": 0.4167,
+          "mrr": 0.2775,
+          "misses_at_10": [
+            "rag-0007",
+            "rag-0008",
+            "rag-0010",
+            "rag-0021",
+            "rag-0027",
+            "rag-0028",
+            "rag-0032",
+            "rag-0033",
+            "rag-0045",
+            "rag-0046",
+            "rag-0047",
+            "rag-0049",
+            "rag-0050",
+            "rag-0055",
+            "rag-0062",
+            "rag-0063",
+            "rag-0064",
+            "rag-0065",
+            "rag-0066",
+            "rag-0067",
+            "rag-0068",
+            "rag-0069",
+            "rag-0074",
+            "rag-0078",
+            "rag-0087",
+            "rag-0099",
+            "rag-0101",
+            "rag-0106",
+            "rag-n-026",
+            "rag-n-036",
+            "rag-n-037"
+          ]
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 50,
+          "recall_at_5": 0.3533,
+          "recall_at_10": 0.4367,
+          "mrr": 0.2797,
+          "misses_at_10": [
+            "rag-0007",
+            "rag-0008",
+            "rag-0010",
+            "rag-0021",
+            "rag-0027",
+            "rag-0028",
+            "rag-0032",
+            "rag-0033",
+            "rag-0045",
+            "rag-0046",
+            "rag-0047",
+            "rag-0049",
+            "rag-0050",
+            "rag-0055",
+            "rag-0062",
+            "rag-0064",
+            "rag-0065",
+            "rag-0066",
+            "rag-0067",
+            "rag-0068",
+            "rag-0069",
+            "rag-0074",
+            "rag-0078",
+            "rag-0087",
+            "rag-0099",
+            "rag-0101",
+            "rag-0106",
+            "rag-n-026",
+            "rag-n-036",
+            "rag-n-037"
+          ]
+        }
+      }
+    },
+    "general": {
+      "chunks": 8,
+      "avg_tokens": 263.5,
+      "p50_tokens": 313,
+      "p95_tokens": 333,
+      "max_tokens": 333,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 250.1,
+      "avg_prefix_share": 0.0508,
+      "documents": 5,
+      "chunks_per_document_avg": 1.6,
+      "dataset_questions": 25,
+      "fragments": 25,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 25,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0,
+          "mrr": 0.8867,
+          "misses_at_10": []
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 25,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0,
+          "mrr": 0.8867,
+          "misses_at_10": []
+        }
+      }
+    },
+    "legal": {
+      "chunks": 51,
+      "avg_tokens": 216,
+      "p50_tokens": 152,
+      "p95_tokens": 585,
+      "max_tokens": 650,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 159.5,
+      "avg_prefix_share": 0.2615,
+      "documents": 1,
+      "chunks_per_document_avg": 51.0,
+      "dataset_questions": 30,
+      "fragments": 43,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 30,
+          "recall_at_5": 0.8667,
+          "recall_at_10": 0.9167,
+          "mrr": 0.7663,
+          "misses_at_10": [
+            "rag-0038",
+            "rag-0048",
+            "rag-0122"
+          ]
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 30,
+          "recall_at_5": 0.8667,
+          "recall_at_10": 0.9167,
+          "mrr": 0.7663,
+          "misses_at_10": [
+            "rag-0038",
+            "rag-0048",
+            "rag-0122"
+          ]
+        }
+      }
+    }
+  },
+  "documents": [
+    {
+      "file": "Договор на оказание услуг EDI-провайдера № 17-EDI-2026.docx",
+      "domain": "contract",
+      "chunks": 10,
+      "avg_tokens": 130.6,
+      "p50_tokens": 123,
+      "p95_tokens": 198,
+      "max_tokens": 198,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 101.8,
+      "avg_prefix_share": 0.2205
+    },
+    {
+      "file": "Договор поставки № 45-П-2026.docx",
+      "domain": "contract",
+      "chunks": 11,
+      "avg_tokens": 110.4,
+      "p50_tokens": 118,
+      "p95_tokens": 165,
+      "max_tokens": 165,
+      "share_under_50_tokens": 0.0909,
+      "avg_body_tokens": 87.5,
+      "avg_prefix_share": 0.2068
+    },
+    {
+      "file": "Закон Республики Беларусь от 28.12.2009 № 113-З (ред. от 16.03.2026) Об электронном документе и электронной цифровой подписи.docx",
+      "domain": "legal",
+      "chunks": 51,
+      "avg_tokens": 216,
+      "p50_tokens": 152,
+      "p95_tokens": 585,
+      "max_tokens": 650,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 159.5,
+      "avg_prefix_share": 0.2615
+    },
+    {
+      "file": "Инструкция по принятию ЭТН и ЭТТН.docx",
+      "domain": "general",
+      "chunks": 1,
+      "avg_tokens": 207,
+      "p50_tokens": 207,
+      "p95_tokens": 207,
+      "max_tokens": 207,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 194,
+      "avg_prefix_share": 0.0628
+    },
+    {
+      "file": "Инструкция_по_документу_свободной_формы EDI-FLOW.docx",
+      "domain": "general",
+      "chunks": 4,
+      "avg_tokens": 269.2,
+      "p50_tokens": 321,
+      "p95_tokens": 323,
+      "max_tokens": 323,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 250.2,
+      "avg_prefix_share": 0.0706
+    },
+    {
+      "file": "Настройка партнерской связи (роуминга).docx",
+      "domain": "general",
+      "chunks": 1,
+      "avg_tokens": 313,
+      "p50_tokens": 313,
+      "p95_tokens": 313,
+      "max_tokens": 313,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 302,
+      "avg_prefix_share": 0.0351
+    },
+    {
+      "file": "Постановление ГТК РБ от 12.02.2016 N 5 (ред. от 21.11.2025) Об определении классификаторов и особенностей таможенного декларирования.docx",
+      "domain": "decree",
+      "chunks": 2234,
+      "avg_tokens": 362.4,
+      "p50_tokens": 370,
+      "p95_tokens": 391,
+      "max_tokens": 792,
+      "share_under_50_tokens": 0.0013,
+      "avg_body_tokens": 302.3,
+      "avg_prefix_share": 0.1658
+    },
+    {
+      "file": "Постановление МНС РБ от 03.05.2021 N 17 (ред. от 15.09.2025) О реализации Указа Президента Республики Беларусь от 10 июня 2011 г. N 243.docx",
+      "domain": "decree",
+      "chunks": 274,
+      "avg_tokens": 337.9,
+      "p50_tokens": 358,
+      "p95_tokens": 530,
+      "max_tokens": 785,
+      "share_under_50_tokens": 0.0036,
+      "avg_body_tokens": 276.7,
+      "avg_prefix_share": 0.181
+    },
+    {
+      "file": "Постановление МНС РБ от 19.04.2021 N 13 (ред. от 28.08.2025) Об утверждении структуры и формата сведений, представляемых EDI-провайдерами.docx",
+      "domain": "decree",
+      "chunks": 38,
+      "avg_tokens": 236.9,
+      "p50_tokens": 199,
+      "p95_tokens": 387,
+      "max_tokens": 568,
+      "share_under_50_tokens": 0.0263,
+      "avg_body_tokens": 136.8,
+      "avg_prefix_share": 0.4227
+    },
+    {
+      "file": "Постановление Министерства по налогам и сборам Республики Беларусь от 09.04.2021 N 11 О представлении сведений EDI-провайдерами.docx",
+      "domain": "decree",
+      "chunks": 11,
+      "avg_tokens": 255.5,
+      "p50_tokens": 283,
+      "p95_tokens": 432,
+      "max_tokens": 432,
+      "share_under_50_tokens": 0.0909,
+      "avg_body_tokens": 188.7,
+      "avg_prefix_share": 0.2612
+    },
+    {
+      "file": "Постановление Минфна РБ  от 30.06.2016 N 58 (ред. от 25.08.2025) О формах ТТН и ТН и порядке их заполнения.docx",
+      "domain": "decree",
+      "chunks": 107,
+      "avg_tokens": 518.9,
+      "p50_tokens": 711,
+      "p95_tokens": 737,
+      "max_tokens": 787,
+      "share_under_50_tokens": 0.028,
+      "avg_body_tokens": 351.7,
+      "avg_prefix_share": 0.3222
+    },
+    {
+      "file": "Постановление НАН Беларуси, Минфина РБ , МНС РБ, Мин. связи и информатизации РБ 22 сентября 2025 г. N 8914527.docx",
+      "domain": "decree",
+      "chunks": 10,
+      "avg_tokens": 317.7,
+      "p50_tokens": 365,
+      "p95_tokens": 511,
+      "max_tokens": 511,
+      "share_under_50_tokens": 0.2,
+      "avg_body_tokens": 242.6,
+      "avg_prefix_share": 0.2364
+    },
+    {
+      "file": "Постановление НАН Беларуси, Минфина РБ, МНС РБ, Мин. связи и информатизации РБ 24 сентября 2024 г. N 11493026.docx",
+      "domain": "decree",
+      "chunks": 36,
+      "avg_tokens": 158,
+      "p50_tokens": 125,
+      "p95_tokens": 501,
+      "max_tokens": 531,
+      "share_under_50_tokens": 0.4444,
+      "avg_body_tokens": 70.6,
+      "avg_prefix_share": 0.5533
+    },
+    {
+      "file": "Постановление НАН Беларуси, Минфина РБ, МНС РБ, Мин. связи и информатизации РБ от 18.12.2023 N 9753526.docx",
+      "domain": "decree",
+      "chunks": 790,
+      "avg_tokens": 426.5,
+      "p50_tokens": 346,
+      "p95_tokens": 1086,
+      "max_tokens": 1406,
+      "share_under_50_tokens": 0.0152,
+      "avg_body_tokens": 285.9,
+      "avg_prefix_share": 0.3297
+    },
+    {
+      "file": "Соглашение о конфиденциальности № 3-К-2026.pdf",
+      "domain": "contract",
+      "chunks": 7,
+      "avg_tokens": 101.6,
+      "p50_tokens": 102,
+      "p95_tokens": 135,
+      "max_tokens": 135,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 73.7,
+      "avg_prefix_share": 0.2743
+    },
+    {
+      "file": "Создание АКТА ПРИЕМКИ.docx",
+      "domain": "general",
+      "chunks": 1,
+      "avg_tokens": 333,
+      "p50_tokens": 333,
+      "p95_tokens": 333,
+      "max_tokens": 333,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 326,
+      "avg_prefix_share": 0.021
+    },
+    {
+      "file": "Создание_электронной_накладной_ЭТН_ЭТТН.pdf",
+      "domain": "general",
+      "chunks": 1,
+      "avg_tokens": 178,
+      "p50_tokens": 178,
+      "p95_tokens": 178,
+      "max_tokens": 178,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 178,
+      "avg_prefix_share": 0.0
+    }
+  ],
+  "overall": {
+    "dataset_questions": 142,
+    "fragments": 190,
+    "fragment_reachability": 1.0,
+    "unreachable_cases": [],
+    "retrieval": {
+      "bm25": {
+        "questions": 142,
+        "recall_at_5": 0.6948,
+        "recall_at_10": 0.7418,
+        "mrr": 0.6007,
+        "misses_at_10": [
+          "rag-c-011",
+          "rag-c-014",
+          "rag-c-027",
+          "rag-c-032",
+          "rag-c-033",
+          "rag-c-034",
+          "rag-0007",
+          "rag-0008",
+          "rag-0010",
+          "rag-0021",
+          "rag-0027",
+          "rag-0028",
+          "rag-0032",
+          "rag-0033",
+          "rag-0045",
+          "rag-0046",
+          "rag-0047",
+          "rag-0049",
+          "rag-0050",
+          "rag-0055",
+          "rag-0062",
+          "rag-0064",
+          "rag-0065",
+          "rag-0066",
+          "rag-0067",
+          "rag-0068",
+          "rag-0069",
+          "rag-0074",
+          "rag-0078",
+          "rag-0087",
+          "rag-0099",
+          "rag-0101",
+          "rag-0106",
+          "rag-n-026",
+          "rag-n-036",
+          "rag-n-037",
+          "rag-0038",
+          "rag-0048",
+          "rag-0122"
+        ]
+      }
+    }
+  }
+}

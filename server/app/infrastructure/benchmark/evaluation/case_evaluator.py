@@ -13,6 +13,7 @@ from domain.benchmark.evaluation import evaluate_evidence, evaluate_retrieval, e
 from domain.benchmark.question import (
     ABSTENTION_TYPES,
     answer_type,
+    content_hash,
     evaluation_annotations as normalize_annotations,
     validate_annotations,
 )
@@ -278,12 +279,17 @@ class BenchmarkCaseEvaluator:
         return {
             "id": question.get("id", str(run.idx)),
             "question": question["question"],
+            # Generation inputs besides the question, so human labels see what the generator saw.
+            "history": question.get("history") or [],
+            "as_of_date": question.get("as_of_date"),
             "case_id": question.get("case_id"),
             "variant_of": question.get("variant_of"),
             "question_style": question.get("question_style"),
             "answer_type": answer_type(question.get("annotations")),
             "tags": question.get("tags") or [],
             "dataset": question.get("dataset"),
+            "question_hash": content_hash(question),
+            "outcome": evidence.completion if evidence else None,
             "annotation_validation": validation,
             "run_manifest": self.run_manifest,
             "stage_evaluation": stage_evaluation,

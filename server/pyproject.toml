@@ -497,6 +497,8 @@ source_modules = ["domain.benchmark"]
 forbidden_modules = [
     "domain.domain_packs", "domain.chat", "domain.identity", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
 ]
+# The answer outcome is one vocabulary for the chat journal and benchmark diagnosis.
+ignore_imports = ["domain.benchmark.diagnosis -> domain.rag.outcome"]
 
 
 [[tool.importlinter.contracts]]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 
 class KnowledgeSpaceResponse(BaseModel):
@@ -41,4 +41,6 @@ class DomainPacksResponse(BaseModel):
 class AssignClientSpaceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    space_id: int | None = Field(..., gt=0, description="Assigned support space; null clears it")
+    space_ids: list[PositiveInt] = Field(
+        ..., max_length=100, description="Support spaces the client may ask in; empty clears them"
+    )

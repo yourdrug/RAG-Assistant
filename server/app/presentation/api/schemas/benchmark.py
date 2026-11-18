@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from domain.benchmark.policy import GateStatus
 from domain.benchmark.question import DEFAULT_DATASET, validate_annotations, validate_history
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS, validate_objective_weights
 from domain.benchmark.sweep import BenchmarkStrategy, SweepEvaluationMode, validate_sweep_mode
@@ -251,6 +252,8 @@ class RunApplyResponse(BaseModel):
 class RunCompareResponse(BaseModel):
     runs: list[BenchmarkRunResponse]
     diff: dict[str, Any]
+    # From the oldest run to each newer one: {from_run_id, to_run_id, matrix, changes, compared}.
+    diagnosis_transitions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RegressionCheckResult(BaseModel):
@@ -261,13 +264,19 @@ class RegressionCheckResult(BaseModel):
     threshold: float
     failed: bool
     note: str | None = None
+    kind: str = "baseline"
 
 
 class RegressionCheckResponse(BaseModel):
     run_id: int | None = None
     baseline_run_id: int | None = None
     passed: bool
+    status: GateStatus
     results: list[RegressionCheckResult]
+    dataset: str | None = None
+    compared_questions: int | None = None
+    excluded_questions: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

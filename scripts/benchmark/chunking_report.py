@@ -106,6 +106,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--baseline", type=Path, default=None)
     parser.add_argument(
+        "--gate",
+        type=float,
+        default=None,
+        metavar="TOLERANCE",
+        help="fail when reachability or recall/MRR drops below the baseline by more than TOLERANCE",
+    )
+    parser.add_argument(
         "--thresholds", type=Path, default=None, help="pack acceptance JSON; failures exit nonzero"
     )
     parser.add_argument("--tokenizer", type=Path, default=None, help="bge-m3 tokenizer.json")
@@ -150,6 +157,9 @@ def parse_args() -> argparse.Namespace:
 
     if not args.datasets:
         parser.error(f"No benchmark sets for {args.pack!r}; pass --datasets with labelled documents")
+
+    if args.gate is not None and args.baseline is None:
+        parser.error("--gate needs --baseline")
 
     if args.baseline is not None and not args.baseline.exists():
         message = f"Baseline not found: {args.baseline}"
@@ -717,6 +727,46 @@ def acceptance_failures(report: dict[str, Any], specification: dict[str, Any]) -
     return failures
 
 
+def gate_failures(report: dict[str, Any], baseline: dict[str, Any], tolerance: float) -> list[str]:
+    """Drops against the reference beyond the tolerance; a changed question set must refresh the reference."""
+    failures = []
+    sections = {**report.get("domains", {}), "overall": report.get("overall", {})}
+    reference = {**baseline.get("domains", {}), "overall": baseline.get("overall", {})}
+
+    for name, base in reference.items():
+        stats = sections.get(name)
+
+        if stats is None:
+            failures.append(f"{name}: missing from the report")
+            continue
+
+        if stats.get("dataset_questions") != base.get("dataset_questions"):
+            failures.append(
+                f"{name}: {stats.get('dataset_questions')} questions, reference has {base.get('dataset_questions')}; "
+                "refresh the reference in the same PR"
+            )
+            continue
+
+        measured = [("fragment_reachability", stats.get("fragment_reachability"), base.get("fragment_reachability"))]
+
+        for mode, metrics in base.get("retrieval", {}).items():
+            current = stats.get("retrieval", {}).get(mode)
+
+            if current is None:
+                failures.append(f"{name}.{mode}: missing from the report")
+                continue
+
+            measured.extend((f"{mode}.{key}", current.get(key), metrics.get(key)) for key in RETRIEVAL_KEYS)
+
+        failures.extend(
+            f"{name}.{key}: {value!r} < reference {expected!r} - {tolerance}"
+            for key, value, expected in measured
+            if expected is not None and (value is None or value < expected - tolerance)
+        )
+
+    return failures
+
+
 def print_comparison(report: dict[str, Any], baseline: dict[str, Any] | None) -> None:
     base_domains = (baseline or {}).get("domains", {})
     print(f"\n{report['label']}" + (f"  vs  {baseline['label']}" if baseline else ""))
@@ -774,13 +824,18 @@ def main() -> None:
 
     print_comparison(report, baseline)
 
+    if args.gate is not None and baseline is not None:
+        gate = gate_failures(report, baseline, args.gate)
+        failures.extend(gate)
+        print(f"\nOffline gate vs {args.baseline.name}: {'FAIL' if gate else 'PASS'} (tolerance {args.gate})")
+
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         print(f"\nreport: {args.out}")
 
     if failures:
-        raise SystemExit("Acceptance failed:\n" + "\n".join(failures))
+        raise SystemExit("Offline checks failed:\n" + "\n".join(failures))
 
     if args.thresholds is not None:
         print(f"\nAcceptance: PASS ({report['acceptance']['provenance']}, {report['acceptance']['status']})")

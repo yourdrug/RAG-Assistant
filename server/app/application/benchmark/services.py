@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from application.benchmark.diagnosis import rediagnose
 from application.benchmark.dto import (
     ApplyConfigResult,
 )
@@ -346,7 +347,7 @@ class BenchmarkRunService:
             message = "Maximum 10 runs for comparison"
             raise ValidationError(message)
 
-        runs = await self.get_by_ids(ids)
+        runs = [rediagnose(run) for run in await self.get_by_ids(ids)]
 
         if len(runs) != len(ids):
             found_ids = {r.id for r in runs}

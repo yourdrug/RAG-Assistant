@@ -30,7 +30,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -66,7 +66,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -101,7 +101,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -138,7 +138,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -174,7 +174,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -209,7 +209,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -244,7 +244,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -279,7 +279,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -316,7 +316,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -351,7 +351,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -386,7 +386,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -421,7 +421,7 @@
       "internal",
       "internal_procedure"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"

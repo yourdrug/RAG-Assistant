@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from application.documents.conflicts import apply_async_replacement
+from application.documents.conflicts import apply_async_replacement, inherited_filename
 from application.indexing import enrich_chunks_metadata, process_chunks
 from application.indexing.pack_hooks import AppliedPackDocument, apply_pack_document
 from domain.knowledge.enums import DocumentStatus
@@ -54,9 +54,24 @@ async def persist_document_result(
     applied = AppliedPackDocument()
     storage_deletes: list[str] = []
     async with uow_factory.create(master=True) as uow:
-        if await lock_document_for_persist(uow, command) is None:
+        current = await lock_document_for_persist(uow, command)
+
+        if current is None:
             log.info("Document %d deleted before outbox enqueue — aborting", document_id)
             return None
+
+        # Chunks and their vector payload carry the final name from the start.
+        restored_filename = (
+            await inherited_filename(
+                uow, domain_registry, command.replace_id, command.doc_domain, current.filename
+            )
+            if command.replace_id is not None
+            else None
+        )
+
+        if restored_filename is not None:
+            for chunk in command.raw_chunks:
+                chunk.metadata["source"] = restored_filename
 
         applied = await apply_pack_document(pack_hooks, uow, document_id, command.pack_document)
 
@@ -76,7 +91,7 @@ async def persist_document_result(
         await process_chunks(
             uow_factory=uow_factory,
             document_id=document_id,
-            filename=command.original_filename,
+            filename=restored_filename or command.original_filename,
             chunks=command.raw_chunks,
             visibility=command.visibility,
             owner_id=command.owner_id,
@@ -95,6 +110,10 @@ async def persist_document_result(
                 storage_deletes,
                 pack_hooks=pack_hooks,
             )
+
+        if restored_filename is not None:
+            # The deleted predecessor freed the name's slot in this transaction.
+            await uow.documents.update_filename(document_id, restored_filename, current.source_path)
 
         if command.warning_message:
             await uow.documents.update_status(

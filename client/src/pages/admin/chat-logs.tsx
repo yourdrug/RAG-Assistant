@@ -1,18 +1,23 @@
 "use client";
+import { useQueryClient } from "@tanstack/react-query";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { useCurrentUser } from "@/shared/api/hooks/use-auth";
 import {
   type ChatLogsParams,
   downloadChatLogs,
   useChatLog,
   useChatLogs,
 } from "@/shared/api/hooks/use-chat-logs";
+import { queryKeys } from "@/shared/api/query-keys";
 import type { AnswerOutcome, ChatLogEntry, FeedbackReason, ReviewStatus } from "@/shared/api/types";
+import { formatDateTime } from "@/shared/lib/date-time";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
-import { useAuthStore } from "@/stores/auth-store";
-import { FEEDBACK_REASON_LABELS } from "@/widgets/chat/message-feedback";
+import { ChatLogKnowledge } from "./chat-log-knowledge";
+import { FEEDBACK_REASON_LABELS, OUTCOME_LABELS } from "./chat-log-labels";
 import { BenchmarkTransferForm, REVIEW_STATUS_LABELS, ReviewForm } from "./chat-log-review";
 import { ChatLogStatsPanel } from "./chat-log-stats";
 import { ChatLogTrace } from "./chat-log-trace";
@@ -35,46 +40,55 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
   const { data, isLoading, isError } = useChatLog(entry.id, open);
   const log = data?.entry ?? entry;
   return (
-    <details className="rounded border p-4" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary className="cursor-pointer space-x-3">
+    <details
+      className="group rounded-xl border bg-card p-5 transition-colors hover:border-muted-foreground/40"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="cursor-pointer list-none flex flex-wrap items-center gap-2.5">
         <Badge variant={entry.outcome === "error" ? "destructive" : "secondary"}>
-          {entry.outcome}
+          {OUTCOME_LABELS[entry.outcome]}
         </Badge>
         {entry.feedback && (
           <Badge variant={entry.feedback.rating === "down" ? "destructive" : "outline"}>
-            {entry.feedback.rating === "down" ? "👎" : "👍"}
-            {entry.feedback.comment ? " 💬" : ""}
+            {entry.feedback.rating === "down" ? "Negative" : "Positive"}
+            {entry.feedback.comment ? " · Comment" : ""}
           </Badge>
         )}
         {entry.review && entry.review.status !== "new" && (
           <Badge variant="outline">{REVIEW_STATUS_LABELS[entry.review.status]}</Badge>
         )}
-        <span>{entry.question}</span>
+        <span className="order-first flex w-full gap-4 break-words text-base font-medium leading-relaxed">
+          <span className="min-w-0 flex-1">{entry.question}</span>
+          <ChevronDown
+            aria-hidden="true"
+            className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+          />
+        </span>
         <span className="text-xs text-muted-foreground">
-          {new Date(entry.creation_date).toLocaleString()} ·{" "}
-          {entry.user_email ?? `#${entry.user_id ?? "—"}`} · {entry.latency_ms ?? "—"} ms
+          {formatDateTime(entry.creation_date)} · {entry.user_email ?? `#${entry.user_id ?? "—"}`} ·{" "}
+          {entry.latency_ms ?? "—"} ms
         </span>
       </summary>
       {open && (
-        <div className="mt-4 space-y-4">
-          {isLoading && <p>Загрузка карточки…</p>}
-          {isError && <p role="alert">Не удалось загрузить карточку.</p>}
-          <div className="flex gap-2" role="tablist" aria-label="Карточка ответа">
+        <div className="mt-5 space-y-6 border-t pt-5">
+          {isLoading && <p>Loading answer…</p>}
+          {isError && <p role="alert">Could not load this answer.</p>}
+          <div className="flex gap-2" role="tablist" aria-label="Answer details">
             <Button
               role="tab"
               aria-selected={tab === "answer"}
-              variant="outline"
+              variant={tab === "answer" ? "default" : "outline"}
               onClick={() => setTab("answer")}
             >
-              Ответ
+              Answer
             </Button>
             <Button
               role="tab"
               aria-selected={tab === "trace"}
-              variant="outline"
+              variant={tab === "trace" ? "default" : "outline"}
               onClick={() => setTab("trace")}
             >
-              Трасса
+              Trace
             </Button>
           </div>
           {tab === "trace" ? (
@@ -84,13 +98,13 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
               {data && data.context.length > 0 && (
                 <details>
                   <summary className="cursor-pointer text-sm">
-                    Предыдущие ходы беседы ({data.context.length})
+                    Conversation history ({data.context.length})
                   </summary>
                   <ol className="mt-2 space-y-2 text-sm">
                     {data.context.map((turn, index) => (
                       <li key={turn.id ?? index} className="rounded bg-muted/50 p-2">
                         <span className="text-xs text-muted-foreground">
-                          {turn.role === "user" ? "Вопрос" : "Ответ"}
+                          {turn.role === "user" ? "Question" : "Answer"}
                         </span>
                         <p className="whitespace-pre-wrap">{turn.content}</p>
                       </li>
@@ -98,73 +112,108 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
                   </ol>
                 </details>
               )}
-              <p className="whitespace-pre-wrap">{log.answer || "Ответ не доставлен"}</p>
+              <p className="whitespace-pre-wrap">{log.answer || "No answer delivered"}</p>
               {log.feedback && (
-                <div className="rounded border p-3 text-sm">
-                  <p className="font-medium">
-                    Реакция пользователя: {log.feedback.rating === "down" ? "👎" : "👍"}
-                  </p>
+                <div
+                  className={`space-y-3 rounded-lg border p-4 text-sm ${log.feedback.rating === "down" ? "border-amber-500/30 bg-amber-500/5" : "border-emerald-500/30 bg-emerald-500/5"}`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-muted-foreground">User feedback</span>
+                    <Badge
+                      variant="outline"
+                      className={
+                        log.feedback.rating === "down"
+                          ? "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                          : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      }
+                    >
+                      {log.feedback.rating === "down" ? "Negative" : "Positive"}
+                    </Badge>
+                  </div>
                   {log.feedback.reasons.length > 0 && (
-                    <p>
-                      Причины:{" "}
-                      {log.feedback.reasons
-                        .map((reason) => FEEDBACK_REASON_LABELS[reason])
-                        .join(", ")}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-muted-foreground">Reasons</span>
+                      {log.feedback.reasons.map((reason) => (
+                        <Badge
+                          key={reason}
+                          variant="outline"
+                          className="border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                        >
+                          {FEEDBACK_REASON_LABELS[reason]}
+                        </Badge>
+                      ))}
+                    </div>
                   )}
                   {log.feedback.comment && (
-                    <p className="whitespace-pre-wrap">Комментарий: {log.feedback.comment}</p>
+                    <div className="border-t border-amber-500/15 pt-3">
+                      <p className="mb-1 text-xs font-medium text-muted-foreground">Comment</p>
+                      <p className="whitespace-pre-wrap leading-relaxed">{log.feedback.comment}</p>
+                    </div>
                   )}
                 </div>
               )}
-              <ReviewForm key={`${log.id}-${log.review?.status}`} entry={log} />
-              {canTransfer && <BenchmarkTransferForm entry={log} />}
-              <dl className="grid grid-cols-2 gap-2 text-sm">
-                <dt>Пространство / пакет</dt>
-                <dd>
-                  {log.space_id} / {log.pack_key ?? "—"}
-                </dd>
-                <dt>Домен / ширина</dt>
-                <dd>
-                  {log.domain ?? "—"} / {log.breadth ?? "—"} (запрошено:{" "}
-                  {log.depth_requested ?? "авто"})
-                </dd>
-                <dt>Модель / профиль</dt>
-                <dd>
-                  {log.model_used ?? "—"} / {log.evidence_profile ?? "—"}
-                </dd>
-                <dt>Уверенность / код ошибки</dt>
-                <dd>
-                  {log.confidence ?? "—"} / {log.error_code ?? "—"}
-                </dd>
-                <dt>Источники / кандидаты / top rerank</dt>
-                <dd>
-                  {log.sources_count ?? "—"} / {log.candidates_count ?? "—"} /{" "}
-                  {log.top_rerank_score ?? "—"}
-                </dd>
-                <dt>Токены: вход / выход / вспомогательные</dt>
-                <dd>
-                  {log.input_tokens ?? "—"} / {log.output_tokens ?? "—"} / {log.aux_tokens ?? "—"}
-                </dd>
-                <dt>TTFT / поиск / реранк / генерация, мс</dt>
-                <dd>
-                  {log.ttft_ms ?? "—"} / {log.retrieval_ms ?? "—"} / {log.rerank_ms ?? "—"} /{" "}
-                  {log.generation_ms ?? "—"}
-                </dd>
-                <dt>Сообщение / запрос</dt>
-                <dd>
-                  {log.message_id ?? "—"} / {log.request_id ?? "—"}
-                </dd>
-                <dt>Дата вопроса</dt>
-                <dd>{log.as_of_date ?? "—"}</dd>
-                <dt>Сокращённый / уточнённый запрос</dt>
-                <dd>
-                  {log.condensed_query ?? "—"} / {log.refined_query ?? "—"}
-                </dd>
-                <dt>Подзапросы</dt>
-                <dd>{log.sub_queries?.join("; ") || "—"}</dd>
-              </dl>
-              <div className="space-x-2">
+              <ReviewForm key={log.id} entry={log} />
+              <ChatLogKnowledge entry={log} />
+              {canTransfer ? (
+                <BenchmarkTransferForm entry={log} />
+              ) : (
+                <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  Only administrators can create benchmark questions. Mark this entry as a benchmark
+                  candidate to request a transfer.
+                </p>
+              )}
+              <details className="rounded-lg border p-4">
+                <summary className="cursor-pointer text-sm font-medium">Technical details</summary>
+                <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-[minmax(180px,1fr)_2fr] [&_dt]:text-muted-foreground [&_dd]:break-words">
+                  <dt>Space / pack</dt>
+                  <dd>
+                    {log.space_id} / {log.pack_key ?? "—"}
+                  </dd>
+                  <dt>Query domain / breadth</dt>
+                  <dd>
+                    {log.domain ?? "—"} / {log.breadth ?? "—"} (requested:{" "}
+                    {log.depth_requested ?? "auto"})
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Classified from the question; source documents may have a different domain.
+                    </p>
+                  </dd>
+                  <dt>Model / profile</dt>
+                  <dd>
+                    {log.model_used ?? "—"} / {log.evidence_profile ?? "—"}
+                  </dd>
+                  <dt>Confidence / error code</dt>
+                  <dd>
+                    {log.confidence ?? "—"} / {log.error_code ?? "—"}
+                  </dd>
+                  <dt>Sources / candidates / top rerank</dt>
+                  <dd>
+                    {log.sources_count ?? "—"} / {log.candidates_count ?? "—"} /{" "}
+                    {log.top_rerank_score ?? "—"}
+                  </dd>
+                  <dt>Tokens: input / output / auxiliary</dt>
+                  <dd>
+                    {log.input_tokens ?? "—"} / {log.output_tokens ?? "—"} / {log.aux_tokens ?? "—"}
+                  </dd>
+                  <dt>TTFT / retrieval / rerank / generation, ms</dt>
+                  <dd>
+                    {log.ttft_ms ?? "—"} / {log.retrieval_ms ?? "—"} / {log.rerank_ms ?? "—"} /{" "}
+                    {log.generation_ms ?? "—"}
+                  </dd>
+                  <dt>Message / request</dt>
+                  <dd>
+                    {log.message_id ?? "—"} / {log.request_id ?? "—"}
+                  </dd>
+                  <dt>Question date</dt>
+                  <dd>{log.as_of_date ?? "—"}</dd>
+                  <dt>Condensed / refined query</dt>
+                  <dd>
+                    {log.condensed_query ?? "—"} / {log.refined_query ?? "—"}
+                  </dd>
+                  <dt>Subqueries</dt>
+                  <dd>{log.sub_queries?.join("; ") || "—"}</dd>
+                </dl>
+              </details>
+              <div className="flex flex-wrap gap-3 text-sm">
                 {log.sources?.map((source, index) =>
                   source.document_id ? (
                     <a
@@ -181,14 +230,14 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
               </div>
               <details>
                 <summary className="cursor-pointer">
-                  Настройки: {log.config_hash ?? "нет снимка"}
+                  Configuration: {log.config_hash ?? "no snapshot"}
                 </summary>
-                <p className="text-sm">Версия процесса: {log.config_version ?? "—"}</p>
-                <p>Отличия от текущих настроек</p>
+                <p className="text-sm">Process version: {log.config_version ?? "—"}</p>
+                <p>Changes from current configuration</p>
                 <pre className="overflow-auto text-xs">
-                  {JSON.stringify(data?.snapshot.diff ?? "Сравнение недоступно", null, 2)}
+                  {JSON.stringify(data?.snapshot.diff ?? "Comparison unavailable", null, 2)}
                 </pre>
-                <p>Снимок на момент ответа</p>
+                <p>Configuration at answer time</p>
                 <pre className="overflow-auto text-xs">
                   {JSON.stringify(data?.snapshot.data, null, 2)}
                 </pre>
@@ -202,6 +251,7 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
 }
 
 export function AdminChatLogsPage() {
+  const queryClient = useQueryClient();
   const [filters, setFilters] = useState({
     search: "",
     domain: "",
@@ -223,7 +273,8 @@ export function AdminChatLogsPage() {
   const [page, setPage] = useState(0);
   const [needsReview, setNeedsReview] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const isAdmin = useAuthStore((state) => state.user?.role === "admin");
+  const { data: currentUser } = useCurrentUser();
+  const isAdmin = currentUser?.role === "admin";
   const pageSize = 20;
   const params: ChatLogsParams = {
     ...filters,
@@ -237,7 +288,7 @@ export function AdminChatLogsPage() {
     limit: pageSize,
     offset: page * pageSize,
   };
-  const { data, refetch, isFetching, isError } = useChatLogs(params);
+  const { data, isFetching, isError } = useChatLogs(params);
   const update = (key: keyof typeof filters, value: string) => {
     setFilters((previous) => ({ ...previous, [key]: value }));
     setPage(0);
@@ -254,12 +305,20 @@ export function AdminChatLogsPage() {
   };
   const exportLogs = (format: "csv" | "json") => {
     setExportError(null);
-    downloadChatLogs(params, format).catch(() => setExportError("Не удалось выгрузить журнал."));
+    downloadChatLogs(params, format).catch(() => setExportError("Could not export logs."));
   };
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Журнал ответов</h1>
+    <div className="mx-auto max-w-screen-2xl space-y-8 p-4 sm:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Quality monitoring
+          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">Answer logs</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Explore responses, investigate issues and build better benchmarks.
+          </p>
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => exportLogs("csv")}>
             CSV
@@ -267,181 +326,251 @@ export function AdminChatLogsPage() {
           <Button variant="outline" onClick={() => exportLogs("json")}>
             JSON
           </Button>
-          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
-            Обновить
+          <Button
+            variant="outline"
+            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.chatLogs.all })}
+            disabled={isFetching}
+          >
+            Refresh
           </Button>
         </div>
       </div>
       {exportError && <p role="alert">{exportError}</p>}
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Очереди">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Review queues">
         <Button
           variant={needsReview ? "default" : "outline"}
           aria-pressed={needsReview}
           onClick={() => showQueue("triage")}
-          title="👎 или not_found/error, ещё не разобранные"
+          title="Negative feedback, no answer or errors awaiting review"
         >
-          Очередь разбора
+          Needs review
         </Button>
-        {isAdmin && (
-          <Button
-            variant={filters.review_status === "benchmark_candidate" ? "default" : "outline"}
-            aria-pressed={filters.review_status === "benchmark_candidate"}
-            onClick={() => showQueue("candidates")}
-          >
-            Кандидаты в benchmark
-          </Button>
-        )}
-        <Button variant="ghost" onClick={() => showQueue("all")}>
-          Все записи
+        <Button
+          variant={filters.review_status === "benchmark_candidate" ? "default" : "outline"}
+          aria-pressed={filters.review_status === "benchmark_candidate"}
+          onClick={() => showQueue("candidates")}
+        >
+          Benchmark candidates
+        </Button>
+        <Button
+          variant={
+            !needsReview && filters.review_status !== "benchmark_candidate" ? "default" : "outline"
+          }
+          aria-pressed={!needsReview && filters.review_status !== "benchmark_candidate"}
+          onClick={() => showQueue("all")}
+        >
+          All entries
         </Button>
       </div>
-      <ChatLogStatsPanel params={params} />
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {(
-          [
-            ["search", "Поиск"],
-            ["domain", "Домен"],
-            ["space_id", "ID пространства"],
-            ["model", "Модель"],
-            ["config_hash", "Хеш настроек"],
-            ["user_id", "ID пользователя"],
-            ["date_from", "С даты"],
-            ["date_to", "По дату"],
-          ] as const
-        ).map(([key, label]) => (
-          <Label key={key} className="block space-y-2">
-            <span>{label}</span>
-            <Input
-              type={
-                key.startsWith("date_") ? "datetime-local" : key.endsWith("_id") ? "number" : "text"
-              }
-              value={filters[key]}
-              onChange={(event) => update(key, event.target.value)}
-            />
+      <div className="flex flex-wrap items-end gap-3">
+        <Label className="flex min-w-0 flex-1 flex-col gap-2.5 sm:max-w-xl">
+          <span>Search responses</span>
+          <Input
+            type="search"
+            placeholder="Search questions and answers…"
+            value={filters.search}
+            onChange={(event) => update("search", event.target.value)}
+          />
+        </Label>
+        <Button
+          variant="ghost"
+          disabled={!Object.values(filters).some(Boolean)}
+          onClick={() => {
+            setFilters(
+              (previous) =>
+                Object.fromEntries(
+                  Object.keys(previous).map((key) => [key, ""]),
+                ) as typeof previous,
+            );
+            setPage(0);
+          }}
+        >
+          Clear filters
+        </Button>
+      </div>
+      <details className="rounded-xl border bg-card p-5">
+        <summary className="cursor-pointer text-sm font-semibold">
+          Advanced filters{" "}
+          <span className="ml-2 font-normal text-muted-foreground">
+            {Object.entries(filters).filter(([key, value]) => key !== "search" && value).length}{" "}
+            active
+          </span>
+        </summary>
+        <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {(
+            [
+              ["domain", "Domain"],
+              ["space_id", "Space ID"],
+              ["model", "Model"],
+              ["config_hash", "Configuration hash"],
+              ["user_id", "User ID"],
+              ["date_from", "From"],
+              ["date_to", "To"],
+            ] as const
+          ).map(([key, label]) => (
+            <Label key={key} className="flex min-w-0 flex-col gap-2.5">
+              <span>{label}</span>
+              {key === "date_from" || key === "date_to" ? (
+                <Input
+                  type="datetime-local"
+                  step={1}
+                  value={filters[key]}
+                  onChange={(event) => update(key, event.target.value)}
+                />
+              ) : (
+                <Input
+                  type={key.endsWith("_id") ? "number" : "text"}
+                  value={filters[key]}
+                  onChange={(event) => update(key, event.target.value)}
+                />
+              )}
+            </Label>
+          ))}
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Outcome</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={filters.outcome}
+              onChange={(event) => update("outcome", event.target.value)}
+            >
+              <option value="">All</option>
+              {outcomes.map((outcome) => (
+                <option key={outcome} value={outcome}>
+                  {OUTCOME_LABELS[outcome]}
+                </option>
+              ))}
+            </select>
           </Label>
-        ))}
-        <Label className="block space-y-2">
-          <span>Исход</span>
-          <select
-            className="w-full border rounded p-2"
-            value={filters.outcome}
-            onChange={(event) => update("outcome", event.target.value)}
-          >
-            <option value="">Все</option>
-            {outcomes.map((outcome) => (
-              <option key={outcome}>{outcome}</option>
-            ))}
-          </select>
-        </Label>
-        <Label className="block space-y-2">
-          <span>Оценка</span>
-          <select
-            className="w-full border rounded p-2"
-            value={filters.rating}
-            onChange={(event) => update("rating", event.target.value)}
-          >
-            <option value="">Все</option>
-            <option value="down">👎</option>
-            <option value="up">👍</option>
-            <option value="none">Без оценки</option>
-          </select>
-        </Label>
-        <Label className="block space-y-2">
-          <span>Причина 👎</span>
-          <select
-            className="w-full border rounded p-2"
-            value={filters.reason}
-            onChange={(event) => update("reason", event.target.value)}
-          >
-            <option value="">Все</option>
-            {(Object.keys(FEEDBACK_REASON_LABELS) as FeedbackReason[]).map((reason) => (
-              <option key={reason} value={reason}>
-                {FEEDBACK_REASON_LABELS[reason]}
-              </option>
-            ))}
-          </select>
-        </Label>
-        <Label className="block space-y-2">
-          <span>Комментарий</span>
-          <select
-            className="w-full border rounded p-2"
-            value={filters.has_comment}
-            onChange={(event) => update("has_comment", event.target.value)}
-          >
-            <option value="">Все</option>
-            <option value="true">Есть</option>
-            <option value="false">Нет</option>
-          </select>
-        </Label>
-        <Label className="block space-y-2">
-          <span>Статус разбора</span>
-          <select
-            className="w-full border rounded p-2"
-            value={filters.review_status}
-            onChange={(event) => update("review_status", event.target.value)}
-          >
-            <option value="">Все</option>
-            {(Object.keys(REVIEW_STATUS_LABELS) as ReviewStatus[]).map((status) => (
-              <option key={status} value={status}>
-                {REVIEW_STATUS_LABELS[status]}
-              </option>
-            ))}
-          </select>
-        </Label>
-        <Label className="block space-y-2">
-          <span>Ширина</span>
-          <select
-            className="w-full border rounded p-2"
-            value={filters.breadth}
-            onChange={(event) => update("breadth", event.target.value)}
-          >
-            <option value="">Все</option>
-            <option>narrow</option>
-            <option>broad</option>
-          </select>
-        </Label>
-        <Label className="block space-y-2">
-          <span>Сортировка</span>
-          <select
-            className="w-full border rounded p-2"
-            value={sortBy}
-            onChange={(event) => {
-              setSortBy(event.target.value as typeof sortBy);
-              setPage(0);
-            }}
-          >
-            <option value="date">Дата</option>
-            <option value="latency">Время ответа</option>
-            <option value="confidence">Уверенность</option>
-          </select>
-        </Label>
-        <Label className="block space-y-2">
-          <span>Порядок</span>
-          <select
-            className="w-full border rounded p-2"
-            value={sortOrder}
-            onChange={(event) => {
-              setSortOrder(event.target.value as typeof sortOrder);
-              setPage(0);
-            }}
-          >
-            <option value="desc">По убыванию</option>
-            <option value="asc">По возрастанию</option>
-          </select>
-        </Label>
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Feedback</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={filters.rating}
+              onChange={(event) => update("rating", event.target.value)}
+            >
+              <option value="">All</option>
+              <option value="down">Negative</option>
+              <option value="up">Positive</option>
+              <option value="none">Not rated</option>
+            </select>
+          </Label>
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Feedback reason</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={filters.reason}
+              onChange={(event) => update("reason", event.target.value)}
+            >
+              <option value="">All</option>
+              {(Object.keys(FEEDBACK_REASON_LABELS) as FeedbackReason[]).map((reason) => (
+                <option key={reason} value={reason}>
+                  {FEEDBACK_REASON_LABELS[reason]}
+                </option>
+              ))}
+            </select>
+          </Label>
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Comment</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={filters.has_comment}
+              onChange={(event) => update("has_comment", event.target.value)}
+            >
+              <option value="">All</option>
+              <option value="true">With comment</option>
+              <option value="false">Without comment</option>
+            </select>
+          </Label>
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Review status</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={filters.review_status}
+              onChange={(event) => update("review_status", event.target.value)}
+            >
+              <option value="">All</option>
+              {(Object.keys(REVIEW_STATUS_LABELS) as ReviewStatus[]).map((status) => (
+                <option key={status} value={status}>
+                  {REVIEW_STATUS_LABELS[status]}
+                </option>
+              ))}
+            </select>
+          </Label>
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Search breadth</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={filters.breadth}
+              onChange={(event) => update("breadth", event.target.value)}
+            >
+              <option value="">All</option>
+              <option>narrow</option>
+              <option>broad</option>
+            </select>
+          </Label>
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Sort by</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={sortBy}
+              onChange={(event) => {
+                setSortBy(event.target.value as typeof sortBy);
+                setPage(0);
+              }}
+            >
+              <option value="date">Date</option>
+              <option value="latency">Latency</option>
+              <option value="confidence">Confidence</option>
+            </select>
+          </Label>
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Order</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={sortOrder}
+              onChange={(event) => {
+                setSortOrder(event.target.value as typeof sortOrder);
+                setPage(0);
+              }}
+            >
+              <option value="desc">Descending</option>
+              <option value="asc">Ascending</option>
+            </select>
+          </Label>
+        </div>
+      </details>
+      <ChatLogStatsPanel params={params} />
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Responses</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {data?.total ?? 0} matching entries{isFetching ? " · Updating…" : ""}
+          </p>
+        </div>
+        <span className="text-sm text-muted-foreground">Page {page + 1}</span>
       </div>
-      <p>{data?.total ?? 0} записей</p>
-      {isError && (
-        <p role="alert">Не удалось загрузить журнал. Проверьте фильтры и повторите запрос.</p>
-      )}
-      <div className="space-y-3">
+      {isError && <p role="alert">Could not load logs. Check your filters and try again.</p>}
+      <div className="space-y-3" aria-busy={isFetching}>
+        {isFetching && !data && (
+          <p role="status" className="py-8 text-center text-sm text-muted-foreground">
+            Loading responses…
+          </p>
+        )}
+        {!isFetching && !isError && data?.logs.length === 0 && (
+          <div className="rounded-xl border border-dashed p-12 text-center">
+            <h3 className="font-medium">No matching responses</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Try another queue or adjust your filters.
+            </p>
+          </div>
+        )}
         {data?.logs.map((entry) => (
           <LogCard key={entry.id} entry={entry} canTransfer={isAdmin} />
         ))}
       </div>
       <div className="flex gap-4 items-center">
         <Button variant="outline" disabled={page === 0} onClick={() => setPage(page - 1)}>
-          Назад
+          Previous
         </Button>
         <span>{page + 1}</span>
         <Button
@@ -449,7 +578,7 @@ export function AdminChatLogsPage() {
           disabled={!data || (page + 1) * pageSize >= data.total}
           onClick={() => setPage(page + 1)}
         >
-          Далее
+          Next
         </Button>
       </div>
     </div>

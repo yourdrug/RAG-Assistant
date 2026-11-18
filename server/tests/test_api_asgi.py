@@ -295,7 +295,7 @@ async def test_benchmark_compare_route_and_roles(
     assert response.status_code == status
 
     if status == 200:
-        assert response.json() == {"runs": [], "diff": {}}
+        assert response.json() == {"runs": [], "diff": {}, "diagnosis_transitions": []}
         service.compare.assert_awaited_once_with([1, 2])
     else:
         service.compare.assert_not_awaited()
@@ -650,11 +650,11 @@ async def test_only_admin_can_assign_client_space(
     uow.fake_users.add_user(9, kind="client")
     service = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
     app.dependency_overrides[deps.create_knowledge_space_service] = lambda: service
-    response = await asgi_client.put("/spaces/clients/9", json={"space_id": DEFAULT_SPACE_ID})
+    response = await asgi_client.put("/spaces/clients/9", json={"space_ids": [DEFAULT_SPACE_ID]})
     assert response.status_code == expected
     client = await uow.users.get_by_id(9)
     assert client is not None
-    assert client.client_space_id == (DEFAULT_SPACE_ID if expected == 204 else None)
+    assert client.client_space_ids == (frozenset({DEFAULT_SPACE_ID}) if expected == 204 else frozenset())
 
 
 @pytest.mark.asyncio
@@ -665,17 +665,17 @@ async def test_client_space_assignment_validation_and_listing(asgi_client: httpx
     uow.fake_users.add_user(10, kind="internal")
     service = KnowledgeSpaceService(FakeUnitOfWorkFactory(uow), FakePackCatalog())
     app.dependency_overrides[deps.create_knowledge_space_service] = lambda: service
-    assert (await asgi_client.put("/spaces/clients/9", json={"space_id": 999})).status_code == 404
+    assert (await asgi_client.put("/spaces/clients/9", json={"space_ids": [999]})).status_code == 404
     assert (
-        await asgi_client.put("/spaces/clients/999", json={"space_id": DEFAULT_SPACE_ID})
+        await asgi_client.put("/spaces/clients/999", json={"space_ids": [DEFAULT_SPACE_ID]})
     ).status_code == 404
     assert (
-        await asgi_client.put("/spaces/clients/10", json={"space_id": DEFAULT_SPACE_ID})
+        await asgi_client.put("/spaces/clients/10", json={"space_ids": [DEFAULT_SPACE_ID]})
     ).status_code == 409
-    assert (await asgi_client.put("/spaces/clients/9", json={"space_id": -1})).status_code == 422
+    assert (await asgi_client.put("/spaces/clients/9", json={"space_ids": [-1]})).status_code == 422
     assert (await asgi_client.put("/spaces/clients/9", json={})).status_code == 422
     assert (
-        await asgi_client.put("/spaces/clients/9", json={"space_id": DEFAULT_SPACE_ID})
+        await asgi_client.put("/spaces/clients/9", json={"space_ids": [DEFAULT_SPACE_ID]})
     ).status_code == 204
 
     current = CurrentUser(
@@ -686,9 +686,9 @@ async def test_client_space_assignment_validation_and_listing(asgi_client: httpx
     assert listed.status_code == 200
     assert [space["id"] for space in listed.json()] == [DEFAULT_SPACE_ID]
     assert listed.json()[0]["can_upload"] is False
-    assert (await asgi_client.put("/spaces/clients/9", json={"space_id": None})).status_code == 403
+    assert (await asgi_client.put("/spaces/clients/9", json={"space_ids": []})).status_code == 403
 
     sign_in("admin")
-    assert (await asgi_client.put("/spaces/clients/9", json={"space_id": None})).status_code == 204
+    assert (await asgi_client.put("/spaces/clients/9", json={"space_ids": []})).status_code == 204
     app.dependency_overrides[get_current_user] = lambda: current
     assert (await asgi_client.get("/spaces")).json() == []

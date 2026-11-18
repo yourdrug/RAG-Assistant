@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from application.admin import ConfigAdminService, ConfigService
     from application.admin.metrics import MetricsService
     from application.benchmark import (
+        BenchmarkQualityService,
         BenchmarkQuestionService,
         BenchmarkResultService,
         BenchmarkRunService,
@@ -191,6 +192,12 @@ def create_pdf_diagnostic_service(request: Request) -> PDFDiagnosticService:
 def create_benchmark_result_service(request: Request) -> BenchmarkResultService:
     return get_or_raise(
         create_container(request).application.benchmark_result_service, "BenchmarkResultService"
+    )
+
+
+def create_benchmark_quality_service(request: Request) -> BenchmarkQualityService:
+    return get_or_raise(
+        create_container(request).application.benchmark_quality_service, "BenchmarkQualityService"
     )
 
 

@@ -204,6 +204,17 @@ async def test_regression_baseline_query_requires_the_same_space_and_pack() -> N
     await SQLAlchemyBenchmarkRunRepository(session).get_baseline(current)
     stmt = session.scalar.call_args.args[0].compile()
     assert {"space_id", "pack_key", "support", "2"} <= set(stmt.params.values())
+    assert "judge_model" not in set(stmt.params.values())
+
+
+@pytest.mark.asyncio
+async def test_judged_baseline_query_requires_the_same_judge() -> None:
+    session = AsyncMock()
+    session.scalar.return_value = None
+    current = BenchmarkRun(id=5, dataset="d", llm_evaluated=True, config_json={"judge_model": "judge-a"})
+    await SQLAlchemyBenchmarkRunRepository(session).get_baseline(current)
+    stmt = session.scalar.call_args.args[0].compile()
+    assert {"judge_model", "judge-a"} <= set(stmt.params.values())
 
 
 @pytest.mark.asyncio

@@ -1,14 +1,15 @@
 "use client";
-import { ArrowLeft, Menu, Shield, X } from "lucide-react";
+import { Menu, Shield, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useCurrentUser } from "@/shared/api/hooks";
-import { adminNavItems, peopleNavItems, userNavItems } from "@/shared/config/nav";
+import { adminNavItems, userNavItems } from "@/shared/config/nav";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Separator } from "@/shared/ui/separator";
 import { useAuthStore } from "@/stores/auth-store";
+import { PageBreadcrumbs } from "./page-breadcrumbs";
 
 export function AdminLayout() {
   const navigate = useNavigate();
@@ -27,7 +28,6 @@ export function AdminLayout() {
 
   const isAdmin = user?.role === "admin";
   const visibleNavItems = adminNavItems.filter((item) => !item.adminOnly || isAdmin);
-  const peoplePage = peopleNavItems.find((item) => item.href === location.pathname);
 
   return (
     <div className="flex h-screen bg-background">
@@ -45,9 +45,6 @@ export function AdminLayout() {
         )}
       >
         <div className="flex h-14 items-center border-b px-4">
-          <Button variant="ghost" size="icon" className="mr-2" onClick={() => navigate("/chat")}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
           <Shield className="h-4 w-4 mr-2 text-primary" />
           <span className="font-semibold text-sidebar-foreground">Admin Panel</span>
           <Button
@@ -127,8 +124,8 @@ export function AdminLayout() {
         </ScrollArea>
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center border-b px-4 lg:px-6">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 lg:px-6">
           <Button
             variant="ghost"
             size="icon"
@@ -137,12 +134,7 @@ export function AdminLayout() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <div className="ml-4 text-sm text-muted-foreground">
-            Admin /{" "}
-            {peoplePage
-              ? `People & Access / ${peoplePage.title}`
-              : location.pathname.split("/").pop() || "Dashboard"}
-          </div>
+          <PageBreadcrumbs canOpenAdmin={isAdmin} />
         </header>
         <main className="flex-1 overflow-auto">
           <Outlet />

@@ -123,6 +123,14 @@ class ChunkCorpusRepository(Protocol):
         self, batch_size: int = 1000
     ) -> AsyncIterator[tuple[str, str, int | None, int | None]]: ...
 
+    async def list_space_filenames(self, space_id: int) -> dict[int, str]:
+        """File name of every document of the space that has chunks, by document id."""
+        ...
+
+    async def list_document_chunks(self, document_ids: list[int]) -> list[ChunkRecord]:
+        """All chunks of the documents, in document and chunk order."""
+        ...
+
 
 @runtime_checkable
 class ChunkPackMetadataRepository(Protocol):

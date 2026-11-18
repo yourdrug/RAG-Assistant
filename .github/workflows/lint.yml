@@ -110,6 +110,59 @@ jobs:
           --cov=infrastructure.ml.answer_cache
           --cov-report=term-missing --cov-fail-under=85
 
+  offline-gate:
+    # Chunking and BM25 recall of the packs whose corpora are in the repository; no LLM, no network
+    # services. The belarus_law corpus is local only, so that pack stays a PR checklist step.
+    runs-on: ubuntu-latest
+    needs: lint
+    env:
+      PYTHONPATH: app
+      DATA_DIR: /tmp/rag_offline_gate
+      # Settings are validated at import; the gate touches none of these services.
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USER: offline
+      DB_PASSWORD: offline
+      DB_NAME: offline
+      ALLOWED_ORIGINS: "*"
+      JWT_SECRET_KEY: offline-gate-placeholder-secret-0000
+      REDIS_PASSWORD: offline-gate-redis-password
+      S3_ACCESS_KEY: offline-gate-access
+      S3_SECRET_KEY: offline-gate-secret-value
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        working-directory: server
+        run: uv sync --frozen
+
+      - name: Fetch the bge-m3 tokenizer (pinned revision and checksum)
+        run: |
+          curl -fsSL -o /tmp/bge-m3-tokenizer.json \
+            https://huggingface.co/BAAI/bge-m3/resolve/5617a9f61b028005a4858fdac845db406aefb181/tokenizer.json
+          echo "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08  /tmp/bge-m3-tokenizer.json" \
+            | sha256sum -c -
+
+      - name: Offline quality gate (support, internal)
+        working-directory: server
+        # Same loop as `task quality:offline-gate PACKS="support internal"`.
+        run: |
+          status=0
+          for pack in support internal; do
+            echo "== $pack"
+            uv run python ../scripts/benchmark/chunking_report.py --pack "$pack" \
+              --tokenizer /tmp/bge-m3-tokenizer.json \
+              --thresholds "server/app/infrastructure/domain_packs/$pack/benchmarks/acceptance.json" \
+              --baseline "docs/quality/artifacts/offline-gate/$pack.json" --gate 0.02 || status=1
+          done
+          exit "$status"
+
   client-test:
     runs-on: ubuntu-latest
     steps:

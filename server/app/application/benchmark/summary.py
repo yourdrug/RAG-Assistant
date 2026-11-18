@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from domain.benchmark.diagnosis import diagnosis_counts, false_answer_rate
 from domain.benchmark.evaluation import summarize_evidence, summarize_retrieval
 from domain.benchmark.judge import judge_coverage
 from domain.benchmark.question import answer_type
@@ -59,6 +60,8 @@ def summarize_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         **summarize_evidence(results),
         "stage_quality": summarize_stage_tags(results),
+        "diagnosis_counts": diagnosis_counts(results),
+        "false_answer_rate": false_answer_rate(results),
         "total_questions": len(results),
         **judge_coverage(results),
         "pct_with_expected_answer": round(total_with_expected / len(results) * 100, 1) if results else 0,
@@ -105,7 +108,8 @@ def unique_case_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         key = (result["case_id"], result.get("run", 1))
 
-        if key not in unique or result.get("dataset") == "main":
+        # The acceptance (`-main`) copy wins over quick or chunking copies of the same case.
+        if key not in unique or str(result.get("dataset") or "").endswith("-main"):
             unique[key] = result
 
     return legacy + list(unique.values())

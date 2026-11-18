@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user import User
-from infrastructure.database.models import UserModel
+from infrastructure.database.models import ClientSpaceModel, UserModel
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -23,19 +25,19 @@ class SQLAlchemyUserRepository:
     async def get_by_id(self, user_id: int) -> User | None:
         result = await self._db.execute(select(UserModel).where(UserModel.id == user_id))
         orm = result.scalar_one_or_none()
-        return self._to_entity(orm) if orm else None
+        return (await self.to_entities([orm]))[0] if orm else None
 
     async def get_by_ids(self, user_ids: list[int]) -> list[User]:
         if not user_ids:
             return []
 
         result = await self._db.execute(select(UserModel).where(UserModel.id.in_(user_ids)))
-        return [self._to_entity(orm) for orm in result.scalars().all()]
+        return await self.to_entities(result.scalars().all())
 
     async def get_by_email(self, email: str) -> User | None:
         result = await self._db.execute(select(UserModel).where(UserModel.email == email.lower()))
         orm = result.scalar_one_or_none()
-        return self._to_entity(orm) if orm else None
+        return (await self.to_entities([orm]))[0] if orm else None
 
     async def save(self, user: User) -> User:
         orm = UserModel(
@@ -43,12 +45,15 @@ class SQLAlchemyUserRepository:
             hashed_password=user.hashed_password,
             role=user.role,
             kind=user.kind,
-            client_space_id=user.client_space_id,
         )
         self._db.add(orm)
         await self._db.flush()
         await self._db.refresh(orm)
-        return self._to_entity(orm)
+
+        if user.client_space_ids:
+            await self.assign_client_spaces(orm.id, user.client_space_ids)
+
+        return (await self.to_entities([orm]))[0]
 
     async def ensure_admin(self, email: str, hashed_password: str, role: str, kind: str) -> None:
         stmt = (
@@ -70,7 +75,7 @@ class SQLAlchemyUserRepository:
             stmt = stmt.limit(limit)
 
         result = await self._db.execute(stmt)
-        return [self._to_entity(orm) for orm in result.scalars().all()]
+        return await self.to_entities(result.scalars().all())
 
     async def count_all(self) -> int:
         result = await self._db.execute(select(func.count()).select_from(UserModel))
@@ -98,16 +103,40 @@ class SQLAlchemyUserRepository:
         await self._db.flush()
         return True
 
-    async def assign_client_space(self, user_id: int, space_id: int | None) -> None:
-        await self._db.execute(
-            update(UserModel)
-            .where(UserModel.id == user_id, UserModel.kind == UserKind.CLIENT)
-            .values(client_space_id=space_id)
-        )
+    async def assign_client_spaces(self, user_id: int, space_ids: frozenset[int]) -> None:
+        await self._db.execute(delete(ClientSpaceModel).where(ClientSpaceModel.user_id == user_id))
+
+        for space_id in sorted(space_ids):
+            # Rows only for a CLIENT user: the database has no cross-table check for the kind.
+            await self._db.execute(
+                insert(ClientSpaceModel).from_select(
+                    ["user_id", "space_id"],
+                    select(UserModel.id, literal(space_id)).where(
+                        UserModel.id == user_id, UserModel.kind == UserKind.CLIENT
+                    ),
+                )
+            )
+
         await self._db.flush()
 
+    async def to_entities(self, orms: Sequence[UserModel]) -> list[User]:
+        client_ids = [orm.id for orm in orms if orm.kind == UserKind.CLIENT]
+        spaces: dict[int, set[int]] = {}
+
+        if client_ids:
+            rows = await self._db.execute(
+                select(ClientSpaceModel.user_id, ClientSpaceModel.space_id).where(
+                    ClientSpaceModel.user_id.in_(client_ids)
+                )
+            )
+
+            for user_id, space_id in rows.all():
+                spaces.setdefault(user_id, set()).add(space_id)
+
+        return [self.to_entity(orm, frozenset(spaces.get(orm.id, ()))) for orm in orms]
+
     @staticmethod
-    def _to_entity(orm: UserModel) -> User:
+    def to_entity(orm: UserModel, client_space_ids: frozenset[int]) -> User:
         return User(
             id=orm.id,
             email=orm.email,
@@ -115,6 +144,6 @@ class SQLAlchemyUserRepository:
             role=UserRole(orm.role),
             kind=UserKind(orm.kind),
             is_active=orm.is_active,
-            client_space_id=orm.client_space_id,
+            client_space_ids=client_space_ids,
             creation_date=orm.creation_date,
         )

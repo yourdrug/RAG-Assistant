@@ -136,9 +136,10 @@ export function useImportBenchmarkQuestions() {
   });
 }
 
-export function useExportBenchmarkQuestions(dataset?: string) {
+export function useExportBenchmarkQuestions(dataset?: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["benchmark", "questions", "export", dataset],
+    enabled: options?.enabled ?? true,
     queryFn: async () => {
       const params = dataset ? `?dataset=${dataset}` : "";
       const response = await apiClient.get<BenchmarkQuestion[]>(
@@ -365,6 +366,7 @@ export interface RegressionCheckResult {
 
 export interface RegressionCheckResponse {
   passed: boolean;
+  status: "passed" | "failed" | "insufficient_data";
   results: RegressionCheckResult[];
 }
 

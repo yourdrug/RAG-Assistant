@@ -74,6 +74,8 @@ if TYPE_CHECKING:
     from application.ports.rate_limit import RateLimitPolicyName
     from application.rag.stream_events import StreamEvent
     from application.runtime.config import ConfigParameter
+    from domain.benchmark.agreement import HumanLabel, LabelMetric
+    from domain.benchmark.policy import DatasetPolicy, JudgeCalibration
     from domain.benchmark.question import BenchmarkQuestion
     from domain.benchmark.run import BenchmarkRun
     from domain.benchmark.sweep import BenchmarkSweep
@@ -309,6 +311,18 @@ class FakeChunkRepository:
         for c in self._chunks:
             yield c["content"], c["visibility"], c["owner_id"], c["group_id"]
 
+    async def list_space_filenames(self, space_id: int) -> dict[int, str]:
+        return {c["document_id"]: c["filename"] for c in self._chunks if c.get("space_id") == space_id}
+
+    async def list_document_chunks(self, document_ids: list[int]) -> list[ChunkRecord]:
+        rows = []
+
+        for document_id in sorted(set(document_ids)):
+            chunks, _ = await self.list_for_document(document_id, limit=len(self._chunks))
+            rows.extend(sorted(chunks, key=lambda chunk: chunk.chunk_index))
+
+        return rows
+
     async def bulk_insert(
         self,
         document_id: int,
@@ -343,6 +357,7 @@ class FakeChunkRepository:
                     "chunk_index": i,
                     "content_hash": chunk.content_hash,
                     "context_metadata": extract_chunk_context(chunk.context_metadata),
+                    "space_id": options.space_id,
                 }
             )
             ids.append(chunk_id)
@@ -1067,8 +1082,8 @@ class FakeUserRepository:
         user.change_role(UserRole(role))
         return True
 
-    async def assign_client_space(self, user_id: int, space_id: int | None) -> None:
-        self._users[user_id].assign_client_space(space_id)
+    async def assign_client_spaces(self, user_id: int, space_ids: frozenset[int]) -> None:
+        self._users[user_id].assign_client_spaces(space_ids)
 
 
 class FakeConfigParameterRepository:
@@ -1290,8 +1305,7 @@ class FakeBenchmarkQuestionRepository:
         self.created: list[BenchmarkQuestion] = []
 
     async def list_active(self, *, dataset: str) -> list[BenchmarkQuestion]:
-        del dataset
-        return []
+        return [question for question in self.created if question.dataset == dataset and question.is_active]
 
     async def list_items(self, **kwargs: object) -> list[BenchmarkQuestion]:
         del kwargs
@@ -1429,12 +1443,10 @@ class FakeBenchmarkRunRepository:
         return await self.create(run)
 
     async def get_by_id(self, run_id: int) -> BenchmarkRun | None:
-        del run_id
-        return None
+        return self.runs.get(run_id)
 
     async def get_by_ids(self, ids: list[int]) -> list[BenchmarkRun]:
-        del ids
-        return []
+        return [self.runs[run_id] for run_id in ids if run_id in self.runs]
 
     async def list_items(self, **kwargs: object) -> list[BenchmarkRun]:
         del kwargs
@@ -1480,6 +1492,47 @@ class FakeBenchmarkRunRepository:
         return next(
             (r for r in reversed(self.runs.values()) if dataset is None or r.dataset == dataset), None
         )
+
+
+class FakeBenchmarkQualityRepository:
+    def __init__(self) -> None:
+        self.policies: dict[str, DatasetPolicy] = {}
+        self.labels: dict[tuple[int, str, str, int], HumanLabel] = {}
+        self.calibrations: list[tuple[str, JudgeCalibration]] = []
+
+    async def add_calibration(self, dataset: str, calibration: JudgeCalibration) -> JudgeCalibration:
+        calibration = replace(calibration, id=len(self.calibrations) + 1)
+        self.calibrations.append((dataset, calibration))
+        return calibration
+
+    async def list_calibrations(self, dataset: str, limit: int) -> list[JudgeCalibration]:
+        found = [item for name, item in self.calibrations if name == dataset]
+        return sorted(found, key=lambda item: (item.measured_at, item.id or 0), reverse=True)[:limit]
+
+    async def get_policy(self, dataset: str) -> DatasetPolicy | None:
+        return self.policies.get(dataset)
+
+    async def list_policies(self) -> list[DatasetPolicy]:
+        return [self.policies[key] for key in sorted(self.policies)]
+
+    async def save_policy(self, policy: DatasetPolicy) -> DatasetPolicy:
+        self.policies[policy.dataset] = policy
+        return policy
+
+    async def list_labels(self, run_id: int) -> list[HumanLabel]:
+        return [label for label in self.labels.values() if label.run_id == run_id]
+
+    async def save_label(self, label: HumanLabel) -> HumanLabel:
+        key = (label.run_id, label.question_key, label.metric.value, label.labeler_id)
+        existing = self.labels.get(key)
+        label.id = existing.id if existing is not None else len(self.labels) + 1
+        self.labels[key] = label
+        return label
+
+    async def delete_label(
+        self, run_id: int, question_key: str, metric: LabelMetric, labeler_id: int
+    ) -> bool:
+        return self.labels.pop((run_id, question_key, metric.value, labeler_id), None) is not None
 
 
 class FakeAssignmentRepository:
@@ -1630,6 +1683,7 @@ class FakeUnitOfWork(UnitOfWork):
         self.fake_benchmark_questions = self.benchmark_questions = FakeBenchmarkQuestionRepository()
         self.fake_benchmark_sweeps = self.benchmark_sweeps = FakeBenchmarkSweepRepository()
         self.fake_benchmark_runs = self.benchmark_runs = FakeBenchmarkRunRepository()
+        self.fake_benchmark_quality = self.benchmark_quality = FakeBenchmarkQualityRepository()
         self.fake_vector_outbox = self.vector_outbox = FakeVectorOutboxRepository()
         self.fake_assignments = self.assignments = FakeAssignmentRepository()
         self.fake_ingestion_registry = self.ingestion_registry = FakeIngestionRegistryRepository()

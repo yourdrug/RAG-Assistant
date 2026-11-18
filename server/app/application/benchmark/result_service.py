@@ -5,8 +5,9 @@ Reads from BenchmarkRunRepository (DB) instead of JSON files on disk.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from application.benchmark.diagnosis import rediagnose
 from application.benchmark.dto import (
     BenchmarkResultDetail,
     BenchmarkResultsList,
@@ -14,6 +15,8 @@ from application.benchmark.dto import (
     RegressionCheckOutput,
     RegressionCheckResult,
 )
+from application.benchmark.regression import regression_report
+from domain.benchmark.policy import GateStatus
 
 
 if TYPE_CHECKING:
@@ -76,6 +79,8 @@ class BenchmarkResultService:
             message = "BenchmarkRun id is None"
             raise RuntimeError(message)
 
+        run = rediagnose(run)
+
         summary = BenchmarkResultSummary(
             id=run.id or 0,
             config_json=run.config_json,
@@ -97,31 +102,35 @@ class BenchmarkResultService:
         self,
         run_id: int | None,
         history_port: BenchmarkHistoryPort,
+        *,
+        dataset: str | None = None,
     ) -> RegressionCheckOutput:
-        """Compare a DB run with its previous compatible baseline."""
+        """Compare a DB run (or the dataset's latest) with its baseline and the dataset policy."""
         async with self._uow_factory.create() as uow:
             run = (
                 await uow.benchmark_runs.get_by_id(run_id)
                 if run_id is not None
-                else await uow.benchmark_runs.get_latest()
+                else await uow.benchmark_runs.get_latest(dataset)
             )
 
             if run is None:
-                return RegressionCheckOutput(passed=True)
+                return RegressionCheckOutput(
+                    passed=False,
+                    status=GateStatus.INSUFFICIENT_DATA,
+                    dataset=dataset,
+                    warnings=["no benchmark run to check"],
+                )
 
             previous = await uow.benchmark_runs.get_baseline(run)
+            policy = await uow.benchmark_quality.get_policy(run.dataset)
 
-        if previous is None:
-            return RegressionCheckOutput(passed=True, run_id=run.id)
-
-        current = {"metrics": normalize_metrics(run.summary_metrics)}
-        baseline = {"metrics": normalize_metrics(previous.summary_metrics)}
-
-        result = history_port.compare_runs(current, baseline)
+        report = regression_report(run, previous, policy, history_port)
         return RegressionCheckOutput(
-            passed=result["passed"],
+            passed=report.passed,
+            status=report.status,
             run_id=run.id,
-            baseline_run_id=previous.id,
+            dataset=run.dataset,
+            baseline_run_id=previous.id if previous is not None and report.baseline_comparable else None,
             results=[
                 RegressionCheckResult(
                     metric=r["metric"],
@@ -131,17 +140,11 @@ class BenchmarkResultService:
                     threshold=r["threshold"],
                     failed=r["failed"],
                     note=r.get("note"),
+                    kind=r.get("kind", "baseline"),
                 )
-                for r in result["results"]
+                for r in report.checks
             ],
+            compared_questions=report.compared_questions,
+            excluded_questions=report.excluded_questions,
+            warnings=report.warnings,
         )
-
-
-def normalize_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
-    result = dict(metrics)
-
-    for name in ("faithfulness", "relevancy", "correctness"):
-        if name not in result:
-            result[name] = result.get(f"avg_{name}")
-
-    return result

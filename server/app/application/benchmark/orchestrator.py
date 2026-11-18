@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Unpack
 
 from application.benchmark.summary import summarize_benchmark_results
+from domain.benchmark.diagnosis import with_diagnosis
 from domain.benchmark.judge import result_judge_errors
 
 
@@ -67,6 +68,7 @@ class BenchmarkService:
 
 def compute_summary_from_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Build summary dict from benchmark results list."""
+    results = with_diagnosis(results)
     breadths = [r.get("breadth") for r in results if r.get("breadth") is not None]
 
     return {

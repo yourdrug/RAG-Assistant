@@ -112,5 +112,7 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
+      # Same as server: bridge-network builds cannot resolve the Alpine/npm mirrors.
+      network: host
       args:
         VITE_API_URL: ${VITE_API_URL}

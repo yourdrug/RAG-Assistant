@@ -15,6 +15,9 @@ from sqlalchemy import text
 from application.jobs.execution import current_execution
 from application.runtime.config import ConfigParameterChanged
 from application.uow import UnitOfWork, UnitOfWorkRepositories
+from infrastructure.repositories.benchmark.sqlalchemy_benchmark_quality_repository import (
+    SQLAlchemyBenchmarkQualityRepository,
+)
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
@@ -140,6 +143,7 @@ class UnitOfWorkFactory:
                 benchmark_questions=SQLAlchemyBenchmarkQuestionRepository(session),
                 benchmark_sweeps=SQLAlchemyBenchmarkSweepRepository(session),
                 benchmark_runs=SQLAlchemyBenchmarkRunRepository(session),
+                benchmark_quality=SQLAlchemyBenchmarkQualityRepository(session),
                 vector_outbox=SQLAlchemyVectorOutboxRepository(session),
                 assignments=SQLAlchemyAssignmentRepository(session),
                 ingestion_registry=SQLAlchemyIngestionRegistryRepository(session),

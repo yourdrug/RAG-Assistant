@@ -184,8 +184,8 @@ def test_benchmark_request_selects_dataset_and_rejects_file_paths() -> None:
     ],
 )
 def test_dataset_defaults_preserve_custom_names(factory: Callable[..., Any]) -> None:
-    assert DEFAULT_DATASET == "main"
-    assert factory().dataset == "main"
+    assert DEFAULT_DATASET == "belarus_law-main"
+    assert factory().dataset == "belarus_law-main"
     assert factory(dataset="custom").dataset == "custom"
 
 

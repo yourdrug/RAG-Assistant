@@ -36,9 +36,10 @@ from application.benchmark.ports import (
     BenchmarkHistoryPort,
     BenchmarkRunnerPort,
 )
+from application.benchmark.quality import BenchmarkQualityService
+from application.benchmark.regression import normalize_metrics
 from application.benchmark.result_service import (
     BenchmarkResultService,
-    normalize_metrics,
 )
 from application.benchmark.services import (
     HISTORY_CONFIG_KEYS,
@@ -61,6 +62,7 @@ __all__ = [
     "BenchmarkHistoryPort",
     "BenchmarkImportResult",
     "BenchmarkImportService",
+    "BenchmarkQualityService",
     "BenchmarkQuestionCreateDTO",
     "BenchmarkQuestionService",
     "BenchmarkResultDetail",

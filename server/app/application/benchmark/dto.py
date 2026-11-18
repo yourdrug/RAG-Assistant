@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     from application.benchmark.ports import BenchmarkCheckpoints
     from application.chat import ChatRAGPort
+    from domain.benchmark.policy import GateStatus
     from domain.benchmark.run import BenchmarkRun
 
 
@@ -29,7 +30,7 @@ class BenchmarkQuestionCreateDTO:
     history: list[dict[str, str]] | None = None
     as_of_date: date | None = None
     tags: list[str] | None = None
-    dataset: str = "main"
+    dataset: str = DEFAULT_DATASET
     notes: str | None = None
     is_active: bool = True
     case_id: str | None = None
@@ -44,7 +45,7 @@ class SweepCreateDTO:
     strategy: str = "grid"
     search_space: dict[str, Any] = field(default_factory=dict)
     objective_weights: dict[str, Any] = field(default_factory=DEFAULT_OBJECTIVE_WEIGHTS.copy)
-    dataset: str = "main"
+    dataset: str = DEFAULT_DATASET
     top_n_llm: int = 3
     judge_model: str | None = None
     evaluation_mode: str = SweepEvaluationMode.FAST.value
@@ -71,6 +72,8 @@ class RegressionCheckResult:
     threshold: float
     failed: bool
     note: str | None = None
+    # "baseline": change against the previous run; "acceptance": absolute dataset floor.
+    kind: str = "baseline"
 
 
 @dataclass(frozen=True)
@@ -78,9 +81,14 @@ class RegressionCheckOutput:
     """Full regression check output."""
 
     passed: bool
+    status: GateStatus
     run_id: int | None = None
     baseline_run_id: int | None = None
     results: list[RegressionCheckResult] = field(default_factory=list)
+    dataset: str | None = None
+    compared_questions: int | None = None
+    excluded_questions: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

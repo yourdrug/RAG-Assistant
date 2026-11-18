@@ -6,6 +6,7 @@ import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-r
 import { ThemeToggle } from "@/features/auth/theme-toggle";
 import { useConversations, useCurrentUser } from "@/shared/api/hooks";
 import { adminNavItems, userNavItems } from "@/shared/config/nav";
+import { formatDate } from "@/shared/lib/date-time";
 import { cn } from "@/shared/lib/utils";
 import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
@@ -19,6 +20,7 @@ import {
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Separator } from "@/shared/ui/separator";
 import { useAuthStore } from "@/stores/auth-store";
+import { PageBreadcrumbs } from "./page-breadcrumbs";
 
 export function DashboardLayout() {
   const navigate = useNavigate();
@@ -41,6 +43,25 @@ export function DashboardLayout() {
       useAuthStore.getState().setUser(currentUser);
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    const breakpoint = window.matchMedia("(min-width: 1024px)");
+    const closePanels = () => {
+      setSidebarOpen(false);
+      setConvPanelOpen(false);
+    };
+    breakpoint.addEventListener("change", closePanels);
+    return () => breakpoint.removeEventListener("change", closePanels);
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [sidebarOpen]);
 
   // Close conversation panel when clicking outside
   useEffect(() => {
@@ -103,11 +124,11 @@ export function DashboardLayout() {
     if (diffDays === 0) return "Today";
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays}d ago`;
-    return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+    return formatDate(d);
   };
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-dvh overflow-hidden bg-background">
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
@@ -117,11 +138,11 @@ export function DashboardLayout() {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-sidebar transition-transform lg:static lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] shrink-0 flex-col border-r bg-sidebar transition-transform duration-200 motion-reduce:transition-none lg:static lg:translate-x-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className="flex h-14 items-center border-b px-4">
+        <div className="flex h-14 shrink-0 items-center border-b px-4">
           <Link
             to="/chat"
             className="flex items-center gap-2"
@@ -234,7 +255,7 @@ export function DashboardLayout() {
           ref={convPanelRef}
           className="hidden lg:flex flex-col w-72 shrink-0 border-r bg-sidebar"
         >
-          <div className="flex h-14 items-center justify-between border-b px-4">
+          <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
             <div className="flex items-center gap-2">
               <History className="h-4 w-4" />
               <span className="font-semibold text-sm">Dialogues</span>
@@ -292,7 +313,7 @@ export function DashboardLayout() {
       )}
 
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
-        <header className="flex h-14 items-center border-b px-4 lg:px-6">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 lg:px-6">
           <Button
             variant="ghost"
             size="icon"
@@ -301,7 +322,8 @@ export function DashboardLayout() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <div className="ml-auto flex items-center gap-2">
+          <PageBreadcrumbs />
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <ThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -342,7 +364,7 @@ export function DashboardLayout() {
             </DropdownMenu>
           </div>
         </header>
-        <main className="flex-1 overflow-auto">
+        <main className="min-h-0 flex-1 overflow-auto">
           <Outlet />
         </main>
       </div>

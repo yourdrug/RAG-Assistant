@@ -21,6 +21,7 @@ from application.benchmark import (
     BenchmarkSweepLauncher,
     BenchmarkSweepService,
 )
+from application.benchmark.diagnosis import compare_diagnoses
 from application.documents import DocumentQueryService
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import StorageConfig
@@ -451,6 +452,7 @@ async def compare_runs(
     return RunCompareResponse(
         runs=[run_to_response(r) for r in runs],
         diff=diff,
+        diagnosis_transitions=compare_diagnoses(runs),
     )
 
 
@@ -508,6 +510,7 @@ async def regression_check(
     output = await result_service.check_regression(run_id, history_port)
     return RegressionCheckResponse(
         passed=output.passed,
+        status=output.status,
         run_id=output.run_id,
         baseline_run_id=output.baseline_run_id,
         results=[
@@ -519,7 +522,12 @@ async def regression_check(
                 threshold=r.threshold,
                 failed=r.failed,
                 note=r.note,
+                kind=r.kind,
             )
             for r in output.results
         ],
+        dataset=output.dataset,
+        compared_questions=output.compared_questions,
+        excluded_questions=output.excluded_questions,
+        warnings=output.warnings,
     )

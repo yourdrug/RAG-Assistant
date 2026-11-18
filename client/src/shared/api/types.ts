@@ -18,7 +18,7 @@ export interface UserResponse {
   role: "admin" | "curator" | "user";
   kind: "internal" | "client";
   is_active: boolean;
-  client_space_id?: number | null;
+  client_space_ids?: number[];
 }
 
 export interface UserListResponse {
@@ -266,6 +266,8 @@ export interface ManualDocumentRequest {
   title: string;
   visibility: string;
   group_id?: number | null;
+  space_id?: number | null;
+  client_id?: number | null;
 }
 
 // ─── Ingest ──────────────────────────────────────────────────────────────────
@@ -734,6 +736,20 @@ export interface BenchmarkRunsListResponse {
 export interface RunCompareResponse {
   runs: BenchmarkRun[];
   diff: Record<string, Array<{ run_id: number; value: any }>>;
+  /** From the oldest selected run to each newer one. */
+  diagnosis_transitions?: Array<{
+    from_run_id: number;
+    to_run_id: number;
+    compared: number;
+    matrix: Record<string, Record<string, number>>;
+    changes: Array<{
+      key: string;
+      id: string | number | null;
+      question: string | null;
+      from: string;
+      to: string;
+    }>;
+  }>;
 }
 
 export interface BenchmarkHistoryPoint {

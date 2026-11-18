@@ -60,8 +60,8 @@ export function defaultSpaceId(spaces: KnowledgeSpace[] | undefined): number | n
 export function useAssignClientSpace() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ clientId, spaceId }: { clientId: number; spaceId: number | null }) => {
-      await apiClient.put(`/spaces/clients/${clientId}`, { space_id: spaceId });
+    mutationFn: async ({ clientId, spaceIds }: { clientId: number; spaceIds: number[] }) => {
+      await apiClient.put(`/spaces/clients/${clientId}`, { space_ids: spaceIds });
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: queryKeys.auth.users() });

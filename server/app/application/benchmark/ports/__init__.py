@@ -19,7 +19,19 @@ class BenchmarkCheckpoints(Protocol):
 class BenchmarkHistoryPort(Protocol):
     """Port for benchmark history operations (baseline, comparison)."""
 
-    def compare_runs(self, current: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]: ...
+    def compare_runs(
+        self, current: dict[str, Any], baseline: dict[str, Any], thresholds: dict[str, float] | None = None
+    ) -> dict[str, Any]:
+        """Thresholds map a metric to its allowed (negative) change; None uses the adapter defaults."""
+        ...
+
+
+class BenchmarkChunkDocumentsPort(Protocol):
+    """Chunks of a space shaped as retrieval returns them, for checks that call no model."""
+
+    async def space_documents(self, space_id: int, sources: set[str]) -> list[dict[str, Any]]:
+        """`content`, `scoped_content` and `metadata` of chunks whose normalized file name is in sources."""
+        ...
 
 
 @runtime_checkable

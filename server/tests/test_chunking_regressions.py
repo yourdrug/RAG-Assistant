@@ -90,6 +90,24 @@ def test_large_step_repeats_heading_without_exceeding_budget(
     assert all(len(c.page_content) <= 550 for c in chunks)
 
 
+def test_prose_step_line_keeps_only_number_as_heading(
+    pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
+) -> None:
+    _, splitter = pipeline
+    prose = (
+        "22. Представляемые изделия, не соответствующие заявленной пробе, " + "возвращаются сдатчику. " * 25
+    )
+    text = "1. Откройте документ\nОткройте карточку.\n" + prose
+    chunks = splitter.split([RawDocument(text, {"source": "guide.txt"})])
+    step = next(c for c in chunks if c.metadata.get("step_number") == "22")
+    assert step.metadata["heading"] == "22."
+    assert step.metadata["unit_heading_text"] == "22."
+    assert normalize(prose) in normalize(" ".join(c.page_content for c in chunks))
+    assert next(c for c in chunks if c.metadata.get("step_number") == "1").metadata["heading"] == (
+        "1. Откройте документ"
+    )
+
+
 def test_short_neighboring_steps_are_packed_with_all_numbers(
     pipeline: tuple[LangchainDocumentParser, LangchainDocumentSplitter],
 ) -> None:

@@ -2,7 +2,7 @@
   "pack": "support",
   "provenance": "synthetic",
   "status": "provisional",
-  "dataset": "synthetic-support-v1",
+  "dataset": "support-synthetic",
   "scope": "Offline chunking and BM25 retrieval only; refusal and generated answer quality require a separate online run.",
   "expected_profiles": {
     "account-faq.txt": "support_faq",

@@ -1,6 +1,6 @@
 "use client";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Plus, UserPlus } from "lucide-react";
+import { ChevronDown, Plus, UserPlus } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import {
@@ -24,6 +24,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
@@ -111,40 +117,57 @@ export function AdminUsersPage() {
       cell: ({ row }) => <Badge variant="outline">{row.original.kind}</Badge>,
     },
     {
-      accessorKey: "client_space_id",
-      header: "Support space",
-      cell: ({ row }) =>
-        row.original.kind === "client" ? (
-          <Select
-            value={
-              row.original.client_space_id != null ? String(row.original.client_space_id) : "none"
-            }
-            disabled={assignSpaceMut.isPending}
-            onValueChange={async (value) => {
-              try {
-                await assignSpaceMut.mutateAsync({
-                  clientId: row.original.id,
-                  spaceId: value === "none" ? null : Number(value),
-                });
-                toast.success("Support space updated");
-              } catch {
-                toast.error("Failed to assign support space");
-              }
-            }}
-          >
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Unassigned</SelectItem>
+      id: "client_spaces",
+      header: "Support spaces",
+      cell: ({ row }) => {
+        if (row.original.kind !== "client") return null;
+        const assigned = row.original.client_space_ids ?? [];
+        const names = (spaces ?? []).filter((s) => assigned.includes(s.id)).map((s) => s.name);
+        const toggle = async (spaceId: number, checked: boolean) => {
+          try {
+            await assignSpaceMut.mutateAsync({
+              clientId: row.original.id,
+              spaceIds: checked ? [...assigned, spaceId] : assigned.filter((id) => id !== spaceId),
+            });
+            toast.success("Support spaces updated");
+          } catch {
+            toast.error("Failed to assign support spaces");
+          }
+        };
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-56 justify-between font-normal"
+                disabled={assignSpaceMut.isPending}
+              >
+                <span className="truncate">
+                  {names.length === 0 ? "Unassigned" : names.join(", ")}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              {(spaces ?? []).length === 0 && (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">No spaces yet</p>
+              )}
               {spaces?.map((space) => (
-                <SelectItem key={space.id} value={String(space.id)}>
+                <DropdownMenuCheckboxItem
+                  key={space.id}
+                  checked={assigned.includes(space.id)}
+                  disabled={assignSpaceMut.isPending}
+                  onSelect={(e) => e.preventDefault()}
+                  onCheckedChange={(checked) => void toggle(space.id, checked === true)}
+                >
                   {space.name}
-                </SelectItem>
+                </DropdownMenuCheckboxItem>
               ))}
-            </SelectContent>
-          </Select>
-        ) : null,
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
     },
     {
       accessorKey: "is_active",

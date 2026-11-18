@@ -56,6 +56,7 @@ from presentation.api.routes.api_keys import router as api_keys_router
 from presentation.api.routes.auth import router as auth_router
 from presentation.api.routes.benchmark import router as benchmark_router
 from presentation.api.routes.benchmark_admin import router as benchmark_admin_router
+from presentation.api.routes.benchmark_quality import router as benchmark_quality_router
 from presentation.api.routes.chat import router as chat_router
 from presentation.api.routes.chunks import router as chunks_router
 from presentation.api.routes.conversations import router as conversations_router
@@ -222,6 +223,7 @@ class Application:
             health_router,
             benchmark_router,
             benchmark_admin_router,
+            benchmark_quality_router,
             api_keys_router,
             admin_config_router,
             admin_chat_logs_router,

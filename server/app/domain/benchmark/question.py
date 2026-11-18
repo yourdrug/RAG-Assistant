@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+import hashlib
+import json
 from typing import TYPE_CHECKING, Any
 
 from domain.shared.exceptions import ValidationError
@@ -14,7 +16,8 @@ if TYPE_CHECKING:
     from datetime import date
 
 
-DEFAULT_DATASET = "main"
+# `<pack>-<purpose>`: the acceptance set of the default pack.
+DEFAULT_DATASET = "belarus_law-main"
 
 
 MAX_ANNOTATION_ITEMS = 100
@@ -188,6 +191,24 @@ def answer_type(annotations: dict[str, Any] | None) -> str:
     return annotations.get("answer_type") or (
         "not_in_corpus" if annotations.get("expected_refusal") else "factual"
     )
+
+
+CONTENT_FIELDS = ("question", "history", "as_of_date", "expected_answer", "source_hint", "annotations")
+
+
+def content_hash(question: dict[str, Any]) -> str:
+    """Fingerprint of everything that defines how a case is asked and scored.
+
+    Tags, notes and activity do not change a result, so they are excluded: a baseline
+    stays comparable after relabelling, but not after the question or its references change.
+    """
+    content = {name: question.get(name) for name in CONTENT_FIELDS}
+
+    if content["as_of_date"] is not None:
+        content["as_of_date"] = str(content["as_of_date"])
+
+    encoded = json.dumps(content, sort_keys=True, ensure_ascii=False, default=str).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def evaluation_annotations(annotations: dict[str, Any] | None) -> dict[str, Any] | None:

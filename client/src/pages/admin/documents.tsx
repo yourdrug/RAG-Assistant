@@ -484,7 +484,9 @@ function ChunkManager({
       accessorKey: "chunk_index",
       header: "#",
       cell: ({ row }) => (
-        <span className="text-muted-foreground font-mono">{row.original.chunk_index}</span>
+        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-muted px-1.5 font-mono text-xs">
+          {row.original.chunk_index}
+        </span>
       ),
     },
     {
@@ -492,13 +494,22 @@ function ChunkManager({
       header: "Content",
       cell: ({ row }) => {
         return (
-          <div className="max-w-md">
+          <div className="min-w-0 space-y-2 py-1">
+            {(row.original.heading || row.original.section) && (
+              <p className="text-xs font-medium text-muted-foreground line-clamp-1 [overflow-wrap:anywhere]">
+                {row.original.heading || row.original.section}
+              </p>
+            )}
             <p
-              className={`text-sm line-clamp-2 ${hasHighlight ? "bg-yellow-100 dark:bg-yellow-900/30 rounded px-1 -mx-1" : ""}`}
+              className={`text-sm leading-relaxed text-foreground/90 line-clamp-3 whitespace-normal [overflow-wrap:anywhere] ${hasHighlight ? "bg-yellow-100 dark:bg-yellow-900/30 rounded px-1 -mx-1" : ""}`}
             >
-              {row.original.content}
+              {row.original.content
+                .replace(/<br\s*\/?>/gi, " ")
+                .replace(/\s+/g, " ")
+                .trim()}
             </p>
-            <div className="flex gap-1 mt-1">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{row.original.content.length.toLocaleString()} chars</span>
               {hasHighlight && (
                 <Badge variant="warning" className="text-xs">
                   Source
@@ -521,7 +532,7 @@ function ChunkManager({
     },
     {
       accessorKey: "id",
-      header: "Chunk ID",
+      header: "ID",
       cell: ({ row }) => (
         <span className="text-muted-foreground font-mono text-xs">#{row.original.id}</span>
       ),
@@ -531,10 +542,20 @@ function ChunkManager({
       header: "",
       cell: ({ row }) => (
         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-          <Button variant="ghost" size="icon" onClick={() => setEditingChunk(row.original)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Edit chunk"
+            onClick={() => setEditingChunk(row.original)}
+          >
             <Edit3 className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => setDeleteChunkId(row.original.id)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Delete chunk"
+            onClick={() => setDeleteChunkId(row.original.id)}
+          >
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
         </div>
@@ -557,14 +578,19 @@ function ChunkManager({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>{titleText}</CardTitle>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+        <div className="space-y-1">
+          <CardTitle>{titleText}</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Select a chunk to read its full text and metadata.
+          </p>
+        </div>
         <Button size="sm" onClick={() => setShowAddDialog(true)}>
           <Plus className="h-4 w-4 mr-1" />
           Add Chunk
         </Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-3 sm:px-6 [&_table]:table-fixed [&_th]:bg-muted/40 [&_th:first-child]:w-12 [&_th:nth-child(3)]:hidden sm:[&_th:nth-child(3)]:table-cell [&_td:nth-child(3)]:hidden sm:[&_td:nth-child(3)]:table-cell [&_th:nth-child(3)]:w-16 [&_th:last-child]:w-24 [&_th]:whitespace-nowrap [&_td]:px-3 [&_td]:py-4 [&_td]:align-top">
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin" />

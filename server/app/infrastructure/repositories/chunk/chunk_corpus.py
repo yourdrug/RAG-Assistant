@@ -7,12 +7,15 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 
 from infrastructure.database.models import ChunkModel
+from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_result
 
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from domain.knowledge.chunk import ChunkRecord
 
 
 class SQLAlchemyChunkCorpusRepository:
@@ -39,3 +42,23 @@ class SQLAlchemyChunkCorpusRepository:
                 yield row[0], row[1], row[2], row[3]
         finally:
             await result.close()
+
+    async def list_space_filenames(self, space_id: int) -> dict[int, str]:
+        rows = await self._session.execute(
+            select(ChunkModel.document_id, ChunkModel.filename)
+            .where(ChunkModel.space_id == space_id)
+            .distinct(ChunkModel.document_id)
+            .order_by(ChunkModel.document_id)
+        )
+        return dict(rows.tuples().all())
+
+    async def list_document_chunks(self, document_ids: list[int]) -> list[ChunkRecord]:
+        if not document_ids:
+            return []
+
+        rows = await self._session.execute(
+            select(ChunkModel)
+            .where(ChunkModel.document_id.in_(document_ids))
+            .order_by(ChunkModel.document_id, ChunkModel.chunk_index)
+        )
+        return [to_chunk_search_result(chunk) for chunk in rows.scalars().all()]

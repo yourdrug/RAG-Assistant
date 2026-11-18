@@ -14,6 +14,7 @@ import {
   useUploadableClients,
 } from "@/shared/api/hooks";
 import type { IngestRegistryItem } from "@/shared/api/types";
+import { formatDateTime } from "@/shared/lib/date-time";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -132,7 +133,7 @@ export function AdminIngestPage() {
     {
       accessorKey: "indexed_at",
       header: "Indexed At",
-      cell: ({ row }) => new Date(row.original.indexed_at).toLocaleString(),
+      cell: ({ row }) => formatDateTime(row.original.indexed_at),
     },
   ];
 

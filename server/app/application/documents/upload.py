@@ -8,10 +8,14 @@ from typing import TYPE_CHECKING, Unpack
 
 from application.documents.conflicts import resolve_upload_version_group
 from application.documents.dto import DocumentDTO
-from application.documents.utils import generate_storage_key, resolve_unique_filename
+from application.documents.utils import (
+    generate_storage_key,
+    resolve_effective_owner_id,
+    resolve_unique_filename,
+)
 from application.ingestion.profiles import ensure_known_domain
 from application.spaces.resolution import resolve_space
-from domain.identity.roles import UserKind, UserRole
+from domain.identity.roles import UserRole
 from domain.knowledge.access_control import (
     check_ownership,
     compute_owner_and_group,
@@ -58,41 +62,6 @@ class DocumentUploadCommand:
         self._file_storage = file_storage
         self._user_ctx_factory = user_ctx_factory
         self._pack_catalog = pack_catalog
-
-    async def resolve_effective_owner_id(
-        self,
-        uow: UnitOfWork,
-        vis: DocumentVisibility,
-        user_id: int,
-        user_kind: str,
-        *,
-        client_id: int | None,
-        user_role: str = UserRole.USER,
-        managed_client_ids: tuple[int, ...] | None = None,
-    ) -> int:
-        if vis != DocumentVisibility.CLIENT_PRIVATE:
-            return user_id
-
-        if user_kind == UserKind.CLIENT:
-            return user_id
-
-        if client_id is None:
-            msg = "client_id required for client_private upload"
-            raise ValidationError(msg)
-
-        client_user = await uow.users.get_by_id(client_id)
-
-        if client_user is None or client_user.kind != UserKind.CLIENT:
-            msg = "client_id must be a user with kind='client'"
-            raise ValidationError(msg)
-
-        if user_role == UserRole.CURATOR and (
-            managed_client_ids is None or client_id not in managed_client_ids
-        ):
-            msg = "You can only upload documents for assigned clients"
-            raise BusinessRuleViolationError(msg)
-
-        return client_id
 
     @staticmethod
     def validate_no_active_processing(existing: Document | None) -> None:
@@ -166,7 +135,7 @@ class DocumentUploadCommand:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             space = await self.resolve_target_space(uow, options.get("space_id"), ctx, doc_domain)
             await self.validate_scope(uow, vis, group_id, ctx)
-            effective_owner_id = await self.resolve_effective_owner_id(
+            effective_owner_id = await resolve_effective_owner_id(
                 uow,
                 vis,
                 user_id,

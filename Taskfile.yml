@@ -204,14 +204,19 @@ tasks:
   # -------------------------------------------------------------------------
 
   bench:
-    desc: "Оценка качества (retriever + LLM-судья) через worker по датасетам из БД; task bench -- -d quick-30 --no-wait"
+    desc: "Оценка качества (retriever + LLM-судья) через worker по датасетам из БД; task bench -- -d belarus_law-quick --no-wait"
     cmds:
       - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli benchmark run {{.CLI_ARGS}}'"
 
   bench:regression:
-    desc: Benchmark + regression check vs baseline (exit code 1 при regressions)
+    desc: "Проверка сохранённых прогонов против baseline и порогов (без запуска benchmark); exit 1 — регрессия, 2 — недостаточно данных; task bench:regression -- -d support-quick"
     cmds:
-      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli benchmark regression'"
+      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli benchmark regression {{.CLI_ARGS}}'"
+
+  bench:reachability:
+    desc: "Достижимость фрагментов онлайн-набора в чанках БД (без LLM); exit 1 — есть недостижимые; task bench:reachability -- -d belarus_law-main [--space-id N]"
+    cmds:
+      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli benchmark reachability {{.CLI_ARGS}}'"
 
   bench:history:
     desc: Показать историю последних 10 runs бенчмарка
@@ -339,7 +344,7 @@ tasks:
       - uv run pytest -m integration {{.CLI_ARGS}}
 
   benchmark:validate:
-    desc: "Проверить структуру benchmark v2 без запуска RAG: task benchmark:validate -- export.json"
+    desc: "Проверить структуру benchmark v2 без запуска RAG: task benchmark:validate -- export.json [--composition belarus_law-main]"
     cmds:
       - python3 scripts/benchmark/validate_v2.py {{.CLI_ARGS}}
 
@@ -350,6 +355,40 @@ tasks:
       PYTHONPATH: app
     cmds:
       - 'uv run python ../scripts/benchmark/chunking_report.py {{.CLI_ARGS}}'
+
+  quality:offline-gate:
+    desc: "Офлайн-гейт PR (без LLM): chunking + BM25 всех пакетов против эталонов; PACKS=\"support internal\" — только корпуса из репозитория"
+    dir: server
+    vars:
+      PACKS: '{{.PACKS | default "support internal belarus_law"}}'
+      TOLERANCE: '{{.TOLERANCE | default "0.02"}}'
+    env:
+      PYTHONPATH: app
+    cmds:
+      - |
+        status=0
+        for pack in {{.PACKS}}; do
+          echo "== $pack"
+          thresholds=""
+          spec="app/infrastructure/domain_packs/$pack/benchmarks/acceptance.json"
+          [ -f "$spec" ] && thresholds="--thresholds server/$spec"
+          uv run python ../scripts/benchmark/chunking_report.py --pack "$pack" $thresholds \
+            --baseline "docs/quality/artifacts/offline-gate/$pack.json" --gate {{.TOLERANCE}} || status=1
+        done
+        exit "$status"
+
+  quality:offline-reference:
+    desc: "Обновить эталон офлайн-гейта пакета (коммитится вместе с изменением): task quality:offline-reference PACK=support"
+    dir: server
+    requires:
+      vars: [PACK]
+    env:
+      PYTHONPATH: app
+    cmds:
+      - >-
+        uv run python ../scripts/benchmark/chunking_report.py --pack {{.PACK}}
+        --label "offline-gate reference"
+        --out "docs/quality/artifacts/offline-gate/{{.PACK}}.json"
 
   script:
     desc: "Запустить Python-утилиту из scripts/: task script SCRIPT=benchmark/compare_frozen_generation.py -- --help"

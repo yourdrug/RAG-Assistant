@@ -168,6 +168,12 @@ class SQLAlchemyChunkRepository:
     ) -> AsyncIterator[tuple[str, str, int | None, int | None]]:
         return self._corpus.iter_all_contents_with_acl(batch_size=batch_size)
 
+    async def list_space_filenames(self, space_id: int) -> dict[int, str]:
+        return await self._corpus.list_space_filenames(space_id)
+
+    async def list_document_chunks(self, document_ids: list[int]) -> list[ChunkRecord]:
+        return await self._corpus.list_document_chunks(document_ids)
+
     async def get_neighbors(
         self,
         document_id: int,

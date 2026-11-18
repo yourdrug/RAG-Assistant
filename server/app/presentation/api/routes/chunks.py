@@ -327,6 +327,7 @@ async def create_manual_document(
         user_role=UserRole(current_user.role),
         group_id=request.group_id,
         space_id=request.space_id,
+        client_id=request.client_id,
     )
 
     log(

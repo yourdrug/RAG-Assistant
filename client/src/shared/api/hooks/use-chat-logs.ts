@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createElement } from "react";
+import toast from "react-hot-toast";
 import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
 import type {
@@ -79,7 +81,14 @@ export function useReviewChatLog(id: number) {
   return useMutation({
     mutationFn: async (body: { status: ReviewStatus; note?: string | null }) =>
       (await apiClient.put<ChatLogReview>(`/admin/chat-logs/${id}/review`, body)).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.chatLogs.all }),
+    onSuccess: (review) => {
+      toast.success(
+        review.status === "benchmark_candidate"
+          ? "Saved as a benchmark candidate. An administrator can now create the question."
+          : "Review saved.",
+      );
+      return queryClient.invalidateQueries({ queryKey: queryKeys.chatLogs.all });
+    },
   });
 }
 
@@ -106,7 +115,29 @@ export function useTransferToBenchmark(id: number) {
           body,
         )
       ).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.chatLogs.all }),
+    onSuccess: (question) => {
+      toast.success(
+        createElement(
+          "span",
+          null,
+          `Benchmark question #${question.question_id} created in ${question.dataset} (inactive). `,
+          createElement(
+            "a",
+            {
+              href: "/admin/benchmark?tab=questions",
+              className: "font-medium underline underline-offset-2",
+            },
+            "Open benchmark questions",
+          ),
+        ),
+        { duration: 10000 },
+      );
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.chatLogs.all }),
+        queryClient.invalidateQueries({ queryKey: ["benchmark", "questions"] }),
+        queryClient.invalidateQueries({ queryKey: ["benchmark", "datasets"] }),
+      ]);
+    },
   });
 }
 

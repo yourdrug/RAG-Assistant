@@ -72,6 +72,11 @@ _EXPECTED: dict[tuple[str, str], str] = {
     ("DELETE", "/chat/messages/{message_id}/feedback"): "write",
     ("PUT", "/admin/chat-logs/{log_id}/review"): "write",
     ("POST", "/admin/chat-logs/{log_id}/benchmark-question"): "write",
+    ("PUT", "/admin/benchmark/datasets/{dataset}/policy/thresholds"): "write",
+    ("POST", "/admin/benchmark/datasets/{dataset}/policy/noise"): "write",
+    ("PUT", "/admin/benchmark/runs/{run_id:int}/labels"): "write",
+    ("DELETE", "/admin/benchmark/runs/{run_id:int}/labels"): "write",
+    ("POST", "/admin/benchmark/runs/{run_id:int}/calibration"): "write",
     # benchmark
     ("POST", "/benchmark"): "benchmark",
     ("POST", "/admin/benchmark/sweep"): "benchmark",

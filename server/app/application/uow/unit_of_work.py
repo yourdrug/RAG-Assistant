@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from application.uow.chunks import ChunkRepository
     from application.uow.session import SessionProtocol
     from domain.benchmark.repositories import (
+        BenchmarkQualityRepository,
         BenchmarkQuestionRepository,
         BenchmarkRunRepository,
         BenchmarkSweepRepository,
@@ -56,6 +57,7 @@ class UnitOfWorkRepositories:
     benchmark_questions: BenchmarkQuestionRepository
     benchmark_sweeps: BenchmarkSweepRepository
     benchmark_runs: BenchmarkRunRepository
+    benchmark_quality: BenchmarkQualityRepository
     vector_outbox: VectorOutboxRepository
     assignments: AssignmentRepository
     ingestion_registry: IngestionRegistryRepository
@@ -83,6 +85,7 @@ class UnitOfWork(BaseUnitOfWork):
         self.benchmark_questions = repositories.benchmark_questions
         self.benchmark_sweeps = repositories.benchmark_sweeps
         self.benchmark_runs = repositories.benchmark_runs
+        self.benchmark_quality = repositories.benchmark_quality
         self.vector_outbox = repositories.vector_outbox
         self.assignments = repositories.assignments
         self.ingestion_registry = repositories.ingestion_registry

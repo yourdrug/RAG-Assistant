@@ -9,7 +9,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from application.benchmark import BenchmarkResultService
+from application.benchmark import BenchmarkResultService, RegressionCheckOutput
+from composition.cli.commands import benchmark as benchmark_cli
+from composition.domain_packs import PACK_REGISTRATIONS
+from domain.benchmark.policy import GateStatus
 from domain.benchmark.run import BenchmarkRun
 from infrastructure.benchmark.reporting.benchmark_history_adapter import BenchmarkHistoryAdapter
 
@@ -27,7 +30,10 @@ class Factory:
     @asynccontextmanager
     async def create(self, **kwargs: Any) -> AsyncIterator[SimpleNamespace]:
         del kwargs
-        yield SimpleNamespace(benchmark_runs=self.repo)
+        yield SimpleNamespace(
+            benchmark_runs=self.repo,
+            benchmark_quality=SimpleNamespace(get_policy=AsyncMock(return_value=None)),
+        )
 
 
 @pytest.mark.asyncio
@@ -57,3 +63,28 @@ async def test_missing_baseline_is_explicit() -> None:
     assert output.baseline_run_id is None
     assert output.run_id == 8
     assert output.results == []
+    assert output.status is GateStatus.INSUFFICIENT_DATA
+    assert not output.passed
+
+
+@pytest.mark.asyncio
+async def test_missing_run_is_insufficient() -> None:
+    repo = SimpleNamespace(get_latest=AsyncMock(return_value=None))
+    output = await BenchmarkResultService(cast("UnitOfWorkFactory", Factory(repo))).check_regression(
+        None, BenchmarkHistoryAdapter(), dataset="support-main"
+    )
+    assert output.status is GateStatus.INSUFFICIENT_DATA
+    assert not output.passed
+
+
+def test_gate_checks_quick_set_of_every_pack_and_never_passes_without_data() -> None:
+    assert benchmark_cli.gate_datasets() == [f"{pack}-quick" for pack in PACK_REGISTRATIONS]
+
+    def output(status: GateStatus) -> RegressionCheckOutput:
+        return RegressionCheckOutput(passed=status is GateStatus.PASSED, status=status)
+
+    passed, failed, missing = (output(s) for s in GateStatus)
+    assert benchmark_cli.overall_status([passed, passed]) is GateStatus.PASSED
+    assert benchmark_cli.overall_status([passed, missing]) is GateStatus.INSUFFICIENT_DATA
+    assert benchmark_cli.overall_status([missing, failed]) is GateStatus.FAILED
+    assert benchmark_cli.overall_status([]) is GateStatus.INSUFFICIENT_DATA

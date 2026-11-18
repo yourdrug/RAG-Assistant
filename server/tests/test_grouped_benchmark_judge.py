@@ -409,7 +409,10 @@ async def test_result_detail_api_serializes_per_question_list(monkeypatch: pytes
     result = await get_benchmark_result(
         run_id=7, _admin=cast("CurrentUser", SimpleNamespace()), service=BenchmarkResultService(factory)
     )
-    assert result.model_dump()["per_question_results"] == [{"id": 1, "answer": "a", "faithfulness": 0}]
+    # Classes are recomputed on read; a row without metrics or outcome is unlabeled.
+    assert result.model_dump()["per_question_results"] == [
+        {"id": 1, "answer": "a", "faithfulness": 0, "outcome": None, "diagnosis": "unlabeled"}
+    ]
 
 
 @pytest.mark.asyncio

@@ -28,7 +28,7 @@
       "internal",
       "internal_instruction"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -64,7 +64,7 @@
       "internal",
       "internal_instruction"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -99,7 +99,7 @@
       "internal",
       "internal_instruction"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -134,7 +134,7 @@
       "internal",
       "internal_instruction"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -168,7 +168,7 @@
       "internal",
       "internal_instruction"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -204,7 +204,7 @@
       "internal",
       "internal_instruction"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"

@@ -24,7 +24,7 @@ from application.rag.stream_events import (
     StatusEvent,
     TextChunk,
 )
-from application.spaces.resolution import client_space, resolve_space
+from application.spaces.resolution import client_user, resolve_space
 from domain.chat.message import Message, MessageRole
 from domain.identity.roles import UserKind
 from domain.rag.context import RagContext
@@ -142,17 +142,10 @@ class ChatService:
                 raise RuntimeError(msg)
 
             if user_ctx.user_kind == UserKind.CLIENT:
-                assigned = await client_space(uow, user_id)
-
-                if assigned is None:
-                    msg = "No support space assigned to this client"
-                    raise ValidationError(msg, field="space_id")
-
-                if space_id is not None and space_id != assigned.id:
-                    msg = "Clients cannot choose a knowledge space"
-                    raise ValidationError(msg, field="space_id")
-
-                space_id = assigned.id
+                # A client asks only in an assigned space; a conversation keeps its space
+                # while it stays assigned.
+                client = await client_user(uow, user_id)
+                space_id = client.choose_client_space(space_id if space_id is not None else conv.space_id)
 
             space = await self.conversation_space(uow, conv, space_id)
 

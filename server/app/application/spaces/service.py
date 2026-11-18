@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from application.identity.user_context_factory import UserContextFactory
 from application.spaces.ports import DomainPackNotLoadedError
-from application.spaces.resolution import SPACE_ENTITY, client_space, resolve_space
+from application.spaces.resolution import SPACE_ENTITY, client_spaces, resolve_space
 from domain.identity.roles import UserKind
 from domain.knowledge.space import KnowledgeSpace
 from domain.shared.exceptions import (
@@ -23,7 +23,7 @@ from domain.shared.exceptions import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
     from application.spaces.ports import DomainPackCatalog
     from application.uow import UnitOfWork, UnitOfWorkFactory
@@ -90,13 +90,13 @@ class KnowledgeSpaceService:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
 
             if ctx.user_kind == UserKind.CLIENT:
-                assigned = await client_space(uow, user_id)
-                spaces = [assigned] if assigned is not None else []
+                spaces = await client_spaces(uow, user_id)
             else:
                 spaces = await uow.knowledge_spaces.list_all()
         return [KnowledgeSpaceDTO.for_user(space, ctx) for space in spaces]
 
-    async def assign_client(self, admin: UserContext, client_id: int, space_id: int | None) -> None:
+    async def assign_client(self, admin: UserContext, client_id: int, space_ids: Iterable[int]) -> None:
+        """Replace the support spaces of a client; an empty set leaves the client without one."""
         if not admin.is_admin:
             msg = "Only admin can assign a client support space"
             raise BusinessRuleViolationError(msg)
@@ -108,11 +108,13 @@ class KnowledgeSpaceService:
                 entity = "User"
                 raise EntityNotFoundError(entity, client_id)
 
-            if space_id is not None:
+            assigned = frozenset(space_ids)
+
+            for space_id in sorted(assigned):
                 await resolve_space(uow, space_id)
 
-            user.assign_client_space(space_id)
-            await uow.users.assign_client_space(client_id, space_id)
+            user.assign_client_spaces(assigned)
+            await uow.users.assign_client_spaces(client_id, assigned)
 
     async def document_profiles(self, space_id: int | None) -> list[DocumentProfileOption]:
         """Document profiles an upload into the space may request explicitly."""

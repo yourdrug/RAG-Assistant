@@ -179,6 +179,19 @@ def test_domain_context_dependency_boundary(context: str, imported: str, allowed
             graph.add_module(".".join(parts[:length]))
 
     graph.add_import(importer=importer, imported=imported, line_number=1, line_contents="")
+
+    # Ignored imports must exist in the graph, as they do in the real code.
+    for edge in options.get("ignore_imports", []):
+        source, target = edge.split(" -> ")
+
+        for module in (source, target):
+            parts = module.split(".")
+
+            for length in range(1, len(parts) + 1):
+                graph.add_module(".".join(parts[:length]))
+
+        graph.add_import(importer=source, imported=target, line_number=1, line_contents="")
+
     contract_options = {
         key: str(value) if isinstance(value, bool) else value for key, value in options.items()
     }

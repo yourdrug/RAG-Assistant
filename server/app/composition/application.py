@@ -11,6 +11,7 @@ from application.admin import ConfigAdminService, ConfigService
 from application.admin.metrics import MetricsService
 from application.benchmark import (
     BenchmarkExportService,
+    BenchmarkQualityService,
     BenchmarkQuestionService,
     BenchmarkResultService,
     BenchmarkRunService,
@@ -56,6 +57,7 @@ from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
 from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
+from infrastructure.benchmark.chunk_documents import UowBenchmarkChunkDocuments
 from infrastructure.events.in_process_event_bus import event_bus
 from infrastructure.ml.clients.factories import fetch_llm_models
 from infrastructure.ml.config.settings_adapters import (
@@ -118,6 +120,7 @@ class ApplicationContainer:
     benchmark_run_service: BenchmarkRunService | None = field(default=None)
     benchmark_export_service: BenchmarkExportService | None = field(default=None)
     benchmark_result_service: BenchmarkResultService | None = field(default=None)
+    benchmark_quality_service: BenchmarkQualityService | None = field(default=None)
     job_service: JobService | None = field(default=None)
     chat_log_service: ChatLogService | None = field(default=None)
     message_feedback_service: MessageFeedbackService | None = field(default=None)
@@ -265,6 +268,9 @@ class ApplicationContainer:
         self.benchmark_run_service = BenchmarkRunService(uow_factory=uow)
         self.benchmark_export_service = BenchmarkExportService(uow, fs)
         self.benchmark_result_service = BenchmarkResultService(uow_factory=uow)
+        self.benchmark_quality_service = BenchmarkQualityService(
+            uow_factory=uow, chunk_documents=UowBenchmarkChunkDocuments(uow)
+        )
         self.job_service = JobService(
             uow_factory=uow, aborter=require(infra.services.job_aborter, "job_aborter")
         )

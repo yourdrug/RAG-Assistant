@@ -20,6 +20,7 @@ import {
   TREND_METRICS,
   trendDomain,
 } from "@/shared/lib/benchmark-trends";
+import { formatDateTime } from "@/shared/lib/date-time";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -39,7 +40,7 @@ function configLabel(run: BenchmarkRun): string {
 }
 
 function runLabel(run: BenchmarkRun): string {
-  return `#${run.id} · ${run.llm_evaluated ? "Answers evaluated" : "Retrieval only"} · ${run.creation_date ? new Date(run.creation_date).toLocaleString() : "Unknown date"}`;
+  return `#${run.id} · ${run.llm_evaluated ? "Answers evaluated" : "Retrieval only"} · ${run.creation_date ? formatDateTime(run.creation_date) : "Unknown date"}`;
 }
 
 export function BenchmarkTrendsTab() {
@@ -80,7 +81,7 @@ export function BenchmarkTrendsTab() {
     : {};
   const chartData = [...runs].reverse().map((run) => ({
     run: `#${run.id}`,
-    date: run.creation_date ? new Date(run.creation_date).toLocaleString() : "Unknown date",
+    date: run.creation_date ? formatDateTime(run.creation_date) : "Unknown date",
     value: metricValue(run.id === selected?.id ? selectedMetrics : run.summary_metrics, metric.key),
   }));
   const plottedCount = chartData.filter((point) => point.value !== null).length;
@@ -500,9 +501,7 @@ export function BenchmarkTrendsTab() {
                             Inspect #{run.id}
                           </Button>
                           <p className="text-xs text-muted-foreground">
-                            {run.creation_date
-                              ? new Date(run.creation_date).toLocaleString()
-                              : "Unknown date"}
+                            {run.creation_date ? formatDateTime(run.creation_date) : "Unknown date"}
                           </p>
                         </TableCell>
                         <TableCell className="text-xs font-mono min-w-48">

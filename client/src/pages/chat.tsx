@@ -7,6 +7,7 @@ import { apiClient } from "@/shared/api/client";
 import { defaultSpaceId, useConversations, useSpaces } from "@/shared/api/hooks";
 import { queryKeys } from "@/shared/api/query-keys";
 import type { ConversationHistoryResponse, MessageFeedback, Source } from "@/shared/api/types";
+import { formatDate } from "@/shared/lib/date-time";
 import type { PipelineStage } from "@/shared/lib/sse";
 import { streamChat } from "@/shared/lib/sse";
 import { readTemporalDate, validIsoDate, writeTemporalDate } from "@/shared/lib/temporal-date";
@@ -22,11 +23,6 @@ interface Message {
   content: string;
   sources?: Source[];
   feedback?: MessageFeedback | null;
-}
-
-function formatRuDate(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  return `${d}.${m}.${y}`;
 }
 
 export function ChatPage() {
@@ -64,16 +60,19 @@ export function ChatPage() {
     conversationId != null
       ? (conversations?.conversations.find((c) => c.id === conversationId)?.space_id ?? null)
       : null;
-  const spaceId = conversationSpaceId ?? spaceChoice ?? defaultSpaceId(spaces);
   const supportUnassigned = isClient && spaces?.length === 0;
-  // A client is reassigned by an admin: the old conversation stays readable, the next
-  // question starts a new conversation in the currently assigned space.
-  const assignedSpaceId = isClient ? (spaces?.[0]?.id ?? null) : null;
+  // An admin revokes a client's space: the old conversation stays readable, the next
+  // question starts a new conversation in one of the spaces still assigned.
   const conversationOutdated =
+    isClient &&
     conversationSpaceId != null &&
-    assignedSpaceId != null &&
-    conversationSpaceId !== assignedSpaceId;
-  const needsSpace = conversationId == null && spaceId == null && (spaces?.length ?? 0) > 1;
+    spaces != null &&
+    spaces.length > 0 &&
+    !spaces.some((s) => s.id === conversationSpaceId);
+  const startsConversation = conversationId == null || conversationOutdated;
+  const spaceId =
+    (conversationOutdated ? null : conversationSpaceId) ?? spaceChoice ?? defaultSpaceId(spaces);
+  const needsSpace = startsConversation && spaceId == null && (spaces?.length ?? 0) > 1;
 
   const scroll = useCallback(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), []);
   useEffect(() => {
@@ -202,7 +201,7 @@ export function ChatPage() {
       token,
       depth,
       asOfDate: calendarDate,
-      spaceId: !isClient && conversationId == null ? spaceId : null,
+      spaceId: askedConversationId == null ? spaceId : null,
       onChunk: (text) => {
         hadChunksRef.current = true;
         streamingContentRef.current += text;
@@ -271,27 +270,31 @@ export function ChatPage() {
   };
 
   return (
-    <div className="relative flex h-full">
-      <div className="flex flex-1 flex-col">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="flex items-center gap-2">
+    <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <MessageSquare className="h-5 w-5" />
             <h1 className="font-semibold">Chat</h1>
-            {!isClient && (spaces?.length ?? 0) > 1 && (
+            {(spaces?.length ?? 0) > 1 && (
               <Select
                 value={spaceId != null ? String(spaceId) : ""}
                 onValueChange={(v) => setSpaceChoice(Number(v))}
-                disabled={conversationId != null || isStreaming}
+                disabled={!startsConversation || isStreaming}
               >
                 <SelectTrigger
-                  className="h-8 w-48"
+                  className="h-auto min-h-10 w-60 max-w-full gap-3 whitespace-normal text-left [&>span]:line-clamp-none [&>span]:min-w-0 [&>span]:whitespace-normal [&>span]:[overflow-wrap:anywhere] [&>svg]:shrink-0"
                   title="Questions are answered from the documents of this knowledge space"
                 >
                   <SelectValue placeholder="Choose a space" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="w-[var(--radix-select-trigger-width)]">
                   {spaces?.map((s) => (
-                    <SelectItem key={s.id} value={String(s.id)}>
+                    <SelectItem
+                      key={s.id}
+                      value={String(s.id)}
+                      className="whitespace-normal [overflow-wrap:anywhere]"
+                    >
                       {s.name}
                     </SelectItem>
                   ))}
@@ -304,7 +307,7 @@ export function ChatPage() {
                 title="Ответы строятся по редакциям документов, действовавшим на эту дату"
               >
                 <CalendarDays className="h-3 w-3" />
-                по состоянию на {formatRuDate(asOfDate)}
+                по состоянию на {formatDate(asOfDate)}
                 {temporalDate.source === "question" ? " (из вопроса)" : ""}
               </span>
             )}
@@ -317,7 +320,7 @@ export function ChatPage() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto p-4 space-y-4">
+        <div className="min-h-0 flex-1 overflow-auto p-4 space-y-4">
           {historyCursor !== null && (
             <button
               type="button"
@@ -376,7 +379,8 @@ export function ChatPage() {
         </div>
         {conversationOutdated && !isStreaming && (
           <p className="px-4 text-sm text-muted-foreground">
-            Your support space has changed. Your next question will start a new chat.
+            This chat's space is no longer available to you. Your next question will start a new
+            chat{needsSpace ? " — choose a space above first" : ""}.
           </p>
         )}
         {supportUnassigned && (
@@ -387,7 +391,8 @@ export function ChatPage() {
         <ChatInput
           onSend={handleSend}
           onStop={handleStop}
-          disabled={isStreaming || needsSpace || supportUnassigned}
+          disabled={needsSpace || supportUnassigned}
+          isStreaming={isStreaming}
           depth={depth}
           onDepthChange={setDepth}
           asOfDate={calendarDate}

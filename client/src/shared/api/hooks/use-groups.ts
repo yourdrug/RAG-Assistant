@@ -3,8 +3,9 @@ import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
 import type { CreateGroupRequest, GroupMemberResponse, GroupResponse } from "../types";
 
-export function useGroups() {
+export function useGroups(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: queryKeys.groups.list(),
     queryFn: async () => (await apiClient.get<GroupResponse[]>("/groups")).data,
   });

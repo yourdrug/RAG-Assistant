@@ -8,6 +8,7 @@ import {
   useRevokeClientApiKey,
   useUsers,
 } from "@/shared/api/hooks";
+import { formatDate } from "@/shared/lib/date-time";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -154,10 +155,7 @@ export function AdminApiKeysPage() {
                               Prefix: {key.key_prefix}
                             </Badge>
                             <Badge variant="outline" className="text-xs">
-                              Created:{" "}
-                              {key.creation_date
-                                ? new Date(key.creation_date).toLocaleDateString()
-                                : "—"}
+                              Created: {key.creation_date ? formatDate(key.creation_date) : "—"}
                             </Badge>
                             <Badge
                               variant={key.is_active ? "success" : "destructive"}

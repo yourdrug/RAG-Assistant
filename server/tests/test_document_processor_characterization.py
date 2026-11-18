@@ -574,6 +574,33 @@ async def test_replace_non_versioned_deletes_old_document(tmp_path: Path, ingest
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "new_filename, expected_filename",
+    [("old(1).pdf", "old.pdf"), ("other.pdf", "other.pdf")],
+)
+async def test_replacement_restores_name_held_by_replaced_document(
+    tmp_path: Path, new_filename: str, expected_filename: str
+) -> None:
+    registry = FakeDomainRegistry(
+        profiles={"general": make_profile("general", versioned=False)},
+        classify_result=ClassificationResult(
+            domain_key="general", confidence=0.9, is_ambiguous=False, is_low_signal=False, candidate_scores={}
+        ),
+    )
+    h = build_harness(tmp_path, registry=registry)
+    old = await seed_document(h.repo, filename="old.pdf", source_path="uploads/old.pdf")
+    new = await seed_document(h.repo, filename=new_filename, source_path="uploads/new.pdf")
+
+    await run(h, new, storage_key="uploads/new.pdf", replace_id=old.id, doc_domain=None)
+
+    restored = await h.repo.get_by_id(new.id)
+    assert restored is not None
+    assert restored.filename == expected_filename
+    assert restored.source_path == "uploads/new.pdf"
+    assert {point["metadata"]["source"] for point in upsert_points(h.uow)} == {expected_filename}
+
+
+@pytest.mark.asyncio
 async def test_document_deleted_before_persist_aborts(tmp_path: Path) -> None:
     """current_doc is None -> early abort: no chunks, no outbox, status failed."""
     h = build_harness(tmp_path, repo=VanishingDocumentRepository(vanish_id=1, vanish_after=1))

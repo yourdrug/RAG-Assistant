@@ -189,9 +189,40 @@ def test_synthetic_questions_have_valid_annotations_and_verbatim_evidence(pack_k
         annotations = question["annotations"]
         validate_annotations(annotations)
         assert "synthetic" in question["tags"]
-        assert question["dataset"].startswith(f"synthetic-{pack_key}-")
+        assert question["dataset"] == f"{pack_key}-synthetic"
 
         for fragment in annotations["expected_fragments"]:
             source = (base / "corpus" / fragment["source"]).read_text()
             assert "СИНТЕТИЧЕСКИЙ" in source
             assert fragment["text"] in source
+
+
+def test_offline_gate_fails_on_drop_and_on_changed_question_set(report_tool: dict[str, Any]) -> None:
+    def section(recall: float, questions: int = 20) -> dict[str, Any]:
+        return {
+            "dataset_questions": questions,
+            "fragment_reachability": 1.0,
+            "retrieval": {"bm25": {"recall_at_5": recall, "recall_at_10": recall, "mrr": recall}},
+        }
+
+    reference = {"domains": {"faq": section(0.9)}, "overall": section(0.9)}
+    gate = report_tool["gate_failures"]
+
+    assert gate({"domains": {"faq": section(0.89)}, "overall": section(0.9)}, reference, 0.02) == []
+    assert gate({"domains": {"faq": section(0.8)}, "overall": section(0.9)}, reference, 0.02) == [
+        "faq.bm25.recall_at_5: 0.8 < reference 0.9 - 0.02",
+        "faq.bm25.recall_at_10: 0.8 < reference 0.9 - 0.02",
+        "faq.bm25.mrr: 0.8 < reference 0.9 - 0.02",
+    ]
+    changed = gate({"domains": {"faq": section(0.9, 21)}, "overall": section(0.9)}, reference, 0.02)
+    assert "refresh the reference" in changed[0]
+    assert gate({"domains": {}, "overall": section(0.9)}, reference, 0.02) == ["faq: missing from the report"]
+
+
+def test_offline_gate_references_cover_every_pack() -> None:
+    references = Path(__file__).resolve().parents[2] / "docs/quality/artifacts/offline-gate"
+
+    for pack_key in PACK_REGISTRATIONS:
+        reference = json.loads((references / f"{pack_key}.json").read_text())
+        assert reference["pack"] == pack_key
+        assert reference["overall"]["retrieval"]["bm25"]["recall_at_10"] is not None

@@ -94,7 +94,6 @@ class UserModel(BaseModel):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'curator', 'user')", name="users_role_check"),
-        CheckConstraint("client_space_id IS NULL OR kind = 'client'", name="chk_client_space_kind"),
         CheckConstraint("kind IN ('internal', 'client')", name="users_kind_check"),
         CheckConstraint(
             "NOT (kind = 'client' AND role IN ('admin', 'curator'))",
@@ -107,10 +106,6 @@ class UserModel(BaseModel):
     role: Mapped[str] = mapped_column(String(16), nullable=False, default=UserRole.USER.value)
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default=UserKind.INTERNAL.value)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-    client_space_id: Mapped[int | None] = mapped_column(
-        ForeignKey("knowledge_spaces.id", ondelete="SET NULL"), nullable=True
-    )
 
     groups = relationship("GroupModel", secondary="user_groups", back_populates="members")
 
@@ -173,6 +168,18 @@ class KnowledgeSpaceUploadGroupModel(LinkedBaseModel):
         ForeignKey("knowledge_spaces.id", ondelete="CASCADE"), primary_key=True
     )
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+
+
+class ClientSpaceModel(LinkedBaseModel):
+    """Support spaces a CLIENT user may ask in."""
+
+    __tablename__ = "client_spaces"
+    __table_args__ = (Index("idx_client_spaces_space", "space_id"),)
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    space_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_spaces.id", ondelete="CASCADE"), primary_key=True
+    )
 
 
 class CuratorUserAssignmentModel(LinkedBaseModel):
@@ -557,7 +564,7 @@ class BenchmarkQuestionModel(BaseModel):
     )
     as_of_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
+    dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="belarus_law-main")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -598,7 +605,7 @@ class BenchmarkSweepModel(BaseModel):
     strategy: Mapped[str] = mapped_column(String(50), nullable=False)
     search_space: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     objective_weights: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
-    dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
+    dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="belarus_law-main")
     space_id: Mapped[int | None] = mapped_column(
         ForeignKey("knowledge_spaces.id", ondelete="RESTRICT", name="fk_benchmark_sweeps_space_id"),
         nullable=True,
@@ -640,7 +647,7 @@ class BenchmarkRunModel(BaseModel):
     summary_metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     duration_sec: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
     llm_evaluated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
+    dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="belarus_law-main")
     per_question_results: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -766,4 +773,49 @@ chat_log_reviews = Table(
         name="ck_chat_log_reviews_status",
     ),
     Index("idx_chat_log_reviews_status", "status"),
+)
+
+
+benchmark_dataset_policies = Table(
+    "benchmark_dataset_policies",
+    BaseModel.metadata,
+    Column("dataset", String(100), primary_key=True),
+    Column("thresholds", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    Column("noise", JSONB, nullable=True),
+    Column("calibration", JSONB, nullable=True),
+    Column("updated_by", Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    Column("update_date", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+
+benchmark_judge_calibrations = Table(
+    "benchmark_judge_calibrations",
+    BaseModel.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("dataset", String(100), nullable=False),
+    # History outlives the run it was measured on.
+    Column("run_id", Integer, ForeignKey("benchmark_runs.id", ondelete="SET NULL"), nullable=True),
+    Column("judge_model", String(200), nullable=True),
+    Column("judge_rubric_version", String(100), nullable=True),
+    Column("metrics", JSONB, nullable=False),
+    Column("created_by", Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    Column("measured_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index("idx_benchmark_judge_calibrations_dataset", "dataset", text("measured_at DESC")),
+)
+
+
+benchmark_human_labels = Table(
+    "benchmark_human_labels",
+    BaseModel.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("run_id", Integer, ForeignKey("benchmark_runs.id", ondelete="CASCADE"), nullable=False),
+    Column("question_key", String(200), nullable=False),
+    Column("metric", String(20), nullable=False),
+    Column("score", Float, nullable=False),
+    Column("labeler_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("note", Text, nullable=True),
+    Column("update_date", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("metric IN ('correctness', 'faithfulness')", name="ck_benchmark_human_labels_metric"),
+    CheckConstraint("score >= 0 AND score <= 10", name="ck_benchmark_human_labels_score"),
+    UniqueConstraint("run_id", "question_key", "metric", "labeler_id", name="uq_benchmark_human_labels_case"),
 )

@@ -9,9 +9,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from domain.identity.roles import UserKind, UserRole
-from domain.shared.exceptions import BusinessRuleViolationError
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 @dataclass
@@ -24,7 +29,8 @@ class User:
     is_active: bool = True
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     group_ids: list[int] = field(default_factory=list)
-    client_space_id: int | None = None
+    # Support spaces a CLIENT may ask in; empty for internal users, who ask in any space.
+    client_space_ids: frozenset[int] = field(default_factory=frozenset)
 
     def __post_init__(self) -> None:
         if isinstance(self.role, str):
@@ -32,6 +38,8 @@ class User:
 
         if isinstance(self.kind, str):
             self.kind = UserKind.parse(self.kind)
+
+        self.client_space_ids = frozenset(self.client_space_ids)
 
     def ensure_can_be_created_by(self, creator_role: UserRole) -> None:
         """Enforce rule: only admin can create users."""
@@ -51,12 +59,31 @@ class User:
             msg = "Cannot deactivate yourself"
             raise BusinessRuleViolationError(msg)
 
-    def assign_client_space(self, space_id: int | None) -> None:
+    def assign_client_spaces(self, space_ids: Iterable[int]) -> None:
         if self.kind != UserKind.CLIENT:
             msg = "Only clients can be assigned a support space"
             raise BusinessRuleViolationError(msg)
 
-        self.client_space_id = space_id
+        self.client_space_ids = frozenset(space_ids)
+
+    def choose_client_space(self, requested: int | None) -> int:
+        """The space a client asks in: the requested assigned one, or the only assigned one."""
+        if not self.client_space_ids:
+            msg = "No support space assigned to this client"
+            raise ValidationError(msg, field="space_id")
+
+        if requested is None:
+            if len(self.client_space_ids) == 1:
+                return next(iter(self.client_space_ids))
+
+            msg = "space_id is required: choose one of your support spaces"
+            raise ValidationError(msg, field="space_id")
+
+        if requested not in self.client_space_ids:
+            msg = "This knowledge space is not assigned to the client"
+            raise ValidationError(msg, field="space_id")
+
+        return requested
 
     def set_active(self, *, is_active: bool) -> None:
         self.is_active = is_active

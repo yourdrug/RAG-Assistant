@@ -104,7 +104,7 @@ async def list_all_users(
             role=u.role,
             kind=u.kind,
             is_active=u.is_active,
-            client_space_id=u.client_space_id,
+            client_space_ids=list(u.client_space_ids),
         )
         for u in users
     ]

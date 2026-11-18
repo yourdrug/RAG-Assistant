@@ -67,7 +67,7 @@ class UserManagementService:
                         role=u.role,
                         kind=u.kind,
                         is_active=u.is_active,
-                        client_space_id=u.client_space_id,
+                        client_space_ids=tuple(sorted(u.client_space_ids)),
                     )
                     for u in users
                 ],
@@ -111,5 +111,5 @@ class UserManagementService:
                 role=user.role,
                 kind=user.kind,
                 is_active=user.is_active,
-                client_space_id=user.client_space_id,
+                client_space_ids=tuple(sorted(user.client_space_ids)),
             )

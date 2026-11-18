@@ -1,20 +1,22 @@
+import { motion, useReducedMotion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useChunkIndexState } from "@/shared/api/hooks";
 import type { ChunkIndexStateResponse, ChunkResponse } from "@/shared/api/types";
+import { formatDateTime } from "@/shared/lib/date-time";
 import { Badge } from "@/shared/ui/badge";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/shared/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   return String(value);
-}
-
-function formatDate(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
@@ -38,12 +40,12 @@ function MetadataGrid({ chunk }: { chunk: ChunkResponse }) {
     ["owner_id", chunk.owner_id],
     ["group_id", chunk.group_id],
     ["edited_by", chunk.edited_by],
-    ["edited_at", formatDate(chunk.edited_at)],
-    ["created", formatDate(chunk.creation_date)],
+    ["edited_at", formatDateTime(chunk.edited_at)],
+    ["created", formatDateTime(chunk.creation_date)],
     ["content_hash", chunk.content_hash],
   ];
   return (
-    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm sm:grid-cols-[max-content_1fr_max-content_1fr]">
+    <dl className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
       {rows.map(([key, value]) => (
         <div key={key} className="contents">
           <dt className="text-muted-foreground">{key}</dt>
@@ -156,42 +158,49 @@ export function ChunkDetailsSheet({
   showIndexState: boolean;
   onClose: () => void;
 }) {
+  const reduceMotion = useReducedMotion();
   return (
-    <Sheet open={chunk !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+    <Dialog open={chunk !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-5xl overflow-y-auto rounded-xl p-0 shadow-2xl">
         {chunk && (
-          <div className="space-y-5">
-            <SheetHeader>
-              <SheetTitle>
+          <motion.div
+            key={chunk.id}
+            initial={{ opacity: 0, y: reduceMotion ? 0 : 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.2 }}
+            className="space-y-6 p-4 sm:p-8"
+          >
+            <DialogHeader className="border-b pb-5 pr-6 text-left">
+              <DialogTitle>
                 Chunk #{chunk.chunk_index}{" "}
                 <span className="font-mono text-sm font-normal text-muted-foreground">
                   (id {chunk.id})
                 </span>
-              </SheetTitle>
-              <SheetDescription className="flex flex-wrap items-center gap-1.5">
+              </DialogTitle>
+              <DialogDescription className="flex flex-wrap items-center gap-1.5 [overflow-wrap:anywhere]">
                 <span>{chunk.filename || chunk.doc_title || `document ${documentId}`}</span>
                 <span>· {chunk.content.length} chars</span>
                 {chunk.manual && <Badge variant="outline">Manual</Badge>}
                 {chunk.edited_at && <Badge variant="warning">Edited</Badge>}
-              </SheetDescription>
-            </SheetHeader>
+              </DialogDescription>
+            </DialogHeader>
 
             <section className="space-y-2">
               <SectionTitle>Full text</SectionTitle>
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 font-sans text-sm leading-relaxed">
+              <pre className="whitespace-pre-wrap rounded-xl border bg-muted/10 p-4 sm:p-6 font-sans text-sm sm:text-base leading-7 [overflow-wrap:anywhere]">
                 {chunk.content}
               </pre>
             </section>
 
-            <section className="space-y-2">
+            <section className="space-y-4 rounded-xl border p-4">
               <SectionTitle>Metadata (Postgres)</SectionTitle>
               <MetadataGrid chunk={chunk} />
             </section>
 
             {showIndexState && <IndexStateSection documentId={documentId} chunkId={chunk.id} />}
-          </div>
+          </motion.div>
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -5,6 +5,16 @@
     "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'done'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))"
   ],
   [
+    "benchmark_human_labels",
+    "ck_benchmark_human_labels_metric",
+    "CHECK (((metric)::text = ANY (ARRAY[('correctness'::character varying)::text, ('faithfulness'::character varying)::text])))"
+  ],
+  [
+    "benchmark_human_labels",
+    "ck_benchmark_human_labels_score",
+    "CHECK (((score >= (0)::double precision) AND (score <= (10)::double precision)))"
+  ],
+  [
     "benchmark_questions",
     "chk_benchmark_questions_annotations_object",
     "CHECK (((annotations IS NULL) OR (jsonb_typeof(annotations) = 'object'::text)))"
@@ -98,11 +108,6 @@
     "users",
     "chk_client_not_privileged",
     "CHECK ((NOT (((kind)::text = 'client'::text) AND ((role)::text = ANY ((ARRAY['admin'::character varying, 'curator'::character varying])::text[])))))"
-  ],
-  [
-    "users",
-    "chk_client_space_kind",
-    "CHECK (((client_space_id IS NULL) OR ((kind)::text = 'client'::text)))"
   ],
   [
     "users",

@@ -18,7 +18,28 @@ from infrastructure.ml.rag import prompt_blocks, rag_prompts
 log = logging.getLogger(__name__)
 
 
+# The `app` package; containers ship it without `.git`, so its source is hashed directly.
+APP_ROOT = Path(__file__).resolve().parents[3]
+
+
+def source_digest(root: Path = APP_ROOT) -> str:
+    """SHA-256 of every Python module path and content; the only files that shape the pipeline."""
+    digest = sha256()
+
+    for path in sorted(root.rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
+        digest.update(relative.encode())
+        digest.update(b"\0")
+        digest.update(sha256(path.read_bytes()).digest())
+
+    return digest.hexdigest()
+
+
 def code_identity() -> dict[str, Any]:
+    return {**git_identity(), "source_sha256": source_digest()}
+
+
+def git_identity() -> dict[str, Any]:
     git = which("git")
 
     if git is None:
@@ -63,6 +84,7 @@ def build_run_manifest(
         },
         "limitations": [
             "external model names may refer to mutable provider artifacts",
+            "git identity is empty without a checkout; source_sha256 covers the Python modules of app",
             "tracked diff excludes untracked files; exact generation messages are in prompt snapshots",
             "SQL chunks and vector corpus are not a transactional cross-store snapshot",
         ],

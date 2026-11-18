@@ -1,5 +1,6 @@
 import { useJob, useSweep, useSweepProgress } from "@/shared/api/hooks";
 import type { SweepResponse } from "@/shared/api/types";
+import { formatDateTime, formatTime } from "@/shared/lib/date-time";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
@@ -56,7 +57,7 @@ export function SweepProgressDialog({
           <DialogTitle>Sweep #{sweep.id} · Live progress</DialogTitle>
           <DialogDescription>
             {active ? "Updates automatically every 3 seconds." : "Execution has stopped."}
-            {dataUpdatedAt > 0 && ` Last checked: ${new Date(dataUpdatedAt).toLocaleTimeString()}.`}
+            {dataUpdatedAt > 0 && ` Last checked: ${formatTime(dataUpdatedAt)}.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -103,7 +104,7 @@ export function SweepProgressDialog({
             <p className="text-xs text-muted-foreground">
               The counter updates when a configuration finishes and resets for the next phase.
               {progress?.updated_at &&
-                ` Last configuration update: ${new Date(progress.updated_at).toLocaleString()}.`}{" "}
+                ` Last configuration update: ${formatDateTime(progress.updated_at)}.`}{" "}
               Time without a new result alone does not indicate a stalled worker.
             </p>
           )}
@@ -132,7 +133,7 @@ export function SweepProgressDialog({
               "Worker job",
               job ? `#${job.id} · ${job.status}` : sweep.job_id ? `#${sweep.job_id}` : "Not linked",
             ],
-            ["Started", job?.started_at ? new Date(job.started_at).toLocaleString() : "—"],
+            ["Started", job?.started_at ? formatDateTime(job.started_at) : "—"],
             ["Best run", sweep.best_run_id ? `#${sweep.best_run_id}` : "Not selected yet"],
           ].map(([label, value]) => (
             <div key={label} className="min-w-0">

@@ -1,5 +1,6 @@
 "use client";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { RotateCcw, Save } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
@@ -65,6 +66,7 @@ const SETTINGS_SECTIONS = [
         label: "Answer generation",
         description: "Model selection, creativity and response length.",
         categories: ["llm"],
+        keys: ["llm_model", "llm_auxiliary_model"],
       },
       {
         id: "conversation",
@@ -141,7 +143,7 @@ const SETTINGS_SECTIONS = [
         id: LLM_CONNECTION_BLOCK,
         label: "LLM endpoint",
         description:
-          "Any OpenAI-compatible API: OpenRouter, OpenAI, vLLM, Ollama, LM Studio. The URL origin must be approved by the deployment (LLM_ALLOWED_ORIGINS / ML_INTERNAL_ALLOWED_ORIGINS).",
+          "Any OpenAI-compatible API: OpenRouter, OpenAI, vLLM, Ollama, LM Studio. The URL origin must be approved by the deployment (LLM_ALLOWED_ORIGINS / ML_INTERNAL_ALLOWED_ORIGINS). Models are chosen in Chat & answers → Answer generation.",
         categories: ["llm_connection"],
       },
       {
@@ -254,9 +256,21 @@ function editKey(param: ConfigParam): string {
   return param.domain_key ? `${param.domain_key}:${param.key}` : param.key;
 }
 
+const SELECT_CLASS =
+  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+function saveErrorMessage(error: unknown): string {
+  if (isAxiosError(error)) {
+    const data = error.response?.data as { message?: string; detail?: string } | undefined;
+    return data?.message || data?.detail || "Update failed";
+  }
+  return "Update failed";
+}
+
 export function AdminSettingsPage() {
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
   const {
     data: status,
     isError: statusUnavailable,
@@ -281,40 +295,50 @@ export function AdminSettingsPage() {
 
   const { data: llmModels, isLoading: isLoadingModels } = useLLMModels();
 
-  const updateMutation = useMutation({
-    mutationFn: async ({ key, value, domain }: { key: string; value: string; domain?: string }) => {
-      const url = domain ? `/admin/config/${key}?domain=${domain}` : `/admin/config/${key}`;
-      return (await apiClient.put(url, { value })).data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["admin", "config"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "config-status"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "models"] });
-      queryClient.invalidateQueries({ queryKey: LLM_MODELS_QUERY_KEY });
-      setEdits((prev) => {
-        const next = { ...prev };
-        delete next[variables.domain ? `${variables.domain}:${variables.key}` : variables.key];
-        return next;
-      });
-      toast.success(`"${variables.key}" saved; checking application`);
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || error.response?.data?.detail || "Update failed");
-    },
-  });
+  const setEdit = (p: ConfigParam, value: string) =>
+    setEdits((prev) => ({ ...prev, [editKey(p)]: value }));
 
-  const handleSave = (key: string, domain?: string) => {
-    const val = edits[domain ? `${domain}:${key}` : key];
-    if (val === undefined) return;
-    updateMutation.mutate({ key, value: val, domain });
-  };
-
-  const handleReset = (key: string) => {
+  const discard = (ids: string[]) =>
     setEdits((prev) => {
       const next = { ...prev };
-      delete next[key];
+      for (const id of ids) delete next[id];
       return next;
     });
+
+  /** Saves the given edits one by one; a failure keeps it and the rest for review. */
+  const saveEdits = async (ids: string[]) => {
+    const changes = (params ?? []).filter(
+      (p) => ids.includes(editKey(p)) && edits[editKey(p)] !== undefined,
+    );
+    if (changes.length === 0) return;
+    setSaving(true);
+    const saved: string[] = [];
+    try {
+      for (const p of changes) {
+        const url = p.domain_key
+          ? `/admin/config/${p.key}?domain=${p.domain_key}`
+          : `/admin/config/${p.key}`;
+        await apiClient.put(url, { value: edits[editKey(p)] });
+        saved.push(editKey(p));
+      }
+      toast.success(
+        saved.length === 1
+          ? `"${changes[0].key}" saved; checking application`
+          : `${saved.length} settings saved; checking application`,
+      );
+    } catch (error) {
+      const failed = changes[saved.length];
+      toast.error(`${parameterLabel(failed)}: ${saveErrorMessage(error)}`);
+    } finally {
+      setSaving(false);
+      if (saved.length > 0) {
+        discard(saved);
+        queryClient.invalidateQueries({ queryKey: ["admin", "config"] });
+        queryClient.invalidateQueries({ queryKey: ["admin", "config-status"] });
+        queryClient.invalidateQueries({ queryKey: ["admin", "models"] });
+        queryClient.invalidateQueries({ queryKey: LLM_MODELS_QUERY_KEY });
+      }
+    }
   };
 
   const renderValue = (p: ConfigParam) => {
@@ -322,25 +346,28 @@ export function AdminSettingsPage() {
     const displayValue = isEdited ? edits[editKey(p)] : p.value;
 
     if (p.value_type === "bool") {
+      const enabled = displayValue === "true";
       return (
-        <div className="flex items-center gap-2">
+        <div className="inline-flex rounded-lg border bg-muted/40 p-0.5">
           <Button
             aria-label={`Enable ${parameterLabel(p)}`}
-            aria-pressed={displayValue === "true"}
+            aria-pressed={enabled}
             size="sm"
-            variant={displayValue === "true" ? "default" : "outline"}
-            onClick={() => setEdits((prev) => ({ ...prev, [editKey(p)]: "true" }))}
+            variant={enabled ? "default" : "ghost"}
+            className="h-7 min-w-14"
+            onClick={() => setEdit(p, "true")}
           >
-            ON
+            On
           </Button>
           <Button
             aria-label={`Disable ${parameterLabel(p)}`}
-            aria-pressed={displayValue === "false"}
+            aria-pressed={!enabled}
             size="sm"
-            variant={displayValue === "false" ? "destructive" : "outline"}
-            onClick={() => setEdits((prev) => ({ ...prev, [editKey(p)]: "false" }))}
+            variant={!enabled ? "secondary" : "ghost"}
+            className={`h-7 min-w-14 ${!enabled ? "bg-background shadow-sm" : ""}`}
+            onClick={() => setEdit(p, "false")}
           >
-            OFF
+            Off
           </Button>
         </div>
       );
@@ -351,8 +378,8 @@ export function AdminSettingsPage() {
         <select
           aria-label={parameterLabel(p)}
           value={displayValue}
-          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          onChange={(e) => setEdit(p, e.target.value)}
+          className={SELECT_CLASS}
         >
           {RERANK_API_FORMATS.map((format) => (
             <option key={format.value} value={format.value}>
@@ -366,7 +393,7 @@ export function AdminSettingsPage() {
     // Models served by the configured endpoint (GET /models); free text when it lists none.
     if (MODEL_PICKER_KEYS.has(p.key)) {
       if (isLoadingModels) {
-        return <Skeleton className="h-9 w-64" />;
+        return <Skeleton className="h-9 w-full" />;
       }
 
       const auxiliary = p.key === "llm_auxiliary_model";
@@ -374,12 +401,12 @@ export function AdminSettingsPage() {
 
       if (models.length > 0) {
         return (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <select
               aria-label={parameterLabel(p)}
               value={displayValue}
-              onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              onChange={(e) => setEdit(p, e.target.value)}
+              className={SELECT_CLASS}
             >
               {auxiliary && <option value="">Same as answer model</option>}
               {displayValue && !models.some((m) => m.id === displayValue) && (
@@ -400,14 +427,21 @@ export function AdminSettingsPage() {
       }
 
       return (
-        <Input
-          aria-label={parameterLabel(p)}
-          type="text"
-          value={displayValue}
-          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
-          className="w-full"
-          placeholder={auxiliary ? "Empty: same as answer model" : "e.g. qwen/qwen-2.5-7b-instruct"}
-        />
+        <div className="space-y-1.5">
+          <Input
+            aria-label={parameterLabel(p)}
+            type="text"
+            value={displayValue}
+            onChange={(e) => setEdit(p, e.target.value)}
+            className="w-full"
+            placeholder={
+              auxiliary ? "Empty: same as answer model" : "e.g. qwen/qwen-2.5-7b-instruct"
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            The endpoint does not list models; enter the model id.
+          </p>
+        </div>
       );
     }
 
@@ -417,25 +451,25 @@ export function AdminSettingsPage() {
           aria-label={parameterLabel(p)}
           type="text"
           value={displayValue}
-          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
+          onChange={(e) => setEdit(p, e.target.value)}
           className="w-full"
         />
       );
     }
 
     return (
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-3">
         <Input
           aria-label={parameterLabel(p)}
           type="number"
           step={p.value_type === "float" ? "0.1" : "1"}
           value={displayValue}
-          onChange={(e) => setEdits((prev) => ({ ...prev, [editKey(p)]: e.target.value }))}
-          className="w-28"
+          onChange={(e) => setEdit(p, e.target.value)}
+          className="w-32"
         />
         {p.min_value !== null && p.max_value !== null && (
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {p.min_value} – {p.max_value}
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
+            Range {p.min_value} – {p.max_value}
           </span>
         )}
       </div>
@@ -444,14 +478,14 @@ export function AdminSettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="p-[14px] space-y-6">
+      <div className="space-y-6 p-6">
         <div>
-          <Skeleton className="h-8 w-48 mb-2" />
+          <Skeleton className="mb-2 h-8 w-48" />
           <Skeleton className="h-4 w-72" />
         </div>
         {[1, 2].map((i) => (
           <Card key={i}>
-            <CardContent className="p-[14px]">
+            <CardContent className="p-6">
               <Skeleton className="h-40 w-full" />
             </CardContent>
           </Card>
@@ -463,6 +497,7 @@ export function AdminSettingsPage() {
   const availableSections = SETTINGS_SECTIONS.filter((section) =>
     section.blocks.some((block) => params?.some((param) => parameterBlock(param) === block.id)),
   );
+  const pendingIds = Object.keys(edits);
 
   const renderParameter = (param: ConfigParam) => {
     const id = editKey(param);
@@ -470,29 +505,34 @@ export function AdminSettingsPage() {
     return (
       <div
         key={id}
-        className={`grid items-center gap-3 py-[10px] md:grid-cols-[minmax(0,1fr)_minmax(240px,360px)] md:gap-8 ${isEdited ? "bg-muted/30" : ""}`}
+        className={`grid gap-4 border-l-2 px-6 py-5 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] md:gap-10 ${
+          isEdited ? "border-l-primary bg-muted/40" : "border-l-transparent"
+        }`}
       >
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-medium">{parameterLabel(param)}</p>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium leading-6">{parameterLabel(param)}</p>
+            {isEdited && <Badge variant="secondary">Unsaved</Badge>}
+          </div>
           {param.description && (
-            <p className="text-sm text-muted-foreground">{param.description}</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              {param.description}
+            </p>
           )}
-          <p className="break-all font-mono text-xs text-muted-foreground/70">{param.key}</p>
+          <code className="mt-2 inline-block break-all rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+            {param.key}
+          </code>
         </div>
-        <div className="min-w-0 space-y-2" role="group" aria-label={parameterLabel(param)}>
+        <div className="min-w-0 space-y-3" role="group" aria-label={parameterLabel(param)}>
           {renderValue(param)}
           {isEdited && (
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={() => handleSave(param.key, param.domain_key ?? undefined)}
-                disabled={updateMutation.isPending}
-              >
-                <Save className="mr-2 h-3.5 w-3.5" />
+              <Button size="sm" onClick={() => void saveEdits([id])} disabled={saving}>
+                <Save className="h-3.5 w-3.5" />
                 Save
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => handleReset(id)}>
-                <RotateCcw className="mr-2 h-3.5 w-3.5" />
+              <Button size="sm" variant="ghost" onClick={() => discard([id])} disabled={saving}>
+                <RotateCcw className="h-3.5 w-3.5" />
                 Discard
               </Button>
             </div>
@@ -503,79 +543,84 @@ export function AdminSettingsPage() {
   };
 
   return (
-    <div className="p-[14px] space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-muted-foreground">
-          Configure application behavior, model pricing and document search.
-        </p>
-      </div>
-
-      <div
-        role="status"
-        aria-live="polite"
-        className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm"
-      >
-        <Badge
-          variant={
-            statusUnavailable
-              ? "warning"
-              : status?.error
-                ? "destructive"
-                : status?.ready
-                  ? "success"
-                  : "secondary"
-          }
+    <div className="space-y-6 p-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Settings</h1>
+          <p className="mt-1 text-muted-foreground">
+            Configure models, answer generation and document search.
+          </p>
+        </div>
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex max-w-xl items-center gap-3 rounded-lg border bg-card px-4 py-2.5 text-sm"
         >
-          {statusUnavailable
-            ? "Status unavailable"
-            : !status
-              ? "Checking settings…"
-              : status.error
-                ? "Application failed"
-                : status.ready
-                  ? "Settings applied"
-                  : "Applying settings…"}
-        </Badge>
-        <span className="text-muted-foreground">
-          {statusUnavailable
-            ? "Could not check whether saved changes have been applied."
-            : status?.error
-              ? "Previous settings remain active. Review your changes and check diagnostics."
-              : status?.ready
-                ? "Saved changes are active on this server."
-                : "Waiting for this server to apply saved changes."}
-        </span>
+          <Badge
+            className="shrink-0"
+            variant={
+              statusUnavailable
+                ? "warning"
+                : status?.error
+                  ? "destructive"
+                  : status?.ready
+                    ? "success"
+                    : "secondary"
+            }
+          >
+            {statusUnavailable
+              ? "Status unavailable"
+              : !status
+                ? "Checking settings…"
+                : status.error
+                  ? "Application failed"
+                  : status.ready
+                    ? "Settings applied"
+                    : "Applying settings…"}
+          </Badge>
+          <span className="text-muted-foreground">
+            {statusUnavailable
+              ? "Could not check whether saved changes have been applied."
+              : status?.error
+                ? "Previous settings remain active. Review your changes and check diagnostics."
+                : status?.ready
+                  ? "Saved changes are active on this server."
+                  : "Waiting for this server to apply saved changes."}
+          </span>
+        </div>
       </div>
 
       <Tabs
         defaultValue={availableSections[0]?.id ?? "corpus"}
         orientation="vertical"
-        className="flex flex-col gap-6 lg:flex-row lg:items-start"
+        className="flex flex-col gap-8 lg:flex-row lg:items-start"
       >
         <TabsList
           aria-label="Settings sections"
-          className="h-auto w-full shrink-0 flex-row flex-wrap justify-start gap-1 bg-transparent p-0 lg:sticky lg:top-6 lg:w-56 lg:flex-col lg:items-stretch"
+          className="h-auto w-full shrink-0 flex-row flex-wrap justify-start gap-1 rounded-xl border bg-card p-2 lg:sticky lg:top-6 lg:w-64 lg:flex-col lg:items-stretch"
         >
           {availableSections.map((section) => (
             <TabsTrigger
               key={section.id}
               value={section.id}
-              className="justify-start whitespace-normal px-3 py-2.5 text-left data-[state=active]:bg-muted data-[state=active]:shadow-none"
+              className="flex-col items-start gap-0.5 whitespace-normal rounded-lg px-3 py-2.5 text-left data-[state=active]:bg-muted data-[state=active]:shadow-none"
             >
-              {section.label}
+              <span>{section.label}</span>
+              <span className="hidden text-xs font-normal leading-snug text-muted-foreground lg:block">
+                {section.description}
+              </span>
             </TabsTrigger>
           ))}
-          <div className="hidden border-t my-2 lg:block" />
+          <div className="my-1 hidden border-t lg:block" />
           <TabsTrigger
             value="corpus"
-            className="justify-start px-3 py-2.5 data-[state=active]:bg-muted"
+            className="justify-start rounded-lg px-3 py-2.5 data-[state=active]:bg-muted data-[state=active]:shadow-none"
           >
             Search collection
           </TabsTrigger>
           <TabsTrigger
             value="diagnostics"
-            className="justify-start px-3 py-2.5 data-[state=active]:bg-muted"
+            className="justify-start rounded-lg px-3 py-2.5 data-[state=active]:bg-muted data-[state=active]:shadow-none"
           >
             Diagnostics
           </TabsTrigger>
@@ -599,12 +644,14 @@ export function AdminSettingsPage() {
                   ),
                 ];
                 return (
-                  <Card key={block.id}>
-                    <CardHeader className="p-[14px] pb-0">
+                  <Card key={block.id} className="overflow-hidden">
+                    <CardHeader className="space-y-1 border-b bg-muted/20 px-6 py-4">
                       <CardTitle className="text-base">{block.label}</CardTitle>
-                      <CardDescription>{block.description}</CardDescription>
+                      <CardDescription className="leading-relaxed">
+                        {block.description}
+                      </CardDescription>
                     </CardHeader>
-                    <CardContent className="p-[14px] pt-0">
+                    <CardContent className="p-0">
                       <div className="divide-y">
                         {globalParams.map(renderParameter)}
                         {BLOCK_SECRETS[block.id] && (
@@ -619,16 +666,16 @@ export function AdminSettingsPage() {
                         )}
                       </div>
                       {domains.map((domain) => (
-                        <div key={domain} className="mt-4 rounded-lg border px-4">
-                          <div className="border-b py-3">
-                            <p className="text-sm font-medium">
+                        <div key={domain} className="border-t">
+                          <div className="bg-muted/30 px-6 py-3">
+                            <p className="text-sm font-semibold">
                               {DOMAIN_LABELS[domain] ?? domain} overrides
                             </p>
                             <p className="text-xs text-muted-foreground">
                               Applies only to documents in this domain.
                             </p>
                           </div>
-                          <div className="divide-y">
+                          <div className="divide-y border-t">
                             {blockParams
                               .filter((param) => param.domain_key === domain)
                               .map(renderParameter)}
@@ -641,10 +688,10 @@ export function AdminSettingsPage() {
               })}
             </TabsContent>
           ))}
-          <TabsContent value="corpus">
+          <TabsContent value="corpus" className="mt-0">
             <CorpusControl />
           </TabsContent>
-          <TabsContent value="diagnostics">
+          <TabsContent value="diagnostics" className="mt-0">
             <ConfigurationDiagnostics
               parameters={effective}
               descriptions={params}
@@ -659,6 +706,24 @@ export function AdminSettingsPage() {
           </TabsContent>
         </div>
       </Tabs>
+
+      {pendingIds.length > 0 && (
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
+          <span className="text-sm">
+            {pendingIds.length} unsaved {pendingIds.length === 1 ? "change" : "changes"}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => discard(pendingIds)} disabled={saving}>
+              <RotateCcw className="h-3.5 w-3.5" />
+              Discard all
+            </Button>
+            <Button size="sm" onClick={() => void saveEdits(pendingIds)} disabled={saving}>
+              <Save className="h-3.5 w-3.5" />
+              {saving ? "Saving…" : "Save all"}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -676,14 +741,16 @@ function SecretKeyRow({
   present: boolean | null;
 }) {
   return (
-    <div className="grid items-center gap-3 py-[10px] md:grid-cols-[minmax(0,1fr)_minmax(240px,360px)] md:gap-8">
-      <div className="min-w-0 space-y-1">
-        <p className="text-sm font-medium">API key</p>
-        <p className="text-sm text-muted-foreground">
+    <div className="grid gap-4 border-l-2 border-l-transparent px-6 py-5 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] md:gap-10">
+      <div className="min-w-0">
+        <p className="text-sm font-medium leading-6">API key</p>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
           Set {env} in server/.env.secrets and restart. Leave it empty for keyless servers (
           {keyless}).
         </p>
-        <p className="break-all font-mono text-xs text-muted-foreground/70">{name}</p>
+        <code className="mt-2 inline-block break-all rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+          {name}
+        </code>
       </div>
       <div className="flex min-w-0 items-center gap-2">
         <Input

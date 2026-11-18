@@ -30,7 +30,7 @@
       "internal",
       "general"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"
@@ -64,7 +64,7 @@
       "internal",
       "general"
     ],
-    "dataset": "synthetic-internal-v1",
+    "dataset": "internal-synthetic",
     "is_active": true,
     "variant_of": null,
     "question_style": "natural"

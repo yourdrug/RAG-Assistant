@@ -15,6 +15,7 @@ from application.admin.metrics import MetricsService
 from application.benchmark import (
     BenchmarkExportService,
     BenchmarkHistoryPort,
+    BenchmarkQualityService,
     BenchmarkQuestionService,
     BenchmarkResultService,
     BenchmarkRunService,
@@ -140,6 +141,9 @@ class ApplicationServices(Protocol):
 
     @property
     def benchmark_result_service(self) -> BenchmarkResultService | None: ...
+
+    @property
+    def benchmark_quality_service(self) -> BenchmarkQualityService | None: ...
 
     @property
     def job_service(self) -> JobService | None: ...

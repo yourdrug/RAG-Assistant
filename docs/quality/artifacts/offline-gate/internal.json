@@ -1,0 +1,214 @@
+{
+  "label": "offline-gate reference",
+  "pack": "internal",
+  "date": "2026-11-17",
+  "tokenizer": "BAAI/bge-m3",
+  "retrieval": "proxy: BM25 (prod tokenizer) / bge-m3 cosine / RRF k=60, no reranker, depth 50",
+  "domains": {
+    "general": {
+      "chunks": 1,
+      "avg_tokens": 118,
+      "p50_tokens": 118,
+      "p95_tokens": 118,
+      "max_tokens": 118,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 114,
+      "avg_prefix_share": 0.0339,
+      "documents": 1,
+      "chunks_per_document_avg": 1.0,
+      "dataset_questions": 2,
+      "fragments": 2,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 2,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0,
+          "mrr": 1.0,
+          "misses_at_10": []
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 2,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0,
+          "mrr": 1.0,
+          "misses_at_10": []
+        }
+      }
+    },
+    "internal_instruction": {
+      "chunks": 8,
+      "avg_tokens": 43.9,
+      "p50_tokens": 42,
+      "p95_tokens": 53,
+      "max_tokens": 53,
+      "share_under_50_tokens": 0.75,
+      "avg_body_tokens": 40.4,
+      "avg_prefix_share": 0.0798,
+      "documents": 2,
+      "chunks_per_document_avg": 4.0,
+      "dataset_questions": 6,
+      "fragments": 6,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 6,
+          "recall_at_5": 0.8333,
+          "recall_at_10": 0.8333,
+          "mrr": 0.8333,
+          "misses_at_10": [
+            "synthetic-internal-013"
+          ]
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 6,
+          "recall_at_5": 0.8333,
+          "recall_at_10": 0.8333,
+          "mrr": 0.8333,
+          "misses_at_10": [
+            "synthetic-internal-013"
+          ]
+        }
+      }
+    },
+    "internal_procedure": {
+      "chunks": 15,
+      "avg_tokens": 39.3,
+      "p50_tokens": 38,
+      "p95_tokens": 53,
+      "max_tokens": 56,
+      "share_under_50_tokens": 0.8,
+      "avg_body_tokens": 36.3,
+      "avg_prefix_share": 0.0764,
+      "documents": 3,
+      "chunks_per_document_avg": 5.0,
+      "dataset_questions": 12,
+      "fragments": 12,
+      "fragment_reachability": 1.0,
+      "unreachable_cases": [],
+      "body_fragment_reachability": 1.0,
+      "body_retrieval": {
+        "bm25": {
+          "questions": 12,
+          "recall_at_5": 0.9167,
+          "recall_at_10": 0.9167,
+          "mrr": 0.8333,
+          "misses_at_10": [
+            "synthetic-internal-004"
+          ]
+        }
+      },
+      "retrieval": {
+        "bm25": {
+          "questions": 12,
+          "recall_at_5": 0.9167,
+          "recall_at_10": 0.9167,
+          "mrr": 0.8333,
+          "misses_at_10": [
+            "synthetic-internal-004"
+          ]
+        }
+      }
+    }
+  },
+  "documents": [
+    {
+      "file": "access-policy.txt",
+      "domain": "internal_procedure",
+      "chunks": 5,
+      "avg_tokens": 40.2,
+      "p50_tokens": 38,
+      "p95_tokens": 50,
+      "max_tokens": 50,
+      "share_under_50_tokens": 0.8,
+      "avg_body_tokens": 37.2,
+      "avg_prefix_share": 0.0746
+    },
+    {
+      "file": "incident-policy.txt",
+      "domain": "internal_procedure",
+      "chunks": 5,
+      "avg_tokens": 40.2,
+      "p50_tokens": 40,
+      "p95_tokens": 56,
+      "max_tokens": 56,
+      "share_under_50_tokens": 0.8,
+      "avg_body_tokens": 37.2,
+      "avg_prefix_share": 0.0746
+    },
+    {
+      "file": "office-notice.txt",
+      "domain": "general",
+      "chunks": 1,
+      "avg_tokens": 118,
+      "p50_tokens": 118,
+      "p95_tokens": 118,
+      "max_tokens": 118,
+      "share_under_50_tokens": 0.0,
+      "avg_body_tokens": 114,
+      "avg_prefix_share": 0.0339
+    },
+    {
+      "file": "remote-guide.txt",
+      "domain": "internal_instruction",
+      "chunks": 4,
+      "avg_tokens": 44.2,
+      "p50_tokens": 47,
+      "p95_tokens": 53,
+      "max_tokens": 53,
+      "share_under_50_tokens": 0.75,
+      "avg_body_tokens": 41.2,
+      "avg_prefix_share": 0.0678
+    },
+    {
+      "file": "travel-policy.txt",
+      "domain": "internal_procedure",
+      "chunks": 5,
+      "avg_tokens": 37.4,
+      "p50_tokens": 36,
+      "p95_tokens": 53,
+      "max_tokens": 53,
+      "share_under_50_tokens": 0.8,
+      "avg_body_tokens": 34.4,
+      "avg_prefix_share": 0.0802
+    },
+    {
+      "file": "workplace-guide.txt",
+      "domain": "internal_instruction",
+      "chunks": 4,
+      "avg_tokens": 43.5,
+      "p50_tokens": 42,
+      "p95_tokens": 53,
+      "max_tokens": 53,
+      "share_under_50_tokens": 0.75,
+      "avg_body_tokens": 39.5,
+      "avg_prefix_share": 0.092
+    }
+  ],
+  "overall": {
+    "dataset_questions": 20,
+    "fragments": 20,
+    "fragment_reachability": 1.0,
+    "unreachable_cases": [],
+    "retrieval": {
+      "bm25": {
+        "questions": 20,
+        "recall_at_5": 0.9,
+        "recall_at_10": 0.9,
+        "mrr": 0.85,
+        "misses_at_10": [
+          "synthetic-internal-013",
+          "synthetic-internal-004"
+        ]
+      }
+    }
+  }
+}
