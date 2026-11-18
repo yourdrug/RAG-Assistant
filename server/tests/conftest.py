@@ -17,7 +17,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from composition.domain_packs import PACK_REGISTRATIONS
 from tests.fakes import FakeChatRAGPort, FakeEventBus, FakeMLClientRegistry, FakeUnitOfWorkFactory
 
 
@@ -89,6 +88,10 @@ def pytest_configure(config: pytest.Config) -> None:
             "run the core suite with -m 'not belarus'"
         )
         raise pytest.UsageError(message)
+
+    # Imported here, not at module level: the composition package loads ``config`` on import,
+    # which needs the test env defaults above (CI has no .env file).
+    from composition.domain_packs import PACK_REGISTRATIONS  # noqa: PLC0415
 
     # A core-only test installation registers no optional packs. Production always
     # loads the full registry, with no environment flag to select a subset.
