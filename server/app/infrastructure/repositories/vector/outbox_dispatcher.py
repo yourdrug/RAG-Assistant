@@ -32,6 +32,8 @@ log = logging.getLogger("default")
 
 _BASE_BACKOFF_SEC = 5
 _MAX_BACKOFF_SEC = 900  # 15 minutes
+# Chunks read from SQL, embedded and written per step of one document upsert.
+_UPSERT_SLICE_SIZE = 256
 
 
 class OutboxDispatcher:
@@ -51,7 +53,8 @@ class OutboxDispatcher:
         self._uow_factory = uow_factory
         self._vector_store = vector_store
         self._cache_invalidator = cache_invalidator
-        self._worker_id = f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
+        self._host_prefix = f"{socket.gethostname()}-"
+        self._worker_id = f"{self._host_prefix}{uuid.uuid4().hex[:8]}"
         self._semaphore = asyncio.Semaphore(process_section(JobsSection).outbox_max_concurrent)
 
     async def run_once(self, batch_size: int = 20) -> int:
@@ -76,10 +79,27 @@ class OutboxDispatcher:
 
         return len(batch)
 
-    async def _recover_stuck(self) -> int:
-        """Reset in_progress entries stuck for >5 minutes (crash recovery).
+    async def recover_abandoned(self) -> int:
+        """Requeue entries claimed by an earlier dispatcher process on this host.
 
-        These entries were claimed by a dispatcher that crashed before mark_done/mark_failed.
+        Called once at maintenance startup. One maintenance process runs per host
+        (container), and Docker restarts a killed process in the same container,
+        so an entry locked under this hostname by another worker id belongs to a
+        dead process. Replaying it is safe: every operation is idempotent.
+        """
+        async with self._uow_factory.create(master=True) as uow:
+            result = await uow.vector_outbox.release_abandoned(self._host_prefix, self._worker_id)
+
+        if result:
+            log.warning("Requeued %d outbox entries left by a dead dispatcher on this host", result)
+
+        return result
+
+    async def _recover_stuck(self) -> int:
+        """Reset in_progress entries locked longer than ``stuck_job_timeout_minutes``.
+
+        These entries were claimed by a dispatcher that crashed before mark_done/mark_failed,
+        typically on another host; ``recover_abandoned`` handles this host at startup.
         We reset them to 'pending' so they'll be retried on the next dispatch cycle.
         """
         try:
@@ -252,7 +272,44 @@ class OutboxDispatcher:
                     raise exc
 
     async def apply_current_upsert(self, payload: dict[str, Any], document_id: int) -> None:
-        chunk_ids = [p["chunk_id"] for p in payload["points"]]
+        """Upload the document slice by slice, so only one slice of chunks is in memory."""
+
+        async def _doc_cancelled() -> bool:
+            return not await self._document_exists(document_id)
+
+        uploaded: set[str] = set()
+        points = payload["points"]
+
+        for start in range(0, len(points), _UPSERT_SLICE_SIZE):
+            chunks = await self.current_slice_chunks(points[start : start + _UPSERT_SLICE_SIZE], document_id)
+
+            if not chunks:
+                continue
+
+            if not uploaded:
+                # Ensure collection exists (no-op if it does)
+                await self._vector_store.ensure_collection(
+                    process_section(MLProviderSection).embed_dim, reset=False
+                )
+
+            await self._vector_store.upload_documents(chunks, should_cancel=_doc_cancelled)
+            await self.verify_uploaded_chunks(document_id, chunks)
+            uploaded.update(
+                json.dumps(chunk.metadata.get(PACK_METADATA_KEY), sort_keys=True) for chunk in chunks
+            )
+
+        if not uploaded:
+            return
+
+        # A rename may commit while embeddings are running. Refresh its payload last.
+        await self.refresh_document_filename(document_id)
+        # A pack may have changed the document metadata while embedding was running.
+        # Do not leave the snapshot in this upsert as the final state.
+        await self.project_pack_metadata(document_id, unless_in=uploaded)
+
+    async def current_slice_chunks(self, points: list[dict[str, Any]], document_id: int) -> list[Chunk]:
+        """Build chunks from committed SQL content; drop points whose chunks no longer exist."""
+        chunk_ids = [p["chunk_id"] for p in points]
         current = await self.current_chunks(document_id, chunk_ids)
         obsolete_ids = [chunk_id for chunk_id in chunk_ids if chunk_id not in current]
 
@@ -260,12 +317,7 @@ class OutboxDispatcher:
             # Also clean up on retries after a failed upload-time deletion.
             await self._vector_store.delete_by_ids(obsolete_ids)
 
-        points = [p for p in payload["points"] if p["chunk_id"] in current]
-
-        if not points:
-            return
-
-        chunks = [
+        return [
             Chunk(
                 content=current[p["chunk_id"]].content,
                 embed_text=current[p["chunk_id"]].embed_text,
@@ -277,26 +329,8 @@ class OutboxDispatcher:
                 },
             )
             for p in points
+            if p["chunk_id"] in current
         ]
-
-        async def _doc_cancelled() -> bool:
-            return not await self._document_exists(document_id)
-
-        # Ensure collection exists (no-op if it does)
-        if chunks:
-            await self._vector_store.ensure_collection(
-                process_section(MLProviderSection).embed_dim, reset=False
-            )
-
-        await self._vector_store.upload_documents(chunks, should_cancel=_doc_cancelled)
-        await self.verify_uploaded_chunks(document_id, chunks)
-
-        # A rename may commit while embeddings are running. Refresh its payload last.
-        await self.refresh_document_filename(document_id)
-        # A pack may have changed the document metadata while embedding was running.
-        # Do not leave the snapshot in this upsert as the final state.
-        uploaded = {json.dumps(chunk.metadata.get(PACK_METADATA_KEY), sort_keys=True) for chunk in chunks}
-        await self.project_pack_metadata(document_id, unless_in=uploaded)
 
     async def reconcile_stuck_documents(self) -> int:
         """Find documents stuck in 'indexing' with no pending outbox entries and mark them done.

@@ -37,7 +37,9 @@ from infrastructure.repositories.vector.embedding_identity import ensure_embeddi
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, point_vectors
 
 
-QDRANT_UPSERT_BATCH_SIZE = 500
+# Buffered points carry vectors plus ~10 KB of chunk metadata each; a small
+# buffer bounds peak memory without slowing writes measurably.
+QDRANT_UPSERT_BATCH_SIZE = 64
 
 
 log = logging.getLogger("default")

@@ -116,6 +116,31 @@ class SQLAlchemyVectorOutboxRepository:
 
         return len(orms)
 
+    async def release_abandoned(self, worker_prefix: str, current_worker_id: str) -> int:
+        """Reset in_progress entries locked by a worker id with this prefix, except the current one.
+
+        Unlike ``recover_stuck``, this ignores lock age: the caller knows those workers are dead.
+        """
+        result = await self._db.execute(
+            select(VectorStoreOutboxModel).where(
+                VectorStoreOutboxModel.status == OutboxStatus.IN_PROGRESS.value,
+                VectorStoreOutboxModel.locked_by.startswith(worker_prefix, autoescape=True),
+                VectorStoreOutboxModel.locked_by != current_worker_id,
+            )
+        )
+        orms = result.scalars().all()
+
+        for orm in orms:
+            orm.status = OutboxStatus.PENDING.value
+            orm.locked_by = None
+            orm.locked_at = None
+            orm.last_error = "Recovered after dispatcher process restart"
+
+        if orms:
+            await self._db.flush()
+
+        return len(orms)
+
     async def mark_done(self, entry_id: int) -> None:
         result = await self._db.execute(
             select(VectorStoreOutboxModel).where(VectorStoreOutboxModel.id == entry_id)

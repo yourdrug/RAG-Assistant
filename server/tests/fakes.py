@@ -882,6 +882,7 @@ class FakeVectorOutboxRepository:
         self._entries: dict[int, VectorOutboxEntry] = {}
         self._next_id = 1
         self._notifications: list[dict[str, Any]] = []
+        self.locked_by: dict[int, str] = {}
 
     async def enqueue(self, entry: VectorOutboxEntry) -> VectorOutboxEntry:
         entry.id = self._next_id
@@ -891,7 +892,6 @@ class FakeVectorOutboxRepository:
         return entry
 
     async def claim_batch(self, worker_id: str, limit: int = 20) -> list[VectorOutboxEntry]:
-        del worker_id
         claimed: list[VectorOutboxEntry] = []
 
         for entry in list(self._entries.values()):
@@ -900,9 +900,30 @@ class FakeVectorOutboxRepository:
 
             if entry.status in (OutboxStatus.PENDING, OutboxStatus.FAILED):
                 entry.status = OutboxStatus.IN_PROGRESS
+
+                if entry.id is not None:
+                    self.locked_by[entry.id] = worker_id
+
                 claimed.append(entry)
 
         return claimed
+
+    async def release_abandoned(self, worker_prefix: str, current_worker_id: str) -> int:
+        released = 0
+
+        for entry_id, worker_id in list(self.locked_by.items()):
+            entry = self._entries[entry_id]
+
+            if (
+                entry.status == OutboxStatus.IN_PROGRESS
+                and worker_id.startswith(worker_prefix)
+                and worker_id != current_worker_id
+            ):
+                entry.status = OutboxStatus.PENDING
+                del self.locked_by[entry_id]
+                released += 1
+
+        return released
 
     async def mark_done(self, entry_id: int) -> None:
         if entry_id in self._entries:

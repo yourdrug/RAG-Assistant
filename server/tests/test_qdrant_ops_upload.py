@@ -22,7 +22,7 @@ from qdrant_client import QdrantClient
 
 from config import settings
 from infrastructure.repositories.vector import qdrant_ops
-from infrastructure.repositories.vector.qdrant_ops import upload_to_qdrant
+from infrastructure.repositories.vector.qdrant_ops import QDRANT_UPSERT_BATCH_SIZE, upload_to_qdrant
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 
 
@@ -117,7 +117,7 @@ class TestUploadToQdrantUpsertContract:
     @pytest.mark.asyncio
     async def test_batched_upload_flushes_all_points(self) -> None:
         client = StrictQdrantClient()
-        total = 501  # crosses the 500-point upsert batch boundary
+        total = QDRANT_UPSERT_BATCH_SIZE * 2 + 1  # crosses the upsert batch boundary
 
         await upload_to_qdrant(
             _chunks(total), FakeEmbeddings(), client=MagicMock(spec=QdrantClient, wraps=client)

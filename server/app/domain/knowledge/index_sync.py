@@ -102,6 +102,8 @@ class OutboxDispatcher(Protocol):
 
     async def recover_stuck(self, stuck_timeout_minutes: int = 5) -> int: ...
 
+    async def release_abandoned(self, worker_prefix: str, current_worker_id: str) -> int: ...
+
 
 @runtime_checkable
 class OutboxInspector(Protocol):

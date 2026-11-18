@@ -192,6 +192,8 @@ async def on_startup(ctx: dict[str, Any]) -> None:
         if ctx.get("maintenance"):
             ctx["uow_factory"] = container.infrastructure.db.uow
             ctx["outbox_dispatcher"] = container.infrastructure.events.outbox_dispatcher
+            # A killed predecessor in this container cannot finish its claims.
+            await ctx["outbox_dispatcher"].recover_abandoned()
             outbox_listener = require(
                 container.infrastructure.events.outbox_listener, "maintenance outbox listener"
             )

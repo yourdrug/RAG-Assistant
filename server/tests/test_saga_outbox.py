@@ -843,3 +843,60 @@ async def test_late_rename_uses_current_sql_filename(
     await OutboxDispatcher(fake_uow_factory, mock_vector_store)._apply_one(entry)
     mock_vector_store.update_filename_by_document_id.assert_awaited_once_with(document.id, "latest.pdf")
     mock_vector_store.upload_documents.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_upsert_embeds_and_writes_document_in_bounded_slices(
+    fake_uow_factory: FakeUnitOfWorkFactory,
+    fake_uow: FakeUnitOfWork,
+    mock_vector_store: AsyncMock,
+    fake_outbox: FakeVectorOutboxRepository,
+) -> None:
+    async with fake_uow_factory.create(master=True) as uow:
+        await uow.documents.save(Document(id=1, filename="big.pdf"))
+
+    fake_uow.fake_chunks._chunks = [{"id": chunk_id, "document_id": 1} for chunk_id in range(600)]
+    mock_vector_store.update_filename_by_document_id = AsyncMock()
+    # 999 has been deleted from SQL since the entry was written.
+    points = [
+        {"chunk_id": chunk_id, "page_content": "stale", "metadata": {"document_id": 1}}
+        for chunk_id in [*range(600), 999]
+    ]
+    entry = await fake_outbox.enqueue(VectorOutboxEntry(aggregate_id=1, payload={"points": points}))
+
+    await OutboxDispatcher(fake_uow_factory, mock_vector_store)._apply_one(entry)
+
+    uploaded = [call.args[0] for call in mock_vector_store.upload_documents.await_args_list]
+    assert [len(chunks) for chunks in uploaded] == [256, 256, 88]
+    assert [chunk.metadata["chunk_id"] for chunks in uploaded for chunk in chunks] == list(range(600))
+    mock_vector_store.delete_by_ids.assert_awaited_once_with([999])
+    mock_vector_store.ensure_collection.assert_awaited_once()
+    mock_vector_store.update_filename_by_document_id.assert_awaited_once_with(1, "big.pdf")
+    assert fake_outbox._entries[require_present(entry.id)].status == OutboxStatus.DONE
+
+
+@pytest.mark.asyncio
+async def test_startup_requeues_only_entries_of_dead_processes_on_this_host(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_uow_factory: FakeUnitOfWorkFactory,
+    fake_outbox: FakeVectorOutboxRepository,
+) -> None:
+    monkeypatch.setattr(
+        "infrastructure.repositories.vector.outbox_dispatcher.socket.gethostname", lambda: "box"
+    )
+    dispatcher = OutboxDispatcher(fake_uow_factory, AsyncMock())
+    claims = {"box-deadbeef": 1, dispatcher._worker_id: 2, "other-host-1": 3, "boxer-1": 4}
+
+    for worker_id, document_id in claims.items():
+        await fake_outbox.enqueue(VectorOutboxEntry(aggregate_id=document_id))
+        await fake_outbox.claim_batch(worker_id, limit=1)
+
+    assert await dispatcher.recover_abandoned() == 1
+
+    statuses = {entry.aggregate_id: entry.status for entry in fake_outbox._entries.values()}
+    assert statuses == {
+        1: OutboxStatus.PENDING,
+        2: OutboxStatus.IN_PROGRESS,
+        3: OutboxStatus.IN_PROGRESS,
+        4: OutboxStatus.IN_PROGRESS,
+    }
