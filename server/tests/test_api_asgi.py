@@ -227,13 +227,29 @@ async def test_exact_search_reports_full_total_and_requested_page(asgi_client: h
     row = ChunkRecord(3, 10, "test.txt", "matching needle text", 3)
     service = SimpleNamespace(exact_search=AsyncMock(return_value=([row], 53)))
     app.dependency_overrides[deps.create_search_service] = lambda: service
-    response = await asgi_client.post("/search/exact", json={"query": "needle", "limit": 2, "offset": 2})
+    response = await asgi_client.get(
+        "/search", params={"query": "needle", "mode": "icontains", "limit": 2, "offset": 2}
+    )
     assert response.status_code == 200
     assert response.json()["total"] == 53
     assert response.json()["limit"] == 2
     assert response.json()["offset"] == 2
     assert [row["chunk_id"] for row in response.json()["results"]] == [3]
     assert service.exact_search.call_args.kwargs["offset"] == 2
+    assert service.exact_search.call_args.kwargs["mode"] == "icontains"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("params", [{"mode": "provision"}, {"unknown": "1"}])
+async def test_search_rejects_internal_mode_and_unknown_params(
+    asgi_client: httpx.AsyncClient, params: dict[str, str]
+) -> None:
+    sign_in()
+    service = SimpleNamespace(exact_search=AsyncMock())
+    app.dependency_overrides[deps.create_search_service] = lambda: service
+    response = await asgi_client.get("/search", params={"query": "needle", **params})
+    assert response.status_code == 422
+    service.exact_search.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -242,7 +258,7 @@ async def test_exact_search_rejects_invalid_offset(asgi_client: httpx.AsyncClien
     sign_in()
     service = SimpleNamespace(exact_search=AsyncMock())
     app.dependency_overrides[deps.create_search_service] = lambda: service
-    response = await asgi_client.post("/search/exact", json={"query": "needle", "offset": offset})
+    response = await asgi_client.get("/search", params={"query": "needle", "offset": offset})
     assert response.status_code == 422
     service.exact_search.assert_not_awaited()
 

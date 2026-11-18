@@ -1,4 +1,4 @@
-import { BookOpen, CheckCircle2, FilePlus2, Loader2, Pencil, Plus } from "lucide-react";
+import { BookOpen, CheckCircle2, FilePlus2, Loader2, Pencil } from "lucide-react";
 import { useId, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useCurrentUser } from "@/shared/api/hooks/use-auth";
@@ -6,7 +6,6 @@ import { useChatLog } from "@/shared/api/hooks/use-chat-logs";
 import { useAddChunk, useCreateManualDocument } from "@/shared/api/hooks/use-chunks";
 import { useDocuments, useUploadableClients } from "@/shared/api/hooks/use-documents";
 import { useGroups } from "@/shared/api/hooks/use-groups";
-import { useSpaces } from "@/shared/api/hooks/use-spaces";
 import type { ChatLogEntry, DocumentResponse, DocumentVisibility } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -14,6 +13,7 @@ import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
+import { ChatLogContext } from "./chat-log-context";
 import { KnowledgeChunkEditor } from "./knowledge-chunk-editor";
 
 const visibilityLabels: Record<DocumentVisibility, string> = {
@@ -24,36 +24,11 @@ const visibilityLabels: Record<DocumentVisibility, string> = {
   client_public: "Client Public",
 };
 
-export function ChatLogKnowledge({ entry }: { entry: ChatLogEntry }) {
-  return (
-    <section className="rounded-xl border border-primary/20 bg-primary/5 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-          <div>
-            <h3 className="font-semibold">Close the knowledge gap</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Edit source chunks, add missing information or create a new knowledge note.
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" asChild>
-          <Link to={`/admin/chat-logs/${entry.id}/knowledge`}>
-            <Plus className="mr-2 h-4 w-4" /> Improve knowledge
-          </Link>
-        </Button>
-      </div>
-    </section>
-  );
-}
-
 export function ChatLogKnowledgePage() {
   const { logId } = useParams();
   const logNumber = Number(logId);
   const valid = Number.isSafeInteger(logNumber) && logNumber > 0;
   const log = useChatLog(logNumber, valid);
-  const { data: spaces, isPending: spacesPending } = useSpaces();
-  const space = spaces?.find((space) => space.id === log.data?.entry.space_id);
   return (
     <div className="mx-auto max-w-screen-2xl space-y-6 p-4 sm:p-8">
       <div>
@@ -68,25 +43,7 @@ export function ChatLogKnowledgePage() {
         <p role="status">Loading answer…</p>
       ) : (
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-          <aside className="min-w-0 space-y-4 rounded-xl border bg-card p-5">
-            <Badge variant="secondary" className="max-w-full whitespace-normal break-words">
-              {space?.name ?? (spacesPending ? "Loading space name…" : "Space name unavailable")}
-            </Badge>
-            <h2 className="text-sm font-semibold">Question</h2>
-            <p className="whitespace-pre-wrap break-words">{log.data.entry.question}</p>
-            <h2 className="border-t pt-4 text-sm font-semibold">Original answer</h2>
-            <p className="max-h-80 overflow-auto whitespace-pre-wrap break-words text-sm text-muted-foreground">
-              {log.data.entry.answer || "No answer delivered"}
-            </p>
-            {log.data.entry.feedback?.comment && (
-              <>
-                <h2 className="border-t pt-4 text-sm font-semibold">User feedback</h2>
-                <p className="whitespace-pre-wrap break-words text-sm">
-                  {log.data.entry.feedback.comment}
-                </p>
-              </>
-            )}
-          </aside>
+          <ChatLogContext entry={log.data.entry} />
           <KnowledgeWorkspace key={log.data.entry.id} entry={log.data.entry} />
         </div>
       )}

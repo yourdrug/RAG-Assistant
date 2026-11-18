@@ -34,8 +34,9 @@ from presentation.api.routes.admin_chat_logs import (
     export_chat_logs,
     get_chat_log,
     review_chat_log,
+    transfer_to_benchmark,
 )
-from presentation.api.schemas import ChatLogReviewRequest, CurrentUser
+from presentation.api.schemas import BenchmarkTransferRequest, ChatLogReviewRequest, CurrentUser
 from tests.fakes import FakeUnitOfWork, FakeUnitOfWorkFactory
 
 
@@ -243,6 +244,65 @@ async def test_transfer_rejects_foreign_pack_dataset_and_out_of_scope_entry() ->
         uow.fake_chat_logs.reviews.get(1) is None
         or uow.fake_chat_logs.reviews[1].benchmark_question_id is None
     )
+
+
+@pytest.mark.asyncio
+async def test_transfer_creates_active_question_with_reviewed_reference_fields() -> None:
+    uow, service = await journal()
+    body = BenchmarkTransferRequest(
+        dataset="belarus_law-quick",
+        question="Review this",
+        expected_answer="Contact +375291234567",
+        source_hint="Law C",
+        as_of_date="",
+        annotations={"required_facts": [["Contact +375291234567", "Call the office"]]},
+        tags=["regression", "from-journal", "regression"],
+        notes="Confirmed with +375291234567",
+        is_active=True,
+    )
+    response = await transfer_to_benchmark(1, body, user(ADMIN, UserRole.ADMIN), service, scope([]))
+
+    question = uow.fake_benchmark_questions.created[-1]
+    assert response == {"question_id": question.id, "dataset": "belarus_law-quick", "is_active": True}
+    assert question.expected_answer == "Contact [PHONE]"
+    assert question.source_hint == "Law C"
+    assert question.as_of_date is None
+    assert question.annotations == {"required_facts": [["Contact [PHONE]", "Call the office"]]}
+    assert question.tags == ["from-journal", "regression"]
+    assert question.notes == "chat_log:1\nConfirmed with [PHONE]"
+    assert uow.fake_chat_logs.reviews[1].benchmark_question_id == question.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "expected_answer, annotations, message",
+    [
+        ("  ", None, "An expected answer is required"),
+        ("Reference", {"required_facts": [3]}, "nonempty phrases"),
+    ],
+)
+async def test_transfer_rejects_invalid_active_question_before_creating_it(
+    expected_answer: str, annotations: dict[str, list[int]] | None, message: str
+) -> None:
+    uow, service = await journal()
+
+    with pytest.raises(ValidationError) as error:
+        await service.reviews.transfer(
+            1,
+            BenchmarkTransfer(
+                dataset="belarus_law-main",
+                question="Review this",
+                is_active=True,
+                expected_answer=expected_answer,
+                annotations=annotations,
+            ),
+            ADMIN,
+            None,
+        )
+
+    assert message in str(error.value.as_dict())
+    assert len(uow.fake_benchmark_questions.created) == 1
+    assert 1 not in uow.fake_chat_logs.reviews or uow.fake_chat_logs.reviews[1].benchmark_question_id is None
 
 
 @pytest.mark.asyncio

@@ -16,9 +16,8 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
-import { ChatLogKnowledge } from "./chat-log-knowledge";
 import { FEEDBACK_REASON_LABELS, OUTCOME_LABELS } from "./chat-log-labels";
-import { BenchmarkTransferForm, REVIEW_STATUS_LABELS, ReviewForm } from "./chat-log-review";
+import { REVIEW_STATUS_LABELS, ReviewAction, ReviewForm } from "./chat-log-review";
 import { ChatLogStatsPanel } from "./chat-log-stats";
 import { ChatLogTrace } from "./chat-log-trace";
 
@@ -152,16 +151,8 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
                   )}
                 </div>
               )}
-              <ReviewForm key={log.id} entry={log} />
-              <ChatLogKnowledge entry={log} />
-              {canTransfer ? (
-                <BenchmarkTransferForm entry={log} />
-              ) : (
-                <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  Only administrators can create benchmark questions. Mark this entry as a benchmark
-                  candidate to request a transfer.
-                </p>
-              )}
+              <ReviewForm key={log.id} entry={log} canTransfer={canTransfer} />
+              <ReviewAction entry={log} canTransfer={canTransfer} />
               <details className="rounded-lg border p-4">
                 <summary className="cursor-pointer text-sm font-medium">Technical details</summary>
                 <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-[minmax(180px,1fr)_2fr] [&_dt]:text-muted-foreground [&_dd]:break-words">

@@ -107,8 +107,21 @@ jobs:
           --ignore=tests/integration/test_postgres_transactions.py
           --ignore=tests/integration/test_configuration_corpus_postgres.py
           --cov=domain.knowledge.access_control
-          --cov=infrastructure.ml.answer_cache
-          --cov-report=term-missing --cov-fail-under=85
+          --cov=infrastructure.repositories.vector.acl
+          --cov=infrastructure.ml.cache.keys
+          --cov-report=term-missing:skip-covered --cov-fail-under=85
+
+      - name: Coverage summary
+        # The ACL / answer-cache-key gate as a table on the run page instead of the end of the -v log.
+        if: always()
+        working-directory: server
+        run: |
+          if [ -f .coverage ]; then
+            {
+              echo "### Coverage gate: ACL and answer cache key (min 85%)"
+              uv run coverage report --format=markdown
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   offline-gate:
     # Chunking and BM25 recall of the packs whose corpora are in the repository; no LLM, no network

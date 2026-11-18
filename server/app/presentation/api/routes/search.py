@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.search import SearchService
@@ -22,18 +22,18 @@ logger = logging.getLogger("default")
 router = APIRouter(tags=["search"])
 
 
-@router.post(
-    "/search/exact",
+@router.get(
+    "/search",
     response_model=ExactSearchResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.SEARCH))],
 )
 async def exact_search(
     *,
-    req: ExactSearchRequest,
+    req: Annotated[ExactSearchRequest, Query()],
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     search_service: Annotated[SearchService, Depends(create_search_service)],
 ) -> ExactSearchResponse:
-    """Exact substring search across all indexed chunks (Ctrl+F mode).
+    """Substring search across all indexed chunks (Ctrl+F mode); `mode` selects the strategy.
 
     Uses pg_trgm GIN index for fast ILIKE on millions of chunks.
     Requires min 3 characters for trigram index efficiency.

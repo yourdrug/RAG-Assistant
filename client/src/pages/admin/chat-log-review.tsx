@@ -1,12 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { BookOpen, ClipboardList, Plus } from "lucide-react";
+import { useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  useBenchmarkDraft,
-  useReviewChatLog,
-  useTransferToBenchmark,
-} from "@/shared/api/hooks/use-chat-logs";
-import type { BenchmarkDraft, ChatLogEntry, ReviewStatus } from "@/shared/api/types";
+import { useReviewChatLog } from "@/shared/api/hooks/use-chat-logs";
+import type { ChatLogEntry, ReviewStatus } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
 import { Textarea } from "@/shared/ui/textarea";
@@ -24,15 +21,26 @@ const MANUAL_STATUSES = (Object.keys(REVIEW_STATUS_LABELS) as ReviewStatus[]).fi
   (status) => status !== "in_benchmark",
 );
 
-function apiError(error: unknown): string {
-  const status = (error as { response?: { status?: number } })?.response?.status;
+export function chatLogReviewError(error: unknown): string {
+  const response = (
+    error as {
+      response?: { status?: number; data?: { message?: string; errors?: Record<string, string> } };
+    }
+  )?.response;
+  const status = response?.status;
   if (status === 409) return "This entry has already been transferred to the benchmark.";
-  if (status === 422) return "Check the form fields.";
+  if (status === 422) {
+    const errors = Object.entries(response?.data?.errors ?? {});
+    return errors.length
+      ? errors.map(([field, message]) => `${field}: ${message}`).join(". ")
+      : (response?.data?.message ?? "Check the form fields.");
+  }
   if (status === 403) return "Insufficient permissions.";
   return "Could not save changes.";
 }
 
-export function ReviewForm({ entry }: { entry: ChatLogEntry }) {
+export function ReviewForm({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boolean }) {
+  const statusId = useId();
   const mutation = useReviewChatLog(entry.id);
   const [status, setStatus] = useState<ReviewStatus>(entry.review?.status ?? "new");
   const [note, setNote] = useState(entry.review?.note ?? "");
@@ -45,15 +53,13 @@ export function ReviewForm({ entry }: { entry: ChatLogEntry }) {
     <div className="space-y-4 rounded-xl border bg-muted/20 p-5">
       <div className="space-y-1">
         <p className="font-medium">Review</p>
-        <p className="text-sm text-muted-foreground">
-          Save a triage status and an internal note. Creating a benchmark question is a separate
-          action below.
-        </p>
+        <p className="text-sm text-muted-foreground">Save a triage status and an internal note.</p>
       </div>
       <div className="flex flex-wrap items-end gap-3">
-        <Label className="flex min-w-48 flex-col gap-2">
-          <span>Status</span>
+        <div className="flex min-w-48 flex-col gap-2">
+          <Label htmlFor={statusId}>Status</Label>
           <select
+            id={statusId}
             className="block h-10 rounded-md border border-input bg-background px-3 text-sm"
             disabled={mutation.isPending}
             value={status}
@@ -68,7 +74,7 @@ export function ReviewForm({ entry }: { entry: ChatLogEntry }) {
               </option>
             ))}
           </select>
-        </Label>
+        </div>
         <Button
           variant="outline"
           disabled={mutation.isPending || status === "in_benchmark"}
@@ -87,9 +93,17 @@ export function ReviewForm({ entry }: { entry: ChatLogEntry }) {
       {entry.review?.benchmark_question_id != null && (
         <p className="text-sm">
           Transferred to benchmark question #{entry.review.benchmark_question_id}.
+          {canTransfer && (
+            <>
+              {" "}
+              <Link className="underline underline-offset-2" to="/admin/benchmark?tab=questions">
+                Open benchmark questions
+              </Link>
+            </>
+          )}
         </p>
       )}
-      {mutation.isError && <p role="alert">{apiError(mutation.error)}</p>}
+      {mutation.isError && <p role="alert">{chatLogReviewError(mutation.error)}</p>}
       {mutation.isSuccess && (
         <p role="status" className="text-sm text-emerald-700 dark:text-emerald-300">
           {mutation.data.status === "benchmark_candidate"
@@ -101,136 +115,47 @@ export function ReviewForm({ entry }: { entry: ChatLogEntry }) {
   );
 }
 
-/** ADMIN only: the server also requires the benchmark capability. */
-export function BenchmarkTransferForm({ entry }: { entry: ChatLogEntry }) {
-  const [open, setOpen] = useState(false);
-  const draft = useBenchmarkDraft(entry.id, open);
-  const transfer = useTransferToBenchmark(entry.id);
-  const [form, setForm] = useState<BenchmarkDraft | null>(null);
-  const [dataset, setDataset] = useState("");
+export function ReviewAction({
+  entry,
+  canTransfer,
+}: {
+  entry: ChatLogEntry;
+  canTransfer: boolean;
+}) {
+  const status = entry.review?.status;
+  if (status !== "content_gap" && status !== "benchmark_candidate") return null;
+  if (status === "benchmark_candidate" && entry.review?.benchmark_question_id != null) return null;
 
-  useEffect(() => {
-    if (draft.data) {
-      setForm(draft.data);
-      setDataset(draft.data.datasets[0] ?? "");
-    }
-  }, [draft.data]);
+  const isContentGap = status === "content_gap";
+  const Icon = isContentGap ? BookOpen : ClipboardList;
+  const canOpen = isContentGap || canTransfer;
+  const action = isContentGap ? "Improve knowledge" : "Add to benchmark";
+  const path = isContentGap ? "knowledge" : "benchmark-question";
 
-  if (entry.review?.benchmark_question_id != null)
-    return (
-      <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5">
-        <p className="font-medium">Benchmark question #{entry.review.benchmark_question_id}</p>
-        <p className="text-sm text-muted-foreground">
-          The question has been created. Complete its expected answer and annotations in Benchmark →
-          Questions before activating it.
-        </p>
-        <Button asChild variant="outline">
-          <Link to="/admin/benchmark?tab=questions">Open benchmark questions</Link>
-        </Button>
-      </div>
-    );
-  if (!open) {
-    return (
-      <section className="space-y-3 rounded-xl border border-primary/20 bg-muted/20 p-5">
-        <div className="space-y-1">
-          <h3 className="font-medium">Create a benchmark question</h3>
-          <p className="text-sm text-muted-foreground">
-            Review the question and conversation history, then choose a dataset. The new question
-            starts inactive.
+  return (
+    <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-primary/20 bg-primary/5 p-5">
+      <div className="flex items-start gap-3">
+        <Icon aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+        <div>
+          <h3 className="font-semibold">
+            {isContentGap ? "Close the knowledge gap" : "Create a benchmark question"}
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isContentGap
+              ? "Edit source chunks, add missing information or create a new knowledge note."
+              : canTransfer
+                ? "Review the question and conversation history, then choose a dataset."
+                : "An administrator can create the question from this candidate."}
           </p>
         </div>
-        <Button onClick={() => setOpen(true)}>Add to benchmark</Button>
-      </section>
-    );
-  }
-  return (
-    <div className="space-y-4 rounded-xl border bg-muted/20 p-5">
-      <p className="font-medium">Transfer to benchmark</p>
-      <p role="note" className="text-sm text-amber-600 dark:text-amber-400">
-        Personal data has been automatically redacted. Review the text before adding it to a
-        benchmark dataset, where it will be visible to benchmark administrators.
-      </p>
-      {draft.isLoading && <p>Loading…</p>}
-      {draft.isError && <p role="alert">{apiError(draft.error)}</p>}
-      {form && (
-        <>
-          {form.datasets.length === 0 ? (
-            <p role="alert">This entry has no pack and cannot be transferred.</p>
-          ) : (
-            <Label className="flex flex-col gap-2">
-              <span>Dataset</span>
-              <select
-                className="block h-10 rounded-md border border-input bg-background px-3 text-sm"
-                value={dataset}
-                onChange={(event) => setDataset(event.target.value)}
-              >
-                {form.datasets.map((name) => (
-                  <option key={name}>{name}</option>
-                ))}
-              </select>
-            </Label>
-          )}
-          <Label className="flex flex-col gap-2">
-            <span>Question</span>
-            <Textarea
-              value={form.question}
-              onChange={(event) => setForm({ ...form, question: event.target.value })}
-            />
-          </Label>
-          {form.history.map((turn, index) => (
-            <Label key={index} className="flex flex-col gap-2">
-              <span className="flex items-center justify-between">
-                <span>
-                  History {index + 1}: {turn.role === "user" ? "question" : "answer"}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    setForm({ ...form, history: form.history.filter((_, item) => item !== index) })
-                  }
-                >
-                  Remove
-                </Button>
-              </span>
-              <Textarea
-                value={turn.content}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    history: form.history.map((item, position) =>
-                      position === index ? { ...item, content: event.target.value } : item,
-                    ),
-                  })
-                }
-              />
-            </Label>
-          ))}
-          <p className="text-sm text-muted-foreground">
-            Date: {form.as_of_date ?? "—"} · Sources: {form.source_hint ?? "—"}. The question
-            remains inactive until its expected answer and annotations are complete.
-          </p>
-          <div className="flex gap-2">
-            <Button
-              disabled={transfer.isPending || !dataset || !form.question.trim()}
-              onClick={() =>
-                transfer.mutate({ dataset, question: form.question, history: form.history })
-              }
-            >
-              {transfer.isPending ? "Creating question…" : "Create question"}
-            </Button>
-            <Button variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-          </div>
-          {transfer.isError && <p role="alert">{apiError(transfer.error)}</p>}
-          {transfer.isSuccess && (
-            <p className="text-sm">
-              Created question #{transfer.data.question_id} in dataset {transfer.data.dataset}.
-            </p>
-          )}
-        </>
+      </div>
+      {canOpen && (
+        <Button variant="outline" asChild>
+          <Link to={`/admin/chat-logs/${entry.id}/${path}`}>
+            <Plus aria-hidden="true" /> {action}
+          </Link>
+        </Button>
       )}
-    </div>
+    </section>
   );
 }

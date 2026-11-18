@@ -150,8 +150,11 @@ def parse_args() -> argparse.Namespace:
     if args.pack == "belarus_law":
         defaults.insert(0, ROOT / "benchmarks/chunking")
 
-        if args.baseline is None:
-            args.baseline = ROOT / "docs/quality/artifacts/chunking-baseline-v1.json"
+        default_baseline = ROOT / "docs/quality/artifacts/chunking-baseline-v1.json"
+
+        # The baseline artifact is local (gitignored); a fresh checkout runs without comparison.
+        if args.baseline is None and default_baseline.exists():
+            args.baseline = default_baseline
 
     args.datasets = [path if path.is_absolute() else ROOT / path for path in args.datasets or defaults]
 

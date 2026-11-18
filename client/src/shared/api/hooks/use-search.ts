@@ -27,11 +27,17 @@ export function useExactSearch(
     queryKey: ["search", "exact", { query, mode, limit, offset, documentId, spaceId }],
     queryFn: async ({ signal }) =>
       (
-        await apiClient.post<ExactSearchResponse>(
-          "/search/exact",
-          { query, mode, limit, offset, document_id: documentId, space_id: spaceId ?? undefined },
-          { signal },
-        )
+        await apiClient.get<ExactSearchResponse>("/search", {
+          params: {
+            query,
+            mode,
+            limit,
+            offset,
+            document_id: documentId,
+            space_id: spaceId ?? undefined,
+          },
+          signal,
+        })
       ).data,
     enabled: enabled && query.trim().length >= 3,
   });

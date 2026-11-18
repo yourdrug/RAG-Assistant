@@ -31,7 +31,7 @@ _EXPECTED: dict[tuple[str, str], str] = {
     ("POST", "/ingest/file"): "upload",
     ("POST", "/upload"): "upload",
     # search
-    ("POST", "/search/exact"): "search",
+    ("GET", "/search"): "search",
     # write
     ("POST", "/auth/users"): "write",
     ("PATCH", "/auth/users/{user_id}"): "write",

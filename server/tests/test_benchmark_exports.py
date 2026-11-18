@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock
 
+import click
 from fastapi import FastAPI, HTTPException
 import httpx
 import pytest
@@ -295,7 +296,8 @@ def test_cli_registry_has_explicit_export_and_requires_out() -> None:
     runner = CliRunner()
     response = runner.invoke(cli.cli, ["benchmark", "export", "--help"])
     assert response.exit_code == 0, response.output
-    assert "--out" in response.output
+    # Rich colours option names in CI (GITHUB_ACTIONS), splitting "--out" with ANSI codes.
+    assert "--out" in click.unstyle(response.output)
     assert runner.invoke(cli.cli, ["benchmark", "export", "7"]).exit_code != 0
 
 

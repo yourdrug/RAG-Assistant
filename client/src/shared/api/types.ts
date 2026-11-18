@@ -545,6 +545,19 @@ export interface BenchmarkDraft {
   benchmark_question_id?: number | null;
 }
 
+export interface BenchmarkTransferRequest {
+  dataset: string;
+  question: string;
+  history: BenchmarkDraft["history"];
+  expected_answer: string | null;
+  source_hint: string;
+  as_of_date: string;
+  annotations: Record<string, unknown> | null;
+  tags: string[];
+  notes: string | null;
+  is_active: boolean;
+}
+
 export interface ChatLogGroupStats {
   key: string | number | null;
   total: number;

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import html
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from domain.benchmark.question import BenchmarkQuestion, validate_history
 from domain.chat.message import MessageRole
@@ -40,6 +40,13 @@ class BenchmarkTransfer:
     dataset: str
     question: str
     history: list[dict[str, str]] = field(default_factory=list)
+    expected_answer: str | None = None
+    source_hint: str | None = None
+    as_of_date: date | Literal[""] | None = None
+    annotations: dict[str, Any] | None = None
+    tags: list[str] = field(default_factory=list)
+    notes: str | None = None
+    is_active: bool = False
 
 
 def source_hint(entry: ChatLog) -> str | None:
@@ -65,6 +72,18 @@ class ChatLogReviewService:
 
     def redact(self, text: str) -> str:
         return self.pii_redactor.redact(text) if self.pii_redactor is not None else text
+
+    def redact_annotation_value(self, value: object) -> object:
+        if isinstance(value, str):
+            return self.redact(value)
+
+        if isinstance(value, list):
+            return [self.redact_annotation_value(item) for item in value]
+
+        if isinstance(value, dict):
+            return {key: self.redact_annotation_value(item) for key, item in value.items()}
+
+        return value
 
     async def set_status(
         self,
@@ -109,9 +128,20 @@ class ChatLogReviewService:
             msg = "question must not be empty"
             raise ValidationError(msg, field="question")
 
+        expected_answer = self.redact(body.expected_answer or "").strip()
+
+        if body.is_active and not expected_answer:
+            msg = "An expected answer is required to create an active benchmark question"
+            raise ValidationError(msg, field="expected_answer")
+
         # The form is editable: redact what comes back, not only what was offered.
         history = validate_history(
             [{"role": item["role"], "content": self.redact(item["content"])} for item in body.history]
+        )
+        annotations = (
+            {key: self.redact_annotation_value(value) for key, value in body.annotations.items()}
+            if body.annotations is not None
+            else None
         )
 
         async with self.uow_factory.create(master=True) as uow:
@@ -125,18 +155,22 @@ class ChatLogReviewService:
             review = await uow.chat_logs.lock_review(log_id)
 
             review.ensure_not_transferred()
+            notes = self.redact(body.notes or "").strip()
+            sources = source_hint(entry) if body.source_hint is None else body.source_hint
+            tags = dict.fromkeys([JOURNAL_TAG, *(self.redact(tag).strip() for tag in body.tags)])
             question = await uow.benchmark_questions.create(
                 BenchmarkQuestion(
                     question=question_text,
+                    expected_answer=expected_answer or None,
                     history=history or None,
-                    as_of_date=entry.as_of_date,
-                    source_hint=source_hint(entry),
+                    as_of_date=entry.as_of_date if body.as_of_date is None else body.as_of_date or None,
+                    source_hint=self.redact(sources or "").strip() or None,
+                    annotations=annotations,
                     dataset=body.dataset,
-                    # Inactive until expected_answer and annotations are filled in.
-                    is_active=False,
+                    is_active=body.is_active,
                     created_by=reviewer_id,
-                    tags=[JOURNAL_TAG],
-                    notes=f"chat_log:{log_id}",
+                    tags=[tag for tag in tags if tag],
+                    notes=f"chat_log:{log_id}\n{notes}" if notes else f"chat_log:{log_id}",
                 )
             )
 

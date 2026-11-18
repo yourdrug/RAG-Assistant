@@ -19,10 +19,14 @@ export function PageBreadcrumbs({ canOpenAdmin = false }: { canOpenAdmin?: boole
     const peoplePage = peopleNavItems.find((item) => item.href === pathname);
     if (peoplePage) {
       crumbs.push({ label: "People & Access" }, { label: peoplePage.title });
-    } else if (/^\/admin\/chat-logs\/\d+\/knowledge\/?$/.test(pathname)) {
+    } else if (/^\/admin\/chat-logs\/\d+\/(knowledge|benchmark-question)\/?$/.test(pathname)) {
       crumbs.push(
         { label: "Answer logs", href: "/admin/chat-logs" },
-        { label: "Improve knowledge" },
+        {
+          label: pathname.replace(/\/$/, "").endsWith("/knowledge")
+            ? "Improve knowledge"
+            : "Create a benchmark question",
+        },
       );
     } else if (pathname === "/admin/quality/dry-run") {
       crumbs.push({ label: "Quality", href: "/admin/quality" }, { label: "Dry Run" });

@@ -277,11 +277,18 @@ async def transfer_to_benchmark(
             dataset=body.dataset,
             question=body.question,
             history=[turn.model_dump() for turn in body.history],
+            expected_answer=body.expected_answer,
+            source_hint=body.source_hint,
+            as_of_date=body.as_of_date,
+            annotations=body.annotations,
+            tags=body.tags,
+            notes=body.notes,
+            is_active=body.is_active,
         ),
         current_user.id,
         await visible_user_ids(current_user, assignment_service),
     )
-    return {"question_id": question.id, "dataset": question.dataset}
+    return {"question_id": question.id, "dataset": question.dataset, "is_active": question.is_active}
 
 
 @router.get("/admin/rag-config-snapshots/{config_hash}")

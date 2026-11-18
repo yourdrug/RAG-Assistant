@@ -5,6 +5,7 @@ import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
 import type {
   BenchmarkDraft,
+  BenchmarkTransferRequest,
   ChatLogDetail,
   ChatLogReview,
   ChatLogStats,
@@ -104,13 +105,9 @@ export function useBenchmarkDraft(id: number, enabled: boolean) {
 export function useTransferToBenchmark(id: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (body: {
-      dataset: string;
-      question: string;
-      history: BenchmarkDraft["history"];
-    }) =>
+    mutationFn: async (body: BenchmarkTransferRequest) =>
       (
-        await apiClient.post<{ question_id: number; dataset: string }>(
+        await apiClient.post<{ question_id: number; dataset: string; is_active: boolean }>(
           `/admin/chat-logs/${id}/benchmark-question`,
           body,
         )
@@ -120,7 +117,7 @@ export function useTransferToBenchmark(id: number) {
         createElement(
           "span",
           null,
-          `Benchmark question #${question.question_id} created in ${question.dataset} (inactive). `,
+          `Benchmark question #${question.question_id} created in ${question.dataset} (${question.is_active ? "active" : "inactive"}). `,
           createElement(
             "a",
             {

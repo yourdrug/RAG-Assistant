@@ -23,7 +23,8 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         method = request.method
         status = str(response.status_code)
         container = getattr(request.app.state, "container", None)
-        http_metrics = getattr(getattr(container, "infrastructure", None), "http_metrics", None)
+        services = getattr(getattr(container, "infrastructure", None), "services", None)
+        http_metrics = getattr(services, "http_metrics", None)
 
         if http_metrics is not None:
             http_metrics.inc_requests(handler=handler, method=method, status=status)

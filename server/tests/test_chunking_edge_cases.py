@@ -75,7 +75,9 @@ def test_structured_splitter_disables_legacy_overlap(
     words = [f"word{index:04d}" for index in range(300)]
     source = RawDocument("21.2. " + " ".join(words), {"source": "rules.txt"})
 
-    chunks = LangchainDocumentSplitter(registry, settings).split([source], profile.key)
+    # Character counter: the bge-m3 tokenizer is absent in CI and the char estimate fits one chunk.
+    splitter = LangchainDocumentSplitter(registry, settings, token_counter=SimpleNamespace(count=len))
+    chunks = splitter.split([source], profile.key)
 
     assert len(chunks) > 1
     body_words = re.findall(r"word\d+", " ".join(chunk.page_content for chunk in chunks))

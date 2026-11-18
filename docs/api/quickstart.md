@@ -104,17 +104,17 @@ curl -N --fail-with-body \
 
 ## Точный поиск
 
-`POST /search/exact` ищет текстовое совпадение в доступных пользователю чанках. Запрос
-должен содержать не менее трёх символов; `mode` — `exact` (ранжированный поиск) или
-`icontains` (обычный поиск вхождения). `limit` по умолчанию равен 20 и не может
+`GET /search` ищет текстовое совпадение в доступных пользователю чанках. Параметры
+передаются в query string; `query` должен содержать не менее трёх символов; `mode` —
+`exact` (ранжированный поиск) или `icontains` (обычный поиск вхождения). `limit` по умолчанию равен 20 и не может
 превышать 100; `offset` задаёт смещение страницы.
 
 ```bash
 curl --fail-with-body --silent --show-error \
   -H "Authorization: Bearer $RAG_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"срок вступления в силу","mode":"exact","limit":20,"offset":0}' \
-  "$RAG_API_BASE/search/exact"
+  -G "$RAG_API_BASE/search" \
+  --data-urlencode 'query=срок вступления в силу' \
+  -d mode=exact -d limit=20 -d offset=0
 ```
 
 Ответ содержит `results`, `total`, `limit` и `offset`. Результаты уже ограничены
@@ -183,7 +183,7 @@ curl --fail-with-body --silent --show-error \
 | `422` | Ошибка схемы, неподдерживаемый формат или содержимое файла не соответствует расширению. |
 | `503` | Синхронный чат не может обратиться к LLM; учитывайте `Retry-After`. |
 
-Например, запрос `POST /search/exact` с JSON `{"query":"аб"}` и действительной
+Например, запрос `GET /search?query=аб` и действительной
 аутентификацией возвращает HTTP `422`:
 
 ```json

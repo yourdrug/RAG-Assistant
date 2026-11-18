@@ -53,7 +53,7 @@ export function DateInput({
         disabled={disabled}
         tabIndex={-1}
         aria-hidden="true"
-        className="absolute right-0 bottom-0 h-0 w-0 opacity-0"
+        className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
         onChange={(event) => onValueChange(event.target.value)}
       />
       <button

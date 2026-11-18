@@ -30,10 +30,10 @@ export function SearchPage() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("exact");
   const [search, setSearch] = useState({ query: "", mode: "exact" as SearchMode, offset: 0 });
-  const { data: spaces } = useSpaces();
+  const { data: spaces, isPending: spacesPending, isError: spacesError } = useSpaces();
   const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
   // The search runs in one knowledge space: the chosen one, or the only one.
-  const spaceId = spaceChoice ?? defaultSpaceId(spaces);
+  const spaceId = spaces?.find((space) => space.id === spaceChoice)?.id ?? defaultSpaceId(spaces);
   const isCurrentSearch = search.query === query.trim() && search.mode === mode;
   const hasSearched = isCurrentSearch && search.query.length >= 3 && spaceId != null;
   const exactSearch = useExactSearch({ ...search, spaceId, limit: SEARCH_PAGE_SIZE }, hasSearched);
@@ -82,18 +82,28 @@ export function SearchPage() {
           </div>
 
           {/* Mode toggle */}
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {(spaces?.length ?? 0) > 1 && (
               <Select
                 value={spaceId != null ? String(spaceId) : ""}
-                onValueChange={(v) => setSpaceChoice(Number(v))}
+                onValueChange={(value) => {
+                  setSpaceChoice(Number(value));
+                  setSearch((previous) => ({ ...previous, offset: 0 }));
+                }}
               >
-                <SelectTrigger className="h-8 w-48">
+                <SelectTrigger
+                  aria-label="Knowledge space"
+                  className="h-auto min-h-8 w-full gap-2 whitespace-normal text-left sm:w-64 [&>span]:min-w-0 [&>span]:line-clamp-none [&>span]:wrap-anywhere [&>svg]:shrink-0"
+                >
                   <SelectValue placeholder="Choose a space" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent align="start" className="w-(--radix-select-trigger-width)">
                   {spaces?.map((s) => (
-                    <SelectItem key={s.id} value={String(s.id)}>
+                    <SelectItem
+                      key={s.id}
+                      value={String(s.id)}
+                      className="wrap-anywhere [&>span:last-child]:min-w-0"
+                    >
                       {s.name}
                     </SelectItem>
                   ))}
@@ -195,7 +205,22 @@ export function SearchPage() {
             </nav>
           )}
 
-          {query.trim().length >= 3 && (!hasSearched || exactSearch.isFetching) && (
+          {query.trim().length >= 3 && spaceId == null && (
+            <p
+              role={spacesError && !spaces ? "alert" : "status"}
+              className="text-sm text-muted-foreground py-6"
+            >
+              {spacesPending
+                ? "Loading knowledge spaces…"
+                : spacesError && !spaces
+                  ? "Could not load knowledge spaces."
+                  : spaces?.length
+                    ? "Choose a knowledge space to search."
+                    : "No knowledge spaces are available."}
+            </p>
+          )}
+
+          {hasSearched && exactSearch.isFetching && (
             <p role="status" className="text-sm text-muted-foreground py-6">
               Searching…
             </p>

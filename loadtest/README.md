@@ -149,7 +149,7 @@ loadtest/
 | `login` | IP | 5/мин | `POST /auth/login` |
 | `chat` | user | 10/мин + 100/день | `POST /chat`, `POST /chat/sync` |
 | `upload` | user | 20/час | `POST /documents`, `/ingest`, `/ingest/file`, `/upload` |
-| `search` | user | 60/мин | `POST /search/exact` |
+| `search` | user | 60/мин | `GET /search` |
 | `write` | user | 60/мин | мутации (documents/chunks/groups/curators/api-keys/admin) |
 | `benchmark` | user | 3/час | `POST /benchmark`, benchmark sweep/import/apply |
 

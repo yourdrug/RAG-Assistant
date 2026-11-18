@@ -107,6 +107,13 @@ class BenchmarkTransferRequest(BaseModel):
     dataset: str = Field(min_length=1, max_length=100)
     question: str = Field(min_length=1, max_length=16000)
     history: list[HistoryTurn] = Field(default_factory=list, max_length=100)
+    expected_answer: str | None = Field(default=None, max_length=16000)
+    source_hint: str | None = Field(default=None, max_length=5000)
+    as_of_date: date | Literal[""] | None = None
+    annotations: dict[str, Any] | None = None
+    tags: list[str] = Field(default_factory=list, max_length=100)
+    notes: str | None = Field(default=None, max_length=2000)
+    is_active: bool = False
 
 
 class ChatLogsResponse(BaseModel):
