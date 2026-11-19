@@ -1,7 +1,7 @@
 {
   "label": "offline-gate reference",
   "pack": "belarus_law",
-  "date": "2026-11-17",
+  "date": "2026-11-18",
   "tokenizer": "BAAI/bge-m3",
   "retrieval": "proxy: BM25 (prod tokenizer) / bge-m3 cosine / RRF k=60, no reranker, depth 50",
   "domains": {
@@ -26,7 +26,7 @@
           "questions": 37,
           "recall_at_5": 0.8108,
           "recall_at_10": 0.8378,
-          "mrr": 0.7069,
+          "mrr": 0.7201,
           "misses_at_10": [
             "rag-c-011",
             "rag-c-014",
@@ -42,7 +42,7 @@
           "questions": 37,
           "recall_at_5": 0.8108,
           "recall_at_10": 0.8378,
-          "mrr": 0.7069,
+          "mrr": 0.7201,
           "misses_at_10": [
             "rag-c-011",
             "rag-c-014",
@@ -55,16 +55,16 @@
       }
     },
     "decree": {
-      "chunks": 3500,
-      "avg_tokens": 375.8,
-      "p50_tokens": 368,
-      "p95_tokens": 710,
+      "chunks": 3617,
+      "avg_tokens": 370.7,
+      "p50_tokens": 367,
+      "p95_tokens": 690,
       "max_tokens": 1406,
-      "share_under_50_tokens": 0.0111,
-      "avg_body_tokens": 293.4,
-      "avg_prefix_share": 0.2193,
-      "documents": 8,
-      "chunks_per_document_avg": 437.5,
+      "share_under_50_tokens": 0.0119,
+      "avg_body_tokens": 289.8,
+      "avg_prefix_share": 0.2181,
+      "documents": 9,
+      "chunks_per_document_avg": 401.9,
       "dataset_questions": 50,
       "fragments": 82,
       "fragment_reachability": 1.0,
@@ -74,8 +74,8 @@
         "bm25": {
           "questions": 50,
           "recall_at_5": 0.3533,
-          "recall_at_10": 0.4167,
-          "mrr": 0.2775,
+          "recall_at_10": 0.3967,
+          "mrr": 0.2738,
           "misses_at_10": [
             "rag-0007",
             "rag-0008",
@@ -85,6 +85,7 @@
             "rag-0028",
             "rag-0032",
             "rag-0033",
+            "rag-0035",
             "rag-0045",
             "rag-0046",
             "rag-0047",
@@ -115,8 +116,8 @@
         "bm25": {
           "questions": 50,
           "recall_at_5": 0.3533,
-          "recall_at_10": 0.4367,
-          "mrr": 0.2797,
+          "recall_at_10": 0.4167,
+          "mrr": 0.276,
           "misses_at_10": [
             "rag-0007",
             "rag-0008",
@@ -126,6 +127,7 @@
             "rag-0028",
             "rag-0032",
             "rag-0033",
+            "rag-0035",
             "rag-0045",
             "rag-0046",
             "rag-0047",
@@ -171,19 +173,23 @@
       "body_retrieval": {
         "bm25": {
           "questions": 25,
-          "recall_at_5": 1.0,
-          "recall_at_10": 1.0,
-          "mrr": 0.8867,
-          "misses_at_10": []
+          "recall_at_5": 0.96,
+          "recall_at_10": 0.96,
+          "mrr": 0.876,
+          "misses_at_10": [
+            "chunk-gen-015"
+          ]
         }
       },
       "retrieval": {
         "bm25": {
           "questions": 25,
-          "recall_at_5": 1.0,
-          "recall_at_10": 1.0,
-          "mrr": 0.8867,
-          "misses_at_10": []
+          "recall_at_5": 0.96,
+          "recall_at_10": 0.96,
+          "mrr": 0.876,
+          "misses_at_10": [
+            "chunk-gen-015"
+          ]
         }
       }
     },
@@ -206,9 +212,9 @@
       "body_retrieval": {
         "bm25": {
           "questions": 30,
-          "recall_at_5": 0.8667,
+          "recall_at_5": 0.8833,
           "recall_at_10": 0.9167,
-          "mrr": 0.7663,
+          "mrr": 0.763,
           "misses_at_10": [
             "rag-0038",
             "rag-0048",
@@ -219,9 +225,9 @@
       "retrieval": {
         "bm25": {
           "questions": 30,
-          "recall_at_5": 0.8667,
+          "recall_at_5": 0.8833,
           "recall_at_10": 0.9167,
-          "mrr": 0.7663,
+          "mrr": 0.763,
           "misses_at_10": [
             "rag-0038",
             "rag-0048",
@@ -353,6 +359,18 @@
       "avg_prefix_share": 0.2612
     },
     {
+      "file": "Постановление Министерства финансов Республики Беларусь-любимая инструкция 47.docx",
+      "domain": "decree",
+      "chunks": 117,
+      "avg_tokens": 217.5,
+      "p50_tokens": 180,
+      "p95_tokens": 410,
+      "max_tokens": 548,
+      "share_under_50_tokens": 0.0342,
+      "avg_body_tokens": 183.4,
+      "avg_prefix_share": 0.1567
+    },
+    {
       "file": "Постановление Минфна РБ  от 30.06.2016 N 58 (ред. от 25.08.2025) О формах ТТН и ТН и порядке их заполнения.docx",
       "domain": "decree",
       "chunks": 107,
@@ -445,9 +463,9 @@
     "retrieval": {
       "bm25": {
         "questions": 142,
-        "recall_at_5": 0.6948,
-        "recall_at_10": 0.7418,
-        "mrr": 0.6007,
+        "recall_at_5": 0.6913,
+        "recall_at_10": 0.7277,
+        "mrr": 0.6002,
         "misses_at_10": [
           "rag-c-011",
           "rag-c-014",
@@ -463,6 +481,7 @@
           "rag-0028",
           "rag-0032",
           "rag-0033",
+          "rag-0035",
           "rag-0045",
           "rag-0046",
           "rag-0047",
@@ -485,6 +504,7 @@
           "rag-n-026",
           "rag-n-036",
           "rag-n-037",
+          "chunk-gen-015",
           "rag-0038",
           "rag-0048",
           "rag-0122"

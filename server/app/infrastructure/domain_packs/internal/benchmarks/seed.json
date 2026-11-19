@@ -1,0 +1,11 @@
+{
+  "space": "Внутренний ресурс «Маяк» (бенчмарк)",
+  "documents": {
+    "access-policy.txt": "internal_procedure",
+    "incident-policy.txt": "internal_procedure",
+    "office-notice.txt": "general",
+    "remote-guide.txt": "internal_instruction",
+    "travel-policy.txt": "internal_procedure",
+    "workplace-guide.txt": "internal_instruction"
+  }
+}

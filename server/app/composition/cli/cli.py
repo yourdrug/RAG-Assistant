@@ -12,6 +12,7 @@ from composition.cli.commands.ingest import ingest_app
 from composition.cli.commands.reconcile import reconcile_app
 from composition.cli.commands.reindex import reindex_app
 from composition.cli.commands.runserver import runserver
+from composition.cli.commands.seed import seed_app
 from composition.cli.commands.worker import worker
 
 
@@ -51,6 +52,7 @@ class CLI:
         # Конфигурация
         self.cli.add_typer(config_app, name="config")
         self.cli.add_typer(benchmark_app, name="benchmark")
+        self.cli.add_typer(seed_app, name="seed")
 
     def execute_command(self, args: Sequence[str] | None = None) -> None:
         """Выполнить CLI-команду."""

@@ -20,4 +20,5 @@ SUPPORT_PACK = DomainPack(
         ("support_guide", ("инструкция", "руководство", "настройка", "создание")),
     ),
     benchmark_sets=(BENCHMARKS_DIR / "chunking",),
+    seed_dir=BENCHMARKS_DIR,
 )

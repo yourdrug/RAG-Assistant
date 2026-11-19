@@ -7,7 +7,7 @@ through different source formats:
 - DOCX with numbers typed in the text, nested subclauses and letter subpoints;
 - a two-page PDF with font-size section headings.
 
-    task script SCRIPT=benchmark/build_contract_corpus.py -- --out data/chunking_corpus
+    task script SCRIPT=benchmark/build_contract_corpus.py
 """
 
 from __future__ import annotations
@@ -405,7 +405,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--out", type=Path, default=ROOT / "data/chunking_corpus")
+    parser.add_argument(
+        "--out", type=Path, default=ROOT / "server/app/infrastructure/domain_packs/belarus_law/benchmarks/corpus"
+    )
     out = parser.parse_args().out
     out.mkdir(parents=True, exist_ok=True)
     build_edi_contract(out / EDI_FILE)

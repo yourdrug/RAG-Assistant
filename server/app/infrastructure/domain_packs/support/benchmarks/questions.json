@@ -1,0 +1,2031 @@
+{
+  "format": 1,
+  "questions": [
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-001",
+      "question": "Сколько времени живёт ссылка восстановления пароля и можно ли открыть её повторно?",
+      "expected_answer": "Ссылка сброса пароля действует 20 минут и становится недействительной после первого использования.",
+      "source_hint": "account-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt"
+        ],
+        "required_facts": [
+          "20 минут",
+          "первого использования"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Ссылка сброса пароля действует 20 минут и становится недействительной после первого использования.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-002",
+      "question": "После пяти ошибок входа я поменял пароль. Когда можно повторить вход?",
+      "expected_answer": "После пяти неверных паролей вход блокируется на 15 минут. Сброс пароля не сокращает время блокировки.",
+      "source_hint": "account-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt"
+        ],
+        "required_facts": [
+          "15 минут",
+          "не сокращает"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "После пяти неверных паролей вход блокируется на 15 минут. Сброс пароля не сокращает время блокировки.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-003",
+      "question": "Может ли администратор передать владение пространством новому человеку без приглашения?",
+      "expected_answer": "Передать владение рабочим пространством может только текущий владелец; получатель должен уже состоять в этом пространстве.",
+      "source_hint": "account-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt"
+        ],
+        "required_facts": [
+          "текущий владелец",
+          "состоять"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Передать владение рабочим пространством может только текущий владелец; получатель должен уже состоять в этом пространстве.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-004",
+      "question": "Что делать при потере телефона для второго фактора и какие коды передать поддержке?",
+      "expected_answer": "Если устройство второго фактора потеряно, используйте одноразовый резервный код. Сотрудник поддержки не запрашивает пароль или резервные коды.",
+      "source_hint": "account-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt"
+        ],
+        "required_facts": [
+          "резервный код",
+          "не запрашивает"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Если устройство второго фактора потеряно, используйте одноразовый резервный код. Сотрудник поддержки не запрашивает пароль или резервные коды.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-005",
+      "question": "Сравни пределы выгрузки CSV для учебного и командного тарифов.",
+      "expected_answer": "На тарифе «Учебный» выгрузка CSV содержит не более 500 строк; на тарифе «Командный» — не более 10000 строк.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "500",
+          "10000"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "На тарифе «Учебный» выгрузка CSV содержит не более 500 строк; на тарифе «Командный» — не более 10000 строк.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-006",
+      "question": "Скачивание вчерашнего архива больше недоступно. Какой у него срок и что делать?",
+      "expected_answer": "Ссылка на готовый архив отчётов действует 24 часа. После истечения срока архив нужно сформировать заново.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "24 часа",
+          "заново"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Ссылка на готовый архив отчётов действует 24 часа. После истечения срока архив нужно сформировать заново.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-007",
+      "question": "Кто вправе вернуть удалённый проект и сколько дней на это даётся?",
+      "expected_answer": "Удалённый проект хранится в корзине 30 дней. Восстановить его в этот срок может только владелец пространства.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "30 дней",
+          "владелец"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Удалённый проект хранится в корзине 30 дней. Восстановить его в этот срок может только владелец пространства.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-008",
+      "question": "Кому придёт сообщение о готовности выгрузки и при каком условии?",
+      "expected_answer": "Уведомление о завершении экспорта приходит автору выгрузки по электронной почте, если в профиле включены сервисные уведомления.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "автору",
+          "включены"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Уведомление о завершении экспорта приходит автору выгрузки по электронной почте, если в профиле включены сервисные уведомления.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-009",
+      "question": "Что означает E-409 при повторной отправке и нужно ли заново отправлять файл?",
+      "expected_answer": "Ошибка E-409 означает, что отправка с таким идентификатором уже зарегистрирована. Проверьте статус исходной отправки, не создавая дубликат.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "уже зарегистрирована",
+          "статус"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Ошибка E-409 означает, что отправка с таким идентификатором уже зарегистрирована. Проверьте статус исходной отправки, не создавая дубликат.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-010",
+      "question": "Сколько ждать после E-429 без Retry-After?",
+      "expected_answer": "При ошибке E-429 повторите запрос не раньше срока из заголовка Retry-After; если заголовок отсутствует, подождите 60 секунд.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "60 секунд"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "При ошибке E-429 повторите запрос не раньше срока из заголовка Retry-After; если заголовок отсутствует, подождите 60 секунд.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-011",
+      "question": "Какое окно для замены старого токена после перевыпуска?",
+      "expected_answer": "После перевыпуска токена старый токен действует ещё 10 минут. Новый токен нужно сохранить в интеграции до истечения этого срока.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "10 минут"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "После перевыпуска токена старый токен действует ещё 10 минут. Новый токен нужно сохранить в интеграции до истечения этого срока.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-012",
+      "question": "Какие сведения приложить к заявке о сбое и что исключить?",
+      "expected_answer": "В обращении по сбою укажите код ошибки, время и идентификатор запроса. Не прикладывайте токены, пароли или содержимое личных сообщений.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "код ошибки",
+          "время",
+          "идентификатор",
+          "Не прикладывайте"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "В обращении по сбою укажите код ошибки, время и идентификатор запроса. Не прикладывайте токены, пароли или содержимое личных сообщений.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-013",
+      "question": "Какая роль нужна, чтобы подключить интеграцию?",
+      "expected_answer": "Создать интеграцию может владелец или администратор пространства. Обычному участнику сначала требуется запросить нужную роль.",
+      "source_hint": "connect-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connect-guide.txt"
+        ],
+        "required_facts": [
+          "владелец",
+          "администратор"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Создать интеграцию может владелец или администратор пространства. Обычному участнику сначала требуется запросить нужную роль.",
+            "source": "connect-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_guide"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-014",
+      "question": "В каком порядке проверять новое соединение и включать передачу?",
+      "expected_answer": "Сначала сохраните адрес тестового сервера, затем нажмите «Проверить связь». Включать передачу разрешено только после зелёного статуса проверки.",
+      "source_hint": "connect-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connect-guide.txt"
+        ],
+        "required_facts": [
+          "Сначала",
+          "затем",
+          "зелёного"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Сначала сохраните адрес тестового сервера, затем нажмите «Проверить связь». Включать передачу разрешено только после зелёного статуса проверки.",
+            "source": "connect-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_guide"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-015",
+      "question": "Можно ли повторить отправку без уведомления, если журнал уже показывает доставку?",
+      "expected_answer": "Перед повтором неуспешной отправки проверьте журнал. Если запись имеет статус «Доставлено», повтор запрещён, даже если уведомление ещё не пришло.",
+      "source_hint": "connect-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connect-guide.txt"
+        ],
+        "required_facts": [
+          "повтор запрещён",
+          "Доставлено"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Перед повтором неуспешной отправки проверьте журнал. Если запись имеет статус «Доставлено», повтор запрещён, даже если уведомление ещё не пришло.",
+            "source": "connect-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_guide"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-016",
+      "question": "Чем отличаются действия администратора и участника при настройке каналов?",
+      "expected_answer": "Администратор задаёт доступные каналы уведомлений, а каждый участник самостоятельно включает их в своём профиле.",
+      "source_hint": "notifications-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "notifications-guide.txt"
+        ],
+        "required_facts": [
+          "Администратор",
+          "самостоятельно"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Администратор задаёт доступные каналы уведомлений, а каждый участник самостоятельно включает их в своём профиле.",
+            "source": "notifications-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_guide"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-017",
+      "question": "Придёт ли предупреждение о подозрительном входе во время тихих часов?",
+      "expected_answer": "Тихие часы подавляют обычные уведомления, но не сообщения о подозрительном входе. Часовой пояс берётся из профиля участника.",
+      "source_hint": "notifications-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "notifications-guide.txt"
+        ],
+        "required_facts": [
+          "не сообщения",
+          "профиля"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Тихие часы подавляют обычные уведомления, но не сообщения о подозрительном входе. Часовой пояс берётся из профиля участника.",
+            "source": "notifications-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_guide"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-018",
+      "question": "Кому отправляется тест уведомления и что проверять после пяти минут ожидания?",
+      "expected_answer": "Тестовое уведомление отправляется только текущему участнику. Если оно не пришло за пять минут, проверьте папку нежелательной почты и настройки канала.",
+      "source_hint": "notifications-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "notifications-guide.txt"
+        ],
+        "required_facts": [
+          "текущему участнику",
+          "нежелательной"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Тестовое уведомление отправляется только текущему участнику. Если оно не пришло за пять минут, проверьте папку нежелательной почты и настройки канала.",
+            "source": "notifications-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_guide"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-019",
+      "question": "Когда очищаются демонстрационные данные?",
+      "expected_answer": "Учебный стенд предназначен для демонстраций и автоматически очищается по воскресеньям в 03:00 UTC.",
+      "source_hint": "service-notice.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "service-notice.txt"
+        ],
+        "required_facts": [
+          "воскресеньям",
+          "03:00 UTC"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Учебный стенд предназначен для демонстраций и автоматически очищается по воскресеньям в 03:00 UTC.",
+            "source": "service-notice.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "general"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-020",
+      "question": "Есть ли гарантированный срок исправления на учебном стенде?",
+      "expected_answer": "Обращения по учебному стенду принимаются с понедельника по пятницу с 09:00 до 18:00 UTC. Гарантированное время решения не установлено.",
+      "source_hint": "service-notice.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "service-notice.txt"
+        ],
+        "required_facts": [
+          "не установлено"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Обращения по учебному стенду принимаются с понедельника по пятницу с 09:00 до 18:00 UTC. Гарантированное время решения не установлено.",
+            "source": "service-notice.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "general"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-021",
+      "question": "Какой гарантированный SLA на решение проблем на тарифе «Корпоративный»?",
+      "expected_answer": "В учебных источниках нет SLA и условий тарифа «Корпоративный». Нельзя обещать срок решения.",
+      "annotations": {
+        "answer_type": "not_in_corpus",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "missing-evidence"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-022",
+      "question": "Поддерживает ли «Сфера» вход по отпечатку пальца?",
+      "expected_answer": "Учебные источники не описывают биометрический вход; подтвердить поддержку нельзя.",
+      "annotations": {
+        "answer_type": "not_in_corpus",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "missing-evidence"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-023",
+      "question": "Я перевыпустил токен интеграции. Сколько времени есть на замену и что указать в обращении, если после этого пошли ошибки?",
+      "expected_answer": "Старый токен действует ещё 10 минут — за это время сохраните новый в интеграции. В обращении по сбою укажите код ошибки, время и идентификатор запроса.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "10 минут",
+          "код ошибки",
+          "идентификатор запроса"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "После перевыпуска токена старый токен действует ещё 10 минут.",
+            "source": "connections-faq.txt"
+          },
+          {
+            "text": "В обращении по сбою укажите код ошибки, время и идентификатор запроса.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-024",
+      "question": "Кто в пространстве может восстановить удалённый проект и кто может передать владение пространством?",
+      "expected_answer": "Оба действия доступны только владельцу: удалённый проект в течение 30 дней восстанавливает владелец пространства, а передать владение может только текущий владелец, причём получатель уже должен состоять в пространстве.",
+      "source_hint": "account-faq.txt, export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt",
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "владелец пространства",
+          "текущий владелец"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Восстановить его в этот срок может только владелец пространства.",
+            "source": "export-faq.txt"
+          },
+          {
+            "text": "Передать владение рабочим пространством может только текущий владелец; получатель должен уже состоять в этом пространстве.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-025",
+      "question": "Сколько строк максимум в CSV на учебном тарифе?",
+      "expected_answer": "Не более 500 строк.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "500"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "На тарифе «Учебный» выгрузка CSV содержит не более 500 строк; на тарифе «Командный» — не более 10000 строк.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "question_style": "short",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-026",
+      "question": "Когда разрешено включить передачу данных в новой интеграции?",
+      "expected_answer": "Только после зелёного статуса проверки связи с тестовым сервером.",
+      "source_hint": "connect-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connect-guide.txt"
+        ],
+        "required_facts": [
+          "зелёного статуса"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Включать передачу разрешено только после зелёного статуса проверки.",
+            "source": "connect-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "variant_of": "synthetic-support-014",
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-027",
+      "question": "В какие дни и часы принимаются обращения по учебному стенду?",
+      "expected_answer": "С понедельника по пятницу с 09:00 до 18:00 UTC.",
+      "source_hint": "service-notice.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "service-notice.txt"
+        ],
+        "required_facts": [
+          "понедельника по пятницу",
+          "09:00",
+          "18:00"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Обращения по учебному стенду принимаются с понедельника по пятницу с 09:00 до 18:00 UTC.",
+            "source": "service-notice.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-028",
+      "question": "Сотрудник поддержки просит назвать резервный код, чтобы помочь со входом. Это нормально?",
+      "expected_answer": "Нет. Сотрудник поддержки не запрашивает пароль или резервные коды; не сообщайте их.",
+      "source_hint": "account-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt"
+        ],
+        "required_facts": [
+          "не запрашивает"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Сотрудник поддержки не запрашивает пароль или резервные коды.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "variant_of": "synthetic-support-004",
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-029",
+      "question": "Сколько живёт ссылка на архив отчётов и сколько хранится удалённый проект?",
+      "expected_answer": "Ссылка на готовый архив отчётов действует 24 часа, удалённый проект хранится в корзине 30 дней.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "24 часа",
+          "30 дней"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Ссылка на готовый архив отчётов действует 24 часа.",
+            "source": "export-faq.txt"
+          },
+          {
+            "text": "Удалённый проект хранится в корзине 30 дней.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-030",
+      "question": "Сервер вернул E-429 с заголовком Retry-After. Когда можно повторить запрос?",
+      "expected_answer": "Не раньше срока, указанного в заголовке Retry-After.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "Retry-After"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "При ошибке E-429 повторите запрос не раньше срока из заголовка Retry-After; если заголовок отсутствует, подождите 60 секунд.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "variant_of": "synthetic-support-010",
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-031",
+      "question": "Сколько стоит тариф «Командный» в месяц?",
+      "expected_answer": "В учебных источниках нет цен тарифов; стоимость тарифа «Командный» назвать нельзя.",
+      "annotations": {
+        "answer_type": "not_in_corpus",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "missing-evidence"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-032",
+      "question": "Как настроить интеграцию «Сферы» с 1С?",
+      "expected_answer": "Учебные источники не описывают интеграцию с 1С; есть только общий порядок подключения интеграции.",
+      "annotations": {
+        "answer_type": "not_in_corpus",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "missing-evidence"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-033",
+      "question": "Сколько участников можно добавить в пространство на тарифе «Учебный»?",
+      "expected_answer": "Лимит участников на тарифе «Учебный» в источниках не указан.",
+      "annotations": {
+        "answer_type": "not_in_corpus",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "missing-evidence"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-034",
+      "question": "Посоветуй хороший ноутбук для программирования.",
+      "expected_answer": "Вопрос не относится к поддержке «Сферы».",
+      "annotations": {
+        "answer_type": "out_of_scope",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "out_of_scope"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-035",
+      "question": "Переведи на английский: «ваш запрос принят».",
+      "expected_answer": "Вопрос не относится к поддержке «Сферы».",
+      "annotations": {
+        "answer_type": "out_of_scope",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "out_of_scope"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-036",
+      "question": "Какой сегодня курс евро?",
+      "expected_answer": "Вопрос не относится к поддержке «Сферы».",
+      "annotations": {
+        "answer_type": "out_of_scope",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "out_of_scope"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-037",
+      "question": "А если я пять раз ошибусь с паролем?",
+      "expected_answer": "Вход заблокируется на 15 минут; сброс пароля это время не сокращает.",
+      "source_hint": "account-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt"
+        ],
+        "required_facts": [
+          "15 минут"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "После пяти неверных паролей вход блокируется на 15 минут.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "Сколько живёт ссылка для сброса пароля?"
+        },
+        {
+          "role": "assistant",
+          "content": "Ссылка сброса пароля действует 20 минут и становится недействительной после первого использования."
+        }
+      ],
+      "tags": [
+        "synthetic",
+        "support",
+        "history"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-038",
+      "question": "А на «Командном»?",
+      "expected_answer": "Не более 10000 строк.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "10000"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "На тарифе «Учебный» выгрузка CSV содержит не более 500 строк; на тарифе «Командный» — не более 10000 строк.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "Какой лимит строк в CSV на тарифе «Учебный»?"
+        },
+        {
+          "role": "assistant",
+          "content": "Не более 500 строк."
+        }
+      ],
+      "tags": [
+        "synthetic",
+        "support",
+        "history"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-039",
+      "question": "А что делать при E-429?",
+      "expected_answer": "Повторить запрос не раньше срока из заголовка Retry-After, а если заголовка нет — подождать 60 секунд.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "Retry-After",
+          "60 секунд"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "При ошибке E-429 повторите запрос не раньше срока из заголовка Retry-After; если заголовок отсутствует, подождите 60 секунд.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "Что значит ошибка E-409?"
+        },
+        {
+          "role": "assistant",
+          "content": "Отправка с таким идентификатором уже зарегистрирована; проверьте статус исходной отправки, не создавая дубликат."
+        }
+      ],
+      "tags": [
+        "synthetic",
+        "support",
+        "history"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-040",
+      "question": "Хорошо, роль есть. Что сделать перед включением передачи?",
+      "expected_answer": "Сначала сохранить адрес тестового сервера и нажать «Проверить связь»; включать передачу можно только после зелёного статуса проверки.",
+      "source_hint": "connect-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connect-guide.txt"
+        ],
+        "required_facts": [
+          "тестового сервера",
+          "Проверить связь",
+          "зелёного"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Сначала сохраните адрес тестового сервера, затем нажмите «Проверить связь».",
+            "source": "connect-guide.txt"
+          },
+          {
+            "text": "Включать передачу разрешено только после зелёного статуса проверки.",
+            "source": "connect-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "Кто может создать интеграцию?"
+        },
+        {
+          "role": "assistant",
+          "content": "Владелец или администратор пространства; обычному участнику нужно сначала запросить нужную роль."
+        }
+      ],
+      "tags": [
+        "synthetic",
+        "support",
+        "history"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-main",
+      "case_id": "synthetic-support-041",
+      "question": "А если на нём что-то сломалось — когда ответит поддержка и есть ли гарантированный срок?",
+      "expected_answer": "Обращения по стенду принимаются с понедельника по пятницу с 09:00 до 18:00 UTC; гарантированное время решения не установлено.",
+      "source_hint": "service-notice.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "service-notice.txt"
+        ],
+        "required_facts": [
+          "понедельника по пятницу",
+          "не установлено"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Обращения по учебному стенду принимаются с понедельника по пятницу с 09:00 до 18:00 UTC.",
+            "source": "service-notice.txt"
+          },
+          {
+            "text": "Гарантированное время решения не установлено.",
+            "source": "service-notice.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "Когда очищается учебный стенд?"
+        },
+        {
+          "role": "assistant",
+          "content": "Автоматически по воскресеньям в 03:00 UTC."
+        }
+      ],
+      "tags": [
+        "synthetic",
+        "support",
+        "history"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-001",
+      "question": "Сколько времени живёт ссылка восстановления пароля и можно ли открыть её повторно?",
+      "expected_answer": "Ссылка сброса пароля действует 20 минут и становится недействительной после первого использования.",
+      "source_hint": "account-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt"
+        ],
+        "required_facts": [
+          "20 минут",
+          "первого использования"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Ссылка сброса пароля действует 20 минут и становится недействительной после первого использования.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-003",
+      "question": "Может ли администратор передать владение пространством новому человеку без приглашения?",
+      "expected_answer": "Передать владение рабочим пространством может только текущий владелец; получатель должен уже состоять в этом пространстве.",
+      "source_hint": "account-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt"
+        ],
+        "required_facts": [
+          "текущий владелец",
+          "состоять"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Передать владение рабочим пространством может только текущий владелец; получатель должен уже состоять в этом пространстве.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-005",
+      "question": "Сравни пределы выгрузки CSV для учебного и командного тарифов.",
+      "expected_answer": "На тарифе «Учебный» выгрузка CSV содержит не более 500 строк; на тарифе «Командный» — не более 10000 строк.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "500",
+          "10000"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "На тарифе «Учебный» выгрузка CSV содержит не более 500 строк; на тарифе «Командный» — не более 10000 строк.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-007",
+      "question": "Кто вправе вернуть удалённый проект и сколько дней на это даётся?",
+      "expected_answer": "Удалённый проект хранится в корзине 30 дней. Восстановить его в этот срок может только владелец пространства.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "30 дней",
+          "владелец"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Удалённый проект хранится в корзине 30 дней. Восстановить его в этот срок может только владелец пространства.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-009",
+      "question": "Что означает E-409 при повторной отправке и нужно ли заново отправлять файл?",
+      "expected_answer": "Ошибка E-409 означает, что отправка с таким идентификатором уже зарегистрирована. Проверьте статус исходной отправки, не создавая дубликат.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "уже зарегистрирована",
+          "статус"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Ошибка E-409 означает, что отправка с таким идентификатором уже зарегистрирована. Проверьте статус исходной отправки, не создавая дубликат.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-010",
+      "question": "Сколько ждать после E-429 без Retry-After?",
+      "expected_answer": "При ошибке E-429 повторите запрос не раньше срока из заголовка Retry-After; если заголовок отсутствует, подождите 60 секунд.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "60 секунд"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "При ошибке E-429 повторите запрос не раньше срока из заголовка Retry-After; если заголовок отсутствует, подождите 60 секунд.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-012",
+      "question": "Какие сведения приложить к заявке о сбое и что исключить?",
+      "expected_answer": "В обращении по сбою укажите код ошибки, время и идентификатор запроса. Не прикладывайте токены, пароли или содержимое личных сообщений.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "код ошибки",
+          "время",
+          "идентификатор",
+          "Не прикладывайте"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "В обращении по сбою укажите код ошибки, время и идентификатор запроса. Не прикладывайте токены, пароли или содержимое личных сообщений.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_faq"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-014",
+      "question": "В каком порядке проверять новое соединение и включать передачу?",
+      "expected_answer": "Сначала сохраните адрес тестового сервера, затем нажмите «Проверить связь». Включать передачу разрешено только после зелёного статуса проверки.",
+      "source_hint": "connect-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connect-guide.txt"
+        ],
+        "required_facts": [
+          "Сначала",
+          "затем",
+          "зелёного"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Сначала сохраните адрес тестового сервера, затем нажмите «Проверить связь». Включать передачу разрешено только после зелёного статуса проверки.",
+            "source": "connect-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_guide"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-016",
+      "question": "Чем отличаются действия администратора и участника при настройке каналов?",
+      "expected_answer": "Администратор задаёт доступные каналы уведомлений, а каждый участник самостоятельно включает их в своём профиле.",
+      "source_hint": "notifications-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "notifications-guide.txt"
+        ],
+        "required_facts": [
+          "Администратор",
+          "самостоятельно"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Администратор задаёт доступные каналы уведомлений, а каждый участник самостоятельно включает их в своём профиле.",
+            "source": "notifications-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_guide"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-017",
+      "question": "Придёт ли предупреждение о подозрительном входе во время тихих часов?",
+      "expected_answer": "Тихие часы подавляют обычные уведомления, но не сообщения о подозрительном входе. Часовой пояс берётся из профиля участника.",
+      "source_hint": "notifications-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "notifications-guide.txt"
+        ],
+        "required_facts": [
+          "не сообщения",
+          "профиля"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Тихие часы подавляют обычные уведомления, но не сообщения о подозрительном входе. Часовой пояс берётся из профиля участника.",
+            "source": "notifications-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "support_guide"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-019",
+      "question": "Когда очищаются демонстрационные данные?",
+      "expected_answer": "Учебный стенд предназначен для демонстраций и автоматически очищается по воскресеньям в 03:00 UTC.",
+      "source_hint": "service-notice.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "service-notice.txt"
+        ],
+        "required_facts": [
+          "воскресеньям",
+          "03:00 UTC"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Учебный стенд предназначен для демонстраций и автоматически очищается по воскресеньям в 03:00 UTC.",
+            "source": "service-notice.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "general"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-021",
+      "question": "Какой гарантированный SLA на решение проблем на тарифе «Корпоративный»?",
+      "expected_answer": "В учебных источниках нет SLA и условий тарифа «Корпоративный». Нельзя обещать срок решения.",
+      "annotations": {
+        "answer_type": "not_in_corpus",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "missing-evidence"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-022",
+      "question": "Поддерживает ли «Сфера» вход по отпечатку пальца?",
+      "expected_answer": "Учебные источники не описывают биометрический вход; подтвердить поддержку нельзя.",
+      "annotations": {
+        "answer_type": "not_in_corpus",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "missing-evidence"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-023",
+      "question": "Я перевыпустил токен интеграции. Сколько времени есть на замену и что указать в обращении, если после этого пошли ошибки?",
+      "expected_answer": "Старый токен действует ещё 10 минут — за это время сохраните новый в интеграции. В обращении по сбою укажите код ошибки, время и идентификатор запроса.",
+      "source_hint": "connections-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connections-faq.txt"
+        ],
+        "required_facts": [
+          "10 минут",
+          "код ошибки",
+          "идентификатор запроса"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "После перевыпуска токена старый токен действует ещё 10 минут.",
+            "source": "connections-faq.txt"
+          },
+          {
+            "text": "В обращении по сбою укажите код ошибки, время и идентификатор запроса.",
+            "source": "connections-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-027",
+      "question": "В какие дни и часы принимаются обращения по учебному стенду?",
+      "expected_answer": "С понедельника по пятницу с 09:00 до 18:00 UTC.",
+      "source_hint": "service-notice.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "service-notice.txt"
+        ],
+        "required_facts": [
+          "понедельника по пятницу",
+          "09:00",
+          "18:00"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Обращения по учебному стенду принимаются с понедельника по пятницу с 09:00 до 18:00 UTC.",
+            "source": "service-notice.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-029",
+      "question": "Сколько живёт ссылка на архив отчётов и сколько хранится удалённый проект?",
+      "expected_answer": "Ссылка на готовый архив отчётов действует 24 часа, удалённый проект хранится в корзине 30 дней.",
+      "source_hint": "export-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "export-faq.txt"
+        ],
+        "required_facts": [
+          "24 часа",
+          "30 дней"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Ссылка на готовый архив отчётов действует 24 часа.",
+            "source": "export-faq.txt"
+          },
+          {
+            "text": "Удалённый проект хранится в корзине 30 дней.",
+            "source": "export-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "tags": [
+        "synthetic",
+        "support"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-031",
+      "question": "Сколько стоит тариф «Командный» в месяц?",
+      "expected_answer": "В учебных источниках нет цен тарифов; стоимость тарифа «Командный» назвать нельзя.",
+      "annotations": {
+        "answer_type": "not_in_corpus",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "missing-evidence"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-034",
+      "question": "Посоветуй хороший ноутбук для программирования.",
+      "expected_answer": "Вопрос не относится к поддержке «Сферы».",
+      "annotations": {
+        "answer_type": "out_of_scope",
+        "source_files": [],
+        "review_required": false,
+        "expected_refusal": true,
+        "expected_behavior": "abstain",
+        "expected_fragments": [],
+        "evidence_text_check": "not_provided"
+      },
+      "tags": [
+        "synthetic",
+        "support",
+        "out_of_scope"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-037",
+      "question": "А если я пять раз ошибусь с паролем?",
+      "expected_answer": "Вход заблокируется на 15 минут; сброс пароля это время не сокращает.",
+      "source_hint": "account-faq.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "account-faq.txt"
+        ],
+        "required_facts": [
+          "15 минут"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "После пяти неверных паролей вход блокируется на 15 минут.",
+            "source": "account-faq.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "Сколько живёт ссылка для сброса пароля?"
+        },
+        {
+          "role": "assistant",
+          "content": "Ссылка сброса пароля действует 20 минут и становится недействительной после первого использования."
+        }
+      ],
+      "tags": [
+        "synthetic",
+        "support",
+        "history"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    },
+    {
+      "dataset": "support-quick",
+      "case_id": "synthetic-support-040",
+      "question": "Хорошо, роль есть. Что сделать перед включением передачи?",
+      "expected_answer": "Сначала сохранить адрес тестового сервера и нажать «Проверить связь»; включать передачу можно только после зелёного статуса проверки.",
+      "source_hint": "connect-guide.txt",
+      "annotations": {
+        "answer_type": "factual",
+        "source_files": [
+          "connect-guide.txt"
+        ],
+        "required_facts": [
+          "тестового сервера",
+          "Проверить связь",
+          "зелёного"
+        ],
+        "review_required": false,
+        "expected_refusal": false,
+        "expected_behavior": "answer",
+        "expected_fragments": [
+          {
+            "text": "Сначала сохраните адрес тестового сервера, затем нажмите «Проверить связь».",
+            "source": "connect-guide.txt"
+          },
+          {
+            "text": "Включать передачу разрешено только после зелёного статуса проверки.",
+            "source": "connect-guide.txt"
+          }
+        ],
+        "evidence_text_check": "matched"
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "Кто может создать интеграцию?"
+        },
+        {
+          "role": "assistant",
+          "content": "Владелец или администратор пространства; обычному участнику нужно сначала запросить нужную роль."
+        }
+      ],
+      "tags": [
+        "synthetic",
+        "support",
+        "history"
+      ],
+      "question_style": "natural",
+      "is_active": true
+    }
+  ]
+}

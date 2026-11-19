@@ -1655,6 +1655,16 @@ class FakeKnowledgeSpaceRepository:
         documents = self.documents._documents.values() if self.documents is not None else ()
         return any(document.space_id == space_id for document in documents)
 
+    async def document_status_counts(self, space_id: int) -> dict[str, int]:
+        documents = self.documents._documents.values() if self.documents is not None else ()
+        counts: dict[str, int] = {}
+
+        for document in documents:
+            if document.space_id == space_id:
+                counts[str(document.status)] = counts.get(str(document.status), 0) + 1
+
+        return counts
+
 
 UPLOADERS_GROUP_ID = 900
 

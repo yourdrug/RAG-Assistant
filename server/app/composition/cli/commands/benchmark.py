@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import typer
 
@@ -15,13 +15,17 @@ from application.benchmark import (
     BenchmarkQualityService,
     BenchmarkResultService,
 )
+from application.benchmark.dataset import load_benchmark_questions
 from application.benchmark.dto import RegressionCheckOutput
+from application.benchmark.identity import fingerprint
+from application.benchmark.quality import dataset_pack, dataset_space
 from application.benchmark.services import BenchmarkQuestionService
 from application.jobs.principal import job_principal
 from application.jobs.service import JobService
+from application.spaces.readiness import corpus_readiness
 from application.spaces.resolution import default_space_ref
 from composition.cli.commands.ingest import run_with_infrastructure
-from composition.domain_packs import PACK_REGISTRATIONS
+from composition.domain_packs import PACK_REGISTRATIONS, selected_pack
 from composition.infrastructure import InfrastructureContainer
 from config import LLMSection, RetrievalSection, process_section
 from domain.benchmark.policy import GateStatus
@@ -30,10 +34,15 @@ from domain.shared.exceptions import EntityNotFoundError, ValidationError
 from infrastructure.benchmark.chunk_documents import UowBenchmarkChunkDocuments
 from infrastructure.benchmark.reporting.benchmark_history_adapter import BenchmarkHistoryAdapter
 from infrastructure.benchmark.reporting.legacy_import import load_legacy_runs
+from infrastructure.benchmark.seed import load_pack_seed, read_questions
 from infrastructure.database.database import database
 from infrastructure.uow_factory import UnitOfWorkFactory
 from infrastructure.utils.async_tasks import run_sync_io
 from infrastructure.worker.queue import close_arq_pool, enqueue_benchmark
+
+
+if TYPE_CHECKING:
+    from domain.knowledge.space import SpaceRef
 
 
 logger = logging.getLogger(__name__)
@@ -52,36 +61,83 @@ SUMMARY_KEYS = (
 )
 
 
+async def run_space(infra: InfrastructureContainer, dataset: str, space_id: int | None) -> SpaceRef:
+    """The explicit space, else the only space of the dataset's pack (`<pack>-<purpose>`)."""
+    if space_id is None and dataset_pack(dataset) is None:
+        return await default_space_ref(infra.db.uow)
+
+    async with infra.db.uow.create() as uow:
+        return await dataset_space(uow, dataset, space_id)
+
+
+async def require_ready_corpus(infra: InfrastructureContainer, space_ids: set[int]) -> None:
+    """Chunks reach the vector store through the outbox; a run before that searches a partial corpus."""
+    for space_id in sorted(space_ids):
+        readiness = await corpus_readiness(infra.db.uow, space_id)
+
+        if not readiness.ready:
+            message = (
+                f"Corpus is not searchable yet ({readiness.describe()}); wait for indexing "
+                "(`task seed` waits by default), fix failed documents, or pass --allow-unready"
+            )
+            raise ValueError(message)
+
+
 async def enqueue_runs(
     infra: InfrastructureContainer,
     datasets: list[str],
     top_k: int | None,
     judge_model: str | None,
     space_id: int | None = None,
+    *,
+    require_ready: bool = True,
 ) -> dict[str, int]:
-    """Create one durable benchmark job per dataset and hand it to the worker, like POST /benchmark."""
+    """Create one durable benchmark job per dataset and hand it to the worker, like POST /benchmark.
+
+    Each job carries the hash of the questions seen here; the worker refuses to run another set.
+    """
     selected = datasets or await BenchmarkQuestionService(infra.db.uow).list_datasets()
 
     if not selected:
         msg = "No benchmark datasets in the database; import questions in Admin -> Benchmark first"
         raise ValueError(msg)
 
-    space = await default_space_ref(infra.db.uow, space_id)
     k = top_k or process_section(RetrievalSection).retriever_top_k
     judge = judge_model or process_section(LLMSection).llm_model
     jobs = JobService(infra.db.uow)
     job_ids: dict[str, int] = {}
 
+    # Resolve every space before queueing, so a bad dataset does not leave a partial batch.
+    spaces = {dataset: await run_space(infra, dataset, space_id) for dataset in selected}
+
+    if require_ready:
+        await require_ready_corpus(infra, {space.id for space in spaces.values()})
+
+    hashes = {
+        dataset: fingerprint(await load_benchmark_questions(infra.db.uow, dataset)) for dataset in selected
+    }
+
     try:
         for dataset in selected:
+            space = spaces[dataset]
+            payload = {
+                "dataset": dataset,
+                "top_k": k,
+                "judge_model": judge,
+                "space_id": space.id,
+                "dataset_hash": hashes[dataset],
+            }
             job_id = await jobs.create_job(
-                JobType.BENCHMARK,
-                cost_principal=job_principal.get(),
-                dispatch_payload={"dataset": dataset, "top_k": k, "judge_model": judge, "space_id": space.id},
+                JobType.BENCHMARK, cost_principal=job_principal.get(), dispatch_payload=payload
             )
             try:
                 await enqueue_benchmark(
-                    dataset=dataset, top_k=k, judge_model=judge, job_id=job_id, space_id=space.id
+                    dataset=dataset,
+                    top_k=k,
+                    judge_model=judge,
+                    job_id=job_id,
+                    space_id=space.id,
+                    dataset_hash=hashes[dataset],
                 )
             except Exception:  # noqa: BLE001 — committed work remains available to the relay
                 logger.warning("Benchmark delivery deferred: job_id=%d", job_id)
@@ -124,6 +180,28 @@ async def wait_for_runs(infra: InfrastructureContainer, job_ids: dict[str, int])
     return succeeded
 
 
+async def require_synced_questions(infra: InfrastructureContainer, datasets: list[str]) -> None:
+    """A run must be reproducible from git: its packs' questions must match the committed snapshot."""
+    service = BenchmarkQuestionService(infra.db.uow)
+    selected = datasets or await service.list_datasets()
+    packs = sorted({pack for dataset in selected if (pack := dataset_pack(dataset)) in PACK_REGISTRATIONS})
+
+    for pack in packs:
+        seed = load_pack_seed(selected_pack(pack))
+
+        if seed is None:
+            continue
+
+        snapshot = await run_sync_io(read_questions, seed.questions_path)
+
+        if not (await service.plan_sync(snapshot, seed.dataset_prefix)).in_sync:
+            message = (
+                f"Questions of pack {pack} differ from {seed.questions_path.name}; run `task seed:check`, "
+                "then `task seed:export` or `task seed`, or pass --allow-unsynced"
+            )
+            raise ValueError(message)
+
+
 @benchmark_app.command("run")
 def benchmark_run(
     *,
@@ -136,17 +214,33 @@ def benchmark_run(
     ] = None,
     space_id: Annotated[int | None, typer.Option("--space-id", min=1)] = None,
     wait: Annotated[bool, typer.Option("--wait/--no-wait", help="Wait for the worker to finish")] = True,
+    allow_unsynced: Annotated[
+        bool,
+        typer.Option(
+            "--allow-unsynced", help="Run although database questions differ from the committed seed"
+        ),
+    ] = False,
+    allow_unready: Annotated[
+        bool,
+        typer.Option("--allow-unready", help="Run although documents of the space are not indexed yet"),
+    ] = False,
 ) -> None:
     """Queue benchmark runs for the worker (same path as Admin -> Benchmark)."""
 
     async def run_action(infra: InfrastructureContainer) -> bool:
         job_principal.set("system:benchmark-cli")
-        job_ids = await enqueue_runs(infra, datasets or [], top_k, judge_model, space_id)
+
+        if not allow_unsynced:
+            await require_synced_questions(infra, datasets or [])
+
+        job_ids = await enqueue_runs(
+            infra, datasets or [], top_k, judge_model, space_id, require_ready=not allow_unready
+        )
         return await wait_for_runs(infra, job_ids) if wait else True
 
     try:
         succeeded = asyncio.run(run_with_infrastructure(run_action))
-    except ValueError as exc:
+    except (ValueError, ValidationError, EntityNotFoundError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 

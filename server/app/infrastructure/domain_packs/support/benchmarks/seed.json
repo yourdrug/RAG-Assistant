@@ -1,0 +1,11 @@
+{
+  "space": "Техподдержка «Сфера» (бенчмарк)",
+  "documents": {
+    "account-faq.txt": "support_faq",
+    "connect-guide.txt": "support_guide",
+    "connections-faq.txt": "support_faq",
+    "export-faq.txt": "support_faq",
+    "notifications-guide.txt": "support_guide",
+    "service-notice.txt": "general"
+  }
+}

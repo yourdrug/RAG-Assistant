@@ -8,12 +8,18 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from domain.shared.exceptions import ValidationError
 
 
 if TYPE_CHECKING:
     from datetime import date
+
+
+def new_case_id() -> str:
+    """Stable identity of a question across installations; its text may be edited later."""
+    return f"q-{uuid4().hex[:12]}"
 
 
 # `<pack>-<purpose>`: the acceptance set of the default pack.

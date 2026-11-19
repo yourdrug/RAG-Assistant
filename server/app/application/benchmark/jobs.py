@@ -9,6 +9,7 @@ from application.benchmark.dataset import load_benchmark_questions
 from application.benchmark.identity import fingerprint
 from application.spaces.resolution import default_space_ref
 from domain.benchmark.run import BenchmarkRun
+from domain.shared.exceptions import BusinessRuleViolationError
 
 
 if TYPE_CHECKING:
@@ -40,7 +41,14 @@ class BenchmarkJobService:
         self.corpus_scope = corpus_scope
 
     async def run(
-        self, *, dataset: str, top_k: int, judge_model: str, job_id: int, space_id: int | None = None
+        self,
+        *,
+        dataset: str,
+        top_k: int,
+        judge_model: str,
+        job_id: int,
+        space_id: int | None = None,
+        expected_dataset_hash: str | None = None,
     ) -> None:
         service = self.results
         existing = await service.get_job_result(job_id)
@@ -49,6 +57,13 @@ class BenchmarkJobService:
             space = await default_space_ref(self.uow_factory, space_id)
             async with self.corpus_scope() as metadata:
                 questions = await load_benchmark_questions(self.uow_factory, dataset)
+                dataset_hash = fingerprint(questions)
+
+                if expected_dataset_hash is not None and dataset_hash != expected_dataset_hash:
+                    # Edited after the run was queued: the result would not match what was checked.
+                    message = f"Questions of dataset {dataset} changed after the run was queued"
+                    raise BusinessRuleViolationError(message)
+
                 summary = await self.benchmark.run(
                     questions=questions,
                     top_k=top_k,
@@ -62,7 +77,7 @@ class BenchmarkJobService:
                             "top_k": top_k,
                             "judge_model": judge_model,
                             "evaluation_mode": "full",
-                            "dataset_hash": fingerprint(questions),
+                            "dataset_hash": dataset_hash,
                             **metadata,
                             "space_id": space.id,
                             "pack_key": space.pack_key,

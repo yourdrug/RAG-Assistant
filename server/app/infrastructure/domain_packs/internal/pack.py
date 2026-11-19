@@ -23,4 +23,5 @@ INTERNAL_PACK = DomainPack(
         ("internal_instruction", ("инструкция", "руководство", "памятка")),
     ),
     benchmark_sets=(BENCHMARKS_DIR / "chunking",),
+    seed_dir=BENCHMARKS_DIR,
 )

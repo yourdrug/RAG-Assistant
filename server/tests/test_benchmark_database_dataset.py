@@ -17,11 +17,13 @@ from application.benchmark import (
     BenchmarkService,
     load_benchmark_questions,
 )
+from application.benchmark.identity import fingerprint
 from application.benchmark.jobs import BenchmarkJobService
 from composition.service_providers import build_sweep_engine
 from domain.benchmark.question import DEFAULT_DATASET, BenchmarkQuestion
 from domain.benchmark.run import BenchmarkRun
 from domain.benchmark.sweep import BenchmarkSweep
+from domain.shared.exceptions import BusinessRuleViolationError
 from infrastructure.benchmark.corpus import benchmark_scope
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
@@ -256,3 +258,46 @@ async def test_dataset_catalog_uses_repository_without_question_pagination() -> 
     repo.get_datasets.assert_awaited_once_with()
     repo.list_active.assert_not_awaited()
     uow.__aexit__.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unchanged", [True, False])
+async def test_job_refuses_questions_changed_after_it_was_queued(*, unchanged: bool) -> None:
+    factory, _, _ = dataset_factory([BenchmarkQuestion(id=72, question="Database case")])
+    run = AsyncMock(return_value=[])
+    benchmark = BenchmarkService(rag_service=cast("ChatRAGPort", object()), runner=SimpleNamespace(run=run))
+    service = BenchmarkJobService(
+        factory,
+        benchmark,
+        BenchmarkResultService(factory),
+        AsyncMock(),
+        partial(benchmark_scope, None),
+    )
+    queued = await load_benchmark_questions(factory, "custom")
+    expected = fingerprint(queued) if unchanged else fingerprint([*queued, {"id": 73}])
+
+    async def execute() -> None:
+        await service.run(
+            dataset="custom", top_k=7, judge_model="judge", job_id=8, expected_dataset_hash=expected
+        )
+
+    if unchanged:
+        await execute()
+        run.assert_awaited_once()
+    else:
+        with pytest.raises(BusinessRuleViolationError, match="changed after the run was queued"):
+            await execute()
+        run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_queue_pins_dataset_hash_only_when_given(monkeypatch: pytest.MonkeyPatch) -> None:
+    enqueue = AsyncMock()
+    monkeypatch.setattr(queue, "enqueue_arq", enqueue)
+
+    await queue.enqueue_benchmark(dataset="d", top_k=7, judge_model="j", job_id=1)
+    await queue.enqueue_benchmark(dataset="d", top_k=7, judge_model="j", job_id=2, dataset_hash="h")
+
+    first, second = enqueue.await_args_list
+    assert "dataset_hash" not in first.kwargs
+    assert second.kwargs["dataset_hash"] == "h"

@@ -11,6 +11,8 @@ repos:
     rev: v5.0.0  # обновите: uv run --frozen --project server --group development --group testing pre-commit autoupdate
     hooks:
       - id: check-added-large-files
+        # Benchmark seed: corpus documents and question snapshots are committed on purpose.
+        exclude: ^server/app/infrastructure/domain_packs/[^/]+/benchmarks/(corpus/|questions\.json$)
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
@@ -62,6 +64,16 @@ repos:
         types: [python]
         files: ^server/
         pass_filenames: false
+
+      # Предупреждение (не блокирует): вопросы benchmark в БД запущенного стенда разошлись
+      # с questions.json пакетов. Без поднятого стека пропускается.
+      - id: benchmark-seed-check
+        name: benchmark seed snapshot
+        entry: scripts/benchmark/seed_check_hook.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: true
 
       # Тяжёлые проверки только перед push.
       - id: pytest

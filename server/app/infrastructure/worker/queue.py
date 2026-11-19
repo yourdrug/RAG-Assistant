@@ -187,8 +187,10 @@ async def enqueue_benchmark(
     judge_model: str,
     job_id: int,
     space_id: int | None = None,
+    dataset_hash: str | None = None,
 ) -> None:
     """Enqueue benchmark run via Arq (deduplicated per parameters)."""
+    pinned = {} if dataset_hash is None else {"dataset_hash": dataset_hash}
     await enqueue_arq(
         TASKS[JobType.BENCHMARK].queue,
         TASKS[JobType.BENCHMARK].name,
@@ -198,6 +200,7 @@ async def enqueue_benchmark(
         top_k=top_k,
         judge_model=judge_model,
         job_id=job_id,
+        **pinned,
     )
 
 

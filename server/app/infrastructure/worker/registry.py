@@ -69,6 +69,8 @@ class BenchmarkPayload(Payload):
     top_k: PositiveInt
     judge_model: str
     out_dir: str | None = None
+    # Hash of the questions at enqueue time; the worker refuses a different set.
+    dataset_hash: str | None = None
 
 
 class SweepPayload(Payload):

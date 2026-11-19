@@ -167,6 +167,7 @@ class ChatLogReviewService:
                     source_hint=self.redact(sources or "").strip() or None,
                     annotations=annotations,
                     dataset=body.dataset,
+                    case_id=f"chat-log-{log_id}",
                     is_active=body.is_active,
                     created_by=reviewer_id,
                     tags=[tag for tag in tags if tag],

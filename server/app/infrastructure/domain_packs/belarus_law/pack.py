@@ -22,5 +22,6 @@ BELARUS_LAW_PACK = DomainPack(
     evidence_profile=BelarusEvidenceProfile(),
     doc_type_keywords=DOC_TYPE_KEYWORDS,
     benchmark_sets=(BENCHMARKS_DIR / "chunking",),
+    seed_dir=BENCHMARKS_DIR,
     repositories=sql_act_repositories,
 )

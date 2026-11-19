@@ -10,7 +10,8 @@ from application.benchmark.dto import (
     ApplyConfigResult,
 )
 from application.spaces.resolution import resolve_space
-from domain.benchmark.question import BenchmarkQuestion, validate_annotations
+from domain.benchmark.question import BenchmarkQuestion, new_case_id, validate_annotations
+from domain.benchmark.question_snapshot import in_snapshot_scope, plan_question_sync, question_key
 from domain.benchmark.sweep import (
     BenchmarkStrategy,
     BenchmarkSweep,
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
         SweepCreateDTO,
     )
     from application.uow import UnitOfWork, UnitOfWorkFactory
+    from domain.benchmark.question_snapshot import QuestionSyncPlan
     from domain.benchmark.run import BenchmarkRun
 
 
@@ -90,7 +92,7 @@ class BenchmarkQuestionService:
             expected_answer=body.expected_answer,
             source_hint=body.source_hint,
             annotations=body.annotations,
-            case_id=body.case_id,
+            case_id=body.case_id or new_case_id(),
             variant_of=body.variant_of,
             question_style=body.question_style,
             history=body.history,
@@ -134,7 +136,7 @@ class BenchmarkQuestionService:
                 expected_answer=q.expected_answer,
                 source_hint=q.source_hint,
                 annotations=q.annotations,
-                case_id=q.case_id,
+                case_id=q.case_id or new_case_id(),
                 variant_of=q.variant_of,
                 question_style=q.question_style,
                 history=q.history,
@@ -152,6 +154,47 @@ class BenchmarkQuestionService:
     async def export(self, dataset: str | None = None) -> builtins.list[BenchmarkQuestion]:
         async with self._uow_factory.create() as uow:
             return await uow.benchmark_questions.list_items(dataset=dataset, limit=QUESTION_EXPORT_LIMIT)
+
+    async def snapshot(self, dataset_prefix: str) -> builtins.list[BenchmarkQuestion]:
+        """Stored questions of the datasets `<pack>-*`, in a stable order for a committed file."""
+        async with self._uow_factory.create() as uow:
+            questions = await self.scoped(uow, dataset_prefix)
+        return sorted(questions, key=question_key)
+
+    async def plan_sync(self, snapshot: Sequence[BenchmarkQuestion], dataset_prefix: str) -> QuestionSyncPlan:
+        async with self._uow_factory.create() as uow:
+            return plan_question_sync(snapshot, await self.scoped(uow, dataset_prefix))
+
+    async def apply_sync(
+        self, snapshot: Sequence[BenchmarkQuestion], dataset_prefix: str
+    ) -> QuestionSyncPlan:
+        """Create and update stored questions from the snapshot in one transaction; never delete."""
+        outside = sorted({q.dataset for q in snapshot if not in_snapshot_scope(q, dataset_prefix)})
+
+        if outside:
+            message = f"Snapshot datasets outside {dataset_prefix}*: {', '.join(outside)}"
+            raise ValidationError(message)
+
+        async with self._uow_factory.create(master=True) as uow:
+            plan = plan_question_sync(snapshot, await self.scoped(uow, dataset_prefix))
+
+            if plan.create:
+                await uow.benchmark_questions.bulk_create([*plan.create])
+
+            for item in plan.update:
+                await uow.benchmark_questions.update(item.question_id, **item.changes)
+
+        return plan
+
+    @staticmethod
+    async def scoped(uow: UnitOfWork, dataset_prefix: str) -> builtins.list[BenchmarkQuestion]:
+        stored = await uow.benchmark_questions.list_items(limit=QUESTION_EXPORT_LIMIT)
+
+        if len(stored) >= QUESTION_EXPORT_LIMIT:
+            message = f"More than {QUESTION_EXPORT_LIMIT} benchmark questions; snapshot would be partial"
+            raise BusinessRuleViolationError(message)
+
+        return [question for question in stored if in_snapshot_scope(question, dataset_prefix)]
 
 
 class BenchmarkSweepService:

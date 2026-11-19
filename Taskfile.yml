@@ -224,6 +224,21 @@ tasks:
     cmds:
       - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli benchmark reachability {{.CLI_ARGS}}'"
 
+  seed:
+    desc: "Наполнить стенд benchmark-данными всех пакетов: пространства, корпуса (загрузка и индексация), вопросы из questions.json; повторный запуск безопасен; task seed -- --pack support"
+    cmds:
+      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m composition.cli seed run {{.CLI_ARGS}}'"
+
+  seed:export:
+    desc: "Сохранить вопросы из БД (наборы <pack>-*) в questions.json пакетов, чтобы закоммитить"
+    cmds:
+      - "{{.COMPOSE}} exec --user \"$(id -u):$(id -g)\" server bash -c 'cd app && python -m composition.cli seed export {{.CLI_ARGS}}'"
+
+  seed:check:
+    desc: "Сравнить вопросы в БД с questions.json пакетов; exit 1 — расходятся"
+    cmds:
+      - "{{.COMPOSE}} exec --user \"$(id -u):$(id -g)\" server bash -c 'cd app && python -m composition.cli seed check {{.CLI_ARGS}}'"
+
   bench:history:
     desc: Показать историю последних 10 runs бенчмарка
     cmds:
@@ -363,7 +378,7 @@ tasks:
       - 'uv run python ../scripts/benchmark/chunking_report.py {{.CLI_ARGS}}'
 
   quality:offline-gate:
-    desc: "Офлайн-гейт PR (без LLM): chunking + BM25 всех пакетов против эталонов; PACKS=\"support internal\" — только корпуса из репозитория"
+    desc: "Офлайн-гейт PR (без LLM): chunking + BM25 корпусов всех пакетов против эталонов; PACKS=\"support\" — выбранные пакеты"
     dir: server
     vars:
       PACKS: '{{.PACKS | default "support internal belarus_law"}}'

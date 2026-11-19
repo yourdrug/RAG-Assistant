@@ -44,6 +44,8 @@ class DomainPack:
     evidence_profile: EvidenceProfile
     doc_type_keywords: DocTypeKeywords = ()
     benchmark_sets: tuple[Path, ...] = ()
+    # Corpus and question snapshot for `seed run` (see infrastructure.benchmark.seed).
+    seed_dir: Path | None = None
     repositories: PackRepositoriesFactory | None = None
 
     def build_profiles(self, settings: DomainSettingsPort | None) -> list[DocumentProfile]:

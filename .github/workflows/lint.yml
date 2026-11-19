@@ -124,8 +124,7 @@ jobs:
           fi
 
   offline-gate:
-    # Chunking and BM25 recall of the packs whose corpora are in the repository; no LLM, no network
-    # services. The belarus_law corpus is local only, so that pack stays a PR checklist step.
+    # Chunking and BM25 recall of every pack's committed corpus; no LLM, no network services.
     runs-on: ubuntu-24.04
     needs: lint
     env:
@@ -162,16 +161,18 @@ jobs:
           echo "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08  /tmp/bge-m3-tokenizer.json" \
             | sha256sum -c -
 
-      - name: Offline quality gate (support, internal)
+      - name: Offline quality gate (support, internal, belarus_law)
         working-directory: server
-        # Same loop as `task quality:offline-gate PACKS="support internal"`.
+        # Same loop as `task quality:offline-gate`.
         run: |
           status=0
-          for pack in support internal; do
+          for pack in support internal belarus_law; do
             echo "== $pack"
+            thresholds=()
+            spec="app/infrastructure/domain_packs/$pack/benchmarks/acceptance.json"
+            [ -f "$spec" ] && thresholds=(--thresholds "server/$spec")
             uv run python ../scripts/benchmark/chunking_report.py --pack "$pack" \
-              --tokenizer /tmp/bge-m3-tokenizer.json \
-              --thresholds "server/app/infrastructure/domain_packs/$pack/benchmarks/acceptance.json" \
+              --tokenizer /tmp/bge-m3-tokenizer.json "${thresholds[@]}" \
               --baseline "docs/quality/artifacts/offline-gate/$pack.json" --gate 0.02 || status=1
           done
           exit "$status"

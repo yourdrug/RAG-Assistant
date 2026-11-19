@@ -20,8 +20,11 @@ from application.spaces import KnowledgeSpaceService
 from application.spaces.resolution import default_space_ref
 from composition.cli.commands import benchmark as benchmark_cli
 from composition.service_providers import build_sweep_engine
+from domain.benchmark.question import BenchmarkQuestion
 from domain.benchmark.run import BenchmarkRun
 from domain.benchmark.sweep import BenchmarkSweep
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.space import KnowledgeSpace, SpaceRef
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 from infrastructure.benchmark.evaluation import runner
@@ -238,11 +241,55 @@ async def test_cli_pins_space_in_job_and_broker_payload(
     monkeypatch.setattr(benchmark_cli, "enqueue_benchmark", enqueue)
     monkeypatch.setattr(benchmark_cli, "close_arq_pool", AsyncMock())
     infra: Any = SimpleNamespace(db=SimpleNamespace(uow=factory))
+    await factory._uow.benchmark_questions.create(BenchmarkQuestion(question="Q?", dataset="main"))
+    await factory._uow.fake_documents.save(
+        Document(
+            filename="a",
+            visibility=DocumentVisibility.INTERNAL_PUBLIC,
+            space_id=2,
+            status=DocumentStatus.DONE,
+        )
+    )
     jobs = await benchmark_cli.enqueue_runs(infra, ["main"], 7, "judge", space_id=2)
     saved = factory._uow.fake_background_jobs.jobs[jobs["main"]]
     assert saved.dispatch_payload is not None
     assert saved.dispatch_payload["space_id"] == 2
     assert enqueue.call_args.kwargs["space_id"] == 2
+    # The worker compares this hash with the questions it loads.
+    assert saved.dispatch_payload["dataset_hash"] == enqueue.call_args.kwargs["dataset_hash"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [DocumentStatus.INDEXING, DocumentStatus.FAILED, None])
+async def test_cli_refuses_a_run_before_the_corpus_is_searchable(
+    factory: FakeUnitOfWorkFactory, monkeypatch: pytest.MonkeyPatch, status: DocumentStatus | None
+) -> None:
+    enqueue = AsyncMock()
+    monkeypatch.setattr(benchmark_cli, "enqueue_benchmark", enqueue)
+    monkeypatch.setattr(benchmark_cli, "close_arq_pool", AsyncMock())
+    infra: Any = SimpleNamespace(db=SimpleNamespace(uow=factory))
+    await factory._uow.benchmark_questions.create(BenchmarkQuestion(question="Q?", dataset="main"))
+    await factory._uow.fake_documents.save(
+        Document(
+            filename="a",
+            visibility=DocumentVisibility.INTERNAL_PUBLIC,
+            space_id=2,
+            status=DocumentStatus.DONE,
+        )
+    )
+
+    if status is not None:
+        await factory._uow.fake_documents.save(
+            Document(filename="b", visibility=DocumentVisibility.INTERNAL_PUBLIC, space_id=2, status=status)
+        )
+    else:
+        factory._uow.fake_documents._documents.clear()
+
+    with pytest.raises(ValueError, match="not searchable"):
+        await benchmark_cli.enqueue_runs(infra, ["main"], 7, "judge", space_id=2)
+
+    enqueue.assert_not_awaited()
+    assert not factory._uow.fake_background_jobs.jobs
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.exc import IntegrityError
 
 from domain.knowledge.space import KnowledgeSpace
@@ -89,6 +89,14 @@ class SQLAlchemyKnowledgeSpaceRepository:
     async def has_documents(self, space_id: int) -> bool:
         stmt = select(exists().where(DocumentModel.space_id == space_id))
         return bool((await self._db.execute(stmt)).scalar())
+
+    async def document_status_counts(self, space_id: int) -> dict[str, int]:
+        stmt = (
+            select(DocumentModel.status, func.count())
+            .where(DocumentModel.space_id == space_id)
+            .group_by(DocumentModel.status)
+        )
+        return {str(status): count for status, count in (await self._db.execute(stmt)).all()}
 
     async def replace_upload_groups(self, space_id: int, group_ids: frozenset[int]) -> None:
         await self._db.execute(

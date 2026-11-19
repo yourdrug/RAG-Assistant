@@ -207,6 +207,8 @@ async def test_transfer_creates_inactive_redacted_question_once() -> None:
     )
 
     assert question.dataset == "belarus_law-main"
+    # Stable across installations, so a later text edit is an update, not a new question.
+    assert question.case_id == "chat-log-1"
     assert question.question == "edited question [PHONE]"
     assert question.history == [{"role": "user", "content": "edited [PHONE]"}]
     assert question.is_active is False
