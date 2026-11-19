@@ -52,6 +52,8 @@ class CacheKeyBuilder:
                 # The space selects the searched documents; an answer never leaves its space.
                 "space_id": state.request.ctx.space.id if state.request.ctx.space is not None else None,
                 "depth": state.request.ctx.depth,
+                # Bump when the depth -> breadth resolution changes, so stale answers miss.
+                "breadth_policy": 2,
                 "summary": state.request.ctx.summary,
                 "question": state.request.question,
                 "history": [

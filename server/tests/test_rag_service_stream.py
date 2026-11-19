@@ -701,3 +701,43 @@ async def test_chat_log_records_real_pipeline_metadata_in_stream_and_sync(outcom
         records.append({name: getattr(entry, name) for name in CHAT_LOG_FIELDS})
 
     assert records[0] == records[1]
+
+
+class TestUserRequestedBreadth:
+    """The chat "Авто / Кратко / Подробно" selector sends depth=None/"narrow"/"broad"."""
+
+    @staticmethod
+    async def prompt_breadth(depth: str | None, *, auto: Breadth, enumerate_cases: bool) -> Breadth:
+        build_prompt = MagicMock(
+            wraps=_STREAM_PATCHES["infrastructure.ml.rag.generation_budget.build_prompt"]
+        )
+        with (
+            patch("infrastructure.ml.rag.rag_steps.build_rag_settings", return_value=make_rag_settings()),
+            patch("infrastructure.ml.rag.rag_steps.classify_question_breadth", return_value=auto),
+            patch(
+                "infrastructure.ml.rag.retrieval_pipeline.should_enumerate_cases",
+                return_value=enumerate_cases,
+            ),
+            patch("infrastructure.ml.rag.generation_budget.build_prompt", build_prompt),
+        ):
+            await collect_events(make_stream_service(), "question", ctx=_make_context(depth=depth))
+        return build_prompt.call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_explicit_broad_overrides_auto_narrow(self) -> None:
+        breadth = await self.prompt_breadth("broad", auto=Breadth.NARROW, enumerate_cases=False)
+        assert breadth == Breadth.BROAD
+
+    @pytest.mark.asyncio
+    async def test_explicit_narrow_overrides_auto_broad(self) -> None:
+        breadth = await self.prompt_breadth("narrow", auto=Breadth.BROAD, enumerate_cases=False)
+        assert breadth == Breadth.NARROW
+
+    @pytest.mark.asyncio
+    async def test_explicit_narrow_is_not_escalated_by_conditional_context(self) -> None:
+        breadth = await self.prompt_breadth("narrow", auto=Breadth.NARROW, enumerate_cases=True)
+        assert breadth == Breadth.NARROW
+
+    @pytest.mark.asyncio
+    async def test_auto_still_escalates_on_conditional_context(self) -> None:
+        assert await self.prompt_breadth(None, auto=Breadth.NARROW, enumerate_cases=True) == Breadth.BROAD

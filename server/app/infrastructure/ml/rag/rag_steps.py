@@ -27,7 +27,7 @@ from application.rag.stream_events import SourcesEvent, TextChunk, UsageReport
 from config import LLMSection, config_version, request_section
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
-from domain.rag.breadth import BREADTH_ALIASES, Breadth
+from domain.rag.breadth import Breadth, requested_breadth
 from domain.rag.classification import (
     classify_question_breadth,
     is_out_of_domain,
@@ -404,12 +404,9 @@ class RagOperations:
         work = self.retrieval_work(query, previous)
 
         if previous is None:
-            raw = (
-                work.ctx.depth
-                if work.ctx.depth in BREADTH_ALIASES
-                else classify_question_breadth(query.query)
+            work.breadth = requested_breadth(work.ctx.depth) or Breadth(
+                classify_question_breadth(query.query)
             )
-            work.breadth = BREADTH_ALIASES.get(raw) or Breadth(raw)
             RAG_BREADTH_TOTAL.labels(breadth=work.breadth).inc()
             params = compute_retrieval_params(work.breadth, work.rag, query.query)
             work.fetch_k = params["fetch_k"]

@@ -22,7 +22,7 @@ from application.rag.dto import PreparedQuery, RagRequest
 from composition.service_providers import create_rag_service
 from domain.identity.roles import UserKind
 from domain.identity.user_context import UserContext
-from domain.rag.breadth import BREADTH_ALIASES, Breadth
+from domain.rag.breadth import BREADTH_ALIASES, Breadth, requested_breadth
 from domain.rag.classification import classify_question_breadth
 from domain.rag.context import RagContext
 from domain.rag.retrieval import compute_retrieval_params
@@ -200,6 +200,20 @@ class TestPrepareHistoryDicts:
 
 
 class TestResolveBreadth:
+    @pytest.mark.parametrize(
+        "depth,expected",
+        [
+            ("narrow", Breadth.NARROW),
+            ("broad", Breadth.BROAD),
+            ("short", Breadth.NARROW),
+            ("detailed", Breadth.BROAD),
+            (None, None),
+            ("unknown", None),
+        ],
+    )
+    def test_requested_breadth(self, depth: str | None, expected: Breadth | None) -> None:
+        assert requested_breadth(depth) == expected
+
     def test_alias_short_is_narrow(self) -> None:
 
         raw = BREADTH_ALIASES.get("short") or classify_question_breadth("обычный вопрос")
