@@ -26,6 +26,7 @@ from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
 from domain.rag.classification import (
     classify_question_breadth,
+    extract_exact_references,
     has_exact_reference,
     is_out_of_domain,
     needs_decomposition,
@@ -297,6 +298,46 @@ class TestHasExactReference:
     def test_abbreviated_forms(self) -> None:
         assert has_exact_reference("ст. 15 ФЗ") is True
         assert has_exact_reference("п. 3.2") is True
+
+    @pytest.mark.parametrize(
+        "question,expected",
+        [
+            ("Что установлено пунктом 9 постановления ГТК N 5?", ["Пункт 9"]),
+            ("Что предусмотрено статьёй 5 Закона?", ["Статья 5"]),
+            ("Согласно статьям 12 и 13", ["Статья 12", "Статья 13"]),
+            ("Согласно требованиям статей 12 и 13", ["Статья 12", "Статья 13"]),
+            ("Требования глав 3 и 4", ["Глава 3", "Глава 4"]),
+            ("Что сказано в пунктах 2.1, 2.3 или 2.5?", ["Пункт 2.1", "Пункт 2.3", "Пункт 2.5"]),
+            ("ст. 15 и ст. 16 ФЗ", ["Статья 15", "Статья 16"]),
+            ("Чем подписываются сведения согласно подп. 2.2 постановления?", ["Подпункт 2.2"]),
+            ("Что сказано подпунктом 1.3?", ["Подпункт 1.3"]),
+            ("Как соотносится с главой 4?", ["Глава 4"]),
+            ("Что регулируется разделом 2?", ["Раздел 2"]),
+        ],
+    )
+    def test_inflected_references_are_typed(self, question: str, expected: list[str]) -> None:
+        assert has_exact_reference(question) is True
+        assert extract_exact_references(question) == expected
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            # Act numbers and dates are requisites, not provisions.
+            "Что изменило постановление N 5 от 12.02.2016?",
+            "Какие изменения внесены в 2024 году?",
+            # Provision search has no structural metadata for these.
+            "Какое сообщение соответствует таблице 4.2 приложения 4?",
+            "Каким актом изменено поле 23?",
+            "Что означает позиция 18?",
+            # Words that only start like a provision label.
+            "Нарушена пунктуация 5 раз",
+            "Подпись 2 лиц обязательна",
+            "Главный бухгалтер 3 раза",
+        ],
+    )
+    def test_non_provision_numbers_are_not_references(self, question: str) -> None:
+        assert has_exact_reference(question) is False
+        assert extract_exact_references(question) == []
 
 
 # ===========================================================================
