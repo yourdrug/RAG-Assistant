@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock
 
 import pytest
 
 from application.benchmark.quality import BenchmarkQualityService
 from application.benchmark.regression import comparable_rows, regression_report
+from application.benchmark.result_service import BenchmarkResultService
 from domain.benchmark.agreement import HumanLabel, LabelMetric, agreement, judge_agreement, ranks
 from domain.benchmark.composition import dataset_composition
 from domain.benchmark.policy import (
@@ -339,6 +341,16 @@ async def test_noise_requires_repeated_runs_of_one_configuration() -> None:
         runs, manifested(manifest={**MANIFEST, "configuration_version": "c2"}, avg_correctness=9.0)
     )
     unverifiable = await stored_id(runs, run(0, [result(1)], avg_correctness=9.0))
+    # Recorded responses repeat earlier answers and scores; a run that missed every lookup is still real.
+    judge_replayed = await stored_id(
+        runs, manifested(avg_correctness=9.0, llm_replay={"mode": "record", "hits": 3, "misses": 0})
+    )
+    answer_replayed = await stored_id(
+        runs, run(0, [{**result(1), "run_manifest": MANIFEST, "llm_replayed": True}], avg_correctness=9.0)
+    )
+    recorded_only = await stored_id(
+        runs, manifested(avg_correctness=9.0, llm_replay={"mode": "record", "hits": 0, "misses": 5})
+    )
     service = BenchmarkQualityService(factory)
 
     policy = await service.measure_noise("belarus_law-main", ids, None)
@@ -348,7 +360,9 @@ async def test_noise_requires_repeated_runs_of_one_configuration() -> None:
     assert policy.noise.judge == JudgeIdentity(model="judge-a", rubric_version="r1")
     assert (await service.measure_noise("belarus_law-main", [*ids[:2], described], None)).noise
 
-    for rejected in (other_judge, other_config, unverifiable):
+    assert (await service.measure_noise("belarus_law-main", [*ids[:2], recorded_only], None)).noise
+
+    for rejected in (other_judge, other_config, unverifiable, judge_replayed, answer_replayed):
         with pytest.raises(ValidationError):
             await service.measure_noise("belarus_law-main", [*ids[:2], rejected], None)
 
@@ -418,3 +432,39 @@ def test_source_digest_tracks_python_modules_only(tmp_path: Path) -> None:
     module.write_text("TOP_K = 5\n")
     module.rename(tmp_path / "pkg" / "renamed.py")
     assert source_digest(tmp_path) != before
+
+
+@pytest.mark.asyncio
+async def test_stored_noise_from_replayed_runs_does_not_widen_regression_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    factory = FakeUnitOfWorkFactory()
+    uow = factory._uow
+    judge = JudgeIdentity(model="judge-a", rubric_version="r1")
+    clean = [await stored_id(uow.benchmark_runs, manifested(avg_correctness=v)) for v in (8.0, 9.0)]
+    replayed = await stored_id(
+        uow.benchmark_runs, manifested(avg_correctness=9.0, llm_replay={"mode": "record", "hits": 3})
+    )
+    previous = run(0, [result(1, correctness=9.0)], correctness=9.0)
+    current = await stored_id(uow.benchmark_runs, run(0, [result(1, correctness=7.5)], correctness=7.5))
+    monkeypatch.setattr(uow.benchmark_runs, "get_baseline", AsyncMock(return_value=previous))
+    service = BenchmarkResultService(factory)
+
+    async def check(run_ids: list[int]) -> tuple[float, list[str]]:
+        # sigma=1.0 allows a 2.0 drop; the default allows 1.0.
+        noise = NoiseEstimate(sigma={"correctness": 1.0}, judge=judge, run_ids=run_ids)
+        await uow.benchmark_quality.save_policy(DatasetPolicy(dataset="belarus_law-main", noise=noise))
+        output = await service.check_regression(current, BenchmarkHistoryAdapter())
+        threshold = next(
+            r.threshold for r in output.results if r.kind == "baseline" and r.metric == "correctness"
+        )
+        return threshold, output.warnings
+
+    threshold, warnings = await check(clean)
+    assert threshold == -2.0
+    assert not any("recorded LLM responses" in w for w in warnings)
+
+    threshold, warnings = await check([*clean, replayed])
+    assert threshold == -1.0
+    assert any(f"runs [{replayed}] with recorded LLM responses" in w for w in warnings)
+    assert not any(w.startswith("noise not measured") for w in warnings)

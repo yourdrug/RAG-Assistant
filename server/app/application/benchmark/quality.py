@@ -245,6 +245,13 @@ def check_noise_runs(dataset: str, run_ids: list[int], runs: list[BenchmarkRun])
         message = f"All runs must belong to dataset {dataset}"
         raise ValidationError(message)
 
+    # A replayed LLM response repeats an earlier answer and score, so it would understate sigma.
+    replayed = [run.id for run in runs if run_replayed_llm(run)]
+
+    if replayed:
+        message = f"Runs {replayed} reused recorded LLM responses; noise needs runs with --llm-replay off"
+        raise ValidationError(message)
+
     judges = {run_judge(run.config_json, run.per_question_results) for run in runs}
 
     if len(judges) > 1:
@@ -271,6 +278,16 @@ def check_noise_runs(dataset: str, run_ids: list[int], runs: list[BenchmarkRun])
 
 # Manifest fields that describe a run without identifying what was evaluated.
 NON_IDENTITY_MANIFEST_KEYS = frozenset({"limitations"})
+
+
+def run_replayed_llm(run: BenchmarkRun) -> bool:
+    """Whether any LLM call of the run (generation or judge) was served from the replay store."""
+    replay = (run.summary_metrics or {}).get("llm_replay") or {}
+
+    if replay.get("hits", 0) > 0:
+        return True
+
+    return any(row.get("llm_replayed") for row in run.per_question_results or [])
 
 
 def run_identity(run: BenchmarkRun) -> str:
