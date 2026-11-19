@@ -324,9 +324,9 @@ tasks:
       - uv lock
 
   hooks:install:
-    desc: Установить pre-commit и pre-push hooks (сохраняет существующий Git LFS hook)
+    desc: Установить pre-commit hook (сохраняет существующий Git LFS hook)
     cmds:
-      - uv run --frozen --project server --group development pre-commit install --hook-type pre-commit --hook-type pre-push
+      - uv run --frozen --project server --group development pre-commit install --hook-type pre-commit
 
   ci:
     desc: "Проверки CI (lint.yml) локально на чистом checkout HEAD: task ci [-- <ref>]; CI_JOBS=\"lint test\" для подмножества"

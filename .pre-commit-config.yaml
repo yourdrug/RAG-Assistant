@@ -2,7 +2,7 @@
 # Всё, кроме базовых хуков, запускается через `uv run`, поэтому версии
 # ruff / mypy / import-linter берутся из uv.lock, а не дублируются здесь.
 
-default_install_hook_types: [pre-commit, pre-push]
+default_install_hook_types: [pre-commit]
 default_stages: [pre-commit]
 fail_fast: false
 
@@ -74,18 +74,6 @@ repos:
         pass_filenames: false
         always_run: true
         verbose: true
-
-      # Перед push — те же проверки, что в .github/workflows/lint.yml (lint, test с PostgreSQL
-      # и Redis в Docker, offline-gate, client-test) на чистом checkout пушимого коммита.
-      # Пропустить один раз: SKIP_LOCAL_CI=1 git push.
-      - id: local-ci
-        name: local CI (lint.yml)
-        entry: bash -c 'scripts/ci/local.sh "${PRE_COMMIT_TO_REF:-HEAD}"'
-        language: system
-        pass_filenames: false
-        always_run: true
-        verbose: true
-        stages: [pre-push]
 
       # --- Frontend ---
       - id: biome-check
