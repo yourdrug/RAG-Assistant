@@ -75,31 +75,16 @@ repos:
         always_run: true
         verbose: true
 
-      # Тяжёлые проверки только перед push.
-      - id: pytest
-        name: pytest
-        entry: bash -c 'cd server && DATA_DIR=/tmp/rag_test uv run --frozen --group development --group testing pytest'
-        language: system
-        types: [python]
-        files: ^server/
-        pass_filenames: false
-        stages: [pre-push]
-
-      - id: deptry
-        name: deptry
-        entry: bash -c 'cd server && uv run --frozen --group development --group testing deptry .'
+      # Перед push — те же проверки, что в .github/workflows/lint.yml (lint, test с PostgreSQL
+      # и Redis в Docker, offline-gate, client-test) на чистом checkout пушимого коммита.
+      # Пропустить один раз: SKIP_LOCAL_CI=1 git push.
+      - id: local-ci
+        name: local CI (lint.yml)
+        entry: bash -c 'scripts/ci/local.sh "${PRE_COMMIT_TO_REF:-HEAD}"'
         language: system
         pass_filenames: false
         always_run: true
-        stages: [pre-push]
-
-      - id: vulture
-        name: vulture (dead code)
-        entry: bash -c 'cd server && uv run --frozen --group development --group testing vulture'
-        language: system
-        types: [python]
-        files: ^server/
-        pass_filenames: false
+        verbose: true
         stages: [pre-push]
 
       # --- Frontend ---

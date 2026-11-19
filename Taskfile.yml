@@ -328,6 +328,11 @@ tasks:
     cmds:
       - uv run --frozen --project server --group development pre-commit install --hook-type pre-commit --hook-type pre-push
 
+  ci:
+    desc: "Проверки CI (lint.yml) локально на чистом checkout HEAD: task ci [-- <ref>]; CI_JOBS=\"lint test\" для подмножества"
+    cmds:
+      - scripts/ci/local.sh {{.CLI_ARGS}}
+
   fmt:
     desc: Отформатировать код и пустые строки, применить безопасные исправления Ruff
     dir: server
