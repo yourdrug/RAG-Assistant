@@ -13,6 +13,12 @@ export default async function globalSetup() {
     const me = await api.get("/auth/me", { headers: { Authorization: `Bearer ${access_token}` } });
     await expect(me).toBeOK();
     expect(await me.json()).toMatchObject({ email: admin.email, role: "admin" });
+    // The dedicated suite shares this admin and seeds 51 chunks for pagination.
+    const writeLimit = await api.put("/admin/config/rate_limit_write_per_minute", {
+      headers: { Authorization: `Bearer ${access_token}` },
+      data: { value: "180" },
+    });
+    await expect(writeLimit).toBeOK();
     process.env.PLAYWRIGHT_ADMIN_TOKEN = access_token;
   } finally {
     await api.dispose();

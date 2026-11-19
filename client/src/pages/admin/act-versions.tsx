@@ -144,14 +144,14 @@ export function AdminActVersionsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Act Versions</h1>
-          <p className="text-muted-foreground">
+          <div className="text-muted-foreground">
             All versions
             {data != null && (
               <Badge variant="warning" className="ml-2">
                 {data.total}
               </Badge>
             )}
-          </p>
+          </div>
         </div>
       </div>
       <Card>

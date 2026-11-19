@@ -17,7 +17,7 @@ for (const [route, heading] of [
 
       const sidebar = page.getByRole("complementary");
       await expect(sidebar).not.toBeInViewport();
-      await page.getByRole("banner").getByRole("button", { name: "", exact: true }).click();
+      await page.getByRole("banner").getByRole("button", { name: "Open navigation" }).click();
       await expect(sidebar).toBeInViewport();
 
       // A canvas normalizes the alpha channel from both legacy RGB and modern OKLCH colors.

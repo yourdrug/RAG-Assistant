@@ -1,7 +1,7 @@
 name: rag-playwright
 
 x-backend: &backend
-  image: ${E2E_SERVER_IMAGE:-rag-server:development-cpu-0.13.0}
+  image: ${E2E_SERVER_IMAGE:-rag-server:development-cpu-0.15.0}
   environment:
     PYTHONPATH: /code/project/app
     STAGE: development

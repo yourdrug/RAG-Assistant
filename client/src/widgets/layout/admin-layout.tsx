@@ -130,6 +130,8 @@ export function AdminLayout() {
             variant="ghost"
             size="icon"
             className="lg:hidden"
+            aria-label="Open navigation"
+            aria-expanded={sidebarOpen}
             onClick={() => setSidebarOpen(true)}
           >
             <Menu className="h-5 w-5" />

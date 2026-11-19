@@ -39,6 +39,7 @@ interface SettingsBlock {
   description: string;
   categories?: string[];
   keys?: string[];
+  lastKey?: string;
 }
 
 const LLM_CONNECTION_BLOCK = "llm_connection";
@@ -55,7 +56,12 @@ const BLOCK_SECRETS: Record<string, { name: string; env: string; keyless: string
   "reranking-service": { name: "rerank_api_key", env: "RERANK_API_KEY", keyless: "local TEI" },
 };
 
-const SETTINGS_SECTIONS = [
+const SETTINGS_SECTIONS: {
+  id: string;
+  label: string;
+  description: string;
+  blocks: SettingsBlock[];
+}[] = [
   {
     id: "chat",
     label: "Chat & answers",
@@ -67,6 +73,7 @@ const SETTINGS_SECTIONS = [
         description: "Model selection, creativity and response length.",
         categories: ["llm"],
         keys: ["llm_model", "llm_auxiliary_model"],
+        lastKey: "llm_disable_reasoning",
       },
       {
         id: "conversation",
@@ -203,7 +210,7 @@ const SETTINGS_SECTIONS = [
       },
     ],
   },
-] satisfies { id: string; label: string; description: string; blocks: SettingsBlock[] }[];
+];
 
 const PARAMETER_LABELS: Record<string, string> = {
   llm_base_url: "Endpoint URL",
@@ -259,6 +266,8 @@ function editKey(param: ConfigParam): string {
 
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+const PARAMETER_ROW_LAYOUT =
+  "grid grid-cols-1 gap-4 border-l-2 px-6 py-5 @min-[36rem]:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] @min-[36rem]:gap-6";
 
 export function AdminSettingsPage() {
   const queryClient = useQueryClient();
@@ -453,7 +462,7 @@ export function AdminSettingsPage() {
     }
 
     return (
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Input
           aria-label={parameterLabel(p)}
           type="number"
@@ -500,7 +509,7 @@ export function AdminSettingsPage() {
     return (
       <div
         key={id}
-        className={`grid gap-4 border-l-2 px-6 py-5 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] md:gap-10 ${
+        className={`${PARAMETER_ROW_LAYOUT} ${
           isEdited ? "border-l-primary bg-muted/40" : "border-l-transparent"
         }`}
       >
@@ -514,7 +523,7 @@ export function AdminSettingsPage() {
               {param.description}
             </p>
           )}
-          <code className="mt-2 inline-block break-all rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+          <code className="mt-2 inline-block max-w-full wrap-anywhere rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
             {param.key}
           </code>
         </div>
@@ -632,6 +641,11 @@ export function AdminSettingsPage() {
                 const blockParams =
                   params?.filter((param) => parameterBlock(param) === block.id) ?? [];
                 if (blockParams.length === 0) return null;
+                if (block.lastKey) {
+                  blockParams.sort(
+                    (a, b) => Number(a.key === block.lastKey) - Number(b.key === block.lastKey),
+                  );
+                }
                 const globalParams = blockParams.filter((param) => !param.domain_key);
                 const domains = [
                   ...new Set(
@@ -646,7 +660,7 @@ export function AdminSettingsPage() {
                         {block.description}
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="p-0">
+                    <CardContent className="@container p-0">
                       <div className="divide-y">
                         {globalParams.map(renderParameter)}
                         {BLOCK_SECRETS[block.id] && (
@@ -736,14 +750,14 @@ function SecretKeyRow({
   present: boolean | null;
 }) {
   return (
-    <div className="grid gap-4 border-l-2 border-l-transparent px-6 py-5 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] md:gap-10">
+    <div className={`${PARAMETER_ROW_LAYOUT} border-l-transparent`}>
       <div className="min-w-0">
         <p className="text-sm font-medium leading-6">API key</p>
         <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
           Set {env} in server/.env.secrets and restart. Leave it empty for keyless servers (
           {keyless}).
         </p>
-        <code className="mt-2 inline-block break-all rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+        <code className="mt-2 inline-block max-w-full wrap-anywhere rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
           {name}
         </code>
       </div>

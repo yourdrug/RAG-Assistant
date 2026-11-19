@@ -173,3 +173,27 @@ test("settings tabs display their configuration panels", async ({ adminPage: pag
     await expect(page.getByRole("tabpanel", { name: new RegExp(`^${name}`) })).toBeVisible();
   }
 });
+
+test("settings keep the reasoning toggle below the main controls and adapt to the card width", async ({
+  adminPage: page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto("/admin/settings");
+  const model = page.getByRole("group", { name: "Answer model", exact: true });
+  const creativity = page.getByRole("group", { name: "Creativity (temperature)", exact: true });
+  const key = page.getByText("llm_disable_reasoning", { exact: true });
+  const toggle = page.getByRole("button", {
+    name: "Enable Answer without reasoning (thinking off)",
+  });
+  await expect(toggle).toBeVisible();
+  const keyBox = (await key.boundingBox())!;
+  expect(keyBox.y).toBeGreaterThan((await model.boundingBox())!.y);
+  expect(keyBox.y).toBeGreaterThan((await creativity.boundingBox())!.y);
+  expect(keyBox.width).toBeGreaterThan(120);
+  expect((await toggle.boundingBox())!.y).toBeGreaterThan(keyBox.y + keyBox.height);
+
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await expect
+    .poll(async () => (await toggle.boundingBox())!.x - (await key.boundingBox())!.x)
+    .toBeGreaterThan(keyBox.width);
+});
