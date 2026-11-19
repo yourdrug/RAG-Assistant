@@ -3,7 +3,7 @@
   "pack": "belarus_law",
   "date": "2026-11-19",
   "tokenizer": "BAAI/bge-m3",
-  "retrieval": "proxy: BM25 (prod tokenizer) / bge-m3 cosine / RRF k=60, no reranker, depth 50",
+  "retrieval": "proxy: BM25 (prod tokenizer, depth 30) / bge-m3 cosine (depth 30) / RRF k=30, weights 1.0/1.0 (exact-ref sparse x2.5), fused depth 30, no reranker",
   "domains": {
     "contract": {
       "chunks": 28,
@@ -26,7 +26,7 @@
           "questions": 37,
           "recall_at_5": 0.8378,
           "recall_at_10": 0.8919,
-          "mrr": 0.786,
+          "mrr": 0.7852,
           "misses_at_10": [
             "rag-c-014",
             "rag-c-032",
@@ -40,7 +40,7 @@
           "questions": 37,
           "recall_at_5": 0.8378,
           "recall_at_10": 0.8919,
-          "mrr": 0.786,
+          "mrr": 0.7852,
           "misses_at_10": [
             "rag-c-014",
             "rag-c-032",
@@ -71,7 +71,7 @@
           "questions": 50,
           "recall_at_5": 0.35,
           "recall_at_10": 0.4033,
-          "mrr": 0.2748,
+          "mrr": 0.2723,
           "misses_at_10": [
             "rag-0007",
             "rag-0008",
@@ -113,7 +113,7 @@
           "questions": 50,
           "recall_at_5": 0.35,
           "recall_at_10": 0.4233,
-          "mrr": 0.2778,
+          "mrr": 0.2753,
           "misses_at_10": [
             "rag-0007",
             "rag-0008",
@@ -210,7 +210,7 @@
           "questions": 30,
           "recall_at_5": 0.85,
           "recall_at_10": 0.8833,
-          "mrr": 0.7509,
+          "mrr": 0.75,
           "misses_at_10": [
             "rag-0038",
             "rag-0048",
@@ -224,7 +224,7 @@
           "questions": 30,
           "recall_at_5": 0.85,
           "recall_at_10": 0.8833,
-          "mrr": 0.7509,
+          "mrr": 0.75,
           "misses_at_10": [
             "rag-0038",
             "rag-0048",
@@ -463,7 +463,7 @@
         "questions": 142,
         "recall_at_5": 0.6901,
         "recall_at_10": 0.7371,
-        "mrr": 0.6203,
+        "mrr": 0.619,
         "misses_at_10": [
           "rag-c-014",
           "rag-c-032",

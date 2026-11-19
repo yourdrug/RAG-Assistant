@@ -3,7 +3,7 @@
   "pack": "support",
   "date": "2026-11-19",
   "tokenizer": "BAAI/bge-m3",
-  "retrieval": "proxy: BM25 (prod tokenizer) / bge-m3 cosine / RRF k=60, no reranker, depth 50",
+  "retrieval": "proxy: BM25 (prod tokenizer, depth 30) / bge-m3 cosine (depth 30) / RRF k=30, weights 1.0/1.0 (exact-ref sparse x2.5), fused depth 30, no reranker",
   "domains": {
     "general": {
       "chunks": 1,
