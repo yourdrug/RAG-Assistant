@@ -24,7 +24,7 @@ from domain.knowledge.document import Document
 from domain.knowledge.enums import DocDomain, DocumentVisibility, SourceType
 from domain.knowledge.space import KnowledgeSpace
 from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
-from domain.shared.exceptions import LLMUnavailableError
+from domain.shared.exceptions import LLMUnavailableError, PermissionDeniedError, ValidationError
 from domain.shared.pagination import CursorPage
 from main import app
 from presentation.api import dependencies as deps
@@ -409,6 +409,12 @@ async def test_message_feedback_routes_map_ownership_and_invariants(asgi_client:
     )
     assert rated.status_code == 200
     assert rated.json()["reasons"] == ["outdated"]
+    invalid_reason = await asgi_client.put(
+        "/chat/messages/2/feedback", json={"rating": "down", "reasons": ["invalid"]}
+    )
+    assert invalid_reason.status_code == 422
+    assert "reasons.0" in invalid_reason.json()["errors"]
+
     invalid = await asgi_client.put(
         "/chat/messages/2/feedback", json={"rating": "up", "reasons": ["outdated"]}
     )
@@ -419,6 +425,42 @@ async def test_message_feedback_routes_map_ownership_and_invariants(asgi_client:
     sign_in(user_id=2)
     assert (await asgi_client.put("/chat/messages/2/feedback", json={"rating": "up"})).status_code == 404
     assert factory._uow.fake_message_feedback.items == {}
+
+
+@pytest.mark.asyncio
+async def test_missing_route_uses_public_error_envelope(
+    asgi_client: httpx.AsyncClient,
+) -> None:
+    missing = await asgi_client.get("/nonexistent-path")
+    assert missing.status_code == 404
+    assert missing.json() == {"message": "Not Found"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error,code,message",
+    [
+        (
+            ValidationError("Choose a knowledge space", field="space_id"),
+            "validation_error",
+            "Choose a knowledge space",
+        ),
+        (PermissionDeniedError(), "forbidden", "Недостаточно прав"),
+    ],
+)
+async def test_chat_stream_returns_actionable_client_errors(
+    asgi_client: httpx.AsyncClient, error: Exception, code: str, message: str
+) -> None:
+    sign_in()
+    service = MagicMock()
+    service.stream_chat.side_effect = error
+    app.dependency_overrides[deps.create_chat_service] = lambda: service
+    response = await asgi_client.post("/chat", json={"question": "test"})
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert f'"code": "{code}"' in response.text
+    assert message in response.text
+    assert "event: done" not in response.text
 
 
 @pytest.mark.asyncio

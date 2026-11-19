@@ -17,7 +17,14 @@ from application.ports.action_logger import ActionLoggerPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.rag.stream_events import MetaEvent, StatusEvent, StreamEvent, TextChunk
 from domain.rag.exceptions import ContextBudgetExceededError
-from domain.shared.exceptions import LLMUnavailableError, SemaphoreTimeoutError
+from domain.shared.exceptions import (
+    BusinessRuleViolationError,
+    EntityNotFoundError,
+    LLMUnavailableError,
+    PermissionDeniedError,
+    SemaphoreTimeoutError,
+    ValidationError,
+)
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.constants import (
     CONFIDENCE_KEY,
@@ -52,16 +59,26 @@ def _sse_error_event(code: str, message: str) -> str:
     return f"event: error\ndata: {json.dumps({'error': message, 'code': code}, ensure_ascii=False)}\n\n"
 
 
-def _known_stream_error(exc: Exception) -> str:
+def known_stream_error(exc: Exception) -> str:
     logger.warning("Chat stream unavailable (%s)", type(exc).__name__)
 
     if isinstance(exc, ContextBudgetExceededError):
-        return _sse_error_event(exc.code, exc.message)
+        code, message = exc.code, exc.message
+    elif isinstance(exc, SemaphoreTimeoutError):
+        code, message = "server_busy", "Сервер перегружен, повторите позже"
+    elif isinstance(exc, PermissionDeniedError):
+        code, message = "forbidden", "Недостаточно прав для этого запроса."
+    elif isinstance(exc, EntityNotFoundError):
+        code, message = "not_found", "Чат или пространство не найдено. Откройте новый чат."
+    elif isinstance(exc, ValidationError):
+        details = " · ".join(value for value in (exc.errors or {}).values() if isinstance(value, str))
+        code, message = "validation_error", details or exc.message
+    elif isinstance(exc, BusinessRuleViolationError):
+        code, message = "conflict", exc.message
+    else:
+        code, message = "llm_unavailable", "LLM временно недоступен, попробуйте позже"
 
-    if isinstance(exc, SemaphoreTimeoutError):
-        return _sse_error_event("server_busy", "Сервер перегружен, повторите позже")
-
-    return _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
+    return _sse_error_event(code, message)
 
 
 def format_sse_event(event: StreamEvent, req_id: str) -> str | None:
@@ -270,8 +287,15 @@ async def stream_chat_events(
                 if sse_data is not None:
                     yield sse_data
 
-    except (ContextBudgetExceededError, LLMUnavailableError, SemaphoreTimeoutError) as exc:
-        yield _known_stream_error(exc)
+    except (
+        BusinessRuleViolationError,
+        EntityNotFoundError,
+        LLMUnavailableError,
+        PermissionDeniedError,
+        SemaphoreTimeoutError,
+        ValidationError,
+    ) as exc:
+        yield known_stream_error(exc)
     except TimeoutError:
         logger.warning("LLM auxiliary timeout", exc_info=True)
         yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")

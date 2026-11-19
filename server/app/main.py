@@ -18,8 +18,9 @@ import logging
 import logging.config
 
 from fastapi import FastAPI
-from fastapi.exceptions import HTTPException, RequestValidationError
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from composition.cli.cli import cli
 from composition.container import Container
@@ -203,7 +204,7 @@ class Application:
     def add_exception_handlers(self) -> None:
         self.app.add_exception_handler(AppClientError, handle_client_exception)
         self.app.add_exception_handler(AppServerError, handle_server_exception)
-        self.app.add_exception_handler(HTTPException, handle_http_exception)
+        self.app.add_exception_handler(StarletteHTTPException, handle_http_exception)
         self.app.add_exception_handler(RequestValidationError, handle_validation_exception)
         self.app.add_exception_handler(Exception, handle_unexpected_exception)
 

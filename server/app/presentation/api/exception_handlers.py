@@ -155,9 +155,16 @@ async def handle_http_exception(request: Request, exc: Exception) -> JSONRespons
     detail: object = exc.detail
 
     if isinstance(detail, dict):
-        content = error_envelope(detail.get("message", "Ошибка запроса"), detail.get("errors", exc.detail))
+        message = detail.get("message")
+        errors = detail.get("errors", detail)
+        content = error_envelope(
+            message if isinstance(message, str) else "Ошибка запроса",
+            errors if isinstance(errors, dict) else detail,
+        )
+    elif isinstance(detail, str):
+        content = error_envelope(auth_messages.get(detail, detail))
     else:
-        content = error_envelope(auth_messages.get(exc.detail, exc.detail))
+        content = error_envelope("Ошибка запроса")
 
     return json_response(content, exc.status_code, exc.headers)
 
@@ -168,6 +175,7 @@ async def handle_validation_exception(request: Request, exc: Exception) -> JSONR
         return await handle_unexpected_exception(request, exc)
 
     messages = {
+        "json_invalid": "Некорректный JSON",
         "missing": "Обязательное поле",
         "extra_forbidden": "Запрещено добавлять лишние поля",
         "int_parsing": "Должно быть целым числом",
@@ -176,6 +184,8 @@ async def handle_validation_exception(request: Request, exc: Exception) -> JSONR
         "string_type": "Должно быть строкой",
         "greater_than": "Должно быть больше {gt}",
         "less_than": "Должно быть меньше {lt}",
+        "greater_than_equal": "Должно быть не меньше {ge}",
+        "less_than_equal": "Должно быть не больше {le}",
         "multiple_of": "Должно быть кратно {multiple_of}",
         "string_too_short": "Минимум {min_length} символов",
         "string_too_long": "Максимум {max_length} символов",
@@ -194,12 +204,21 @@ async def handle_validation_exception(request: Request, exc: Exception) -> JSONR
         if "loc" not in error or not error["loc"]:
             continue
 
-        field = str(error["loc"][-1])
-        tmpl = messages.get(error.get("type", ""), error.get("msg", "Ошибка"))
+        location = error["loc"]
+        error_type = error.get("type", "")
+        field = ".".join(map(str, location[1:])) if error_type != "json_invalid" else "body"
+        field = field or str(location[0])
+        fallback = error.get("msg", "Некорректное значение")
+        template = messages.get(error_type)
+
+        if template is None:
+            errors[field] = fallback
+            continue
+
         try:
-            errors[field] = tmpl.format(**error.get("ctx", {}))
-        except (KeyError, IndexError):
-            errors[field] = error.get("msg", "Ошибка")
+            errors[field] = template.format(**error.get("ctx", {}))
+        except (KeyError, IndexError, ValueError):
+            errors[field] = fallback
 
     content = error_envelope("Ошибка валидации", errors) if errors else error_envelope("Ошибка валидации")
     return json_response(content, status.HTTP_422_UNPROCESSABLE_ENTITY)
