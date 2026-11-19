@@ -22,7 +22,6 @@ DEFAULT_NUM_PREDICT_BROAD = 2048
 @dataclass(frozen=True)
 class RetrieverConfig:
     fetch_k: int
-    top_k: int
     fetch_k_broad: int
     top_k_broad: int
 

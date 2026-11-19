@@ -188,7 +188,7 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(
     mock_settings.qdrant_timeout = 10
 
     rag = RagSettings(
-        retriever=RetrieverConfig(fetch_k=20, top_k=5, fetch_k_broad=40, top_k_broad=10),
+        retriever=RetrieverConfig(fetch_k=20, fetch_k_broad=40, top_k_broad=10),
         hybrid_search=HybridSearchConfig(
             enabled=True, bm25_fetch_k=20, rrf_k=60, dense_weight=1.0, sparse_weight=1.0
         ),
@@ -247,7 +247,7 @@ async def test_run_hybrid_search_acl_defaults_are_mandatory(
 ) -> None:
 
     rag = RagSettings(
-        retriever=RetrieverConfig(fetch_k=20, top_k=5, fetch_k_broad=40, top_k_broad=10),
+        retriever=RetrieverConfig(fetch_k=20, fetch_k_broad=40, top_k_broad=10),
         hybrid_search=HybridSearchConfig(
             enabled=True, bm25_fetch_k=20, rrf_k=60, dense_weight=1.0, sparse_weight=1.0
         ),
@@ -308,7 +308,7 @@ async def test_run_hybrid_search_empty_conditions_fail_closed(
     mock_settings.qdrant_timeout = 10
 
     rag = RagSettings(
-        retriever=RetrieverConfig(fetch_k=20, top_k=5, fetch_k_broad=40, top_k_broad=10),
+        retriever=RetrieverConfig(fetch_k=20, fetch_k_broad=40, top_k_broad=10),
         hybrid_search=HybridSearchConfig(
             enabled=True, bm25_fetch_k=20, rrf_k=60, dense_weight=1.0, sparse_weight=1.0
         ),
@@ -365,7 +365,7 @@ async def test_hybrid_search_uses_rrf_with_qdrant_sparse(
     mock_settings.qdrant_timeout = 10
 
     rag = RagSettings(
-        retriever=RetrieverConfig(fetch_k=20, top_k=5, fetch_k_broad=40, top_k_broad=10),
+        retriever=RetrieverConfig(fetch_k=20, fetch_k_broad=40, top_k_broad=10),
         hybrid_search=HybridSearchConfig(
             enabled=True, bm25_fetch_k=20, rrf_k=60, dense_weight=1.0, sparse_weight=1.0
         ),

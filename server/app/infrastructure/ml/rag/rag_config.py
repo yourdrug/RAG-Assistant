@@ -30,7 +30,6 @@ def build_rag_settings(port: RagSettingsPort | None = None) -> RagSettings:
     return RagSettings(
         retriever=RetrieverConfig(
             fetch_k=port.retriever_fetch_k,
-            top_k=port.retriever_top_k,
             fetch_k_broad=port.retriever_fetch_k_broad,
             top_k_broad=port.retriever_top_k_broad,
         ),

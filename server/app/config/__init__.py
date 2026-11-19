@@ -81,7 +81,7 @@ def config_version() -> str | None:
 
 @overload
 def get_setting(
-    key: Literal["retriever_fetch_k", "retriever_top_k", "retriever_fetch_k_broad", "retriever_top_k_broad"],
+    key: Literal["retriever_fetch_k", "retriever_fetch_k_broad", "retriever_top_k_broad"],
 ) -> int: ...
 
 

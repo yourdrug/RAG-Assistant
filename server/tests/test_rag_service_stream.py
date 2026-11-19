@@ -520,7 +520,6 @@ class TestStreamHelperMethods:
 
         rag = MagicMock()
         rag.retriever.fetch_k = 25
-        rag.retriever.top_k = 4
         rag.retriever.fetch_k_broad = 40
         rag.retriever.top_k_broad = 10
         rag.hybrid_search.dense_weight = 1.5
@@ -532,7 +531,6 @@ class TestStreamHelperMethods:
 
         rag = MagicMock()
         rag.retriever.fetch_k = 25
-        rag.retriever.top_k = 4
         rag.retriever.fetch_k_broad = 40
         rag.retriever.top_k_broad = 10
         rag.hybrid_search.dense_weight = 1.5

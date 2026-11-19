@@ -143,19 +143,19 @@ def test_settings_is_instance_of_every_section() -> None:
 
 def test_process_section_is_the_live_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
     retrieval = process_section(RetrievalSection)
-    monkeypatch.setattr(settings, "retriever_top_k", 13)
+    monkeypatch.setattr(settings, "retriever_top_k_broad", 13)
     assert retrieval is settings
-    assert retrieval.retriever_top_k == 13
+    assert retrieval.retriever_top_k_broad == 13
 
 
 def test_request_section_prefers_admitted_snapshot() -> None:
-    snapshot = settings.model_copy(update={"retriever_top_k": settings.retriever_top_k + 5})
+    snapshot = settings.model_copy(update={"retriever_top_k_broad": settings.retriever_top_k_broad + 5})
     assert request_section(RetrievalSection) is settings
 
     token = request_settings.set(snapshot)
     try:
         assert request_section(RetrievalSection) is snapshot
-        assert request_section(RetrievalSection).retriever_top_k == snapshot.retriever_top_k
+        assert request_section(RetrievalSection).retriever_top_k_broad == snapshot.retriever_top_k_broad
     finally:
         request_settings.reset(token)
 
@@ -166,11 +166,13 @@ def test_section_sees_hot_reloaded_dynamic_value() -> None:
     model = Settings(_env_file=None, **cast("dict[str, Any]", {}))
     configuration = SettingsProviderConfiguration(model, bus=MagicMock())
     section: RetrievalSection = model
-    new_value = model.retriever_top_k + 3
+    new_value = model.retriever_top_k_broad + 3
 
-    configuration.apply([ConfigParameter("retriever_top_k", str(new_value), ConfigValueType.INT, "rag")])
+    configuration.apply(
+        [ConfigParameter("retriever_top_k_broad", str(new_value), ConfigValueType.INT, "rag")]
+    )
 
-    assert section.retriever_top_k == new_value
+    assert section.retriever_top_k_broad == new_value
 
 
 def strong_security_values() -> dict[str, object]:
@@ -409,10 +411,6 @@ def test_static_fields_reject_out_of_range_values(key: str, value: float) -> Non
     "overrides, message",
     [
         (
-            {"retriever_top_k": 16, "retriever_fetch_k": 15},
-            "retriever_top_k must not exceed retriever_fetch_k",
-        ),
-        (
             {"retriever_top_k_broad": 41, "retriever_fetch_k_broad": 40},
             "retriever_top_k_broad must not exceed retriever_fetch_k_broad",
         ),
@@ -450,7 +448,7 @@ def test_linked_retrieval_and_generation_limits_are_checked(overrides: dict[str,
 
 
 def test_equal_top_k_and_fetch_k_are_accepted() -> None:
-    model = settings.model_copy(update={"retriever_top_k": 15, "retriever_fetch_k": 15})
+    model = settings.model_copy(update={"retriever_top_k_broad": 15, "retriever_fetch_k_broad": 15})
     assert model.check_retrieval() == []
 
 

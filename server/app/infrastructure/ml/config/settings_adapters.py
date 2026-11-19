@@ -49,10 +49,6 @@ class LiveRagSettings:
         return get_setting("retriever_fetch_k")
 
     @property
-    def retriever_top_k(self) -> int:
-        return get_setting("retriever_top_k")
-
-    @property
     def retriever_fetch_k_broad(self) -> int:
         return get_setting("retriever_fetch_k_broad")
 

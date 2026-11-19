@@ -961,12 +961,16 @@ def int_row(key: str, value: int, category: str) -> ConfigParameter:
 def test_snapshot_rejects_top_k_above_fetch_k(model: Settings) -> None:
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus())
 
-    with pytest.raises(ValidationError, match="retriever_top_k must not exceed retriever_fetch_k"):
-        config.apply([int_row("retriever_top_k", 50, "rag"), int_row("retriever_fetch_k", 1, "rag")])
-    assert (model.retriever_top_k, model.retriever_fetch_k) != (50, 1)
+    with pytest.raises(
+        ValidationError, match="retriever_top_k_broad must not exceed retriever_fetch_k_broad"
+    ):
+        config.apply(
+            [int_row("retriever_top_k_broad", 50, "rag"), int_row("retriever_fetch_k_broad", 1, "rag")]
+        )
+    assert (model.retriever_top_k_broad, model.retriever_fetch_k_broad) != (50, 1)
 
-    config.apply([int_row("retriever_top_k", 10, "rag"), int_row("retriever_fetch_k", 30, "rag")])
-    assert (model.retriever_top_k, model.retriever_fetch_k) == (10, 30)
+    config.apply([int_row("retriever_top_k_broad", 10, "rag"), int_row("retriever_fetch_k_broad", 30, "rag")])
+    assert (model.retriever_top_k_broad, model.retriever_fetch_k_broad) == (10, 30)
 
 
 def test_snapshot_rejects_num_predict_not_below_num_ctx(model: Settings) -> None:

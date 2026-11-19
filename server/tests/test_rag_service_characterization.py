@@ -57,11 +57,6 @@ class TestBuildRagSettings:
         result = _build_rag_settings()
         assert isinstance(result, RagSettings)
 
-    def test_narrow_top_k_from_config(self) -> None:
-
-        result = _build_rag_settings()
-        assert result.retriever.top_k == settings.retriever_top_k
-
     def test_broad_top_k_from_config(self) -> None:
 
         result = _build_rag_settings()

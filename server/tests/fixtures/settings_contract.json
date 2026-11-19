@@ -869,12 +869,6 @@
     "metadata": "[]",
     "required": false
   },
-  "retriever_top_k": {
-    "annotation": "<class 'int'>",
-    "default": "4",
-    "metadata": "[]",
-    "required": false
-  },
   "retriever_top_k_broad": {
     "annotation": "<class 'int'>",
     "default": "10",

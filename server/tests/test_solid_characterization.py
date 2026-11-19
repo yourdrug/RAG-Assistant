@@ -210,7 +210,7 @@ async def test_sweep_cancels_before_scoring(grid_engine: Any, monkeypatch: pytes
 async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(
     grid_engine: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token = settings_overrides.set({"cache_enabled": True, "retriever_top_k": 99})
+    token = settings_overrides.set({"cache_enabled": True, "retriever_top_k_broad": 99})
     monkeypatch.setattr(
         grid_engine, "run_full_benchmark", AsyncMock(side_effect=RuntimeError("judge failed"))
     )
@@ -218,7 +218,7 @@ async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(
         sweep = BenchmarkSweep(search_space={"top_k": {"values": [2]}}, top_n_llm=1)
         with pytest.raises(RuntimeError, match="judge failed"):
             await grid_engine.run_sweep(sweep, judge_model="judge")
-        assert settings_overrides.get() == {"cache_enabled": True, "retriever_top_k": 99}
+        assert settings_overrides.get() == {"cache_enabled": True, "retriever_top_k_broad": 99}
     finally:
         settings_overrides.reset(token)
 

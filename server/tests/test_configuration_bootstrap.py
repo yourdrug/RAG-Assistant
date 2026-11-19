@@ -106,10 +106,10 @@ def test_ml_endpoint_change_rejected_before_commit(
 @pytest.mark.parametrize(
     "rows",
     [
-        [row("retriever_top_k", "garbage", ConfigValueType.INT)],
-        [row("retriever_top_k", "0", ConfigValueType.INT)],
+        [row("retriever_top_k_broad", "garbage", ConfigValueType.INT)],
+        [row("retriever_top_k_broad", "0", ConfigValueType.INT)],
         [row("ocr_lang_surya", "{}", ConfigValueType.LIST)],
-        [row("retriever_top_k", "7", ConfigValueType.STR)],
+        [row("retriever_top_k_broad", "7", ConfigValueType.STR)],
     ],
 )
 def test_bad_snapshot_keeps_entire_previous_state_and_safe_error(
@@ -464,7 +464,7 @@ async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database
     ).save(row("llm_model", "cli-db-model"))
     await require_present(
         cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
-    ).save(row("retriever_top_k", "garbage" if malformed else "7", ConfigValueType.INT))
+    ).save(row("retriever_top_k_broad", "garbage" if malformed else "7", ConfigValueType.INT))
     await require_present(
         cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
     ).save(row("fingerprint_min_articles", "9", ConfigValueType.INT, "legal"))

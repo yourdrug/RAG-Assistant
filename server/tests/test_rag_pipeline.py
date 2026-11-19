@@ -56,7 +56,6 @@ def make_rag(**overrides: Any) -> RagSettings:
     defaults: dict[str, Any] = {
         "retriever": RetrieverConfig(
             fetch_k=25,
-            top_k=4,
             fetch_k_broad=40,
             top_k_broad=10,
         ),
@@ -155,7 +154,6 @@ class TestBuildRagSettings:
     def test_retriever_config(self) -> None:
         result = _build_rag_settings()
         assert result.retriever.fetch_k > 0
-        assert result.retriever.top_k > 0
         assert result.retriever.fetch_k_broad > 0
         assert result.retriever.top_k_broad > 0
 
