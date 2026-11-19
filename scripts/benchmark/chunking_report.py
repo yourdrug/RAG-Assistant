@@ -38,7 +38,7 @@ import sqlite3
 import statistics
 import sys
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from langchain_core.documents import Document
@@ -58,6 +58,10 @@ from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualize
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.tokenization import build_token_counter
 from infrastructure.repositories.vector.sparse_vectors import encode_sparse
+
+
+if TYPE_CHECKING:
+    from domain.ingestion.ports import TokenCounter
 
 
 log = logging.getLogger("chunking_report")
@@ -176,6 +180,7 @@ def parse_args() -> argparse.Namespace:
 
 def build_pipeline(
     pack_key: str = "belarus_law",
+    token_counter: TokenCounter | None = None,
 ) -> tuple[DomainProfileRegistry, DomainSettingsAdapter, Any, Any]:
     pack = selected_pack(pack_key)
     settings = DomainSettingsAdapter()
@@ -191,7 +196,7 @@ def build_pipeline(
         registry,
         settings,
         LangchainDocumentParser(registry, settings),
-        LangchainDocumentSplitter(registry, settings),
+        LangchainDocumentSplitter(registry, settings, token_counter),
     )
 
 
@@ -263,9 +268,10 @@ def split_corpus(
     contextualization: ChunkContextualization | None = None,
     *,
     pack_key: str = "belarus_law",
+    token_counter: TokenCounter | None = None,
 ) -> list[dict[str, Any]]:
     """Split every file the way the loader does: one registry-classified domain per document."""
-    registry, settings, parser, splitter = build_pipeline(pack_key)
+    registry, settings, parser, splitter = build_pipeline(pack_key, token_counter)
     files = sorted(path for path in corpus.iterdir() if path.is_file() and not path.name.startswith("."))
 
     if not files:
@@ -578,7 +584,14 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     contextualization = (
         build_contextualization(args.notes_cache, tokenizer_path) if args.contextualize else None
     )
-    documents = split_corpus(args.corpus, contextualization, pack_key=args.pack)
+    # Chunk with the same tokenizer as the metrics: without it the splitter falls back to
+    # embed_tokenizer_path, which is absent on CI and silently switches to a character estimate.
+    documents = split_corpus(
+        args.corpus,
+        contextualization,
+        pack_key=args.pack,
+        token_counter=build_token_counter(str(tokenizer_path)),
+    )
 
     if args.chunks_out:
         args.chunks_out.parent.mkdir(parents=True, exist_ok=True)
