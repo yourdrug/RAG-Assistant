@@ -417,7 +417,7 @@ async def rerank_and_enrich(
     # The flag widens neighbour expansion and adds the completeness rules; it never changes the style.
     state.enumerate_cases = should_enumerate_cases([doc.page_content for doc, _ in docs])
 
-    _, _, _, _, max_context_tokens = prepare_generation_budget(state)
+    max_context_tokens = prepare_generation_budget(state).remaining
     docs = await enrich_retained_docs(
         docs, state, query, chunk_search, document_access, max_context_tokens=max_context_tokens
     )

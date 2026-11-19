@@ -54,11 +54,16 @@ class LLMSection(BaseModel):
 
     def check_generation_budget(self) -> list[str]:
         # The prompt budget is num_ctx - num_predict; without room the answer cannot be generated.
+        # Chat generation uses llm_num_ctx_broad for every answer style and reserves the largest
+        # output ceiling during evidence selection, so both ceilings must fit that window; the
+        # narrow window still budgets the rolling conversation summary.
+        pairs = (
+            ("llm_num_predict_narrow", "llm_num_ctx_narrow"),
+            ("llm_num_predict_broad", "llm_num_ctx_broad"),
+            ("llm_num_predict_narrow", "llm_num_ctx_broad"),
+        )
         return [
             f"{predict} must be less than {ctx} ({getattr(self, predict)} >= {getattr(self, ctx)})"
-            for predict, ctx in (
-                ("llm_num_predict_narrow", "llm_num_ctx_narrow"),
-                ("llm_num_predict_broad", "llm_num_ctx_broad"),
-            )
+            for predict, ctx in pairs
             if getattr(self, predict) >= getattr(self, ctx)
         ]

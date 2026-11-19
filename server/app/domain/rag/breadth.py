@@ -53,6 +53,25 @@ def answer_style(depth: str | None) -> AnswerStyle:
     return AnswerStyle.CONCISE if requested == Breadth.NARROW else AnswerStyle.DETAILED
 
 
+# Results and traces recorded before answer styles stored the generation breadth instead.
+LEGACY_BREADTH_STYLES: dict[Breadth, AnswerStyle] = {
+    Breadth.NARROW: AnswerStyle.CONCISE,
+    Breadth.BROAD: AnswerStyle.DETAILED,
+}
+
+
+def stored_answer_style(value: str) -> AnswerStyle:
+    """An AnswerStyle value, or the legacy breadth label of an older result; anything else is an error."""
+    if value in AnswerStyle:
+        return AnswerStyle(value)
+
+    if value in Breadth:
+        return LEGACY_BREADTH_STYLES[Breadth(value)]
+
+    message = f"Unknown answer style: {value!r}"
+    raise ValueError(message)
+
+
 def output_breadth(style: AnswerStyle) -> Breadth:
     """Output-limit class of a style: only a concise answer uses the smaller generation ceiling."""
     return Breadth.NARROW if style == AnswerStyle.CONCISE else Breadth.BROAD

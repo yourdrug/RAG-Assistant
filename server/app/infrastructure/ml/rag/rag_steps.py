@@ -553,17 +553,26 @@ class RagOperations:
         style = answer_style(state.ctx.depth)
 
         count_tokens = token_counter or estimate_message_tokens
-        prompt, history, num_ctx, num_predict, _ = prepare_generation_budget(state, count_tokens)
-
-        input_budget = num_ctx - num_predict
+        generation = prepare_generation_budget(state, count_tokens)
+        prompt, history = generation.prompt, generation.history
+        num_ctx, num_predict, input_budget = (
+            generation.num_ctx,
+            generation.num_predict,
+            generation.input_budget,
+        )
 
         while True:
             exclusions: list[dict[str, Any]] = []
 
+            # Evidence is selected against the widest style prompt and the largest output reserve,
+            # so switching the answer style can never add or drop a source.
             def count_context(context: str, current_history: list[BaseMessage] = history) -> int:
                 return count_tokens(
                     format_generation_messages(
-                        prompt, context=context, history=current_history, question=state.question
+                        generation.selection_prompt,
+                        context=context,
+                        history=current_history,
+                        question=state.question,
                     )
                 )
 
@@ -625,6 +634,7 @@ class RagOperations:
                 "input_tokens": input_tokens,
                 "base_tokens": base_tokens,
                 "answer_style": style.value,
+                "input_budget": input_budget,
                 "enumerate_cases": state.enumerate_cases,
                 "query_parts": state.sub_queries or [state.question],
                 **trace_budget,

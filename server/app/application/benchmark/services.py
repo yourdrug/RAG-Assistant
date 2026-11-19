@@ -49,7 +49,8 @@ QUESTION_EXPORT_LIMIT = 10_000
 # ---------------------------------------------------------------------------
 RUN_CONFIG_KEY_MAP: dict[str, str] = {
     "top_k": "retriever_top_k",
-    "fetch_k": "retriever_fetch_k",
+    # Benchmark fetch_k is the chat candidate limit, which reads only the broad setting.
+    "fetch_k": "retriever_fetch_k_broad",
     "dense_weight": "dense_weight",
     "sparse_weight": "sparse_weight",
     "rrf_k": "rrf_k",

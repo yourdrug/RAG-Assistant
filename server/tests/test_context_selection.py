@@ -13,6 +13,9 @@ from langchain_core.messages import HumanMessage
 import pytest
 
 from domain.benchmark.evaluation import evaluate_evidence
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
+from domain.rag.context import RagContext
 from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
@@ -285,3 +288,36 @@ def test_saved_snapshot_loss_is_reproduced_and_repaired(
     assert rebuilt["context_fragment_recall"] == 1
     assert rebuilt["input_tokens"] <= question["input_budget"]
     assert rebuilt["missing_context_fragments"] == []
+
+
+@pytest.mark.generic_evidence
+def test_answer_style_never_changes_the_evidence_sent_to_the_model() -> None:
+    # Walk the context window across selection boundaries: at every size the fragments that
+    # actually reach the model must be identical for "Авто", "Кратко" and "Подробно".
+    docs = [
+        (doc(f"Condition {i} applies with exception {i}. " * 25, i), 0.95 - i * 0.01) for i in range(1, 9)
+    ]
+    reference = state_for(docs[:1])
+    messages, _ = step_build_context(reference, None)
+    floor = estimate_message_tokens(messages) + max(
+        reference.rag.llm_num_predict_narrow, reference.rag.llm_num_predict_broad
+    )
+    user = UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    sizes = set()
+
+    for extra in range(0, 3000, 37):
+        selected = {}
+
+        for depth in (None, "narrow", "broad"):
+            state = state_for(
+                docs,
+                ctx=RagContext(user=user, depth=depth),
+                rag=replace(reference.rag, llm_num_ctx_broad=floor + extra),
+            )
+            step_build_context(state, None)
+            selected[depth] = [item.metadata["document_id"] for item, _ in state._prompt_docs]
+
+        assert selected[None] == selected["narrow"] == selected["broad"], extra
+        sizes.add(len(selected[None]))
+
+    assert len(sizes) > 2  # The walk really crossed several selection boundaries.

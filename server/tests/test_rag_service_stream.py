@@ -26,6 +26,7 @@ from domain.rag.classification import classify_question_breadth
 from domain.rag.context import RagContext
 from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
+from infrastructure.ml.rag.generation_budget import prepare_generation_budget
 from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER
 from infrastructure.ml.rag.rag_postprocess import apply_citation_filter
 from infrastructure.ml.rag.rag_steps import RagOperations
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from application.rag.service import RagService
     from application.rag.stream_events import StreamEvent
     from domain.rag.settings import RagSettings
+    from infrastructure.ml.rag.generation_budget import GenerationBudget
 
 
 pytestmark = pytest.mark.slow
@@ -712,9 +714,24 @@ class TestAnswerStyleSelection:
 
     @staticmethod
     async def run(depth: str | None, *, auto: Breadth, enumerate_cases: bool) -> SimpleNamespace:
-        build_prompt = MagicMock(
-            wraps=_STREAM_PATCHES["infrastructure.ml.rag.generation_budget.build_prompt"]
-        )
+        # Every style prompt is built for the shared selection budget; tag each one so the test can
+        # tell which prompt actually reached generation.
+        template = _STREAM_PATCHES["infrastructure.ml.rag.generation_budget.build_prompt"]
+        prompts: dict[int, AnswerStyle] = {}
+
+        def tagged_prompt(style: AnswerStyle, **_kwargs: Any) -> MagicMock:
+            prompt = MagicMock(messages=template.return_value.messages)
+            prompt.format_messages = template.return_value.format_messages
+            prompts[id(prompt)] = style
+            return prompt
+
+        build_prompt = MagicMock(side_effect=tagged_prompt)
+        budgets: list[GenerationBudget] = []
+
+        def recorded_budget(*args: Any, **kwargs: Any) -> GenerationBudget:
+            budgets.append(prepare_generation_budget(*args, **kwargs))
+            return budgets[-1]
+
         search = AsyncMock(return_value=[])
         client_breadth = MagicMock(wraps=output_breadth)
         with (
@@ -726,11 +743,12 @@ class TestAnswerStyleSelection:
             ),
             patch("infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search", search),
             patch("infrastructure.ml.rag.generation_budget.build_prompt", build_prompt),
+            patch("infrastructure.ml.rag.rag_steps.prepare_generation_budget", side_effect=recorded_budget),
             patch("infrastructure.ml.rag.rag_steps.output_breadth", client_breadth),
         ):
             await collect_events(make_stream_service(), "question", ctx=_make_context(depth=depth))
         return SimpleNamespace(
-            style=build_prompt.call_args.args[0],
+            style=prompts[id(budgets[-1].prompt)],
             enumerate_cases=build_prompt.call_args.kwargs["enumerate_cases"],
             fetch_k=search.call_args.args[1],
             client_calls=[call.args[0] for call in client_breadth.call_args_list],

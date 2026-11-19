@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from domain.rag.breadth import AnswerStyle
+from domain.rag.breadth import AnswerStyle, stored_answer_style
 from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.prompt_blocks import (
     ADAPTIVE_FORMATTING,
@@ -63,7 +63,8 @@ def build_system_prompt(
 
     The completeness and grounding rules are identical for every style; ``style``
     changes only how the answer is presented (and how compactly sources are cited).
-    An unknown style falls back to the concise presentation.
+    Legacy breadth labels of older results map explicitly ("narrow" -> concise,
+    "broad" -> detailed); an unknown value is an error, never a silent concise prompt.
 
     ``domain_addendum``: extra rules from the active ``DomainProfile`` (e.g.
     legal citation rules, temporal rules when ``as_of_date`` is set). This is
@@ -73,7 +74,7 @@ def build_system_prompt(
     ``enumerate_cases``: when True, adds the per-category completeness rules for
     conditional evidence; it never changes the presentation style.
     """
-    resolved = AnswerStyle(style) if style in AnswerStyle else AnswerStyle.CONCISE
+    resolved = stored_answer_style(style)
     source_style = (
         SOURCE_REFERENCE_COMPACT_BLOCK if resolved == AnswerStyle.CONCISE else SOURCE_REFERENCE_STYLE_BLOCK
     )

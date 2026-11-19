@@ -7,6 +7,7 @@ and handles result persistence, history tracking, and regression comparison.
 from __future__ import annotations
 
 import logging
+import statistics
 from typing import TYPE_CHECKING, Any, Unpack
 
 from application.benchmark.summary import summarize_benchmark_results
@@ -85,7 +86,7 @@ def compute_summary_from_results(results: list[dict[str, Any]]) -> dict[str, Any
         # Answer length per style is the main signal for the "Кратко / Авто / Подробно" selector.
         "answer_length": {
             "mean_chars": round(sum(answer_chars) / len(answer_chars), 1),
-            "median_chars": answer_chars[len(answer_chars) // 2],
+            "median_chars": statistics.median(answer_chars),
             "max_chars": answer_chars[-1],
         }
         if answer_chars

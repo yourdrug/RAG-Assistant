@@ -468,7 +468,7 @@ class SettingsProviderConfiguration:
 
 
 def validate_retrieval_budgets(candidate: Settings) -> None:
-    """Reject snapshots with top_k > fetch_k or num_predict >= num_ctx (per breadth)."""
+    """Reject snapshots with top_k > fetch_k or an output ceiling that leaves no prompt budget."""
     errors = [*candidate.check_retrieval(), *candidate.check_generation_budget()]
 
     if errors:

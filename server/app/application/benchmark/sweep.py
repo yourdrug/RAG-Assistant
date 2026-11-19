@@ -144,7 +144,7 @@ class SweepEngine:
             runtime_snapshot = await self.load_runtime_snapshot(run)
             run.baseline_config = {
                 "top_k": runtime_snapshot["retriever_top_k"],
-                "fetch_k": runtime_snapshot["retriever_fetch_k"],
+                "fetch_k": runtime_snapshot["retriever_fetch_k_broad"],
                 **{name: runtime_snapshot[name] for name in CHEAP_PARAMS - {"top_k", "fetch_k"}},
             }
             phase_a_identity = fingerprint(

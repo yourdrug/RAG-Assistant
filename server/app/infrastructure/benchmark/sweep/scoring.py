@@ -129,7 +129,7 @@ class RetrievalParameters:
     def from_config(cls, config: dict[str, Any], defaults: dict[str, Any]) -> RetrievalParameters:
         return cls(
             top_k=config.get("top_k", defaults["retriever_top_k"]),
-            fetch_k=config.get("fetch_k", defaults["retriever_fetch_k"]),
+            fetch_k=config.get("fetch_k", defaults["retriever_fetch_k_broad"]),
             dw=config.get("dense_weight", defaults["dense_weight"]),
             sw=config.get("sparse_weight", defaults["sparse_weight"]),
             rrf_k=config.get("rrf_k", defaults["rrf_k"]),

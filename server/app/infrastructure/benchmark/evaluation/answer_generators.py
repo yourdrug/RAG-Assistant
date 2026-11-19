@@ -65,7 +65,8 @@ class RagBenchmarkGenerator:
         }
 
         if self._fetch_k is not None:
-            overrides["retriever_fetch_k"] = self._fetch_k
+            # Chat retrieval reads only the broad candidate limit; override what is actually searched.
+            overrides["retriever_fetch_k_broad"] = self._fetch_k
 
         if question.get("as_of_date"):
             ctx = replace(ctx, as_of_date=date.fromisoformat(question["as_of_date"]))

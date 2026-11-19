@@ -424,6 +424,16 @@ def test_static_fields_reject_out_of_range_values(key: str, value: float) -> Non
             {"llm_num_predict_broad": 9000, "llm_num_ctx_broad": 8192},
             "llm_num_predict_broad must be less than llm_num_ctx_broad",
         ),
+        # Every chat answer uses the broad window; a concise ceiling that fills it leaves no prompt.
+        (
+            {
+                "llm_num_ctx_narrow": 8192,
+                "llm_num_predict_narrow": 4096,
+                "llm_num_ctx_broad": 4096,
+                "llm_num_predict_broad": 1024,
+            },
+            "llm_num_predict_narrow must be less than llm_num_ctx_broad",
+        ),
     ],
 )
 def test_linked_retrieval_and_generation_limits_are_checked(overrides: dict[str, int], message: str) -> None:

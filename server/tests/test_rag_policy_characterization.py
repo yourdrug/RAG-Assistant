@@ -72,8 +72,11 @@ def test_empty_and_whitespace_addenda_keep_existing_behavior() -> None:
 
 
 @pytest.mark.generic_evidence
-def test_unknown_style_uses_concise_prompt() -> None:
-    assert build_system_prompt("unknown") == build_system_prompt(AnswerStyle.CONCISE)
+def test_legacy_breadth_labels_map_to_styles_and_unknown_is_rejected() -> None:
+    assert build_system_prompt("narrow") == build_system_prompt(AnswerStyle.CONCISE)
+    assert build_system_prompt("broad") == build_system_prompt(AnswerStyle.DETAILED)
+    with pytest.raises(ValueError, match="Unknown answer style"):
+        build_system_prompt("unknown")
 
 
 @pytest.mark.parametrize(

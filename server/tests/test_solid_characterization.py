@@ -131,6 +131,36 @@ async def test_benchmark_asks_with_the_selected_answer_depth(
 
 
 @pytest.mark.asyncio
+async def test_answer_length_median_averages_the_two_middle_answers(
+    benchmark_io: tuple[list[dict[str, Any]], AsyncMock],
+) -> None:
+    questions, _ = benchmark_io
+    answers = iter(["a" * 100, "b" * 300])
+
+    async def invoke(question: object, history: object, ctx: Any) -> SimpleNamespace:
+        return SimpleNamespace(
+            answer=next(answers),
+            outcome=AnswerOutcome.GENERATED,
+            input_tokens=20,
+            output_tokens=10,
+            generation_sec=0.5,
+            ttft_sec=0.1,
+            breadth="narrow",
+            answer_style="adaptive",
+            finish_reason="stop",
+            domain="general",
+            sources=[{"source": "report.pdf", "max_score": 0.9, "content": "context"}],
+        )
+
+    results = await run_benchmark_async(
+        questions, 4, "judge", n_runs=2, max_concurrent=1, rag_service=SimpleNamespace(invoke=invoke)
+    )
+    summary = compute_summary_from_results(results)
+    assert summary["answer_length"] == {"mean_chars": 200.0, "median_chars": 200, "max_chars": 300}
+    assert summary["truncated_rate"] == 0
+
+
+@pytest.mark.asyncio
 async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(
     benchmark_io: tuple[list[dict[str, Any]], AsyncMock],
 ) -> None:
