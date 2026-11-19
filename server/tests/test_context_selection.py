@@ -321,3 +321,23 @@ def test_answer_style_never_changes_the_evidence_sent_to_the_model() -> None:
         sizes.add(len(selected[None]))
 
     assert len(sizes) > 2  # The walk really crossed several selection boundaries.
+
+
+@pytest.mark.generic_evidence
+@pytest.mark.parametrize("depth", [None, "narrow", "broad"])
+def test_trace_budget_describes_the_prompt_actually_sent(depth: str | None) -> None:
+    user = UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    state = state_for([(doc("Короткий фрагмент.", 1), 0.9)], ctx=RagContext(user=user, depth=depth))
+    evidence = BenchmarkEvidence(benchmark_mode=False)
+    token = active_evidence.set(evidence)
+    try:
+        messages, _ = step_build_context(state, None)
+    finally:
+        active_evidence.reset(token)
+    budget = evidence.prompt_budget
+    assert budget is not None
+    assert budget["context_tokens"] > 0
+    assert budget["input_tokens"] == estimate_message_tokens(messages)
+    assert (
+        budget["base_tokens"] + budget["history_tokens"] + budget["context_tokens"] == budget["input_tokens"]
+    )

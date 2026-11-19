@@ -273,7 +273,7 @@ async def test_benchmark_launch_passes_llm_replay_mode_to_the_job(
     app.dependency_overrides[deps.create_job_enqueuer] = lambda: enqueuer
     app.dependency_overrides[deps.create_job_service] = lambda: jobs
     app.dependency_overrides[deps.create_benchmark_config] = lambda: SimpleNamespace(
-        data_dir=str(tmp_path), retriever_top_k=7, llm_model="judge"
+        data_dir=str(tmp_path), retriever_top_k_broad=7, llm_model="judge"
     )
     app.dependency_overrides[deps.create_idempotency_store] = lambda: None
     response = await asgi_client.post("/benchmark", json={"llm_replay_mode": "replay_only"})
@@ -294,7 +294,7 @@ async def test_benchmark_launch_passes_answer_depth_to_the_job(
     app.dependency_overrides[deps.create_job_enqueuer] = lambda: enqueuer
     app.dependency_overrides[deps.create_job_service] = lambda: jobs
     app.dependency_overrides[deps.create_benchmark_config] = lambda: SimpleNamespace(
-        data_dir=str(tmp_path), retriever_top_k=7, llm_model="judge"
+        data_dir=str(tmp_path), retriever_top_k_broad=7, llm_model="judge"
     )
     app.dependency_overrides[deps.create_idempotency_store] = lambda: None
     response = await asgi_client.post("/benchmark", json={"depth": "narrow"})
@@ -318,7 +318,7 @@ async def test_benchmark_launch_enqueues_database_dataset(
         create_job=AsyncMock(return_value=8)
     )
     app.dependency_overrides[deps.create_benchmark_config] = lambda: SimpleNamespace(
-        data_dir=str(tmp_path), retriever_top_k=7, llm_model="judge"
+        data_dir=str(tmp_path), retriever_top_k_broad=7, llm_model="judge"
     )
     app.dependency_overrides[deps.create_idempotency_store] = lambda: None
     response = await asgi_client.post("/benchmark", json={} if dataset is None else {"dataset": dataset})

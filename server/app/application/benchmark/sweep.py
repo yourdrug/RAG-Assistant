@@ -64,6 +64,9 @@ CHEAP_PARAMS = frozenset(
     }
 )
 EXPENSIVE_PARAMS = frozenset({"chunk_size", "chunk_overlap"})
+# Bump when evaluation semantics change (which settings top_k/fetch_k drive, the BM25 sample):
+# checkpoints saved under another version must not be resumed and mixed with new results.
+SWEEP_EVALUATION_VERSION = 2
 
 
 class SweepBenchmarkPort(Protocol):
@@ -143,7 +146,7 @@ class SweepEngine:
             questions = [q for q in dataset_questions if has_retrieval_labels(q)]
             runtime_snapshot = await self.load_runtime_snapshot(run)
             run.baseline_config = {
-                "top_k": runtime_snapshot["retriever_top_k"],
+                "top_k": runtime_snapshot["retriever_top_k_broad"],
                 "fetch_k": runtime_snapshot["retriever_fetch_k_broad"],
                 **{name: runtime_snapshot[name] for name in CHEAP_PARAMS - {"top_k", "fetch_k"}},
             }
@@ -154,6 +157,7 @@ class SweepEngine:
                     "strategy": sweep.strategy,
                     "weights": sweep.objective_weights,
                     "settings": runtime_snapshot,
+                    "evaluation_version": SWEEP_EVALUATION_VERSION,
                 }
             )
             phase_a_key = f"phase-a-{phase_a_identity}.json"
@@ -357,6 +361,7 @@ class SweepEngine:
                     "fetch_k": self._runtime.fetch_k,
                     "judge": judge_model,
                     **{name: current_settings[name] for name in CHEAP_PARAMS - {"top_k", "fetch_k"}},
+                    "evaluation_version": SWEEP_EVALUATION_VERSION,
                 }
             )
             # Freeze the namespace on the first attempt. Operational setting

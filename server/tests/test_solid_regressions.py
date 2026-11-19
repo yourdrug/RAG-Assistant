@@ -123,7 +123,7 @@ async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch: pytest
     questions = [{"question": "q"}]
 
     async def invoke(**kwargs: Any) -> None:
-        assert get_setting("retriever_top_k") == 7
+        assert get_setting("retriever_top_k_broad") == 7
         # Chat retrieval reads only the broad candidate limit: that is what must carry fetch_k.
         assert get_setting("retriever_fetch_k_broad") == 23
         msg = "limits checked"

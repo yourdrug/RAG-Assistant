@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import importlib
-from typing import TYPE_CHECKING
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
 from application.benchmark import BenchmarkService
+from application.benchmark.services import BenchmarkRunService
+from tests.fakes import FakeUnitOfWorkFactory
 
 
 if TYPE_CHECKING:
@@ -100,3 +103,16 @@ async def test_runner_receives_defaults_and_resume_options(*, explicit_options: 
 async def test_runner_must_be_injected() -> None:
     with pytest.raises(RuntimeError, match="A benchmark runner must be injected"):
         await BenchmarkService().run([], 4, "judge")
+
+
+@pytest.mark.asyncio
+async def test_applying_a_run_config_sets_the_limits_chat_actually_reads() -> None:
+    # Chat rerank and candidate limits are the *_broad settings; applying a confirmed top_k/fetch_k
+    # to the narrow ones would change nothing in the answers.
+    service = BenchmarkRunService(FakeUnitOfWorkFactory())
+    service.get = AsyncMock(return_value=SimpleNamespace(config_json={"top_k": 2, "fetch_k": 20}))  # type: ignore[method-assign]
+    config_service = SimpleNamespace(update_parameter=AsyncMock())
+    result = await service.apply_config(1, 7, cast("Any", config_service))
+    applied = {call.args[0]: call.args[1] for call in config_service.update_parameter.await_args_list}
+    assert applied == {"retriever_top_k_broad": "2", "retriever_fetch_k_broad": "20"}
+    assert result.failed == []

@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from langchain_core.documents import Document as LCDocument
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 import pytest
 
@@ -26,8 +27,10 @@ from domain.rag.classification import classify_question_breadth
 from domain.rag.context import RagContext
 from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
+from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 from infrastructure.ml.rag.generation_budget import prepare_generation_budget
 from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER
+from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_postprocess import apply_citation_filter
 from infrastructure.ml.rag.rag_steps import RagOperations
 from tests.test_chat_contracts import chat_fixture
@@ -817,3 +820,27 @@ class TestAnswerStyleObservability:
         final = [event for event in events if isinstance(event, PipelineMetaEvent)][-1]
         assert final.answer_style == expected_style
         assert final.finish_reason == finish_reason
+
+
+class TestExperimentOverridesReachRetrieval:
+    """Sweep and benchmark overrides must drive the real retriever and reranker inputs."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("top_k", [2, 8])
+    async def test_sweep_top_k_and_fetch_k_reach_the_reranker_and_retriever(self, top_k: int) -> None:
+        features = make_rag_settings().features
+        candidate = LCDocument(page_content="Ответ.", metadata={"source": "a.pdf", "document_id": 1})
+        search = AsyncMock(return_value=[candidate])
+        rerank = AsyncMock(return_value=[(candidate, 0.9)])
+        with (
+            LiveSweepSettings().override({"top_k": top_k, "fetch_k": 12}),
+            patch(
+                "infrastructure.ml.rag.rag_steps.build_rag_settings",
+                side_effect=lambda *_args: replace(build_rag_settings(), features=features),
+            ),
+            patch("infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search", search),
+            patch("infrastructure.ml.rag.retrieval_pipeline.rerank_documents", rerank),
+        ):
+            await collect_events(make_stream_service(), "question")
+        assert search.call_args_list[0].args[1] == 12
+        assert rerank.call_args_list[0].kwargs["top_n"] == top_k

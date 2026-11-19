@@ -183,7 +183,7 @@ async def test_api_validates_and_persists_selected_space_before_enqueue(
         "spaces": KnowledgeSpaceService(factory, FakePackCatalog()),
         "submission": JobSubmission(jobs=jobs, enqueuer=enqueuer, log=MagicMock()),
         "bench_cfg": BenchmarkConfig(
-            data_dir="unused-benchmark-output", retriever_top_k=4, llm_model="judge"
+            data_dir="unused-benchmark-output", retriever_top_k_broad=4, llm_model="judge"
         ),
         "idempotency": IdempotencyContext(key=None, store=MagicMock()),
     }

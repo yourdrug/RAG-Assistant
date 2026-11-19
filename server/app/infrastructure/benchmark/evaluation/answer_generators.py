@@ -61,7 +61,8 @@ class RagBenchmarkGenerator:
         overrides = {
             **(settings_overrides.get() or {}),
             "cache_enabled": False,
-            "retriever_top_k": self._top_k,
+            # The chat reranker reads only the broad top-k; override what actually limits the evidence.
+            "retriever_top_k_broad": self._top_k,
         }
 
         if self._fetch_k is not None:

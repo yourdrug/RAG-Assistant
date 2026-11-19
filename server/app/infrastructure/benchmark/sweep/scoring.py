@@ -119,6 +119,8 @@ __all__ = ["compute_composite_score", "has_retrieval_labels"]
 class RetrievalParameters:
     top_k: int
     fetch_k: int
+    # Chat asks BM25 for its own candidate count, independent of the dense fetch_k.
+    bm25_fetch_k: int
     dw: float
     sw: float
     rrf_k: int
@@ -128,8 +130,9 @@ class RetrievalParameters:
     @classmethod
     def from_config(cls, config: dict[str, Any], defaults: dict[str, Any]) -> RetrievalParameters:
         return cls(
-            top_k=config.get("top_k", defaults["retriever_top_k"]),
+            top_k=config.get("top_k", defaults["retriever_top_k_broad"]),
             fetch_k=config.get("fetch_k", defaults["retriever_fetch_k_broad"]),
+            bm25_fetch_k=defaults["bm25_fetch_k"],
             dw=config.get("dense_weight", defaults["dense_weight"]),
             sw=config.get("sparse_weight", defaults["sparse_weight"]),
             rrf_k=config.get("rrf_k", defaults["rrf_k"]),
@@ -149,7 +152,7 @@ def retrieval_documents(
 ) -> list[dict[str, Any]]:
     retriever = HybridRetriever()
     dense_trimmed = dense_cache.get(qtext, [])[: parameters.fetch_k]
-    sparse_trimmed = sparse_cache.get(qtext, [])[: parameters.fetch_k]
+    sparse_trimmed = sparse_cache.get(qtext, [])[: parameters.bm25_fetch_k]
 
     if rerank_scores is None:
         merged_hashes = rrf_merge(

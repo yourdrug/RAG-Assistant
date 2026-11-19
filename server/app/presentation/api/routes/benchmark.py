@@ -63,7 +63,7 @@ async def run_benchmark(
             status_code=422, detail="out_dir is no longer supported; use /benchmark/results/{run_id}/export"
         )
 
-    k = req.top_k or bench_cfg.retriever_top_k
+    k = req.top_k or bench_cfg.retriever_top_k_broad
     judge = req.judge_model or bench_cfg.llm_model
 
     cached, reservation = await reserve_idempotency(

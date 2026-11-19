@@ -114,7 +114,7 @@ async def enqueue_runs(  # noqa: PLR0913 - CLI options forwarded to the benchmar
         msg = "No benchmark datasets in the database; import questions in Admin -> Benchmark first"
         raise ValueError(msg)
 
-    k = top_k or process_section(RetrievalSection).retriever_top_k
+    k = top_k or process_section(RetrievalSection).retriever_top_k_broad
     judge = judge_model or process_section(LLMSection).llm_model
     jobs = JobService(infra.db.uow)
     job_ids: dict[str, int] = {}
@@ -227,7 +227,9 @@ def benchmark_run(  # noqa: PLR0913 - one parameter per CLI option
     datasets: Annotated[
         list[str] | None, typer.Option("--dataset", "-d", help="Dataset to run (repeatable); default: all")
     ] = None,
-    top_k: Annotated[int | None, typer.Option("--top-k", help="Retriever top-k; default: settings")] = None,
+    top_k: Annotated[
+        int | None, typer.Option("--top-k", help="Chat rerank top-k; default: retriever_top_k_broad")
+    ] = None,
     judge_model: Annotated[
         str | None, typer.Option("--judge-model", help="Judge model; default: active LLM model")
     ] = None,

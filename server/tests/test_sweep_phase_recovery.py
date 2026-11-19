@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, Mock
 from pydantic import SecretStr
 import pytest
 
+from application.benchmark import sweep as sweep_engine_module
 from composition.service_providers import build_sweep_engine
 from config import settings
 from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep
@@ -166,3 +167,33 @@ def test_settings_fingerprint_excludes_secrets_and_operational_judge_limits(
     )
     monkeypatch.setattr(settings, "rrf_k", settings.rrf_k + 1)
     assert settings_fingerprint() != initial
+
+
+@pytest.mark.asyncio
+async def test_resume_after_an_evaluation_change_recomputes_phase_a(
+    monkeypatch: pytest.MonkeyPatch, checkpoints: Callable[[int], DatabaseBenchmarkCheckpoints]
+) -> None:
+    # Shortlists scored by an older evaluation (other limits, other BM25 sample) must not be
+    # resumed and mixed with results of the current one.
+    sweep = BenchmarkSweep(
+        id=124,
+        strategy=BenchmarkStrategy.RANDOM,
+        search_space={"top_k": {"values": [1, 2, 3]}, "_n_random": 3},
+        objective_weights={"hit_rate": 1},
+        top_n_llm=1,
+    )
+    question = {"question": "q", "source_hint": "law.pdf"}
+    await checkpoint_failed_judge(monkeypatch, checkpoints, sweep, question)
+    monkeypatch.setattr(
+        sweep_engine_module, "SWEEP_EVALUATION_VERSION", sweep_engine_module.SWEEP_EVALUATION_VERSION + 1
+    )
+
+    resumed = build_sweep_engine(FakeUnitOfWorkFactory(), checkpoint_factory=checkpoints)
+    monkeypatch.setattr(resumed, "load_questions", AsyncMock(return_value=[question]))
+    cache_candidates = AsyncMock(return_value=({}, {}, {}))
+    monkeypatch.setattr(resumed, "cache_candidates", cache_candidates)
+    monkeypatch.setattr(resumed._data, "cache_reranker_scores", AsyncMock(return_value={}))
+    monkeypatch.setattr(resumed, "score_config_cheap", Mock(return_value={"composite_score": 1}))
+    monkeypatch.setattr(resumed, "run_phase_b", AsyncMock(return_value=[]))
+    await resumed.run_sweep(sweep, "judge")
+    cache_candidates.assert_awaited_once()

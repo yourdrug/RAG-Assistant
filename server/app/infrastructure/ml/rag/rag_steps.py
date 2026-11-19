@@ -605,7 +605,15 @@ class RagOperations:
             grounded_answer, evidence_assessment = profile.scoped_response(selected, context, state.question)
             break
 
-        base_tokens = count_context("")
+        # Diagnostics describe the prompt actually sent; the widest prompt is only for selection.
+        def count_sent(context: str, current_history: list[BaseMessage] = history) -> int:
+            return count_tokens(
+                format_generation_messages(
+                    prompt, context=context, history=current_history, question=state.question
+                )
+            )
+
+        base_tokens = count_sent("")
         budget = ContextBudget(num_ctx, num_predict, input_tokens, base_tokens)
         prepared = PreparedContext(
             result,
@@ -617,7 +625,7 @@ class RagOperations:
             evidence_assessment,
             context,
         )
-        trace_budget = production_prompt_budget(base_tokens, input_tokens, exclusions, count_context)
+        trace_budget = production_prompt_budget(base_tokens, input_tokens, exclusions, count_sent)
         return ContextAssembly(
             result=result,
             token_counter=token_counter,

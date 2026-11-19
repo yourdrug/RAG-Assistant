@@ -22,16 +22,17 @@ class LiveSweepSettings:
     @property
     def fetch_k(self) -> int:
         # Chat retrieval reads only the broad candidate limit for every question.
-        return int(get_setting("retriever_fetch_k_broad"))
+        return get_setting("retriever_fetch_k_broad")
 
     @property
     def top_k(self) -> int:
-        return int(get_setting("retriever_top_k"))
+        # The chat reranker keeps the broad top-k for every question.
+        return get_setting("retriever_top_k_broad")
 
     @contextmanager
     def override(self, config: dict[str, Any]) -> Iterator[None]:
         mapping = {
-            "top_k": "retriever_top_k",
+            "top_k": "retriever_top_k_broad",
             "fetch_k": "retriever_fetch_k_broad",
             "dense_weight": "dense_weight",
             "sparse_weight": "sparse_weight",
