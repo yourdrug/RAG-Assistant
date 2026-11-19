@@ -22,6 +22,7 @@ import {
   useUpdateThresholds,
 } from "@/shared/api/hooks/use-benchmark-quality";
 import type { BenchmarkResultDetail } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -226,8 +227,8 @@ function LabelInput({
       }
       if (label?.score !== score)
         await save.mutateAsync({ question_key: questionKey, metric, score });
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || "Could not save the label");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not save the label"));
     }
   };
 
@@ -281,8 +282,8 @@ function AgreementSummary({ runId }: { runId: number }) {
           try {
             await calibrate.mutateAsync();
             toast.success(`Calibration saved for ${agreement.dataset}`);
-          } catch (error: any) {
-            toast.error(error.response?.data?.detail || "Could not save the calibration");
+          } catch (error) {
+            toast.error(getErrorMessage(error, "Could not save the calibration"));
           }
         }}
       >
@@ -547,8 +548,8 @@ function ThresholdsForm({
     try {
       await update.mutateAsync(parsed);
       toast.success("Thresholds saved");
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || "Could not save thresholds");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not save thresholds"));
     }
   };
 
@@ -666,8 +667,8 @@ function NoisePanel({ dataset }: { dataset: string }) {
           try {
             await measure.mutateAsync(selected);
             toast.success("Noise stored");
-          } catch (error: any) {
-            toast.error(error.response?.data?.detail || "Could not measure noise");
+          } catch (error) {
+            toast.error(getErrorMessage(error, "Could not measure noise"));
           }
         }}
       >

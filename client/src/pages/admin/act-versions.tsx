@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { useActVersions, useUpdateActVersion } from "@/shared/api/hooks";
 import type { ActSummary, ActVersionReviewItem } from "@/shared/api/types";
 import { formatDate } from "@/shared/lib/date-time";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -70,8 +71,8 @@ export function AdminActVersionsPage() {
       });
       toast.success("Version updated");
       setEditing(null);
-    } catch {
-      toast.error("Failed to update version");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not update the version."));
     }
   };
 

@@ -4,6 +4,7 @@ import { RotateCcw, Save } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import { apiClient } from "@/shared/api/client";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -43,8 +44,8 @@ export function AdminRAGPage() {
       });
       toast.success(`Parameter "${variables.key}" updated`);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to update parameter");
+    onError: (error) => {
+      toast.error(getErrorMessage(error, "Failed to update parameter"));
     },
   });
 

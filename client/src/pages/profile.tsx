@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
+import { QueryError } from "@/shared/ui/query-error";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 const roleLabels: Record<UserResponse["role"], string> = {
@@ -43,9 +44,7 @@ function AccountAccess({ user }: { user: UserResponse }) {
         {spaces.isPending ? (
           <Skeleton className="mt-4 h-9 w-full" />
         ) : spaces.isError ? (
-          <p className="mt-4 text-sm text-muted-foreground" role="status">
-            Couldn’t load knowledge spaces.
-          </p>
+          <QueryError query={spaces} fallback="Could not load knowledge spaces." />
         ) : spaces.data.length ? (
           <ul className="mt-4 divide-y rounded-lg border">
             {spaces.data.map((space) => (
@@ -72,9 +71,7 @@ function AccountAccess({ user }: { user: UserResponse }) {
           {groups.isPending ? (
             <Skeleton className="mt-3 h-6 w-28" />
           ) : groups.isError ? (
-            <p className="mt-3 text-sm text-muted-foreground" role="status">
-              Couldn’t load groups.
-            </p>
+            <QueryError query={groups} fallback="Could not load groups." />
           ) : groups.data.length ? (
             <ul className="mt-3 flex flex-wrap gap-2">
               {groups.data.map((group) => (
@@ -114,18 +111,8 @@ export function ProfilePage() {
             <Skeleton className="h-6 w-44 max-w-full" />
           </div>
         ) : account.isError ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 p-5 sm:p-6">
-            <p className="text-sm text-muted-foreground" role="status">
-              Couldn’t load your account.
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={account.isFetching}
-              onClick={() => void account.refetch()}
-            >
-              Try again
-            </Button>
+          <div className="p-5 sm:p-6">
+            <QueryError query={account} fallback="Could not load your account." />
           </div>
         ) : (
           <>

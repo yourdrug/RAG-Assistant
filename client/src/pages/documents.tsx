@@ -17,6 +17,7 @@ import {
   useUploadDocument,
 } from "@/shared/api/hooks";
 import type { DocumentDomain, DocumentResponse, DocumentVisibility } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,11 +42,13 @@ import {
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Progress } from "@/shared/ui/progress";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { useAuthStore } from "@/stores/auth-store";
 
 export function DocumentsPage() {
-  const { data: documents } = useDocuments();
+  const documentsQuery = useDocuments();
+  const documents = documentsQuery.data;
   const uploadMut = useUploadDocument();
   const deleteMut = useDeleteDocument();
   const renameMut = useRenameDocument();
@@ -65,7 +68,8 @@ export function DocumentsPage() {
   const [progress, setProgress] = useState(0);
   const { data: groups } = useGroups();
   const { data: uploadableClients } = useUploadableClients();
-  const { data: spaces } = useSpaces();
+  const spacesQuery = useSpaces();
+  const spaces = spacesQuery.data;
   // Only admitted groups may fill a space; ADMIN fills any.
   const fillableSpaces = (spaces || []).filter((s) => s.can_upload);
   const spaceNames = new Map((spaces || []).map((s) => [s.id, s.name]));
@@ -98,6 +102,11 @@ export function DocumentsPage() {
   }, []);
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    onDropRejected: (rejections) => {
+      toast.error(
+        `Unsupported file format: ${rejections.map(({ file }) => file.name).join(", ")}. Use PDF, DOCX, MD or TXT.`,
+      );
+    },
     accept: {
       "application/pdf": [".pdf"],
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
@@ -144,8 +153,8 @@ export function DocumentsPage() {
         await uploadFile(f, renameOnConflict);
         done++;
         setProgress(Math.round((done / filesToUpload.length) * 100));
-      } catch {
-        toast.error(`Failed: ${f.name}`);
+      } catch (error) {
+        toast.error(`${f.name} — ${getErrorMessage(error, "Could not upload the file.")}`);
       }
     }
     setFiles([]);
@@ -181,8 +190,8 @@ export function DocumentsPage() {
     try {
       await deleteMut.mutateAsync(deleteId);
       toast.success("Deletion queued");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not delete the document."));
     }
     setDeleteId(null);
   };
@@ -192,8 +201,8 @@ export function DocumentsPage() {
     try {
       await renameMut.mutateAsync({ id: renameId, filename: renameValue.trim() });
       toast.success("Renamed");
-    } catch {
-      toast.error("Failed to rename");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not rename the document."));
     }
     setRenameId(null);
     setRenameValue("");
@@ -361,18 +370,27 @@ export function DocumentsPage() {
         <p className="text-sm text-muted-foreground">Drag & drop files here, or click to select</p>
         <p className="text-xs text-muted-foreground/70 mt-1">PDF, DOCX, MD, TXT</p>
       </div>
+      {spacesQuery.isError && !spaces && (
+        <QueryError query={spacesQuery} fallback="Could not load knowledge spaces." />
+      )}
       <Card>
         <CardHeader>
           <CardTitle>All Documents</CardTitle>
-          <CardDescription>{documents?.length || 0} document(s)</CardDescription>
+          {documents && <CardDescription>{documents.length} document(s)</CardDescription>}
         </CardHeader>
         <CardContent>
-          <DataTable
-            columns={columns}
-            data={documents || []}
-            searchKey="filename"
-            searchPlaceholder="Search documents..."
-          />
+          {documentsQuery.isError && (
+            <QueryError query={documentsQuery} fallback="Could not load documents." />
+          )}
+          {documentsQuery.isPending && <p role="status">Loading documents…</p>}
+          {documents && (
+            <DataTable
+              columns={columns}
+              data={documents || []}
+              searchKey="filename"
+              searchPlaceholder="Search documents..."
+            />
+          )}
         </CardContent>
       </Card>
 

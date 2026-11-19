@@ -11,6 +11,7 @@ import {
   useUnassignUserFromCurator,
   useUsers,
 } from "@/shared/api/hooks";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -23,14 +24,17 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Separator } from "@/shared/ui/separator";
 
 export function AdminCuratorsPage() {
-  const { data: users } = useUsers();
+  const usersQuery = useUsers();
+  const users = usersQuery.data;
   const { data: groups } = useGroups();
   const [selectedCuratorId, setSelectedCuratorId] = useState<number | null>(null);
-  const { data: scope } = useCuratorScope(selectedCuratorId);
+  const scopeQuery = useCuratorScope(selectedCuratorId);
+  const scope = scopeQuery.data;
 
   const assignUserMut = useAssignUserToCurator();
   const unassignUserMut = useUnassignUserFromCurator();
@@ -77,8 +81,8 @@ export function AdminCuratorsPage() {
       toast.success("User assigned");
       setAssignUserOpen(false);
       setTargetUserId("");
-    } catch {
-      toast.error("Failed to assign user");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not assign user."));
     }
   };
 
@@ -87,8 +91,8 @@ export function AdminCuratorsPage() {
     try {
       await unassignUserMut.mutateAsync({ curatorId: selectedCuratorId, targetUserId: userId });
       toast.success("User unassigned");
-    } catch {
-      toast.error("Failed to unassign user");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not unassign user."));
     }
   };
 
@@ -102,8 +106,8 @@ export function AdminCuratorsPage() {
       toast.success("Group assigned");
       setAssignGroupOpen(false);
       setTargetGroupId("");
-    } catch {
-      toast.error("Failed to assign group");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not assign group."));
     }
   };
 
@@ -112,8 +116,8 @@ export function AdminCuratorsPage() {
     try {
       await unassignGroupMut.mutateAsync({ curatorId: selectedCuratorId, groupId });
       toast.success("Group unassigned");
-    } catch {
-      toast.error("Failed to unassign group");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not unassign group."));
     }
   };
 
@@ -126,6 +130,10 @@ export function AdminCuratorsPage() {
         </p>
       </div>
 
+      {usersQuery.isError && <QueryError query={usersQuery} fallback="Could not load users." />}
+      {scopeQuery.isError && (
+        <QueryError query={scopeQuery} fallback="Could not load curator assignments." />
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Curator list */}
         <Card>

@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { useReviewChatLog } from "@/shared/api/hooks/use-chat-logs";
 import type { ChatLogEntry, ReviewStatus } from "@/shared/api/types";
+import { getErrorMessage, getErrorStatus } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
 import { Textarea } from "@/shared/ui/textarea";
@@ -22,21 +23,9 @@ const MANUAL_STATUSES = (Object.keys(REVIEW_STATUS_LABELS) as ReviewStatus[]).fi
 );
 
 export function chatLogReviewError(error: unknown): string {
-  const response = (
-    error as {
-      response?: { status?: number; data?: { message?: string; errors?: Record<string, string> } };
-    }
-  )?.response;
-  const status = response?.status;
-  if (status === 409) return "This entry has already been transferred to the benchmark.";
-  if (status === 422) {
-    const errors = Object.entries(response?.data?.errors ?? {});
-    return errors.length
-      ? errors.map(([field, message]) => `${field}: ${message}`).join(". ")
-      : (response?.data?.message ?? "Check the form fields.");
-  }
-  if (status === 403) return "Insufficient permissions.";
-  return "Could not save changes.";
+  if (getErrorStatus(error) === 409)
+    return "This entry has already been transferred to the benchmark.";
+  return getErrorMessage(error, "Could not save changes.");
 }
 
 export function ReviewForm({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boolean }) {

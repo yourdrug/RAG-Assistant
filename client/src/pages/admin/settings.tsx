@@ -1,10 +1,10 @@
 "use client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { isAxiosError } from "axios";
 import { RotateCcw, Save } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import { apiClient } from "@/shared/api/client";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -260,14 +260,6 @@ function editKey(param: ConfigParam): string {
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
-function saveErrorMessage(error: unknown): string {
-  if (isAxiosError(error)) {
-    const data = error.response?.data as { message?: string; detail?: string } | undefined;
-    return data?.message || data?.detail || "Update failed";
-  }
-  return "Update failed";
-}
-
 export function AdminSettingsPage() {
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -329,7 +321,9 @@ export function AdminSettingsPage() {
       );
     } catch (error) {
       const failed = changes[saved.length];
-      toast.error(`${parameterLabel(failed)}: ${saveErrorMessage(error)}`);
+      toast.error(
+        `${parameterLabel(failed)}: ${getErrorMessage(error, "Could not save the setting.")}`,
+      );
     } finally {
       setSaving(false);
       if (saved.length > 0) {

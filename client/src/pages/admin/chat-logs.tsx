@@ -13,6 +13,7 @@ import {
 import { queryKeys } from "@/shared/api/query-keys";
 import type { AnswerOutcome, ChatLogEntry, FeedbackReason, ReviewStatus } from "@/shared/api/types";
 import { formatDateTime } from "@/shared/lib/date-time";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { cn } from "@/shared/lib/utils";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -322,7 +323,9 @@ function ChatLogsPage() {
   };
   const exportLogs = (format: "csv" | "json") => {
     setExportError(null);
-    downloadChatLogs(params, format).catch(() => setExportError("Could not export logs."));
+    downloadChatLogs(params, format).catch((error) =>
+      setExportError(getErrorMessage(error, "Could not export logs.")),
+    );
   };
   return (
     <div className="mx-auto max-w-screen-2xl space-y-8 p-4 sm:p-8">

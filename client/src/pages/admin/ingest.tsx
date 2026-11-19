@@ -15,6 +15,7 @@ import {
 } from "@/shared/api/hooks";
 import type { IngestRegistryItem } from "@/shared/api/types";
 import { formatDateTime } from "@/shared/lib/date-time";
+import { getErrorMessage } from "@/shared/lib/errors";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,10 +32,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/sha
 import { DataTable } from "@/shared/ui/data-table";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 export function AdminIngestPage() {
-  const { data: registry, refetch } = useIngestRegistry();
+  const registryQuery = useIngestRegistry();
+  const registry = registryQuery.data;
   const allMut = useIngestAll();
   const fileMut = useIngestFile();
   const { data: groups } = useGroups();
@@ -70,8 +73,8 @@ export function AdminIngestPage() {
         spaceId,
       });
       toast.success("Ingestion started");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not schedule directory indexing."));
     }
   };
 
@@ -88,8 +91,8 @@ export function AdminIngestPage() {
         spaceId,
       });
       toast.success("Ingestion started (reset mode)");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not schedule a full reindex."));
     }
   };
 
@@ -106,8 +109,8 @@ export function AdminIngestPage() {
         spaceId,
       });
       toast.success("File ingestion started");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not schedule file indexing."));
     }
   };
 
@@ -144,7 +147,7 @@ export function AdminIngestPage() {
           <h1 className="text-2xl font-bold">Ingestion</h1>
           <p className="text-muted-foreground">Manage document ingestion</p>
         </div>
-        <Button variant="outline" onClick={() => refetch()}>
+        <Button variant="outline" onClick={() => void registryQuery.refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>
@@ -401,18 +404,26 @@ export function AdminIngestPage() {
       <Card>
         <CardHeader>
           <CardTitle>Ingestion Registry</CardTitle>
-          <CardDescription>
-            {registry?.total_files || 0} files · {registry?.total_chunks?.toLocaleString() || 0}{" "}
-            chunks
-          </CardDescription>
+          {registry && (
+            <CardDescription>
+              {registry?.total_files || 0} files · {registry?.total_chunks?.toLocaleString() || 0}{" "}
+              chunks
+            </CardDescription>
+          )}
         </CardHeader>
         <CardContent>
-          <DataTable
-            columns={columns}
-            data={registry?.files || []}
-            searchKey="ingestion_key"
-            searchPlaceholder="Search registry..."
-          />
+          {registryQuery.isError && (
+            <QueryError query={registryQuery} fallback="Could not load the ingestion registry." />
+          )}
+          {registry && (
+            <DataTable
+              columns={columns}
+              data={registry?.files || []}
+              searchKey="ingestion_key"
+              searchPlaceholder="Search registry..."
+            />
+          )}
+          {registryQuery.isPending && <p role="status">Loading the ingestion registry…</p>}
         </CardContent>
       </Card>
 

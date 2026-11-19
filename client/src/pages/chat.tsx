@@ -3,14 +3,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { apiClient } from "@/shared/api/client";
+import { apiClient, expireSession } from "@/shared/api/client";
 import { defaultSpaceId, useConversations, useSpaces } from "@/shared/api/hooks";
 import { queryKeys } from "@/shared/api/query-keys";
 import type { ConversationHistoryResponse, MessageFeedback, Source } from "@/shared/api/types";
 import { formatDate } from "@/shared/lib/date-time";
+import { getErrorMessage } from "@/shared/lib/errors";
 import type { PipelineStage } from "@/shared/lib/sse";
 import { streamChat } from "@/shared/lib/sse";
 import { readTemporalDate, validIsoDate, writeTemporalDate } from "@/shared/lib/temporal-date";
+import { QueryError } from "@/shared/ui/query-error";
+import { RequestError } from "@/shared/ui/request-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { useAuthStore } from "@/stores/auth-store";
 import { ChatInput, type DepthOption } from "@/widgets/chat/chat-input";
@@ -36,6 +39,9 @@ export function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyCursor, setHistoryCursor] = useState<number | null>(null);
+  const [historyAttempt, setHistoryAttempt] = useState(0);
+  const [draft, setDraft] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const historyRequestRef = useRef<AbortController | null>(null);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
@@ -52,7 +58,8 @@ export function ChatPage() {
   const streamingContentRef = useRef("");
   const hadChunksRef = useRef(false);
   const queryClient = useQueryClient();
-  const { data: spaces } = useSpaces();
+  const spacesQuery = useSpaces();
+  const spaces = spacesQuery.data;
   const { data: conversations } = useConversations();
   const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
   // A conversation asks every question in the space of its first question.
@@ -83,11 +90,20 @@ export function ChatPage() {
     scroll();
   }, [messages, streamingMsg, scroll]);
 
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   // Sync conversationId with URL params
   useEffect(() => {
     const urlId = searchParams.get("id");
     const newId = urlId ? Number(urlId) : null;
     if (newId !== conversationId) {
+      abortRef.current?.abort();
+      setStreamingMsg(null);
+      setIsStreaming(false);
+      setPipelineStage(null);
+      setSendError(null);
+      setMessages([]);
+      setSelectedSources([]);
       setConversationId(newId);
     }
   }, [searchParams]);
@@ -128,6 +144,7 @@ export function ChatPage() {
         signal: controller.signal,
       })
       .then((res) => {
+        if (controller.signal.aborted) return;
         const loaded: Message[] = res.data.messages.map((m) => ({
           id: m.id,
           role: m.role,
@@ -139,9 +156,9 @@ export function ChatPage() {
         setHistoryCursor(res.data.next_cursor);
       })
       .catch((err) => {
-        if (err?.code === "ERR_CANCELED") return;
-        setSearchParams({});
-        setConversationId(null);
+        if (!controller.signal.aborted) {
+          setHistoryError(getErrorMessage(err, "Could not load the conversation."));
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setIsLoadingHistory(false);
@@ -151,7 +168,7 @@ export function ChatPage() {
       controller.abort();
       historyRequestRef.current?.abort();
     };
-  }, [conversationId, token]);
+  }, [conversationId, token, historyAttempt]);
 
   const loadOlderMessages = async () => {
     if (!conversationId || historyCursor === null || isLoadingHistory) return;
@@ -172,7 +189,9 @@ export function ChatPage() {
       setMessages((current) => [...res.data.messages, ...current]);
       setHistoryCursor(res.data.next_cursor);
     } catch (err) {
-      if (!controller.signal.aborted) setHistoryError("Не удалось загрузить историю");
+      if (!controller.signal.aborted) {
+        setHistoryError(getErrorMessage(err, "Could not load earlier messages."));
+      }
     } finally {
       if (!controller.signal.aborted) setIsLoadingHistory(false);
     }
@@ -180,6 +199,8 @@ export function ChatPage() {
 
   const handleSend = async (question: string) => {
     if (!question.trim() || isStreaming || !token || needsSpace) return;
+    setDraft("");
+    setSendError(null);
     const askedConversationId = conversationOutdated ? null : conversationId;
     if (conversationOutdated) {
       // conversationId is replaced in onDone; resetting it here would clear the messages.
@@ -216,9 +237,9 @@ export function ChatPage() {
           ...p,
           {
             role: "assistant",
-            id: data.message_id,
+            id: data.message_id ?? undefined,
             content: data.answer ?? streamingContentRef.current,
-            sources: data.sources,
+            sources: data.sources ?? undefined,
           },
         ]);
         setConversationId(data.conversation_id);
@@ -236,8 +257,11 @@ export function ChatPage() {
         setPipelineStage(null);
         queryClient.invalidateQueries({ queryKey: queryKeys.conversations.list() });
       },
-      onError: (err) => {
-        setMessages((p) => [...p, { role: "assistant", content: `Error: ${err}` }]);
+      onError: (err, status) => {
+        if (status === 401) expireSession(token);
+        setMessages((current) => current.slice(0, -1));
+        setDraft(question);
+        setSendError(err);
         setStreamingMsg(null);
         setIsStreaming(false);
         setPipelineStage(null);
@@ -265,6 +289,9 @@ export function ChatPage() {
     setIsStreaming(false);
     setConversationId(null);
     setSelectedSources([]);
+    setSendError(null);
+    setPipelineStage(null);
+    setDraft("");
     setTemporalDate({ date: null, source: "calendar" });
     setSearchParams({});
   };
@@ -331,8 +358,17 @@ export function ChatPage() {
               Загрузить предыдущие сообщения
             </button>
           )}
-          {historyError && <p role="alert">{historyError}</p>}
-          {messages.length === 0 && !streamingMsg && !isLoadingHistory && (
+          {historyError && (
+            <RequestError
+              message={historyError}
+              retrying={isLoadingHistory || isStreaming}
+              onRetry={() => {
+                if (historyCursor !== null) void loadOlderMessages();
+                else setHistoryAttempt((attempt) => attempt + 1);
+              }}
+            />
+          )}
+          {messages.length === 0 && !streamingMsg && !isLoadingHistory && !historyError && (
             <div className="flex h-full items-center justify-center">
               <div className="text-center space-y-2">
                 <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground/50" />
@@ -388,10 +424,21 @@ export function ChatPage() {
             No support space assigned. Contact your administrator.
           </p>
         )}
+        {spacesQuery.isError && !spaces && (
+          <QueryError query={spacesQuery} fallback="Could not load knowledge spaces." />
+        )}
+        {sendError && <RequestError message={sendError} />}
         <ChatInput
+          value={draft}
+          onChange={setDraft}
           onSend={handleSend}
           onStop={handleStop}
-          disabled={needsSpace || supportUnassigned}
+          disabled={
+            needsSpace ||
+            supportUnassigned ||
+            !spaces ||
+            (historyCursor === null && (isLoadingHistory || Boolean(historyError)))
+          }
           isStreaming={isStreaming}
           depth={depth}
           onDepthChange={setDepth}

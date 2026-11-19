@@ -6,10 +6,12 @@ import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { useLogin } from "@/shared/api/hooks";
+import { getErrorMessage, getErrorStatus } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { RequestError } from "@/shared/ui/request-error";
 import { useAuthStore } from "@/stores/auth-store";
 
 const schema = z.object({
@@ -37,12 +39,6 @@ export function LoginPage() {
       onSuccess: () => {
         toast.success("Logged in");
         navigate("/chat");
-      },
-      onError: (e) => {
-        toast.error(
-          (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-            "Login failed",
-        );
       },
     });
   };
@@ -73,6 +69,15 @@ export function LoginPage() {
                 <p className="text-sm text-destructive">{errors.password.message}</p>
               )}
             </div>
+            {login.isError && (
+              <RequestError
+                message={
+                  getErrorStatus(login.error) === 401
+                    ? "Incorrect login or password."
+                    : getErrorMessage(login.error, "Could not sign in. Please try again.")
+                }
+              />
+            )}
             <Button type="submit" className="w-full" disabled={login.isPending}>
               {login.isPending ? "Signing in..." : "Sign in"}
             </Button>

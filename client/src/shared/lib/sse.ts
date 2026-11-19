@@ -1,9 +1,10 @@
 import type { Source } from "@/shared/api/types";
+import { describeHttpError } from "./errors.ts";
 
 export interface SSEDone {
-  message_id: number;
+  message_id?: number | null;
   conversation_id: number;
-  sources: Source[];
+  sources?: Source[] | null;
   confidence?: number | null;
   as_of_date?: string | null;
   /** Authoritative final answer; replaces the streamed fragments (guardrails may rewrite them). */
@@ -23,7 +24,7 @@ interface StreamChatParams {
   spaceId?: number | null;
   onChunk: (text: string) => void;
   onDone: (data: SSEDone) => void;
-  onError: (error: string) => void;
+  onError: (error: string, status?: number) => void;
   onStatus?: (stage: PipelineStage) => void;
   signal?: AbortSignal;
 }
@@ -43,27 +44,42 @@ export async function streamChat({
   onStatus,
   signal,
 }: StreamChatParams): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({
-      question,
-      conversation_id: conversationId ?? null,
-      depth: depth ?? null,
-      as_of_date: asOfDate ?? null,
-      space_id: spaceId ?? null,
-    }),
-    signal,
-  });
-
-  if (!response.ok) {
-    onError(`HTTP ${response.status}`);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        question,
+        conversation_id: conversationId ?? null,
+        depth: depth ?? null,
+        as_of_date: asOfDate ?? null,
+        space_id: spaceId ?? null,
+      }),
+      signal,
+    });
+  } catch {
+    if (!signal?.aborted) {
+      onError("Could not reach the server. Check your connection and try again.");
+    }
     return;
   }
 
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => undefined);
+    if (!signal?.aborted) {
+      onError(
+        describeHttpError(response.status, payload, response.headers.get("Retry-After")),
+        response.status,
+      );
+    }
+    return;
+  }
+
+  const interrupted = "The answer was interrupted. Please try again.";
   const reader = response.body?.getReader();
   if (!reader) {
-    onError("No response body");
+    if (!signal?.aborted) onError(interrupted);
     return;
   }
 
@@ -72,8 +88,9 @@ export async function streamChat({
   let currentEvent = "";
 
   try {
-    while (true) {
+    while (!signal?.aborted) {
       const { done, value } = await reader.read();
+      if (signal?.aborted) return;
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -83,21 +100,40 @@ export async function streamChat({
         if (line.startsWith("event: ")) {
           currentEvent = line.slice(7).trim();
         } else if (line.startsWith("data: ")) {
-          try {
-            const parsed = JSON.parse(line.slice(6));
-            if (currentEvent === "done") onDone(parsed as SSEDone);
-            else if (currentEvent === "error") onError(parsed.error);
-            else if (currentEvent === "status") onStatus?.(parsed.stage as PipelineStage);
-            else onChunk(parsed.text || "");
-          } catch {
-            /* non-JSON */
-          }
+          const event = currentEvent;
           currentEvent = "";
+          const parsed = JSON.parse(line.slice(6));
+          if (event === "done") {
+            if (
+              Number.isSafeInteger(parsed.conversation_id) &&
+              (parsed.message_id == null || Number.isSafeInteger(parsed.message_id)) &&
+              (parsed.sources == null || Array.isArray(parsed.sources))
+            ) {
+              onDone(parsed as SSEDone);
+            } else {
+              onError(interrupted);
+            }
+            return;
+          }
+          if (event === "error") {
+            const message = typeof parsed.error === "string" && parsed.error.trim();
+            onError(
+              parsed.code === "internal_error"
+                ? describeHttpError(500, null)
+                : message || interrupted,
+            );
+            return;
+          }
+          if (event === "status") onStatus?.(parsed.stage as PipelineStage);
+          else if (typeof parsed.text === "string") onChunk(parsed.text);
         }
       }
     }
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") return;
-    onError(err instanceof Error ? err.message : "Stream error");
+  } catch {
+    // A failed read or malformed event leaves the answer incomplete.
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
+  if (!signal?.aborted) onError(interrupted);
 }

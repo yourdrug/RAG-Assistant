@@ -7,6 +7,7 @@ import { useAddChunk, useCreateManualDocument } from "@/shared/api/hooks/use-chu
 import { useDocuments, useUploadableClients } from "@/shared/api/hooks/use-documents";
 import { useGroups } from "@/shared/api/hooks/use-groups";
 import type { ChatLogEntry, DocumentResponse, DocumentVisibility } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -142,9 +143,7 @@ function KnowledgeWorkspace({ entry }: { entry: ChatLogEntry }) {
       });
       setSaved({ id: target.id, title: target.filename, warning: result.warning });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not save the information. Please retry.",
-      );
+      setError(getErrorMessage(err, "Could not save the information. Please retry."));
     } finally {
       saving.current = false;
     }

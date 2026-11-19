@@ -1,6 +1,6 @@
 "use client";
 import { CalendarDays, Send, Square, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/shared/ui/button";
 import { DateInput } from "@/shared/ui/date-input";
 import { Textarea } from "@/shared/ui/textarea";
@@ -8,6 +8,8 @@ import { Textarea } from "@/shared/ui/textarea";
 export type DepthOption = "narrow" | "broad" | null;
 
 interface Props {
+  value: string;
+  onChange: (value: string) => void;
   onSend: (msg: string) => void;
   onStop: () => void;
   disabled?: boolean;
@@ -20,6 +22,8 @@ interface Props {
 }
 
 export function ChatInput({
+  value,
+  onChange,
   onSend,
   onStop,
   disabled,
@@ -29,7 +33,6 @@ export function ChatInput({
   asOfDate,
   onAsOfDateChange,
 }: Props) {
-  const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -42,7 +45,6 @@ export function ChatInput({
   const submit = () => {
     if (!value.trim() || disabled || isStreaming) return;
     onSend(value.trim());
-    setValue("");
   };
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -104,7 +106,7 @@ export function ChatInput({
           <Textarea
             ref={ref}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKey}
             placeholder="Ask a question about your documents..."
             disabled={disabled || isStreaming}

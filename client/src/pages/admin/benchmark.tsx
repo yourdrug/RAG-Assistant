@@ -48,6 +48,7 @@ import type {
   LLMReplayMode,
   SweepResponse,
 } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -257,8 +258,8 @@ function QuestionsTab() {
         notes: "",
       });
       refetch();
-    } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed");
+    } catch (e) {
+      toast.error(getErrorMessage(e, "Could not save the question."));
     }
   };
 
@@ -268,8 +269,8 @@ function QuestionsTab() {
       await deleteQuestion.mutateAsync(id);
       toast.success("Deleted");
       refetch();
-    } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed");
+    } catch (e) {
+      toast.error(getErrorMessage(e, "Could not delete the question."));
     }
   };
 
@@ -282,8 +283,12 @@ function QuestionsTab() {
       setImportDialogOpen(false);
       setImportText("");
       refetch();
-    } catch (e: any) {
-      toast.error(e instanceof SyntaxError ? "Invalid JSON" : e.response?.data?.detail || "Failed");
+    } catch (e) {
+      toast.error(
+        e instanceof SyntaxError
+          ? "Invalid JSON"
+          : getErrorMessage(e, "Could not import the questions."),
+      );
     }
   };
 
@@ -300,8 +305,8 @@ function QuestionsTab() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Exported");
-    } catch {
-      toast.error("Export failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not export the benchmark questions."));
     }
   };
 
@@ -838,8 +843,8 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
       });
       toast.success(`Sweep #${result.id} started`);
       onSweepCreated(result.id);
-    } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed to create sweep");
+    } catch (e) {
+      toast.error(getErrorMessage(e, "Failed to create sweep"));
     }
   };
 
@@ -1209,10 +1214,8 @@ function SweepProgressTab({
                               await resumeSweep.mutateAsync(s.id);
                               toast.success("Sweep resumed; only missing scores will be evaluated");
                               refetch();
-                            } catch {
-                              toast.error(
-                                "Could not resume sweep; check that no other sweep is active",
-                              );
+                            } catch (error) {
+                              toast.error(getErrorMessage(error, "Could not resume the sweep."));
                             }
                           }}
                         >
@@ -1243,8 +1246,8 @@ function SweepProgressTab({
                                 `Sweep #${created.id} restarted with the same settings`,
                               );
                               refetch();
-                            } catch {
-                              toast.error("Could not restart sweep");
+                            } catch (error) {
+                              toast.error(getErrorMessage(error, "Could not restart the sweep."));
                             }
                           }}
                         >
@@ -1262,8 +1265,8 @@ function SweepProgressTab({
                             try {
                               await cancelSweep.mutateAsync(s.id);
                               toast.success("Sweep cancelled");
-                            } catch {
-                              toast.error("Could not cancel sweep");
+                            } catch (error) {
+                              toast.error(getErrorMessage(error, "Could not cancel the sweep."));
                             }
                           }}
                         >
@@ -1326,8 +1329,8 @@ function LeaderboardTab() {
       } else {
         toast.success(`Applied ${result.applied} config parameters: ${result.keys.join(", ")}`);
       }
-    } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed to apply");
+    } catch (e) {
+      toast.error(getErrorMessage(e, "Failed to apply"));
     }
   };
 
@@ -1510,8 +1513,10 @@ function LeaderboardTab() {
                                 anchor.download = `benchmark-${run.id}.${format}`;
                                 anchor.click();
                                 URL.revokeObjectURL(url);
-                              } catch {
-                                toast.error("Export failed");
+                              } catch (error) {
+                                toast.error(
+                                  getErrorMessage(error, "Could not export the benchmark run."),
+                                );
                               }
                             }}
                           >

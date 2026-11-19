@@ -4,6 +4,7 @@ import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState } from "react";
 import { useMessageFeedback } from "@/shared/api/hooks";
 import type { FeedbackReason, MessageFeedback } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
@@ -41,7 +42,7 @@ export function MessageFeedbackControls({ messageId, feedback, onChange }: Props
         onChange(saved);
         setOpen(false);
       },
-      onError: () => setError("Не удалось сохранить оценку"),
+      onError: (error) => setError(getErrorMessage(error, "Не удалось сохранить оценку.")),
     });
   };
 

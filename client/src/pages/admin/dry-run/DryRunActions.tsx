@@ -11,6 +11,7 @@ import {
   useUploadableClients,
 } from "@/shared/api/hooks";
 import type { DocumentDomain, DocumentVisibility, DryRunResponse } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
@@ -59,7 +60,7 @@ export function DryRunActions({ result, onResultUpdate, onReset }: DryRunActions
       onResultUpdate(updated);
       toast.success(`OCR completed on ${pages.length} unit${pages.length > 1 ? "s" : ""}`);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "OCR failed";
+      const msg = getErrorMessage(err, "OCR failed");
       toast.error(msg);
     }
   };
@@ -95,7 +96,7 @@ export function DryRunActions({ result, onResultUpdate, onReset }: DryRunActions
       setShowIndexDialog(false);
       onReset();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Indexing failed";
+      const msg = getErrorMessage(err, "Indexing failed");
       toast.error(msg);
     }
   };

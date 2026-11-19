@@ -26,7 +26,7 @@ test("invalid credentials are rejected by the real API", async ({ page }) => {
   const response = await result;
   expect(response.status()).toBe(422);
   expect(await response.json()).toMatchObject({ message: "Invalid email or password" });
-  await expect(page.getByRole("status")).toHaveText("Login failed");
+  await expect(page.getByRole("alert")).toHaveText("Invalid email or password");
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
 });

@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import { useDryRun } from "@/shared/api/hooks";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 
 const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".rtf"];
@@ -26,7 +27,7 @@ export function DryRunDialog({ open, onClose }: { open: boolean; onClose: () => 
         onClose();
         navigate("/admin/quality/dry-run", { state: res });
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Dry-run failed";
+        const msg = getErrorMessage(err, "Dry-run failed");
         toast.error(msg);
       }
     },
