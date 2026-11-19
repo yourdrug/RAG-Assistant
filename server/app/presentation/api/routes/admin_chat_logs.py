@@ -21,6 +21,7 @@ from domain.chat.review import ChatLogReview, ReviewStatus
 from domain.identity.capabilities import Capability
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
+from domain.rag.breadth import AnswerStyle
 from domain.rag.outcome import AnswerOutcome
 from domain.shared.exceptions import EntityNotFoundError
 from presentation.api.auth_dependencies import require_capability
@@ -48,6 +49,8 @@ class ChatLogQuery:
     model: Annotated[str | None, Query()] = None
     error_code: Annotated[str | None, Query()] = None
     breadth: Annotated[Literal["narrow", "broad"] | None, Query()] = None
+    answer_style: Annotated[AnswerStyle | None, Query()] = None
+    finish_reason: Annotated[str | None, Query(max_length=30)] = None
     config_hash: Annotated[str | None, Query(pattern="^[a-f0-9]{64}$")] = None
     rating: Annotated[Literal["up", "down", "none"] | None, Query()] = None
     reason: Annotated[FeedbackReason | None, Query()] = None

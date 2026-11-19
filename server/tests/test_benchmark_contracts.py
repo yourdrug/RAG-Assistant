@@ -89,6 +89,7 @@ async def test_runner_receives_defaults_and_resume_options(*, explicit_options: 
         resume=explicit_options,
         checkpoints=checkpoints if explicit_options else None,
         checkpoint_prefix="job:7" if explicit_options else None,
+        depth=None,
     )
     assert summary["status"] == "done"
     assert summary["total_questions"] == 0

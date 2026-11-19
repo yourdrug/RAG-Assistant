@@ -6,7 +6,7 @@ from hashlib import sha256
 
 import pytest
 
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import AnswerStyle, Breadth
 from domain.rag.classification import (
     classify_question_breadth,
     should_enumerate_cases,
@@ -22,27 +22,32 @@ from infrastructure.ml.rag.prompts import (
 from tests.test_rag_pipeline import make_rag
 
 
-# Digests include the explicit document-level citation instruction.
+# Digests include the explicit document-level citation instruction and the shared
+# completeness rules; only the formatting and citation-style blocks differ by style.
 # Wording, whitespace and block order remain regression contracts.
 @pytest.mark.parametrize(
-    "breadth,enumerate_cases,with_addendum,expected_digest",
+    "style,enumerate_cases,with_addendum,expected_digest",
     [
-        ("narrow", False, False, "7c2fd83fde28d283fc8583eaddec28322fa6bfbbdb9f09d20c8b50201746f296"),
-        ("narrow", False, True, "9d2eaff3473fad2bf71e3c8250f8329da10565cc998fbd8a4b8d4b8e7a91ea4e"),
-        ("narrow", True, False, "cb81c0a37c74a311dfa60dffa774a1d1546fe2d50a0f7bd98755145deec9eb56"),
-        ("narrow", True, True, "42c9692c9831a08a08f20f4a5ec8bd0f38830e6c4be8d574d9809bcd5d52645b"),
-        ("broad", False, False, "8135951945951ad69b5bfe131ffd48a6915677f394cb54711c6d6462f689370d"),
-        ("broad", False, True, "dc56181dd285444ff3635b29d4c128dc51710b82f6e2d1abe5c929a7d2a52f25"),
-        ("broad", True, False, "034997eff6249b0d7b78ac293718446c3df52f375bb448d05a589b55768cfb02"),
-        ("broad", True, True, "ed1b51e4b9cab1c0648d4c0e081969e61ffdb27734e62292cba362364d1ea207"),
+        ("concise", False, False, "7c3c895f7b3b3e8c2e4ec502b34b294b69890b573da636ed26f20fa19ac41a53"),
+        ("concise", False, True, "35716554aeaf1d2b50e0574e2c42bfc4ac35a5e91cded0e9ee951f82560db77a"),
+        ("concise", True, False, "8e605d3093aff51905f39041c30a2a2b98d4d8e5440aa6cd57f8200882ae1920"),
+        ("concise", True, True, "f300c9198f0f7eeefcc8632f9dfbb4e7dbf14cc8ff46555796f96ca36ab3af9c"),
+        ("adaptive", False, False, "07e5068cf36522dc88c74af70a3778032f5406e921d891131a6c7ed155a33f69"),
+        ("adaptive", False, True, "b2eb5422f23dda40abe1e24aa9ee3e3f7ea850d1d66855b910593a27c11e5158"),
+        ("adaptive", True, False, "e257b2ec8fd3f5c96d22880ab5a19b216b41aab16954c2e235272687c1d110c1"),
+        ("adaptive", True, True, "e57772a724a678cffd10fd8a9e98c9aef29e1fbad39896c766b19501563a1d3c"),
+        ("detailed", False, False, "efc2684ac4ded7d8eab1962ac32b5b1aa94efc1ab7a0015676725463bb042bf0"),
+        ("detailed", False, True, "af6a8233569c5942f3949c4717a0f7a3e8219b0129ca1485bd98c97542e4f7d1"),
+        ("detailed", True, False, "3180b6db2f752032b77bc5e754fbc9a0c67b66641acf5e6c4ed6fc9b6dd89bdb"),
+        ("detailed", True, True, "4f7cecf05f552b499ba954cad60e53e1bf5033d89bb5f674aeca596ed9e452f3"),
     ],
 )
 @pytest.mark.generic_evidence
 def test_system_prompt_text_is_unchanged(
-    breadth: str, enumerate_cases: bool, with_addendum: bool, expected_digest: str
+    style: str, enumerate_cases: bool, with_addendum: bool, expected_digest: str
 ) -> None:
     addendum = "  Правило {article}: {{точный текст}}  " if with_addendum else None
-    prompt = build_system_prompt(breadth, addendum, enumerate_cases=enumerate_cases)
+    prompt = build_system_prompt(style, addendum, enumerate_cases=enumerate_cases)
     assert "<formatting_rules>" in prompt
     assert ("<conditional_rules_expansion>" in prompt) is enumerate_cases
     assert ("<domain_specific_rules>" in prompt) is with_addendum
@@ -67,8 +72,8 @@ def test_empty_and_whitespace_addenda_keep_existing_behavior() -> None:
 
 
 @pytest.mark.generic_evidence
-def test_unknown_breadth_uses_narrow_prompt() -> None:
-    assert build_system_prompt("unknown") == build_system_prompt(Breadth.NARROW)
+def test_unknown_style_uses_concise_prompt() -> None:
+    assert build_system_prompt("unknown") == build_system_prompt(AnswerStyle.CONCISE)
 
 
 @pytest.mark.parametrize(
@@ -98,12 +103,11 @@ def test_unicode_obfuscation_is_normalized_before_escaping() -> None:
     assert sanitize_for_prompt("Корпоративный документ [1]") == "Корпоративный документ [1]"
 
 
-@pytest.mark.parametrize("breadth", [Breadth.NARROW, Breadth.BROAD])
 @pytest.mark.parametrize("query,boosted", [("обычный вопрос", False), ("СТ. 15", True)])
-def test_retrieval_params_preserve_weights_and_settings(breadth: Breadth, query: str, boosted: bool) -> None:
+def test_retrieval_params_preserve_weights_and_settings(query: str, boosted: bool) -> None:
     settings = make_rag(exact_ref_sparse_boost=3.0)
-    assert compute_retrieval_params(breadth, settings, query) == {
-        "fetch_k": 40 if breadth == Breadth.BROAD else 25,
+    assert compute_retrieval_params(settings, query) == {
+        "fetch_k": 40,
         "rerank_top_n": 10,
         "effective_dense_weight": 1.5,
         "effective_sparse_weight": 1.5 if boosted else 0.5,

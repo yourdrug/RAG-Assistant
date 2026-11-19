@@ -62,6 +62,7 @@ class BenchmarkService:
             resume=options.get("resume", False),
             checkpoints=options.get("checkpoints"),
             checkpoint_prefix=options.get("checkpoint_prefix"),
+            depth=options.get("depth"),
         )
         return {**compute_summary_from_results(results), "status": "done"}
 
@@ -70,6 +71,8 @@ def compute_summary_from_results(results: list[dict[str, Any]]) -> dict[str, Any
     """Build summary dict from benchmark results list."""
     results = with_diagnosis(results)
     breadths = [r.get("breadth") for r in results if r.get("breadth") is not None]
+    answer_chars = sorted(len(r.get("answer") or "") for r in results)
+    finish_reasons = [r.get("finish_reason") for r in results if r.get("finish_reason") is not None]
 
     return {
         **summarize_benchmark_results(results),
@@ -78,6 +81,19 @@ def compute_summary_from_results(results: list[dict[str, Any]]) -> dict[str, Any
             "broad": sum(1 for b in breadths if b == "broad"),
         }
         if breadths
+        else None,
+        # Answer length per style is the main signal for the "Кратко / Авто / Подробно" selector.
+        "answer_length": {
+            "mean_chars": round(sum(answer_chars) / len(answer_chars), 1),
+            "median_chars": answer_chars[len(answer_chars) // 2],
+            "max_chars": answer_chars[-1],
+        }
+        if answer_chars
+        else None,
+        "truncated_rate": round(
+            sum(1 for reason in finish_reasons if reason == "length") / len(finish_reasons), 4
+        )
+        if finish_reasons
         else None,
         "results": [
             {
@@ -107,6 +123,9 @@ def compute_summary_from_results(results: list[dict[str, Any]]) -> dict[str, Any
                 "ttft_sec": r.get("ttft_sec"),
                 "llm_replayed": r.get("llm_replayed", False),
                 "breadth": r.get("breadth"),
+                "answer_style": r.get("answer_style"),
+                "finish_reason": r.get("finish_reason"),
+                "answer_chars": len(r.get("answer") or ""),
             }
             for r in results
         ],

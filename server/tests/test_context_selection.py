@@ -143,8 +143,8 @@ def test_pipeline_keeps_high_score_from_another_section_with_full_prompt_counter
     # Derive a window that fits exactly the top two complete blocks.
     reference = state_for([docs[0], docs[2]])
     messages, _ = step_build_context(reference, None)
-    limit = estimate_message_tokens(messages) + reference.rag.llm_num_predict_narrow
-    state = state_for(docs, rag=replace(reference.rag, llm_num_ctx_narrow=limit))
+    limit = estimate_message_tokens(messages) + reference.rag.llm_num_predict_broad
+    state = state_for(docs, rag=replace(reference.rag, llm_num_ctx_broad=limit))
     evidence = BenchmarkEvidence()
     token = active_evidence.set(evidence)
     counter = MagicMock(side_effect=estimate_message_tokens)
@@ -158,7 +158,7 @@ def test_pipeline_keeps_high_score_from_another_section_with_full_prompt_counter
     assert evidence.context is not None
     assert docs[1][0].page_content not in evidence.context
     assert evidence.prompt_budget is not None
-    assert evidence.prompt_budget["input_tokens"] + state.rag.llm_num_predict_narrow == limit
+    assert evidence.prompt_budget["input_tokens"] + state.rag.llm_num_predict_broad == limit
     assert evidence is not None
     assert evidence.prompt_candidates is not None
     assert len(evidence.prompt_candidates) == 3

@@ -21,6 +21,7 @@ PROMPT_BLOCK_TAGS: tuple[str, ...] = (
     "critical_rules",
     "language_and_precision",
     "untrusted_context_handling",
+    "completeness_rules",
     "formatting_rules",
     "table_and_image_rules",
     "conditional_rules_expansion",

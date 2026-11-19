@@ -73,6 +73,8 @@ async def test_rag_elapsed_includes_retrieval_and_usage_without_judge() -> None:
             generation_sec=None,
             ttft_sec=None,
             breadth=None,
+            answer_style="adaptive",
+            finish_reason="stop",
             domain=None,
         )
 

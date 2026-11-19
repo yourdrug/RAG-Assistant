@@ -35,6 +35,8 @@ class BenchmarkAnswer:
     generation_sec: float | None = None
     ttft_sec: float | None = None
     breadth: str | None = None
+    answer_style: str | None = None
+    finish_reason: str | None = None
     domain: str | None = None
     evidence: BenchmarkEvidence | None = None
     rag_latency_sec: float | None = None
@@ -121,6 +123,8 @@ class RagBenchmarkGenerator:
             generation_sec=result.generation_sec,
             ttft_sec=result.ttft_sec,
             breadth=result.breadth,
+            answer_style=result.answer_style,
+            finish_reason=result.finish_reason,
             domain=result.domain,
             evidence=evidence,
             rag_latency_sec=elapsed,

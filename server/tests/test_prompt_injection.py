@@ -15,7 +15,7 @@ from langchain.schema import Document
 from langchain_core.messages import HumanMessage
 import pytest
 
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import AnswerStyle, Breadth
 from domain.rag.classification import (
     classify_question_breadth,
     is_out_of_domain,
@@ -215,27 +215,40 @@ class TestBroadVsNarrowPrompts:
 
     @pytest.mark.generic_evidence
     def test_narrow_prompt_has_security_blocks(self) -> None:
-        prompt = build_system_prompt(breadth=Breadth.NARROW)
+        prompt = build_system_prompt(style=AnswerStyle.CONCISE)
         assert "<untrusted_context_handling>" in prompt
         assert "<scope>" in prompt
         assert "<critical_rules>" in prompt
 
     @pytest.mark.generic_evidence
     def test_broad_prompt_has_security_blocks(self) -> None:
-        prompt = build_system_prompt(breadth=Breadth.BROAD)
+        prompt = build_system_prompt(style=AnswerStyle.DETAILED)
         assert "<untrusted_context_handling>" in prompt
         assert "<scope>" in prompt
         assert "<critical_rules>" in prompt
 
     @pytest.mark.generic_evidence
     def test_broad_prompt_has_conditional_rules(self) -> None:
-        prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=True)
+        prompt = build_system_prompt(style=AnswerStyle.DETAILED, enumerate_cases=True)
         assert "<conditional_rules_expansion>" in prompt
 
     @pytest.mark.generic_evidence
     def test_narrow_prompt_no_conditional_rules(self) -> None:
-        prompt = build_system_prompt(breadth=Breadth.NARROW, enumerate_cases=False)
+        prompt = build_system_prompt(style=AnswerStyle.CONCISE, enumerate_cases=False)
         assert "<conditional_rules_expansion>" not in prompt
+
+    @pytest.mark.generic_evidence
+    def test_concise_prompt_keeps_conditional_rules(self) -> None:
+        # Conditional rules are about completeness, so a concise answer keeps them too.
+        prompt = build_system_prompt(style=AnswerStyle.CONCISE, enumerate_cases=True)
+        assert "<conditional_rules_expansion>" in prompt
+
+    @pytest.mark.generic_evidence
+    def test_adaptive_prompt_has_security_blocks(self) -> None:
+        prompt = build_system_prompt(style=AnswerStyle.ADAPTIVE)
+        assert "<untrusted_context_handling>" in prompt
+        assert "<scope>" in prompt
+        assert "<critical_rules>" in prompt
 
 
 class TestDomainAddendum:

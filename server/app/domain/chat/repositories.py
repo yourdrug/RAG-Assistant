@@ -26,6 +26,8 @@ class ChatLogFilter:
     error_code: str | None = None
     model: str | None = None
     breadth: str | None = None
+    answer_style: str | None = None
+    finish_reason: str | None = None
     config_hash: str | None = None
     # Reaction of the asking user to the delivered answer; "none" means not rated.
     rating: Literal["up", "down", "none"] | None = None

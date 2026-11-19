@@ -511,7 +511,7 @@
   },
   "llm_num_predict_narrow": {
     "annotation": "<class 'int'>",
-    "default": "400",
+    "default": "1024",
     "metadata": "[]",
     "required": false
   },

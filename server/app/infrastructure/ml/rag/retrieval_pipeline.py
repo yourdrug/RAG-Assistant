@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict, Unpack, cast
 from langchain.schema import Document as LCDocument
 
 from domain.knowledge.enums import SearchMode
-from domain.rag.breadth import Breadth, requested_breadth
 from domain.rag.classification import extract_exact_references, should_enumerate_cases
 from domain.rag.ranking import evidence_identity
 from infrastructure.domain_profile.answer_policy import policy_for
@@ -413,6 +412,10 @@ async def rerank_and_enrich(
     state.rerank_ms = int((time.monotonic() - t0) * 1000)
     capture_stage("retained", docs, score_kind="reranker")
     capture_retrieval(docs)
+    # Conditional rules are judged on the evidence that survived reranking, not on the raw
+    # candidate pool, where two loosely related chunks with "%" or "в случае" are almost certain.
+    # The flag widens neighbour expansion and adds the completeness rules; it never changes the style.
+    state.enumerate_cases = should_enumerate_cases([doc.page_content for doc, _ in docs])
 
     _, _, _, _, max_context_tokens = prepare_generation_budget(state)
     docs = await enrich_retained_docs(
@@ -498,10 +501,6 @@ class RetrievalPipeline:
             state.user,
         )
         state.candidates = merge_evidence_candidates(pooled)
-        # An explicit "short" request is honoured: conditional context must not escalate it to BROAD.
-        state.enumerate_cases = requested_breadth(
-            state.ctx.depth
-        ) != Breadth.NARROW and should_enumerate_cases([doc.page_content for doc in state.candidates])
         state.retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
         state.docs, _, state.avg_sim = await rerank_and_enrich(
             state.evidence_query or query,

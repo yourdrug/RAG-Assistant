@@ -115,6 +115,8 @@ def production_trace(evidence: BenchmarkEvidence, redactor: PIIRedactorPort | No
                                         "history_tokens",
                                         "context_tokens",
                                         "documents_not_fitted",
+                                        "answer_style",
+                                        "enumerate_cases",
                                     }
                                 }
                             }

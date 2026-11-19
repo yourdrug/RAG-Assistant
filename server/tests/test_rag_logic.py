@@ -18,7 +18,6 @@ from openai.types.chat import ChatCompletion
 import pytest
 
 from config import LLMSection, request_section
-from domain.rag.breadth import Breadth
 from domain.rag.classification import classify_question_breadth, needs_decomposition, should_enumerate_cases
 from infrastructure.ml.clients.llm_schemas import RelevanceCheck
 from infrastructure.ml.ingestion import docx_table_to_markdown, pymupdf_table_to_markdown
@@ -649,7 +648,7 @@ class TestHandleRelevanceGate:
         rag = MagicMock()
         rag.features.relevance_gate_enabled = False
 
-        result = asyncio.run(handle_relevance_gate("q", [], Breadth.NARROW, rag, MagicMock()))
+        result = asyncio.run(handle_relevance_gate("q", [], rag, MagicMock()))
         assert result == (True, "")
 
     def test_gate_enabled_relevant_returns_true(self) -> None:
@@ -666,9 +665,7 @@ class TestHandleRelevanceGate:
         with patch(target, new_callable=AsyncMock) as mock_check:
             mock_check.return_value = RelevanceCheck(is_relevant=True, reason="good context")
             result = asyncio.run(
-                handle_relevance_gate(
-                    "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
-                )
+                handle_relevance_gate("q", [(Document(page_content="doc"), 0.9)], rag, mock_ml)
             )
             assert result == (True, "")
 
@@ -688,9 +685,7 @@ class TestHandleRelevanceGate:
                 is_relevant=False, reason="not relevant", suggested_refinement="  refined  "
             )
             result = asyncio.run(
-                handle_relevance_gate(
-                    "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
-                )
+                handle_relevance_gate("q", [(Document(page_content="doc"), 0.9)], rag, mock_ml)
             )
             assert result == (False, "refined")
 
@@ -709,11 +704,7 @@ class TestHandleRelevanceGate:
         target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
         with patch(target, new_callable=AsyncMock) as mock_check:
             mock_check.return_value = RelevanceCheck(is_relevant=True, reason="ok")
-            asyncio.run(
-                handle_relevance_gate(
-                    "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
-                )
-            )
+            asyncio.run(handle_relevance_gate("q", [(Document(page_content="doc"), 0.9)], rag, mock_ml))
             mock_sem.__aenter__.assert_awaited()
 
 
@@ -980,9 +971,7 @@ class TestCircuitBreakerIntegration:
             target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
             with patch(target, new_callable=AsyncMock) as mock_check:
                 mock_check.return_value = RelevanceCheck(is_relevant=True, reason="ok")
-                await handle_relevance_gate(
-                    "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
-                )
+                await handle_relevance_gate("q", [(Document(page_content="doc"), 0.9)], rag, mock_ml)
                 mock_breaker.check_open.assert_called_once()
                 mock_breaker.report_success.assert_awaited_once()
 
@@ -1005,7 +994,5 @@ class TestCircuitBreakerIntegration:
             with patch(target, new_callable=AsyncMock) as mock_check:
                 mock_check.side_effect = RuntimeError("LLM down")
                 with pytest.raises(RuntimeError, match="LLM down"):
-                    await handle_relevance_gate(
-                        "q", [(Document(page_content="doc"), 0.9)], Breadth.NARROW, rag, mock_ml
-                    )
+                    await handle_relevance_gate("q", [(Document(page_content="doc"), 0.9)], rag, mock_ml)
                 mock_breaker.report_failure.assert_awaited_once()

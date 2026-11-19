@@ -21,6 +21,9 @@ class AnswerMetadata:
     config_hash: str | None = None
     config_version: str | None = None
     evidence_profile: str | None = None
+    # Presentation the user asked for (AnswerStyle value) and why the LLM stopped generating.
+    answer_style: str | None = None
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)

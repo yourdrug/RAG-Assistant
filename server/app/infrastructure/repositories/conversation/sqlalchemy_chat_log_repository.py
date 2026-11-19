@@ -156,7 +156,17 @@ class SQLAlchemyChatLogRepository:
 
     @staticmethod
     def apply_filters[T: tuple[Any, ...]](stmt: Select[T], filters: ChatLogFilter) -> Select[T]:
-        for name in ("user_id", "domain", "space_id", "outcome", "error_code", "breadth", "config_hash"):
+        for name in (
+            "user_id",
+            "domain",
+            "space_id",
+            "outcome",
+            "error_code",
+            "breadth",
+            "answer_style",
+            "finish_reason",
+            "config_hash",
+        ):
             value = getattr(filters, name)
 
             if value is not None:

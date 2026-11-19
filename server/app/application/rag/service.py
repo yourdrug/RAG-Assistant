@@ -20,7 +20,7 @@ from application.rag.ports import (
 )
 from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, StreamEvent, TextChunk
 from domain.knowledge.enums import DocDomain, DomainKey
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import Breadth, answer_style
 from domain.rag.context import RagContext
 from domain.rag.metadata import AnswerMetadata, TokenUsage
 from domain.rag.outcome import AnswerOutcome
@@ -69,6 +69,7 @@ class RagService:
             config_data=request.config_data,
             config_version=request.config_version,
             evidence_profile=request.evidence_profile,
+            answer_style=answer_style(request.ctx.depth).value,
         )
         yield meta
         query = await self.prepare(request)
@@ -137,6 +138,7 @@ class RagService:
         yield replace(
             meta,
             outcome=answer.outcome,
+            finish_reason=answer.finish_reason,
             generation_sec=answer.generation_sec,
             ttft_sec=ttft_sec,
             aux_tokens=auxiliary_tokens(request),

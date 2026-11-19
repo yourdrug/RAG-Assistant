@@ -5,7 +5,7 @@ from collections.abc import Callable
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import AnswerStyle, answer_style
 from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
@@ -17,24 +17,21 @@ def prepare_generation_budget(
     state: RetrievalWork,
     count_tokens: Callable[[list[BaseMessage]], int] = estimate_message_tokens,
 ) -> tuple[ChatPromptTemplate, list[BaseMessage], int, int, int]:
-    breadth = Breadth.BROAD if state.enumerate_cases else state.breadth
-
-    if breadth is None:
-        message = "Breadth is required"
-        raise ValueError(message)
-
+    style = answer_style(state.ctx.depth)
     registry = state.domain_registry
     keys = state.domain_keys
     prompt = build_prompt(
-        breadth,
+        style,
         summary=state.ctx.summary,
         domain_addendum=domain_prompt_addendum(state.query_domain, state.ctx, keys, registry),
         enumerate_cases=state.enumerate_cases,
         question=state.question,
     )
-    num_ctx = state.rag.llm_num_ctx_broad if breadth == Breadth.BROAD else state.rag.llm_num_ctx_narrow
+    # One context window for every style: the answer style must never decide which evidence
+    # fits. The style only reserves its own output ceiling.
+    num_ctx = state.rag.llm_num_ctx_broad
     num_predict = (
-        state.rag.llm_num_predict_broad if breadth == Breadth.BROAD else state.rag.llm_num_predict_narrow
+        state.rag.llm_num_predict_narrow if style == AnswerStyle.CONCISE else state.rag.llm_num_predict_broad
     )
     history = list(state.history_messages)
 

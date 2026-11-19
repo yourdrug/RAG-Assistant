@@ -538,6 +538,8 @@ class ChatLogModel(BaseModel):
     )
     config_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
     evidence_profile: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    answer_style: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    finish_reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

@@ -29,6 +29,8 @@ class ChatLog:
     config_hash: str | None = None
     config_version: str | None = None
     evidence_profile: str | None = None
+    answer_style: str | None = None
+    finish_reason: str | None = None
     user_id: int | None = None
     conversation_id: int | None = None
     question: str = ""

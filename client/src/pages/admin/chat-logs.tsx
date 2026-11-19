@@ -176,6 +176,10 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
                       Classified from the question; source documents may have a different domain.
                     </p>
                   </dd>
+                  <dt>Answer style / finish reason</dt>
+                  <dd>
+                    {log.answer_style ?? "—"} / {log.finish_reason ?? "—"}
+                  </dd>
                   <dt>Model / profile</dt>
                   <dd>
                     {log.model_used ?? "—"} / {log.evidence_profile ?? "—"}
@@ -278,6 +282,8 @@ function ChatLogsPage() {
     error_code: searchParams.get("error_code") ?? "",
     model: searchParams.get("model") ?? "",
     breadth: "",
+    answer_style: "",
+    finish_reason: "",
     config_hash: "",
     rating: "",
     reason: searchParams.get("reason") ?? "",
@@ -524,6 +530,31 @@ function ChatLogsPage() {
               <option value="">All</option>
               <option>narrow</option>
               <option>broad</option>
+            </select>
+          </Label>
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Answer style</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={filters.answer_style}
+              onChange={(event) => update("answer_style", event.target.value)}
+            >
+              <option value="">All</option>
+              <option>concise</option>
+              <option>adaptive</option>
+              <option>detailed</option>
+            </select>
+          </Label>
+          <Label className="flex min-w-0 flex-col gap-2.5">
+            <span>Finish reason</span>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={filters.finish_reason}
+              onChange={(event) => update("finish_reason", event.target.value)}
+            >
+              <option value="">All</option>
+              <option>stop</option>
+              <option>length</option>
             </select>
           </Label>
           <Label className="flex min-w-0 flex-col gap-2.5">

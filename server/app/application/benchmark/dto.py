@@ -137,6 +137,8 @@ class BenchmarkRunOptions(TypedDict, total=False):
     resume: bool
     checkpoints: BenchmarkCheckpoints | None
     checkpoint_prefix: str | None
+    # Chat answer-length selector to benchmark (None = Авто, "narrow" = Кратко, "broad" = Подробно).
+    depth: str | None
 
 
 class BenchmarkRunnerOptions(BenchmarkRunOptions, total=False):

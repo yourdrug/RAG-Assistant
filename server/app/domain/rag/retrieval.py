@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypedDict
 
-from domain.rag.breadth import Breadth
 from domain.rag.classification import has_exact_reference
 
 
@@ -23,23 +22,21 @@ class RetrievalParams(TypedDict):
 
 
 def compute_retrieval_params(
-    breadth: Breadth,
     rag_settings: RagSettings,
     query: str,
 ) -> RetrievalParams:
-    """Compute retrieval parameters based on breadth and settings.
+    """Compute retrieval parameters from settings and the query.
 
-    ``rerank_top_n`` always uses the broad candidate limit; the reranker's
-    score thresholds and the generation token budget bound the final set.
+    Retrieval never depends on the requested answer style: a concise answer needs the same
+    evidence as a detailed one. Every question uses the broad candidate limits; the
+    reranker's score thresholds and the generation token budget bound the final set.
     Only the sparse weight is boosted for exact structural references.
 
     Pure function — no infrastructure dependencies.
     """
     use_exact_ref_boost = has_exact_reference(query)
 
-    fetch_k = (
-        rag_settings.retriever.fetch_k_broad if breadth == Breadth.BROAD else rag_settings.retriever.fetch_k
-    )
+    fetch_k = rag_settings.retriever.fetch_k_broad
     rerank_top_n = rag_settings.retriever.top_k_broad
 
     effective_dense_weight = rag_settings.hybrid_search.dense_weight

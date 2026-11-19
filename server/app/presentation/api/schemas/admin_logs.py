@@ -65,6 +65,8 @@ class ChatLogEntry(BaseModel):
     config_hash: str | None = None
     config_version: str | None = None
     evidence_profile: str | None = None
+    answer_style: str | None = None
+    finish_reason: str | None = None
     message_id: int | None = None
     space_id: int = 0
     pack_key: str | None = None

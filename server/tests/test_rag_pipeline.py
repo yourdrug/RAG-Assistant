@@ -22,7 +22,14 @@ from application.rag.dto import PreparedQuery, RagRequest
 from composition.service_providers import create_rag_service
 from domain.identity.roles import UserKind
 from domain.identity.user_context import UserContext
-from domain.rag.breadth import BREADTH_ALIASES, Breadth, requested_breadth
+from domain.rag.breadth import (
+    BREADTH_ALIASES,
+    AnswerStyle,
+    Breadth,
+    answer_style,
+    output_breadth,
+    requested_breadth,
+)
 from domain.rag.classification import classify_question_breadth
 from domain.rag.context import RagContext
 from domain.rag.retrieval import compute_retrieval_params
@@ -214,6 +221,25 @@ class TestResolveBreadth:
     def test_requested_breadth(self, depth: str | None, expected: Breadth | None) -> None:
         assert requested_breadth(depth) == expected
 
+    @pytest.mark.parametrize(
+        "depth,expected",
+        [
+            ("narrow", AnswerStyle.CONCISE),
+            ("short", AnswerStyle.CONCISE),
+            ("broad", AnswerStyle.DETAILED),
+            ("detailed", AnswerStyle.DETAILED),
+            (None, AnswerStyle.ADAPTIVE),
+            ("unknown", AnswerStyle.ADAPTIVE),
+        ],
+    )
+    def test_answer_style(self, depth: str | None, expected: AnswerStyle) -> None:
+        assert answer_style(depth) == expected
+
+    def test_only_concise_uses_the_small_output_ceiling(self) -> None:
+        assert output_breadth(AnswerStyle.CONCISE) == Breadth.NARROW
+        assert output_breadth(AnswerStyle.ADAPTIVE) == Breadth.BROAD
+        assert output_breadth(AnswerStyle.DETAILED) == Breadth.BROAD
+
     def test_alias_short_is_narrow(self) -> None:
 
         raw = BREADTH_ALIASES.get("short") or classify_question_breadth("обычный вопрос")
@@ -239,7 +265,7 @@ class TestComputeEffectiveWeights:
     def test_default_weights(self) -> None:
 
         rag = make_rag(exact_ref_sparse_boost=2.0)
-        params = compute_retrieval_params(Breadth.NARROW, rag, "обычный вопрос")
+        params = compute_retrieval_params(rag, "обычный вопрос")
         assert params["effective_dense_weight"] == 1.5
         assert params["effective_sparse_weight"] == 0.5
         assert params["use_exact_ref_boost"] is False
@@ -247,7 +273,7 @@ class TestComputeEffectiveWeights:
     def test_exact_ref_boost(self) -> None:
 
         rag = make_rag(exact_ref_sparse_boost=2.0)
-        params = compute_retrieval_params(Breadth.NARROW, rag, "статья 14 пункт 3")
+        params = compute_retrieval_params(rag, "статья 14 пункт 3")
         assert params["use_exact_ref_boost"] is True
         assert params["effective_sparse_weight"] > 0.5
 
@@ -258,14 +284,10 @@ class TestComputeEffectiveWeights:
 
 
 class TestResolveFetchTopK:
-    def test_narrow_params(self) -> None:
-
+    @pytest.mark.parametrize("query", ["обычный вопрос", "подробно опиши все условия"])
+    def test_every_question_uses_broad_limits(self, query: str) -> None:
+        # Answer style never narrows the evidence: all questions share the broad limits.
         rag = make_rag(exact_ref_sparse_boost=2.0)
-        params = compute_retrieval_params(Breadth.NARROW, rag, "обычный вопрос")
-        assert params["fetch_k"] == 25
-
-    def test_broad_params(self) -> None:
-
-        rag = make_rag(exact_ref_sparse_boost=2.0)
-        params = compute_retrieval_params(Breadth.BROAD, rag, "широкий вопрос")
-        assert params["fetch_k"] == 40
+        params = compute_retrieval_params(rag, query)
+        assert params["fetch_k"] == rag.retriever.fetch_k_broad == 40
+        assert params["rerank_top_n"] == rag.retriever.top_k_broad

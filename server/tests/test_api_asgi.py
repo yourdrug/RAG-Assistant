@@ -285,6 +285,27 @@ async def test_benchmark_launch_passes_llm_replay_mode_to_the_job(
 
 
 @pytest.mark.asyncio
+async def test_benchmark_launch_passes_answer_depth_to_the_job(
+    asgi_client: httpx.AsyncClient, tmp_path: Path
+) -> None:
+    sign_in(role=UserRole.ADMIN.value)
+    enqueuer = SimpleNamespace(enqueue_benchmark=AsyncMock())
+    jobs = SimpleNamespace(create_job=AsyncMock(return_value=8))
+    app.dependency_overrides[deps.create_job_enqueuer] = lambda: enqueuer
+    app.dependency_overrides[deps.create_job_service] = lambda: jobs
+    app.dependency_overrides[deps.create_benchmark_config] = lambda: SimpleNamespace(
+        data_dir=str(tmp_path), retriever_top_k=7, llm_model="judge"
+    )
+    app.dependency_overrides[deps.create_idempotency_store] = lambda: None
+    response = await asgi_client.post("/benchmark", json={"depth": "narrow"})
+    assert response.status_code == 200
+    assert enqueuer.enqueue_benchmark.call_args.kwargs["depth"] == "narrow"
+    assert jobs.create_job.call_args.kwargs["dispatch_payload"]["depth"] == "narrow"
+    rejected = await asgi_client.post("/benchmark", json={"depth": "short"})
+    assert rejected.status_code == 422
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("dataset", [None, "custom"])
 async def test_benchmark_launch_enqueues_database_dataset(
     asgi_client: httpx.AsyncClient, tmp_path: Path, dataset: str | None
@@ -309,6 +330,7 @@ async def test_benchmark_launch_enqueues_database_dataset(
         job_id=8,
         space_id=DEFAULT_SPACE_ID,
         llm_replay_mode="off",
+        depth=None,
     )
     assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 - Small local fixture I/O in the test setup.
 

@@ -8,6 +8,9 @@ from config.ownership import Static
 
 
 class RetrievalSection(BaseModel):
+    # Chat retrieval always uses the *_broad limits (answer style never narrows the evidence);
+    # retriever_fetch_k still bounds sub-query and full-corpus fallback searches, and
+    # retriever_top_k is the k of benchmark retrieval evaluation.
     retriever_fetch_k: int = 15
     retriever_top_k: int = 4
     retriever_fetch_k_broad: int = 40

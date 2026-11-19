@@ -4,21 +4,31 @@ from __future__ import annotations
 
 import re
 
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import AnswerStyle
 from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.prompt_blocks import (
-    BROAD_FORMATTING,
+    ADAPTIVE_FORMATTING,
     CITATION_CONTEXT_HANDLING_BLOCK,
+    COMPLETENESS_BLOCK,
+    CONCISE_FORMATTING,
     CONDITIONAL_RULES_BLOCK,
     CRITICAL_RULES_BLOCK,
+    DETAILED_FORMATTING,
     DOCUMENT_CONTEXT_BLOCK,
     INTRO,
     LANGUAGE_PRECISION_BLOCK,
-    NARROW_FORMATTING,
     SCOPE_BLOCK,
+    SOURCE_REFERENCE_COMPACT_BLOCK,
     SOURCE_REFERENCE_STYLE_BLOCK,
     TABLE_IMAGE_RULES_BLOCK,
 )
+
+
+STYLE_FORMATTING: dict[AnswerStyle, str] = {
+    AnswerStyle.CONCISE: CONCISE_FORMATTING,
+    AnswerStyle.ADAPTIVE: ADAPTIVE_FORMATTING,
+    AnswerStyle.DETAILED: DETAILED_FORMATTING,
+}
 
 
 DECOMPOSITION_ASSESSMENT_SYSTEM = (
@@ -38,39 +48,47 @@ def build_context_message() -> str:
 
 
 def build_system_prompt(
-    breadth: str = Breadth.NARROW,
+    style: str = AnswerStyle.CONCISE,
     domain_addendum: str | None = None,
     *,
     enumerate_cases: bool = False,
     question: str = "",
 ) -> str:
-    """Build the system prompt text based on question breadth and context composition.
+    """Build the system prompt text for an answer style and the context composition.
 
     Returns the raw system prompt string **without** the document-context
     block — retrieved content is passed as a separate user-role message via
     ``build_context_message()`` (defense-in-depth: context at user privilege,
     not system privilege).
 
+    The completeness and grounding rules are identical for every style; ``style``
+    changes only how the answer is presented (and how compactly sources are cited).
+    An unknown style falls back to the concise presentation.
+
     ``domain_addendum``: extra rules from the active ``DomainProfile`` (e.g.
     legal citation rules, temporal rules when ``as_of_date`` is set). This is
     the single source of truth for domain-specific prompt rules. The profile
     provides its own rules via ``prompt_addendum()``.
 
-    ``enumerate_cases``: when True, adds instructions for the LLM to enumerate
-    all conditional rules/cases separately (saves tokens on simple questions).
+    ``enumerate_cases``: when True, adds the per-category completeness rules for
+    conditional evidence; it never changes the presentation style.
     """
-    formatting_rules = BROAD_FORMATTING if breadth == Breadth.BROAD else NARROW_FORMATTING
+    resolved = AnswerStyle(style) if style in AnswerStyle else AnswerStyle.CONCISE
+    source_style = (
+        SOURCE_REFERENCE_COMPACT_BLOCK if resolved == AnswerStyle.CONCISE else SOURCE_REFERENCE_STYLE_BLOCK
+    )
 
     parts: list[str] = [
         INTRO,
         SCOPE_BLOCK,
         CRITICAL_RULES_BLOCK,
+        COMPLETENESS_BLOCK,
         LANGUAGE_PRECISION_BLOCK,
         CITATION_CONTEXT_HANDLING_BLOCK,
-        "<formatting_rules>\n" + formatting_rules + "\n</formatting_rules>",
+        "<formatting_rules>\n" + STYLE_FORMATTING[resolved] + "\n</formatting_rules>",
         TABLE_IMAGE_RULES_BLOCK,
         *current_evidence_profile().reading_rules(question),
-        SOURCE_REFERENCE_STYLE_BLOCK,
+        source_style,
     ]
 
     if enumerate_cases or re.search(

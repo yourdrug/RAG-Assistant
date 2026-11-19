@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -37,6 +37,10 @@ class BenchmarkRequest(BaseModel):
             "Reuse of recorded LLM responses: off, record (reuse, record misses), "
             "replay_only (a miss fails the call instead of paying), refresh (call and overwrite)."
         ),
+    )
+    depth: Literal["narrow", "broad"] | None = Field(
+        default=None,
+        description="Answer-length selector to benchmark: null = Авто, narrow = Кратко, broad = Подробно.",
     )
 
 

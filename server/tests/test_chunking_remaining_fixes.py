@@ -228,7 +228,7 @@ def test_no_usable_context_stops_before_generation() -> None:
         access_filter=None,
         retrieval_filter=None,
         breadth=Breadth.NARROW,
-        docs=[(Document(page_content="Complete conditions. " * 1500, metadata={"source": "rules.pdf"}), 0.9)],
+        docs=[(Document(page_content="Complete conditions. " * 5000, metadata={"source": "rules.pdf"}), 0.9)],
     )
     with pytest.raises(ContextBudgetExceededError):
         step_build_context(state, None)

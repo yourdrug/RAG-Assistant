@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
@@ -74,6 +74,8 @@ class BenchmarkPayload(Payload):
     dataset_hash: str | None = None
     # Stored as its string value in the job row; strict mode would reject the string.
     llm_replay_mode: Annotated[LLMReplayMode, Field(strict=False)] = LLMReplayMode.OFF
+    # Chat answer-length selector to benchmark; None is "Авто".
+    depth: Literal["narrow", "broad"] | None = None
 
 
 class SweepPayload(Payload):

@@ -21,7 +21,7 @@ import pytest
 from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, TextChunk
 from composition.service_providers import create_rag_service
 from domain.identity.user_context import UserContext
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import AnswerStyle, Breadth, output_breadth
 from domain.rag.classification import classify_question_breadth
 from domain.rag.context import RagContext
 from domain.rag.retrieval import compute_retrieval_params
@@ -511,7 +511,7 @@ class TestStreamHelperMethods:
         result = classify_question_breadth("обычный вопрос")
         assert isinstance(result, str)
 
-    def test_compute_retrieval_params_narrow(self) -> None:
+    def test_compute_retrieval_params_ignores_breadth_limits(self) -> None:
 
         rag = MagicMock()
         rag.retriever.fetch_k = 25
@@ -520,8 +520,8 @@ class TestStreamHelperMethods:
         rag.retriever.top_k_broad = 10
         rag.hybrid_search.dense_weight = 1.5
         rag.hybrid_search.sparse_weight = 0.5
-        params = compute_retrieval_params(Breadth.NARROW, rag, "general question")
-        assert params["fetch_k"] == 25
+        params = compute_retrieval_params(rag, "general question")
+        assert params["fetch_k"] == 40
 
     def test_compute_retrieval_params_broad(self) -> None:
 
@@ -532,7 +532,7 @@ class TestStreamHelperMethods:
         rag.retriever.top_k_broad = 10
         rag.hybrid_search.dense_weight = 1.5
         rag.hybrid_search.sparse_weight = 0.5
-        params = compute_retrieval_params(Breadth.BROAD, rag, "general question")
+        params = compute_retrieval_params(rag, "general question")
         assert params["fetch_k"] == 40
 
     def test_compute_effective_weights_no_exact_ref(self) -> None:
@@ -540,7 +540,7 @@ class TestStreamHelperMethods:
         rag = MagicMock()
         rag.hybrid_search.dense_weight = 1.5
         rag.hybrid_search.sparse_weight = 0.5
-        params = compute_retrieval_params(Breadth.NARROW, rag, "general question")
+        params = compute_retrieval_params(rag, "general question")
         assert params["effective_dense_weight"] == 1.5
         assert params["effective_sparse_weight"] == 0.5
         assert params["use_exact_ref_boost"] is False
@@ -703,14 +703,20 @@ async def test_chat_log_records_real_pipeline_metadata_in_stream_and_sync(outcom
     assert records[0] == records[1]
 
 
-class TestUserRequestedBreadth:
-    """The chat "Авто / Кратко / Подробно" selector sends depth=None/"narrow"/"broad"."""
+class TestAnswerStyleSelection:
+    """The chat "Авто / Кратко / Подробно" selector sends depth=None/"narrow"/"broad".
+
+    It changes only the presentation: the classifier and conditional evidence never override
+    it, and retrieval, the context window and the completeness rules are the same for all.
+    """
 
     @staticmethod
-    async def prompt_breadth(depth: str | None, *, auto: Breadth, enumerate_cases: bool) -> Breadth:
+    async def run(depth: str | None, *, auto: Breadth, enumerate_cases: bool) -> SimpleNamespace:
         build_prompt = MagicMock(
             wraps=_STREAM_PATCHES["infrastructure.ml.rag.generation_budget.build_prompt"]
         )
+        search = AsyncMock(return_value=[])
+        client_breadth = MagicMock(wraps=output_breadth)
         with (
             patch("infrastructure.ml.rag.rag_steps.build_rag_settings", return_value=make_rag_settings()),
             patch("infrastructure.ml.rag.rag_steps.classify_question_breadth", return_value=auto),
@@ -718,26 +724,78 @@ class TestUserRequestedBreadth:
                 "infrastructure.ml.rag.retrieval_pipeline.should_enumerate_cases",
                 return_value=enumerate_cases,
             ),
+            patch("infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search", search),
             patch("infrastructure.ml.rag.generation_budget.build_prompt", build_prompt),
+            patch("infrastructure.ml.rag.rag_steps.output_breadth", client_breadth),
         ):
             await collect_events(make_stream_service(), "question", ctx=_make_context(depth=depth))
-        return build_prompt.call_args.args[0]
+        return SimpleNamespace(
+            style=build_prompt.call_args.args[0],
+            enumerate_cases=build_prompt.call_args.kwargs["enumerate_cases"],
+            fetch_k=search.call_args.args[1],
+            client_calls=[call.args[0] for call in client_breadth.call_args_list],
+        )
 
     @pytest.mark.asyncio
-    async def test_explicit_broad_overrides_auto_narrow(self) -> None:
-        breadth = await self.prompt_breadth("broad", auto=Breadth.NARROW, enumerate_cases=False)
-        assert breadth == Breadth.BROAD
+    @pytest.mark.parametrize(
+        "depth,auto,expected",
+        [
+            ("broad", Breadth.NARROW, AnswerStyle.DETAILED),
+            ("narrow", Breadth.BROAD, AnswerStyle.CONCISE),
+            (None, Breadth.NARROW, AnswerStyle.ADAPTIVE),
+            (None, Breadth.BROAD, AnswerStyle.ADAPTIVE),
+        ],
+    )
+    async def test_style_follows_the_selector_not_the_classifier(
+        self, depth: str | None, auto: Breadth, expected: AnswerStyle
+    ) -> None:
+        assert (await self.run(depth, auto=auto, enumerate_cases=False)).style == expected
 
     @pytest.mark.asyncio
-    async def test_explicit_narrow_overrides_auto_broad(self) -> None:
-        breadth = await self.prompt_breadth("narrow", auto=Breadth.BROAD, enumerate_cases=False)
-        assert breadth == Breadth.NARROW
+    @pytest.mark.parametrize("depth", [None, "narrow", "broad"])
+    async def test_conditional_evidence_keeps_style_and_adds_completeness_rules(
+        self, depth: str | None
+    ) -> None:
+        plain = await self.run(depth, auto=Breadth.NARROW, enumerate_cases=False)
+        conditional = await self.run(depth, auto=Breadth.NARROW, enumerate_cases=True)
+        assert conditional.style == plain.style
+        assert conditional.enumerate_cases is True
 
     @pytest.mark.asyncio
-    async def test_explicit_narrow_is_not_escalated_by_conditional_context(self) -> None:
-        breadth = await self.prompt_breadth("narrow", auto=Breadth.NARROW, enumerate_cases=True)
-        assert breadth == Breadth.NARROW
+    async def test_retrieval_is_identical_for_every_style(self) -> None:
+        fetch_k = {
+            depth: (await self.run(depth, auto=Breadth.NARROW, enumerate_cases=False)).fetch_k
+            for depth in (None, "narrow", "broad")
+        }
+        assert set(fetch_k.values()) == {make_rag_settings().retriever.fetch_k_broad}
 
     @pytest.mark.asyncio
-    async def test_auto_still_escalates_on_conditional_context(self) -> None:
-        assert await self.prompt_breadth(None, auto=Breadth.NARROW, enumerate_cases=True) == Breadth.BROAD
+    @pytest.mark.parametrize(
+        "depth,expected",
+        [("narrow", AnswerStyle.CONCISE), (None, AnswerStyle.ADAPTIVE), ("broad", AnswerStyle.DETAILED)],
+    )
+    async def test_generation_client_follows_the_style(
+        self, depth: str | None, expected: AnswerStyle
+    ) -> None:
+        assert (await self.run(depth, auto=Breadth.NARROW, enumerate_cases=False)).client_calls == [expected]
+
+
+class TestAnswerStyleObservability:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "depth,finish_reason,expected_style",
+        [("narrow", "length", "concise"), (None, "stop", "adaptive"), ("broad", "stop", "detailed")],
+    )
+    async def test_final_metadata_records_style_and_finish_reason(
+        self, depth: str | None, finish_reason: str, expected_style: str
+    ) -> None:
+        service = make_stream_service()
+        chunk = MagicMock(content="Ответ из документов.", response_metadata={"finish_reason": finish_reason})
+        cast("Any", service).generation.ml.llm_for_breadth.return_value.astream = MagicMock(
+            return_value=_async_iter([chunk])
+        )
+        with patch("infrastructure.ml.rag.rag_steps.build_rag_settings", return_value=make_rag_settings()):
+            events = await collect_events(service, "question", ctx=_make_context(depth=depth))
+        final = [event for event in events if isinstance(event, PipelineMetaEvent)][-1]
+        assert final.answer_style == expected_style
+        assert final.finish_reason == finish_reason

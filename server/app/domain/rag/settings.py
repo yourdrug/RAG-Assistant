@@ -13,7 +13,9 @@ from dataclasses import dataclass
 
 DEFAULT_NUM_CTX_NARROW = 8192
 DEFAULT_NUM_CTX_BROAD = 16384
-DEFAULT_NUM_PREDICT_NARROW = 400
+# A safety ceiling, not the target length: concise answers are kept short by the prompt and
+# still need room for a complete list of conditions.
+DEFAULT_NUM_PREDICT_NARROW = 1024
 DEFAULT_NUM_PREDICT_BROAD = 2048
 
 

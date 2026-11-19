@@ -19,6 +19,8 @@ export interface ChatLogsParams {
   outcome?: string;
   model?: string;
   breadth?: string;
+  answer_style?: string;
+  finish_reason?: string;
   config_hash?: string;
   rating?: string;
   reason?: string;

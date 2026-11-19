@@ -416,6 +416,8 @@ export interface BenchmarkRequest {
   top_k?: number | null;
   judge_model?: string | null;
   llm_replay_mode?: LLMReplayMode;
+  /** Answer-length selector to benchmark: null = Авто, narrow = Кратко, broad = Подробно. */
+  depth?: "narrow" | "broad" | null;
 }
 
 export interface BenchmarkResponse {
@@ -629,6 +631,8 @@ export interface ChatLogEntry {
   latency_ms?: number | null;
   model_used?: string | null;
   breadth?: string | null;
+  answer_style?: string | null;
+  finish_reason?: string | null;
   domain?: string | null;
   outcome: AnswerOutcome;
   space_id: number;
