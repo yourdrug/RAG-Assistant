@@ -76,7 +76,7 @@ def test_dynamic_environment_and_dotenv_are_ignored_but_constructor_kwargs_work(
     env = tmp_path / ".env"
     env.write_text("LLM_MODEL=legacy-dotenv-model\nOCR_LANG_SURYA=not-json\nCURATOR_SCOPE_MAX_IDS=42\n")
     model = Settings(_env_file=env)
-    assert model.llm_model == "qwen/qwen-2.5-7b-instruct"
+    assert model.llm_model == "qwen/qwen3-30b-a3b-instruct-2507"
     assert model.curator_scope_max_ids == 42
     assert Settings(_env_file=env, llm_model="explicit-model").llm_model == "explicit-model"
 

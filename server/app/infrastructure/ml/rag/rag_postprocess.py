@@ -329,6 +329,32 @@ def pack_context_neighbors(
     return docs + new_docs
 
 
+REASONING_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+REASONING_OPEN = re.compile(r"<think>", re.IGNORECASE)
+REASONING_CLOSE = re.compile(r"</think>", re.IGNORECASE)
+TRUNCATED_ANSWER_NOTE = "\n\nОтвет обрезан: достигнут лимит длины генерации."
+
+
+def strip_reasoning(text: str) -> str:
+    """Remove a model's ``<think>`` reasoning so it never reaches the answer.
+
+    A dangling ``</think>`` means the opening tag was part of the prompt template,
+    and an unclosed ``<think>`` is reasoning still in progress: neither is answer text.
+    """
+    text = REASONING_BLOCK.sub("", text)
+    closings = list(REASONING_CLOSE.finditer(text))
+
+    if closings:
+        text = text[closings[-1].end() :]
+
+    opening = REASONING_OPEN.search(text)
+
+    if opening is not None:
+        text = text[: opening.start()]
+
+    return text.lstrip()
+
+
 def mark_partial_answer(answer: str) -> str:
     """Replace a standalone refusal appended to a substantive answer."""
     if is_not_found_answer(answer):

@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
+import logging
 from typing import TYPE_CHECKING, Any, Protocol, Self, cast
 
 from infrastructure.ml.replay.recording import REPLAYED_USAGE_FLAG
+from infrastructure.telemetry.tracing import paid_call_active, record_paid_usage
+
+
+log = logging.getLogger("default")
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
 
 active_llm_usage: ContextVar[list[dict[str, Any]] | None] = ContextVar("rag_model_usage", default=None)
@@ -97,11 +102,22 @@ class UsageCapturingCompletions:
 
 
 def record_model_response(response: object, *, model: str = "", operation: str = "llm") -> None:
+    if active_llm_usage.get() is not None:
+        capture_model_response(response, model=model, operation=operation)
+    elif paid_call_active():
+        trace_only(capture_model_response, response, model=model, operation=operation)
+
+
+def trace_only[**P](capture: Callable[P, None], *args: P.args, **kwargs: P.kwargs) -> None:
+    """Usage parsed only for the trace must never fail the response that carried it."""
+    try:
+        capture(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 — telemetry-only parsing of provider metadata
+        log.warning("Model usage not attributed to the trace: %s", type(exc).__name__)
+
+
+def capture_model_response(response: object, *, model: str, operation: str) -> None:
     records = active_llm_usage.get()
-
-    if records is None:
-        return
-
     metadata = getattr(response, "response_metadata", {}) or {}
     raw_usage = getattr(response, "usage", None)
     input_tokens, output_tokens = extract_usage_from_langchain(response)
@@ -130,7 +146,19 @@ def record_model_response(response: object, *, model: str = "", operation: str =
         else None,
     }
 
-    if usage.get(REPLAYED_USAGE_FLAG) is True:
+    replayed = usage.get(REPLAYED_USAGE_FLAG) is True
+    record_paid_usage(
+        input_tokens=0 if replayed else input_tokens,
+        output_tokens=0 if replayed else output_tokens,
+        cost_usd=0.0 if replayed else usage.get("cost"),
+        replayed=replayed,
+        response_model=actual_model if isinstance(actual_model, str) else None,
+    )
+
+    if records is None:
+        return
+
+    if replayed:
         # A recorded response was reused: nothing was paid now, its original usage is informational.
         record.update(
             replayed=True,
@@ -163,22 +191,30 @@ def summarize_usage(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def record_inference_response(data: dict[str, Any], *, model: str, operation: str) -> None:
+    if active_llm_usage.get() is not None:
+        capture_inference_response(data, model=model, operation=operation)
+    elif paid_call_active():
+        trace_only(capture_inference_response, data, model=model, operation=operation)
+
+
+def capture_inference_response(data: dict[str, Any], *, model: str, operation: str) -> None:
     records = active_llm_usage.get()
+    usage = data.get("usage") or {}
+    status = data.get("inference_status") or {}
+    input_tokens = data.get("input_tokens") if operation == "reranking" else usage.get("prompt_tokens")
+    cost_usd = usage.get("cost", status.get("cost"))
+    record_paid_usage(input_tokens=input_tokens, output_tokens=0, cost_usd=cost_usd)
 
     if records is None:
         return
 
-    usage = data.get("usage") or {}
-    status = data.get("inference_status") or {}
     records.append(
         {
             "model": data.get("model") or model,
             "operation": operation,
-            "input_tokens": data.get("input_tokens")
-            if operation == "reranking"
-            else usage.get("prompt_tokens"),
+            "input_tokens": input_tokens,
             "output_tokens": 0,
-            "cost_usd": usage.get("cost", status.get("cost")),
+            "cost_usd": cost_usd,
             "response_id": data.get("request_id"),
         }
     )

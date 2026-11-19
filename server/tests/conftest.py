@@ -41,7 +41,7 @@ _TEST_DEFAULTS = {
     "ALLOWED_ORIGINS": "*",
     "EMBEDDING_API_KEY": "test-embedding-key",
     "RERANK_API_KEY": "test-rerank-key",
-    "LLM_MODEL": "qwen/qwen-2.5-7b-instruct",
+    "LLM_MODEL": "qwen/qwen3-30b-a3b-instruct-2507",
     "LLM_API_KEY": "test-llm-key",
     "JWT_SECRET_KEY": "test-secret-key-for-unit-tests-only-0000",
     "DATA_DIR": str(Path(gettempdir()) / "rag_test"),

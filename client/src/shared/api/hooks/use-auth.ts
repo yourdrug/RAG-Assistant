@@ -37,8 +37,9 @@ export function useCurrentUser() {
   });
 }
 
-export function useUsers() {
+export function useUsers(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: queryKeys.auth.users(),
     queryFn: async () => (await apiClient.get<UserListResponse>("/auth/users")).data,
   });

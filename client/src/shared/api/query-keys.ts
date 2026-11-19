@@ -22,7 +22,7 @@ export const queryKeys = {
       [...queryKeys.chunks.all(documentId), "list", { limit, offset, highlight }] as const,
     cursor: (
       documentId: number,
-      params?: { cursor?: string; direction?: string; highlight?: string },
+      params?: { cursor?: string; direction?: string; limit?: number; highlight?: string },
     ) => [...queryKeys.chunks.all(documentId), "cursor", params] as const,
     indexState: (documentId: number, chunkId: number) =>
       [...queryKeys.chunks.all(documentId), "index-state", chunkId] as const,

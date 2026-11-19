@@ -92,6 +92,8 @@ def generation_identity() -> tuple[tuple[str, str | float], ...]:
         ("embedding_model", ml.embedding_model),
         ("llm_temperature", llm.llm_temperature),
         ("llm_top_p", llm.llm_top_p),
+        # Reasoning mode changes the generated text, so answers cached under the other mode are stale.
+        ("llm_disable_reasoning", llm.llm_disable_reasoning),
         ("embedding_revision", ml.embedding_revision),
         ("rerank_model", ml.rerank_model),
         ("rerank_api_format", ml.rerank_api_format),

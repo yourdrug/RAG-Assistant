@@ -71,7 +71,7 @@ def configuration() -> SettingsProviderConfiguration:
 def test_seed_uses_declared_defaults_not_mutated_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "llm_model", "already-applied-model")
     rows = {p.key: p.value for p in initialization.build_defaults()}
-    assert rows["llm_model"] == "qwen/qwen-2.5-7b-instruct"
+    assert rows["llm_model"] == "qwen/qwen3-30b-a3b-instruct-2507"
     assert "s3_secret_key" not in rows
 
 
@@ -479,7 +479,7 @@ async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database
             await config.run_config_resync()
         assert (
             require_present(require_present(infra.configuration).settings).llm_model
-            == "qwen/qwen-2.5-7b-instruct"
+            == "qwen/qwen3-30b-a3b-instruct-2507"
         )
     else:
         status = await config.run_config_resync()

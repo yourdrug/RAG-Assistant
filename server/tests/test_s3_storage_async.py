@@ -32,13 +32,31 @@ def client_harness(
     monkeypatch.setattr(settings, "s3_bucket", "bucket")
     client = MagicMock()
 
-    for name in ("head_object", "put_object", "delete_object", "copy_object", "get_object"):
+    for name in ("head_bucket", "head_object", "put_object", "delete_object", "copy_object", "get_object"):
         setattr(client, name, AsyncMock())
 
     context = SimpleNamespace(__aenter__=AsyncMock(return_value=client), __aexit__=AsyncMock())
     session = MagicMock(create_client=MagicMock(return_value=context))
     monkeypatch.setattr("infrastructure.storage.file_storage.get_session", lambda: session)
     return S3Storage(settings, settings), client, context, session
+
+
+@pytest.mark.asyncio
+async def test_bucket_probe_uses_working_bucket_and_reports_access_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage, client, _, _ = client_harness(monkeypatch)
+    try:
+        result = await storage.check_bucket()
+        assert result.status == "ok"
+        assert result.latency_ms is not None
+        client.head_bucket.assert_awaited_once_with(Bucket="bucket")
+        client.head_bucket.side_effect = ClientError({"Error": {"Code": "AccessDenied"}}, "HeadBucket")
+        failed = await storage.check_bucket()
+        assert failed.status == "error"
+        assert failed.latency_ms is None
+    finally:
+        await storage.aclose()
 
 
 @pytest.mark.asyncio

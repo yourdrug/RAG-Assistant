@@ -16,7 +16,7 @@ from domain.shared.pagination import Pagination
 if TYPE_CHECKING:
     from domain.identity.user_context import UserContext
     from domain.knowledge.document import Document
-    from domain.knowledge.enums import DocumentVisibility
+    from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 
 
 DEFAULT_DOCUMENT_PAGINATION = Pagination(limit=200)
@@ -38,6 +38,13 @@ class DocumentFilter:
     pagination: Pagination = DEFAULT_DOCUMENT_PAGINATION
     # Narrows the listing to one knowledge space; visibility still decides access.
     space_id: int | None = None
+    status: DocumentStatus | None = None
+
+
+@dataclass(frozen=True)
+class DocumentTotals:
+    by_status: dict[str, int]
+    chunks: int
 
 
 @runtime_checkable
@@ -85,6 +92,7 @@ class DocumentCrudRepository(Protocol):
         space_id: int | None = None,
     ) -> list[Document]: ...
     async def list_visible(self, filters: DocumentFilter) -> list[Document]: ...
+    async def summarize_visible(self, filters: DocumentFilter) -> DocumentTotals: ...
     async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]: ...
     async def list_after_id(
         self, after_id: int, limit: int, *, doc_domain: str | None = None

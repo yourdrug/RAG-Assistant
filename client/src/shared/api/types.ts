@@ -155,6 +155,13 @@ export interface DocumentDomainOption {
   display_name: string;
 }
 
+export interface DocumentOverview {
+  total: number;
+  chunks: number;
+  by_status: Record<DocumentStatus, number>;
+  failed: { id: number; filename: string; error_message: string | null }[];
+}
+
 export interface DocumentResponse {
   id: number;
   filename: string;
@@ -381,8 +388,22 @@ export interface HealthResponse {
     qdrant: HealthCheck;
     llm: HealthCheck;
     postgres: HealthCheck;
+    redis?: HealthCheck;
   };
   background_jobs: { running: number };
+}
+
+export interface OperationalHealthResponse {
+  storage: HealthCheck;
+  indexing: {
+    degraded: boolean;
+    queue: {
+      pending: number;
+      running: number;
+      oldest_ready_seconds: number | null;
+      expired_leases: number;
+    };
+  } | null;
 }
 
 // ─── Benchmark ───────────────────────────────────────────────────────────────
@@ -485,6 +506,8 @@ export interface LogEntry {
   message: string;
   filename?: string | null;
   lineno?: number | null;
+  user_id?: number | null;
+  user_login?: string | null;
 }
 
 export interface LogsResponse {

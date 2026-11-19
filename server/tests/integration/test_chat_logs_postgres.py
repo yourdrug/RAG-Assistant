@@ -124,6 +124,7 @@ async def test_concurrent_snapshots_and_log_filters(pg_engine: AsyncEngine) -> N
                     space_id=1,
                     outcome=AnswerOutcome.NOT_FOUND,
                     latency_ms=latency,
+                    error_code="no_sources" if latency == 10 else None,
                     breadth="broad",
                     model_used="model",
                     config_hash="a" * 64,
@@ -145,6 +146,11 @@ async def test_concurrent_snapshots_and_log_filters(pg_engine: AsyncEngine) -> N
         assert [entry.latency_ms for entry in await repo.list_logs(filters)] == [10, 20]
         assert await repo.count_logs(replace(filters, space_id=999)) == 0
         assert await repo.count_logs(replace(filters, outcome="generated")) == 0
+        error_filter = replace(filters, error_code="no_sources")
+        assert await repo.count_logs(error_filter) == 1
+        assert [entry.error_code for entry in await repo.list_logs(error_filter)] == ["no_sources"]
+        assert (await repo.stats(error_filter))["error_codes"] == {"no_sources": 1}
+        assert await repo.count_logs(replace(error_filter, user_ids=())) == 0
         assert await repo.count_logs(replace(filters, user_ids=())) == 0
         assert await session.scalar(select(func.count()).select_from(rag_config_snapshots)) == 1
         first = (await repo.list_logs())[0]

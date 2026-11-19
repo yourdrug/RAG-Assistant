@@ -18,6 +18,7 @@ from infrastructure.database.database import database
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.resilience.circuit_breaker import init_breakers
+from infrastructure.telemetry.tracing import configure_tracing, shutdown_tracing
 from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_cleanup
 from infrastructure.worker.cron import (
     cron_chat_log_cleanup,
@@ -154,6 +155,11 @@ def worker(
         if max_jobs is None:
             max_jobs = default_max_jobs(role)
 
+        # Before the container builds clients in on_startup (httpx instrumentation).
+        configure_tracing(
+            f"rag-worker-{role}", enabled=settings.otel_enabled, endpoint=settings.otel_exporter_endpoint
+        )
+
         w = Worker(
             functions=functions,
             cron_jobs=cron_jobs,
@@ -178,7 +184,10 @@ def worker(
             max_jobs,
             settings.redis_host,
         )
-        w.run()
+        try:
+            w.run()
+        finally:
+            shutdown_tracing()
     except ImportError:
         logger.exception("arq package not installed. Run: pip install arq redis")
         sys.exit(1)

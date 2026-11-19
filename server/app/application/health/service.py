@@ -12,10 +12,13 @@ from application.runtime.enums import HealthStatus
 
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from application.admin import CorpusControlPort, ProviderConfigurationPort
     from application.health.ports import ConfigListenerProviderPort, HealthProbePort
     from application.health.ports.settings import HealthSettingsPort
     from application.uow.factory import UnitOfWorkFactory
+    from domain.runtime.jobs import IndexingQueueSnapshot
 
 
 logger = logging.getLogger("default")
@@ -30,6 +33,18 @@ class HealthResponse:
     background_jobs: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class IndexingHealth:
+    queue: IndexingQueueSnapshot
+    degraded: bool
+
+
+@dataclass(frozen=True)
+class OperationalHealth:
+    storage: HealthCheckResult
+    indexing: IndexingHealth | None
+
+
 class HealthService:
     def __init__(
         self,
@@ -40,6 +55,7 @@ class HealthService:
         *,
         configuration: ProviderConfigurationPort | None = None,
         corpus_control: CorpusControlPort | None = None,
+        storage_probe: Callable[[], Awaitable[HealthCheckResult]] | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._probe = probe
@@ -47,6 +63,7 @@ class HealthService:
         self._settings = health_settings
         self._configuration = configuration
         self.corpus_control = corpus_control
+        self._storage_probe = storage_probe
 
     async def check(self) -> HealthResponse:
         qdrant, postgres, redis = await asyncio.gather(
@@ -111,3 +128,28 @@ class HealthService:
         except Exception:
             logger.exception("Failed to count active background jobs during health check")
             return 0
+
+    async def check_operational_health(self) -> OperationalHealth:
+        storage, indexing = await asyncio.gather(self.check_storage(), self.check_indexing())
+        return OperationalHealth(storage=storage, indexing=indexing)
+
+    async def check_storage(self) -> HealthCheckResult:
+        if self._storage_probe is None:
+            return HealthCheckResult(status=HealthStatus.ERROR.value)
+
+        return await self._storage_probe()
+
+    async def check_indexing(self) -> IndexingHealth | None:
+        try:
+            async with asyncio.timeout(3), self._uow_factory.create(master=True) as uow:
+                queue = await uow.background_jobs.indexing_queue_snapshot()
+        except Exception:
+            logger.exception("Failed to check indexing queue health")
+            return None
+
+        stale_after = self._settings.stale_pending_timeout_minutes * 60
+        oldest = queue.oldest_ready_seconds
+        return IndexingHealth(
+            queue=queue,
+            degraded=queue.expired_leases > 0 or (oldest is not None and oldest >= stale_after),
+        )

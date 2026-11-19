@@ -83,9 +83,11 @@ from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection, history_to_messages
 from infrastructure.ml.rag.rag_postprocess import (
+    TRUNCATED_ANSWER_NOTE,
     handle_relevance_gate,
     mark_partial_answer,
     reject_not_relevant,
+    strip_reasoning,
 )
 from infrastructure.ml.rag.rag_prompts import (
     condense_question,
@@ -98,6 +100,7 @@ from infrastructure.ml.rag.retrieval_work import RetrievalWork
 from infrastructure.ml.usage_capture import active_llm_usage, extract_usage_from_langchain
 from infrastructure.repositories.vector.acl import build_qdrant_filter, build_search_filter
 from infrastructure.resilience.circuit_breaker import get_breaker
+from infrastructure.telemetry.tracing import step_span, traced_step, traced_stream
 from shared import request_id_ctx
 
 
@@ -167,6 +170,7 @@ class RagOperations:
     @asynccontextmanager
     async def corpus(self) -> AsyncIterator[None]:
         async with AsyncExitStack() as stack:
+            stack.enter_context(step_span("rag.pipeline"))
             stack.enter_context(evidence_profile_scope(self.evidence_profile))
             stack.enter_context(query_vector_scope())
             stack.enter_context(chat_trace_scope(self.pii_redactor))
@@ -245,6 +249,7 @@ class RagOperations:
             trace_data=evidence.trace_data if evidence is not None and not evidence.benchmark_mode else None,
         )
 
+    @traced_step("rag.condense")
     async def condense(self, request: RagRequest) -> PreparedQuery:
         t0 = time.monotonic()
         query = request.question
@@ -261,6 +266,7 @@ class RagOperations:
         capture_prepared_query(query)
         return PreparedQuery(request, query)
 
+    @traced_step("rag.input_safety")
     async def scan(self, query: PreparedQuery) -> TerminalResponse | None:
         request = query.request
         scanner = InputScanner()
@@ -291,6 +297,7 @@ class RagOperations:
         RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - request.started)
         return TerminalResponse((TextChunk(text=NOT_FOUND_ANSWER), SourcesEvent(sources=[], confidence=None)))
 
+    @traced_step("rag.cache_lookup")
     async def lookup(self, query: PreparedQuery) -> PreparedQuery | TerminalResponse:
         request = query.request
 
@@ -390,6 +397,7 @@ class RagOperations:
 
         return work
 
+    @traced_step("rag.retrieve")
     async def retrieve(
         self, query: PreparedQuery, previous: RetrievalResult | None = None
     ) -> RetrievalResult:
@@ -441,6 +449,7 @@ class RagOperations:
             work.top_rerank_score,
         )
 
+    @traced_step("rag.reject_ood")
     async def reject_ood(self, result: RetrievalResult) -> TerminalResponse | None:
         if not result.documents and is_out_of_domain(result.prepared.query):
             log.info("Out-of-domain question rejected: query_chars=%d", len(result.prepared.query))
@@ -450,6 +459,7 @@ class RagOperations:
 
         return None
 
+    @traced_step("rag.evidence_gate")
     async def gate(self, result: RetrievalResult) -> Sufficiency:
         context = (
             self.build(result, capture=False)
@@ -470,6 +480,7 @@ class RagOperations:
         log.info("Self-RAG: retrying with refined query (attempt 1/1, query_chars=%d)", len(refinement))
         RAG_SELF_RAG_RETRIES.inc()
 
+    @traced_step("rag.reject")
     async def reject(self, result: RetrievalResult) -> TerminalResponse:
         capture_completion(AnswerOutcome.NOT_FOUND)
         return TerminalResponse(
@@ -626,7 +637,7 @@ class RagOperations:
 
     def sanitize_answer(self, text: str, rag: RagSettings) -> tuple[str, OutputVerdict, list[str]]:
         """Apply the output scanner, partial-answer marking and PII redaction."""
-        answer, verdict = OutputScanner().sanitize_output(text)
+        answer, verdict = OutputScanner().sanitize_output(strip_reasoning(text))
         answer = mark_partial_answer(answer)
         pii_found: list[str] = []
 
@@ -635,6 +646,7 @@ class RagOperations:
 
         return answer, verdict, pii_found
 
+    @traced_stream("rag.generate")
     async def stream_answer(self, context: PreparedContext) -> AsyncGenerator[TextChunk | SanitizedAnswer]:
         """Yield sanitized answer text as it is generated, then the final answer.
 
@@ -670,6 +682,8 @@ class RagOperations:
         async with aclosing(self.generation_chunks(lc_messages(context.messages), breadth)) as chunks:
             async for chunk in chunks:
                 run.last_chunk = chunk
+                # With usage streaming the final chunk carries only usage, not the finish reason.
+                run.finish_reason = chunk_finish_reason(chunk) or run.finish_reason
                 text = generation_chunk_text(chunk)
 
                 if not text:
@@ -686,8 +700,23 @@ class RagOperations:
 
     def sanitized(self, context: PreparedContext, run: GenerationRun) -> SanitizedAnswer:
         request = context.retrieval.prepared.request
-        capture_generation_finish(run.last_chunk)
+        finish_reason = run.finish_reason
+
+        if run.last_chunk is not None:
+            capture_prompt_delivery(sent=True, finish_reason=finish_reason)
+
         full_answer, output_verdict, pii_found = self.sanitize_answer("".join(run.parts), request.settings)
+        truncated = finish_reason == "length"
+
+        if truncated:
+            log.warning(
+                "LLM answer hit the output token limit [request_id=%s]: chars=%d",
+                request_id_ctx.get(""),
+                len(full_answer),
+            )
+
+            if output_verdict.safe and full_answer:
+                full_answer += TRUNCATED_ANSWER_NOTE
 
         if not output_verdict.safe:
             log.warning(
@@ -716,6 +745,7 @@ class RagOperations:
             round(time.monotonic() - run.started, 4) if full_answer else None,
             round(run.first_token_at - run.started, 4) if run.first_token_at is not None else None,
             outcome,
+            truncated=truncated,
         )
 
     def stream_check(self, text: str, rag: RagSettings) -> tuple[str, bool]:
@@ -778,12 +808,15 @@ class RagOperations:
 
         return CompletedAnswer(answer, tuple(sources), min(1.0, max(0.0, avg_sim)))
 
+    @traced_step("rag.cache_store")
     async def store(self, completed: CompletedAnswer) -> None:
         result = completed.answer.context.retrieval
         query = result.prepared
 
+        # A cut-off answer is a provider budget failure, not an answer to reuse.
         if (
             not benchmark_mode()
+            and not completed.answer.truncated
             and query.request.settings.features.cache_enabled
             and query.cache_revision is not None
         ):
@@ -812,6 +845,7 @@ class GenerationRun:
     last_chunk: LLMMessagePort | None = None
     first_token_at: float | None = None
     guard: GuardedAnswerStream | None = None
+    finish_reason: str | None = None
 
 
 def generation_usage(model: str, last_chunk: LLMMessagePort | None) -> UsageReport | None:
@@ -827,11 +861,10 @@ def generation_usage(model: str, last_chunk: LLMMessagePort | None) -> UsageRepo
     )
 
 
-def capture_generation_finish(last_chunk: LLMMessagePort | None) -> None:
-    if last_chunk is not None:
-        metadata = getattr(last_chunk, "response_metadata", None)
-        reason = metadata.get("finish_reason") if isinstance(metadata, dict) else None
-        capture_prompt_delivery(sent=True, finish_reason=reason if isinstance(reason, str) else None)
+def chunk_finish_reason(chunk: LLMMessagePort) -> str | None:
+    metadata = getattr(chunk, "response_metadata", None)
+    reason = metadata.get("finish_reason") if isinstance(metadata, dict) else None
+    return reason if isinstance(reason, str) else None
 
 
 def generation_chunk_text(chunk: LLMMessagePort) -> str:

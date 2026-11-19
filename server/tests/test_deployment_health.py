@@ -14,10 +14,15 @@ from application.health.ports import HealthCheckResult
 from application.health.service import HealthService
 from application.runtime.enums import HealthStatus
 from config import settings
+from domain.runtime.jobs import IndexingQueueSnapshot
+from domain.shared.exceptions import AppClientError
 from infrastructure.health.system_health_probe import SystemHealthProbe
+from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_health_service
+from presentation.api.exception_handlers import handle_client_exception
 from presentation.api.routes.health import router
-from tests.fakes import FakeUnitOfWorkFactory
+from presentation.api.schemas import CurrentUser
+from tests.fakes import FakeUnitOfWork, FakeUnitOfWorkFactory
 
 
 @pytest.fixture
@@ -83,6 +88,54 @@ async def test_liveness_never_constructs_dependency_service() -> None:
     app.dependency_overrides[create_health_service] = unavailable
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:  # type: ignore[arg-type]  # Starlette and HTTPX disagree on the ASGI send annotation.
         assert (await client.get("/live")).status_code == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["admin", "curator"])
+async def test_operational_health_is_admin_only_and_does_not_gate_readiness(
+    health_service: tuple[HealthService, SimpleNamespace],
+    monkeypatch: pytest.MonkeyPatch,
+    role: str,
+) -> None:
+    _, probe = health_service
+    uow = FakeUnitOfWork()
+    queue = IndexingQueueSnapshot(pending=1, running=1, oldest_ready_seconds=90, expired_leases=1)
+    monkeypatch.setattr(uow.fake_background_jobs, "indexing_queue_snapshot", AsyncMock(return_value=queue))
+    storage_probe = AsyncMock(return_value=HealthCheckResult(status=HealthStatus.ERROR.value))
+    service = HealthService(
+        FakeUnitOfWorkFactory(uow),
+        probe,
+        SimpleNamespace(is_connected=True),
+        SimpleNamespace(version="test", uptime_seconds=1, stale_pending_timeout_minutes=30),
+        storage_probe=storage_probe,
+    )
+    app = FastAPI()
+    app.add_exception_handler(AppClientError, handle_client_exception)
+    app.include_router(router)
+
+    async def dependency() -> HealthService:
+        return service
+
+    async def current_user() -> CurrentUser:
+        return CurrentUser(id=1, email="user@example.test", role=role, kind="internal", is_active=True)
+
+    app.dependency_overrides[create_health_service] = dependency
+    app.dependency_overrides[get_current_user] = current_user
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:  # type: ignore[arg-type]  # Starlette and HTTPX disagree on the ASGI send annotation.
+        assert (await client.get("/ready")).status_code == 200
+        storage_probe.assert_not_awaited()
+        response = await client.get("/admin/health")
+
+    if role == "admin":
+        assert response.status_code == 200
+        assert response.json()["storage"]["status"] == "error"
+        assert response.json()["indexing"] == {
+            "degraded": True,
+            "queue": {"pending": 1, "running": 1, "oldest_ready_seconds": 90, "expired_leases": 1},
+        }
+    else:
+        assert response.status_code == 403
+        storage_probe.assert_not_awaited()
 
 
 @pytest.mark.asyncio

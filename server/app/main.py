@@ -34,6 +34,8 @@ from infrastructure.metrics.metrics import collect_infra_metrics
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.resilience.circuit_breaker import init_breakers
 from infrastructure.scheduling.scheduler import scheduler
+from infrastructure.telemetry.asgi import instrument_api
+from infrastructure.telemetry.tracing import configure_tracing, shutdown_tracing
 from infrastructure.utils.utils import singleton
 from infrastructure.worker.queue import close_arq_pool
 from presentation.api.exception_handlers import (
@@ -99,6 +101,11 @@ async def shutdown_resources(
     await safe_shutdown(database.disconnect(), "disconnect database")
     await safe_shutdown(redis_client.aclose(), "close redis")
 
+    try:
+        shutdown_tracing()
+    except Exception:
+        logger.warning("Failed to flush traces", exc_info=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
@@ -106,6 +113,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     container = None
     try:
+        # Before any client exists: httpx instrumentation covers every pool built afterwards.
+        configure_tracing("rag-api", enabled=settings.otel_enabled, endpoint=settings.otel_exporter_endpoint)
         attach_log_buffer()
         await redis_client.init()
         await database.connect()
@@ -208,6 +217,9 @@ class Application:
         )
         self.app.add_middleware(RequestIDMiddleware)
         self.app.add_middleware(MetricsMiddleware)
+
+        if settings.otel_enabled:
+            instrument_api(self.app)
 
     def add_routers(self) -> None:
         routers = (

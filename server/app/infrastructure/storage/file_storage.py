@@ -8,13 +8,16 @@ import logging
 from pathlib import Path
 import tempfile
 import threading
+from time import perf_counter
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from aiobotocore.session import get_session
 from botocore.config import Config as BotoConfig
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
+from application.health.ports import HealthCheckResult
 from application.ports.file_storage import FileItem
+from application.runtime.enums import HealthStatus
 from infrastructure.utils.async_tasks import finish_owned_task, run_sync_io
 
 
@@ -22,7 +25,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from contextlib import AbstractAsyncContextManager
 
-    from application.ports.file_storage import FileStorage
     from config import ConcurrencySection, StorageSection
     from infrastructure.storage.s3_types import MultipartPart, S3Client
 
@@ -140,6 +142,19 @@ class S3Storage:
     @property
     def supported_extensions(self) -> tuple[str, ...]:
         return self._extensions
+
+    async def check_bucket(self) -> HealthCheckResult:
+        started = perf_counter()
+        try:
+            async with asyncio.timeout(3), self.operation() as client:
+                await client.head_bucket(Bucket=self.bucket)
+        except (BotoCoreError, ClientError, OSError, RuntimeError) as exc:
+            log.warning("S3 bucket health check failed (%s)", type(exc).__name__)
+            return HealthCheckResult(status=HealthStatus.ERROR.value)
+
+        return HealthCheckResult(
+            status=HealthStatus.OK.value, latency_ms=round((perf_counter() - started) * 1000, 1)
+        )
 
     def check_loop(self) -> None:
         loop = asyncio.get_running_loop()
@@ -354,13 +369,13 @@ class LazyStorage:
         # Live sections: each rotated backend snapshots the values current at its creation.
         self._storage_settings = storage_settings
         self._concurrency_settings = concurrency_settings
-        self._resolved: FileStorage | None = None
-        self._retired: list[FileStorage] = []
+        self._resolved: S3Storage | None = None
+        self._retired: list[S3Storage] = []
         self._lock = threading.Lock()
         self._closed = False
         self._close_task: asyncio.Task[None] | None = None
 
-    def ensure(self) -> FileStorage:
+    def ensure(self) -> S3Storage:
         with self._lock:
             if self._closed:
                 msg = "Storage is closed"
@@ -374,6 +389,9 @@ class LazyStorage:
     @property
     def supported_extensions(self) -> tuple[str, ...]:
         return self.ensure().supported_extensions
+
+    async def check_bucket(self) -> HealthCheckResult:
+        return await self.ensure().check_bucket()
 
     async def list_files(self, prefix: str) -> list[FileItem]:
         return await self.ensure().list_files(prefix)
@@ -405,7 +423,7 @@ class LazyStorage:
                 self._retired.append(self._resolved)
                 self._resolved = None
 
-    async def close_backends(self, backends: list[FileStorage]) -> None:
+    async def close_backends(self, backends: list[S3Storage]) -> None:
         error = None
 
         for backend in backends:
@@ -439,5 +457,5 @@ class LazyStorage:
             raise
 
 
-def create_storage(storage_settings: StorageSection, concurrency_settings: ConcurrencySection) -> FileStorage:
+def create_storage(storage_settings: StorageSection, concurrency_settings: ConcurrencySection) -> S3Storage:
     return S3Storage(storage_settings, concurrency_settings)

@@ -15,6 +15,7 @@ import type {
 
 export interface ChatLogsParams {
   space_id?: number;
+  error_code?: string;
   outcome?: string;
   model?: string;
   breadth?: string;
@@ -57,15 +58,34 @@ export function useChatLogs(params: ChatLogsParams = {}) {
   });
 }
 
+async function fetchChatLogStats(params: ChatLogsParams) {
+  return (
+    await apiClient.get<ChatLogStats>("/admin/chat-logs/stats", {
+      params: chatLogQueryParams(params),
+    })
+  ).data;
+}
+
 export function useChatLogStats(params: ChatLogsParams) {
   return useQuery({
     queryKey: [...queryKeys.chatLogs.all, "stats", params],
-    queryFn: async () =>
-      (
-        await apiClient.get<ChatLogStats>("/admin/chat-logs/stats", {
-          params: chatLogQueryParams(params),
-        })
-      ).data,
+    queryFn: () => fetchChatLogStats(params),
+  });
+}
+
+export function useRollingChatLogStats(hours: number) {
+  return useQuery({
+    queryKey: [...queryKeys.chatLogs.all, "stats", { hours }],
+    queryFn: async () => {
+      const end = Math.floor(Date.now() / 1000) * 1000;
+      const dates = {
+        date_from: new Date(end - hours * 3600000).toISOString(),
+        date_to: new Date(end).toISOString(),
+      };
+      const stats = await fetchChatLogStats(dates);
+      return { stats, dates };
+    },
+    refetchInterval: 60000,
   });
 }
 

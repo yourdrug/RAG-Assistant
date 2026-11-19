@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   useAddChunk,
   useChunks,
@@ -28,6 +28,7 @@ import {
   useRenameDocument,
   useUpdateChunk,
 } from "@/shared/api/hooks";
+import { documentStatuses } from "@/shared/api/hooks/use-documents";
 import type { ChunkResponse, DocumentResponse } from "@/shared/api/types";
 import {
   AlertDialog,
@@ -52,9 +53,25 @@ import { Textarea } from "@/shared/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/shared/ui/tooltip";
 import { ChunkDetailsSheet } from "./chunk-details-sheet";
 
+const filteredDocumentPageSize = 20;
+const chunkPageSizes = [10, 25, 50, 100];
+
 export function AdminDocumentsPage() {
-  const [searchParams] = useSearchParams();
-  const { data: documents } = useDocuments();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const status = documentStatuses.find((value) => value === searchParams.get("status"));
+  const offset = Number(searchParams.get("offset"));
+  const pageOffset = status && Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
+  const {
+    data: documents,
+    isLoading: documentsLoading,
+    isError: documentsError,
+  } = useDocuments(status, pageOffset, filteredDocumentPageSize + 1);
+  const changeOffset = (next: number) => {
+    const params = new URLSearchParams(searchParams);
+    if (next > 0) params.set("offset", String(next));
+    else params.delete("offset");
+    setSearchParams(params);
+  };
   const deleteMut = useDeleteDocument();
   const renameMut = useRenameDocument();
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -66,6 +83,7 @@ export function AdminDocumentsPage() {
     initialDocId ? Number(initialDocId) : null,
   );
   const [showManualDocDialog, setShowManualDocDialog] = useState(false);
+  const [chunkPageSize, setChunkPageSize] = useState(10);
 
   useEffect(() => {
     const docId = searchParams.get("docId");
@@ -327,18 +345,48 @@ export function AdminDocumentsPage() {
       </div>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="space-y-4 pt-6">
+          {status && (
+            <div className="flex items-center gap-3">
+              <Badge variant={status === "failed" ? "destructive" : "secondary"}>{status}</Badge>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/admin/documents">Clear status filter</Link>
+              </Button>
+            </div>
+          )}
+          {documentsError && (
+            <p role="status" className="text-sm text-destructive">
+              Documents unavailable
+            </p>
+          )}
           <DataTable
             columns={columns}
-            data={documents || []}
+            data={status ? (documents ?? []).slice(0, filteredDocumentPageSize) : (documents ?? [])}
+            isLoading={documentsLoading}
             searchKey="filename"
-            searchPlaceholder="Search documents..."
+            searchPlaceholder={status ? "Search this page..." : "Search documents..."}
+            serverPagination={
+              status
+                ? {
+                    canPreviousPage: pageOffset > 0,
+                    canNextPage: (documents?.length ?? 0) > filteredDocumentPageSize,
+                    onPreviousPage: () => changeOffset(pageOffset - filteredDocumentPageSize),
+                    onNextPage: () => changeOffset(pageOffset + filteredDocumentPageSize),
+                  }
+                : undefined
+            }
           />
         </CardContent>
       </Card>
 
       {selectedDocId && (
-        <ChunkManager documentId={selectedDocId} highlightHashes={highlightHashes} />
+        <ChunkManager
+          key={`${selectedDocId}:${highlightHashes.join(",")}`}
+          documentId={selectedDocId}
+          highlightHashes={highlightHashes}
+          pageSize={chunkPageSize}
+          onPageSizeChange={setChunkPageSize}
+        />
       )}
 
       <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
@@ -402,60 +450,58 @@ export function AdminDocumentsPage() {
 function ChunkManager({
   documentId,
   highlightHashes,
+  pageSize,
+  onPageSizeChange,
 }: {
   documentId: number;
-  highlightHashes?: string[];
+  highlightHashes: string[];
+  pageSize: number;
+  onPageSizeChange: (size: number) => void;
 }) {
-  const hasHighlight = (highlightHashes?.length ?? 0) > 0;
-  const highlightParam = hasHighlight ? highlightHashes!.join(",") : undefined;
+  const hasHighlight = highlightHashes.length > 0;
+  const useCursor = !hasHighlight;
 
-  const [cursor, setCursor] = useState<string | undefined>(undefined);
-  const [direction, setDirection] = useState<"next" | "prev">("next");
-  const [cursorHistory, setCursorHistory] = useState<
-    Array<{ cursor?: string; prevCursor?: string }>
-  >([]);
-  const [hasNavigatedBack, setHasNavigatedBack] = useState(false);
+  const [cursorHistory, setCursorHistory] = useState<string[]>([]);
+  const [offset, setOffset] = useState(0);
 
   const { data: cursorData, isLoading: cursorLoading } = useChunksCursor(documentId, {
-    cursor,
-    direction,
-    limit: 50,
-    highlight: hasHighlight ? highlightParam : undefined,
+    cursor: cursorHistory.at(-1),
+    limit: pageSize,
+    enabled: useCursor,
   });
   const { data: offsetData, isLoading: offsetLoading } = useChunks(
     documentId,
-    undefined,
-    undefined,
-    hasHighlight ? highlightParam : undefined,
+    pageSize,
+    offset,
+    hasHighlight ? highlightHashes.join(",") : undefined,
+    hasHighlight,
   );
 
-  const useCursor = !hasHighlight;
   const chunks = useCursor ? (cursorData?.chunks ?? []) : (offsetData?.chunks ?? []);
-  const total = offsetData?.total;
+  const total = offsetData?.total ?? 0;
   const isLoading = useCursor ? cursorLoading : offsetLoading;
 
-  const isFirstPage = cursorHistory.length === 0 && (!hasNavigatedBack || !cursorData?.prev_cursor);
-
   const handleNextPage = () => {
-    if (!cursorData?.next_cursor) return;
-    setCursorHistory((h) => [...h, { cursor, prevCursor: cursorData.prev_cursor ?? undefined }]);
-    setCursor(cursorData.next_cursor);
-    setDirection("next");
+    if (hasHighlight) {
+      setOffset((value) => value + pageSize);
+      return;
+    }
+    const nextCursor = cursorData?.next_cursor;
+    if (nextCursor) setCursorHistory((history) => [...history, nextCursor]);
   };
 
   const handlePrevPage = () => {
-    if (cursorHistory.length === 0) {
-      const prev = cursorData?.prev_cursor;
-      if (!prev) return;
-      setHasNavigatedBack(true);
-      setCursor(prev);
-      setDirection("prev");
+    if (hasHighlight) {
+      setOffset((value) => Math.max(0, value - pageSize));
       return;
     }
-    const last = cursorHistory[cursorHistory.length - 1];
-    setCursorHistory((h) => h.slice(0, -1));
-    setCursor(last.prevCursor);
-    setDirection("prev");
+    setCursorHistory((history) => history.slice(0, -1));
+  };
+
+  const handlePageSizeChange = (value: string) => {
+    setCursorHistory([]);
+    setOffset(0);
+    onPageSizeChange(Number(value));
   };
 
   const [editingChunk, setEditingChunk] = useState<ChunkResponse | null>(null);
@@ -534,14 +580,16 @@ function ChunkManager({
       accessorKey: "id",
       header: "ID",
       cell: ({ row }) => (
-        <span className="text-muted-foreground font-mono text-xs">#{row.original.id}</span>
+        <span className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+          #{row.original.id}
+        </span>
       ),
     },
     {
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           <Button
             variant="ghost"
             size="icon"
@@ -565,16 +613,7 @@ function ChunkManager({
 
   const titleText = useCursor
     ? `Chunks (${chunks.length}${cursorData?.next_cursor ? "+" : ""})`
-    : `Chunks (${total ?? 0})`;
-
-  const serverPagination = useCursor
-    ? {
-        canPreviousPage: !isFirstPage,
-        canNextPage: !!cursorData?.next_cursor,
-        onPreviousPage: handlePrevPage,
-        onNextPage: handleNextPage,
-      }
-    : undefined;
+    : `Chunks (${total})`;
 
   return (
     <Card>
@@ -590,21 +629,38 @@ function ChunkManager({
           Add Chunk
         </Button>
       </CardHeader>
-      <CardContent className="px-3 sm:px-6 [&_table]:table-fixed [&_th]:bg-muted/40 [&_th:first-child]:w-12 [&_th:nth-child(3)]:hidden sm:[&_th:nth-child(3)]:table-cell [&_td:nth-child(3)]:hidden sm:[&_td:nth-child(3)]:table-cell [&_th:nth-child(3)]:w-16 [&_th:last-child]:w-24 [&_th]:whitespace-nowrap [&_td]:px-3 [&_td]:py-4 [&_td]:align-top">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin" />
-          </div>
-        ) : (
-          <DataTable
-            columns={columns}
-            data={chunks}
-            searchKey="content"
-            searchPlaceholder="Search chunks..."
-            serverPagination={serverPagination}
-            onRowClick={setViewingChunk}
-          />
-        )}
+      <CardContent className="px-3 sm:px-6 [&_table]:table-fixed [&_th]:bg-muted/40 [&_th]:px-3 [&_td]:px-3 [&_td]:py-3 [&_th[data-column=chunk\_index]]:w-16 [&_th[data-column=id]]:w-20 [&_th[data-column=actions]]:w-26 [&_[data-column=id]]:hidden sm:[&_[data-column=id]]:table-cell">
+        <DataTable
+          columns={columns}
+          data={chunks}
+          isLoading={isLoading}
+          searchKey="content"
+          searchPlaceholder="Search chunks..."
+          topPagination={
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Chunks per page</span>
+              <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
+                <SelectTrigger aria-label="Chunks per page" className="h-8 w-20">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {chunkPageSizes.map((size) => (
+                    <SelectItem key={size} value={String(size)}>
+                      {size}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          }
+          serverPagination={{
+            canPreviousPage: useCursor ? cursorHistory.length > 0 : offset > 0,
+            canNextPage: useCursor ? !!cursorData?.next_cursor : offset + pageSize < total,
+            onPreviousPage: handlePrevPage,
+            onNextPage: handleNextPage,
+          }}
+          onRowClick={setViewingChunk}
+        />
       </CardContent>
 
       <ChunkDetailsSheet

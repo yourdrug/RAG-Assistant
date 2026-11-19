@@ -56,6 +56,7 @@ LLM_CLIENT_KEYS = frozenset(
         "llm_auxiliary_model",
         "llm_temperature",
         "llm_top_p",
+        "llm_disable_reasoning",
         "llm_num_ctx_narrow",
         "llm_num_ctx_broad",
         "llm_num_predict_narrow",

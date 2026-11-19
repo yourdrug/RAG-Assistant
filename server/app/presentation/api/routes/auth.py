@@ -52,8 +52,8 @@ async def login(
     log: Annotated[ActionLoggerPort, Depends(create_action_logger)],
 ) -> TokenResponse:
     result = await auth_service.authenticate(LoginCommand(email=req.email, password=req.password))
-    log("login", details={"email": req.email})
-    return TokenResponse(**result.__dict__)
+    log("login", user_id=result.user_id)
+    return TokenResponse(access_token=result.access_token)
 
 
 @router.get("/me", response_model=MeResponse)

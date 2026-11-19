@@ -20,10 +20,12 @@ from infrastructure.ml.usage_capture import (
     active_stream_response,
     record_model_response,
 )
+from infrastructure.telemetry.tracing import paid_call
 
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
+    from contextlib import AbstractContextManager
 
     from instructor import AsyncInstructor
     from langchain_core.messages import BaseMessageChunk
@@ -94,6 +96,20 @@ class ManagedLLM(Runnable[object, BaseMessage]):
     def __getattr__(self, name: str) -> object:
         return getattr(self.client, name)
 
+    def model_label(self) -> str:
+        return str(getattr(self.client, "model_name", "") or getattr(self.client, "model", "") or "")
+
+    def traced(
+        self, model: str = "", attributes: dict[str, object] | None = None
+    ) -> AbstractContextManager[object]:
+        base_url = getattr(self.client, "openai_api_base", None)
+        return paid_call(
+            "chat",
+            model or self.model_label(),
+            base_url=base_url if isinstance(base_url, str) else "",
+            **(attributes or {}),
+        )
+
     @asynccontextmanager
     async def lease(self) -> AsyncIterator[None]:
         if self._retired and id(self) not in active_client_leases.get():
@@ -119,10 +135,9 @@ class ManagedLLM(Runnable[object, BaseMessage]):
 
     async def ainvoke(self, *args: object, **kwargs: object) -> BaseMessage:
         async with self.lease():
-            response = await cast("ProviderRunnable", self.client).ainvoke(*args, **kwargs)
-            record_model_response(
-                response, model=getattr(self.client, "model_name", "") or getattr(self.client, "model", "")
-            )
+            with self.traced():
+                response = await cast("ProviderRunnable", self.client).ainvoke(*args, **kwargs)
+                record_model_response(response, model=self.model_label())
             return response
 
     async def astream(self, *args: object, **kwargs: object) -> AsyncIterator[BaseMessage]:
@@ -134,22 +149,24 @@ class ManagedLLM(Runnable[object, BaseMessage]):
                 raw_response if active_llm_usage.get() is not None else None
             )
             try:
-                async for item in cast("ProviderRunnable", self.client).astream(*args, **kwargs):
-                    if active_llm_usage.get() is not None:
-                        metadata.update(getattr(item, "response_metadata", {}) or {})
-                        chunk = cast("BaseMessageChunk", item)
-                        accumulated = chunk if accumulated is None else accumulated + chunk
+                with self.traced(attributes={"rag.llm.streaming": True}):
+                    try:
+                        async for item in cast("ProviderRunnable", self.client).astream(*args, **kwargs):
+                            if active_llm_usage.get() is not None:
+                                metadata.update(getattr(item, "response_metadata", {}) or {})
+                                chunk = cast("BaseMessageChunk", item)
+                                accumulated = chunk if accumulated is None else accumulated + chunk
 
-                    yield item
+                            yield item
+                    finally:
+                        if accumulated is not None:
+                            accumulated.response_metadata = metadata
+                            record_model_response(
+                                SimpleNamespace(**raw_response) if raw_response.get("usage") else accumulated,
+                                operation="generate",
+                                model=self.model_label(),
+                            )
             finally:
-                if accumulated is not None:
-                    accumulated.response_metadata = metadata
-                    record_model_response(
-                        SimpleNamespace(**raw_response) if raw_response.get("usage") else accumulated,
-                        operation="generate",
-                        model=getattr(self.client, "model_name", "") or getattr(self.client, "model", ""),
-                    )
-
                 active_stream_response.reset(capture_token)
 
     def retire(self) -> None:
@@ -189,4 +206,5 @@ class ManagedInstructor(ManagedLLM):
 
     async def create[T: BaseModel](self, **kwargs: Unpack[CompletionRequest[T]]) -> T:
         async with self.lease():
-            return await cast("AsyncInstructor", self.client).chat.completions.create(**kwargs)
+            with self.traced(str(kwargs.get("model") or ""), {"rag.llm.structured": True}):
+                return await cast("AsyncInstructor", self.client).chat.completions.create(**kwargs)

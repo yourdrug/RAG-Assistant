@@ -232,6 +232,7 @@ class ApplicationContainer:
             health_settings=LiveHealthSettings(),
             configuration=infra.configuration,
             corpus_control=infra.corpus_control,
+            storage_probe=fs.check_bucket,
         )
         self.metrics_service = MetricsService(registry=metrics_registry)
         self.config_admin_service = ConfigAdminService(

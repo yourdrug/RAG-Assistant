@@ -360,7 +360,9 @@ async def test_trace_does_not_change_cached_answer_or_store(monkeypatch: pytest.
                 domain="general",
             )
             completed: Any = SimpleNamespace(
-                answer=SimpleNamespace(context=SimpleNamespace(retrieval=retrieval), text="answer"),
+                answer=SimpleNamespace(
+                    context=SimpleNamespace(retrieval=retrieval), text="answer", truncated=False
+                ),
                 sources=[],
                 confidence=0.8,
             )

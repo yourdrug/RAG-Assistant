@@ -57,6 +57,24 @@ services:
     networks:
       - backend
 
+  # Distributed traces (OpenTelemetry): OTEL_ENABLED=true, OTEL_EXPORTER_ENDPOINT=http://jaeger:4318.
+  # In-memory storage; UI on 127.0.0.1:16686.
+  jaeger:
+    image: jaegertracing/jaeger:2.5.0
+    profiles: ["tracing"]
+    logging: *bounded-logging
+    ports:
+      - "127.0.0.1:16686:16686"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    restart: unless-stopped
+    networks:
+      - default
+      - backend
+
   pgbouncer:
     image: edoburu/pgbouncer:v1.25.2-p0
     logging: *bounded-logging

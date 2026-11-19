@@ -372,6 +372,10 @@ class BackgroundJobModel(BaseModel):
     dispatch_payload: Mapped[dict[str, object] | None] = mapped_column(
         jsonb_type(none_as_null=True).with_variant(JSON(none_as_null=True), "sqlite")
     )
+    # W3C trace context of the submitting request; outside the task payload contract.
+    trace_context: Mapped[dict[str, str] | None] = mapped_column(
+        jsonb_type(none_as_null=True).with_variant(JSON(none_as_null=True), "sqlite")
+    )
     job_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=BackgroundJobStatus.PENDING.value)
     related_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

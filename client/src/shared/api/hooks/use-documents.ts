@@ -6,7 +6,9 @@ import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
 import type {
   DocumentDomainOption,
+  DocumentOverview,
   DocumentResponse,
+  DocumentStatus,
   JobResponse,
   UploadStatusResponse,
 } from "../types";
@@ -35,10 +37,27 @@ export function useDocumentDomains(spaceId?: number | null, enabled = true) {
   });
 }
 
-export function useDocuments() {
+export const documentStatuses = ["pending", "processing", "indexing", "done", "failed"] as const;
+
+export function useDocuments(status?: DocumentStatus, offset = 0, limit?: number) {
   return useQuery({
-    queryKey: queryKeys.documents.list(),
-    queryFn: async () => (await apiClient.get<DocumentResponse[]>("/documents")).data,
+    queryKey: status
+      ? [...queryKeys.documents.list(), status, offset, limit]
+      : queryKeys.documents.list(),
+    queryFn: async () =>
+      (
+        await apiClient.get<DocumentResponse[]>("/documents", {
+          params: status ? { status, offset, limit } : undefined,
+        })
+      ).data,
+  });
+}
+
+export function useDocumentOverview() {
+  return useQuery({
+    queryKey: [...queryKeys.documents.all, "overview"],
+    queryFn: async () => (await apiClient.get<DocumentOverview>("/documents/overview")).data,
+    refetchInterval: 30000,
   });
 }
 

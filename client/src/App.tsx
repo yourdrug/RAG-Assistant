@@ -1,7 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Toaster } from "react-hot-toast";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { AdminDashboardPage } from "@/pages/admin/dashboard";
 import { ChatPage } from "@/pages/chat";
 import { DocumentReaderPage } from "@/pages/document-reader";
 import { DocumentsPage } from "@/pages/documents";
@@ -17,6 +16,9 @@ import { DashboardLayout } from "@/widgets/layout/dashboard-layout";
 import { PeopleLayout } from "@/widgets/layout/people-layout";
 
 // Lazy-loaded admin pages — separate chunk, only loaded when navigating to /admin
+const AdminDashboardPage = lazy(() =>
+  import("@/pages/admin/dashboard").then((m) => ({ default: m.AdminDashboardPage })),
+);
 const AdminUsersPage = lazy(() =>
   import("@/pages/admin/users").then((m) => ({ default: m.AdminUsersPage })),
 );
@@ -99,7 +101,14 @@ export default function App() {
                 </Route>
 
                 <Route path="/admin" element={<AdminLayout />}>
-                  <Route index element={<AdminDashboardPage />} />
+                  <Route
+                    index
+                    element={
+                      <Suspense fallback={<AdminFallback />}>
+                        <AdminDashboardPage />
+                      </Suspense>
+                    }
+                  />
                   <Route element={<PeopleLayout />}>
                     <Route
                       path="users"

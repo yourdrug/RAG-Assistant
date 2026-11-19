@@ -2,716 +2,471 @@
 import {
   Activity,
   AlertCircle,
-  BarChart3,
   CheckCircle2,
   Clock,
+  Cloud,
   Cpu,
   Database,
   FileText,
   FolderOpen,
-  Globe,
   HardDrive,
+  ListTodo,
+  MemoryStick,
   Server,
-  TrendingUp,
   Users,
   XCircle,
-  Zap,
 } from "lucide-react";
-import {
-  useChatLogStats,
-  useDocuments,
-  useGroups,
-  useHealth,
-  useMetrics,
-  useUsers,
-} from "@/shared/api/hooks";
+import { type ReactNode, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { useCurrentUser, useGroups, useHealth, useMetrics, useUsers } from "@/shared/api/hooks";
+import { useRollingChatLogStats } from "@/shared/api/hooks/use-chat-logs";
+import { documentStatuses, useDocumentOverview } from "@/shared/api/hooks/use-documents";
+import { useOperationalHealth } from "@/shared/api/hooks/use-health";
+import type { DocumentOverview, HealthCheck, OperationalHealthResponse } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Skeleton } from "@/shared/ui/skeleton";
+import { chatLogsUrl, DashboardRag, DashboardRagBreakdown } from "./dashboard-rag";
 
-function formatUptime(seconds: number): string {
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+const periods = [
+  { hours: 24, label: "24h" },
+  { hours: 168, label: "7d" },
+  { hours: 720, label: "30d" },
+];
+
+const serviceStatusLabels: Record<string, string> = {
+  ok: "Healthy",
+  idle: "Idle",
+  queued: "Queued",
+  degraded: "Degraded",
+};
+
+function formatUptime(seconds: number) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
-function formatSeconds(ms: number | null | undefined): string {
-  return ms === null || ms === undefined ? "—" : `${(ms / 1000).toFixed(1)}s`;
-}
-
-function StatusIndicator({ status }: { status: string }) {
-  const isOk = status === "ok";
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 ${isOk ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
-    >
-      {isOk ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-      <span className="text-sm font-medium">{isOk ? "Healthy" : "Error"}</span>
-    </span>
-  );
+function UpdatedAgo({ timestamp }: { timestamp: number }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  return <span>Health updated {seconds}s ago</span>;
 }
 
 function ServiceCard({
   title,
   icon,
-  status,
-  latency,
-  details,
-  showDetails = false,
-  isLoading,
+  check,
+  loading,
+  children,
+  className = "",
 }: {
   title: string;
-  icon: React.ReactNode;
-  status?: string;
-  latency?: number | null;
-  details?: string[];
-  showDetails?: boolean;
-  isLoading: boolean;
+  icon: ReactNode;
+  check?: HealthCheck;
+  loading: boolean;
+  children?: ReactNode;
+  className?: string;
 }) {
-  const isOk = status === "ok";
+  const healthy = check?.status === "ok";
+  const neutralStatus = check?.status === "idle" || check?.status === "queued";
   return (
     <Card
-      className={`min-w-0 transition-colors ${status && !isOk ? "border-red-200 dark:border-red-800" : ""}`}
+      className={`min-w-0 ${healthy ? "border-green-500/60 dark:border-green-400/50" : ""} ${className}`}
     >
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 p-4">
         <div className="flex items-center gap-3">
-          <div
-            className={`p-2 rounded-lg ${!status ? "bg-muted" : isOk ? "bg-green-500/10" : "bg-red-500/10"}`}
-          >
-            {icon}
-          </div>
-          <div>
+          <div className="rounded-lg bg-muted p-2 text-muted-foreground">{icon}</div>
+          <div className="space-y-1">
             <CardTitle className="text-sm font-medium">{title}</CardTitle>
-            <div className="flex h-6 items-center">
-              {status ? (
-                <StatusIndicator status={status} />
-              ) : isLoading ? (
+            {check ? (
+              <span
+                className={`flex items-center gap-1.5 text-sm ${neutralStatus ? "text-muted-foreground" : healthy ? "text-green-600 dark:text-green-400" : "text-destructive"}`}
+              >
+                {neutralStatus ? (
+                  <Clock size={14} />
+                ) : healthy ? (
+                  <CheckCircle2 size={14} />
+                ) : (
+                  <XCircle size={14} />
+                )}
+                {serviceStatusLabels[check.status] ?? "Error"}
+              </span>
+            ) : loading ? (
+              <div className="flex h-5 items-center">
                 <Skeleton className="h-4 w-16" />
-              ) : (
-                <span className="text-sm text-muted-foreground">—</span>
-              )}
-            </div>
+              </div>
+            ) : (
+              <span className="text-sm text-muted-foreground">Unavailable</span>
+            )}
           </div>
         </div>
-        {latency != null && (
-          <div className="text-right">
-            <div className="text-lg font-bold font-mono">{latency}</div>
-            <div className="text-[10px] text-muted-foreground uppercase">ms</div>
-          </div>
+        {check?.latency_ms != null && (
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {check.latency_ms} ms
+          </span>
         )}
       </CardHeader>
-      {showDetails && (
-        <CardContent className="pt-0">
-          <div className="flex h-8 items-start gap-1.5 overflow-x-auto">
-            {details?.map((d, i) => (
-              <Badge
-                key={i}
-                variant="secondary"
-                className="shrink-0 whitespace-nowrap text-xs font-mono"
-              >
-                {d}
-              </Badge>
-            ))}
-          </div>
+      {!!check?.models?.length && (
+        <CardContent className="flex flex-wrap gap-1.5 px-4 pb-4">
+          {check.models.map((model) => (
+            <Badge key={model} variant="secondary" className="max-w-full wrap-anywhere">
+              {model}
+            </Badge>
+          ))}
         </CardContent>
       )}
+      {children}
     </Card>
+  );
+}
+
+function IndexingWorkersCard({
+  indexing,
+  loading,
+}: {
+  indexing?: OperationalHealthResponse["indexing"];
+  loading: boolean;
+}) {
+  const queue = indexing?.queue;
+  const oldest = queue?.oldest_ready_seconds;
+  let status = "idle";
+  if (queue?.pending) status = "queued";
+  if (queue?.running) status = "ok";
+  if (indexing?.degraded) status = "degraded";
+  const showMetrics = queue && status !== "idle";
+
+  return (
+    <ServiceCard
+      title="Indexing workers"
+      icon={<ListTodo size={20} />}
+      check={queue ? { status } : undefined}
+      loading={loading}
+      className="sm:col-span-2"
+    >
+      <CardContent className="flex min-h-25 items-start px-4 pb-4 sm:min-h-13">
+        {showMetrics ? (
+          <dl className="grid w-full grid-cols-2 gap-3 text-xs text-muted-foreground sm:grid-cols-4">
+            {[
+              { label: "Pending", value: queue.pending },
+              { label: "Running", value: queue.running },
+              {
+                label: "Oldest ready job",
+                value: oldest == null ? "None" : oldest < 60 ? `${oldest}s` : formatUptime(oldest),
+              },
+              { label: "Expired leases", value: queue.expired_leases },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd className="mt-1 font-semibold tabular-nums text-foreground">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {loading
+              ? "Checking queue…"
+              : queue
+                ? "No jobs queued or running."
+                : "Queue statistics unavailable."}
+          </p>
+        )}
+      </CardContent>
+    </ServiceCard>
   );
 }
 
 function StatCard({
   label,
   value,
-  isLoading,
-  icon: Icon,
-  color,
+  icon,
+  to,
+  loading,
+  children,
 }: {
   label: string;
-  value?: string | number;
-  isLoading: boolean;
-  icon: typeof BarChart3;
-  color: string;
+  value?: number | string;
+  icon: ReactNode;
+  to?: string;
+  loading?: boolean;
+  children?: ReactNode;
 }) {
+  const stat = (
+    <div className="flex items-center gap-3">
+      <div className="rounded-lg bg-primary/10 p-2 text-primary">{icon}</div>
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        {loading ? (
+          <Skeleton className="mt-1 h-6 w-14" />
+        ) : (
+          <div className="text-lg font-semibold tabular-nums">{value?.toLocaleString() ?? "—"}</div>
+        )}
+      </div>
+    </div>
+  );
   return (
-    <Card>
-      <CardContent className="py-4">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${color}`}>
-            <Icon className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="flex h-8 items-center text-2xl font-bold font-mono">
-              {isLoading ? <Skeleton className="h-5 w-10" /> : (value ?? "—")}
+    <Card className="min-w-0">
+      {to ? (
+        <Link to={to} className="block rounded-xl p-4 hover:bg-muted/50 focus-visible:outline-ring">
+          {stat}
+        </Link>
+      ) : (
+        <div className="p-4">{stat}</div>
+      )}
+      {children}
+    </Card>
+  );
+}
+
+function DocumentStatusCard({ data, loading }: { data?: DocumentOverview; loading: boolean }) {
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="p-4">
+        <CardTitle>Documents by status</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 px-4 pb-4">
+        {loading ? (
+          <Skeleton className="h-28 w-full" />
+        ) : data ? (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {documentStatuses.map((status) => (
+                <Link
+                  key={status}
+                  to={`/admin/documents?status=${status}`}
+                  className="rounded-md border px-3 py-2 text-sm capitalize hover:bg-muted focus-visible:outline-ring"
+                >
+                  <span
+                    className={
+                      status === "failed" && data.by_status.failed ? "text-destructive" : ""
+                    }
+                  >
+                    {status}
+                  </span>{" "}
+                  <span className="font-semibold tabular-nums">
+                    {data.by_status[status].toLocaleString()}
+                  </span>
+                </Link>
+              ))}
             </div>
-            <div className="text-xs text-muted-foreground">{label}</div>
-          </div>
-        </div>
+            <div className="space-y-2 border-t pt-3">
+              <h3 className="text-sm font-semibold">Latest documents with errors</h3>
+              {data.failed.length ? (
+                <ul className="divide-y">
+                  {data.failed.map((doc) => (
+                    <li key={doc.id} className="space-y-1 py-2">
+                      <p className="wrap-anywhere text-sm font-medium">{doc.filename}</p>
+                      <p className="wrap-anywhere whitespace-pre-wrap text-xs text-muted-foreground">
+                        {doc.error_message || "No error message recorded"}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No failed documents</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">Document statistics unavailable</p>
+        )}
       </CardContent>
     </Card>
   );
 }
 
 export function AdminDashboardPage() {
-  const { data: health, isLoading: hl } = useHealth();
-  const { data: users, isLoading: usersLoading } = useUsers();
-  const { data: groups, isLoading: groupsLoading } = useGroups();
-  const { data: documents, isLoading: dl } = useDocuments();
-  const { data: metrics, isLoading: ml } = useMetrics();
-  // Chat logs persist in Postgres, unlike per-process Prometheus counters that reset on restart.
-  const { data: ragStats, isLoading: ragLoading } = useChatLogStats({});
-  const ragNotFound = ragStats?.outcomes?.not_found ?? 0;
-  const ragErrors = ragStats?.outcomes?.error ?? 0;
+  const [hours, setHours] = useState(168);
+  const { data: user, isLoading: userLoading } = useCurrentUser();
+  const isAdmin = user?.role === "admin";
+  const showAdminSlots = isAdmin || userLoading;
+  const {
+    data: health,
+    isLoading: healthLoading,
+    dataUpdatedAt,
+    isError: healthError,
+  } = useHealth();
+  const {
+    data: operations,
+    isLoading: operationsLoading,
+    isError: operationsError,
+  } = useOperationalHealth(isAdmin);
+  const { data: users, isLoading: usersLoading } = useUsers(isAdmin);
+  const { data: groups, isLoading: groupsLoading } = useGroups(isAdmin);
+  const { data: overview, isLoading: overviewLoading } = useDocumentOverview();
+  const { data: metrics, isLoading: metricsLoading, isError: metricsError } = useMetrics(isAdmin);
+  const { data: rag, isLoading: ragLoading, isError: ragError } = useRollingChatLogStats(hours);
 
-  const apiStatus = health ? health.checks?.api?.status || "—" : undefined;
-  const qdrantStatus = health ? health.checks?.qdrant?.status || "—" : undefined;
-  const llmStatus = health ? health.checks?.llm?.status || "—" : undefined;
-  const postgresStatus = health ? health.checks?.postgres?.status || "—" : undefined;
-
-  const docsDone = documents?.filter((d) => d.status === "done").length || 0;
-  const docsProcessing =
-    documents?.filter((d) => d.status === "processing" || d.status === "indexing").length || 0;
-  const docsFailed = documents?.filter((d) => d.status === "failed").length || 0;
-  const totalChunks = documents?.reduce((sum, d) => sum + (d.chunks || 0), 0) || 0;
+  const sampledAt = metrics?.qdrant?.collected_at ?? 0;
+  const points =
+    !metricsError && health?.checks?.qdrant?.status === "ok" && Date.now() / 1000 - sampledAt < 90
+      ? metrics?.qdrant?.points
+      : undefined;
+  const chunks = overview?.chunks;
+  const mismatch = isAdmin && points != null && chunks != null && points !== chunks;
+  const failedCount = overview?.by_status.failed ?? 0;
+  const currentOperations = isAdmin && !operationsError ? operations : undefined;
+  const operational =
+    health?.status === "healthy" &&
+    currentOperations?.storage.status !== "error" &&
+    !currentOperations?.indexing?.degraded;
+  const serviceCards = [
+    { title: "API Server", icon: <Server size={20} />, check: health?.checks?.api },
+    { title: "PostgreSQL", icon: <Database size={20} />, check: health?.checks?.postgres },
+    { title: "Qdrant", icon: <HardDrive size={20} />, check: health?.checks?.qdrant },
+    { title: "LLM", icon: <Cpu size={20} />, check: health?.checks?.llm },
+    { title: "Redis", icon: <MemoryStick size={20} />, check: health?.checks?.redis },
+  ];
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
-        <div>
-          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">System overview and health</p>
-        </div>
-        <div className="flex min-h-8 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground sm:gap-4">
+    <div className="mx-auto max-w-screen-2xl space-y-6 p-4 sm:p-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">Admin Dashboard</h1>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
           {health && (
             <>
-              <div className="flex items-center gap-1.5">
-                <Zap className="h-4 w-4" />
-                <span>v{health.version}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4" />
-                <span>Uptime: {formatUptime(health.uptime_seconds)}</span>
-              </div>
-              {health.background_jobs.running > 0 && (
-                <Badge variant="secondary">
-                  <Activity className="h-3 w-3 mr-1" />
-                  {health.background_jobs.running} job(s)
-                </Badge>
+              <span>v{health.version}</span>
+              <span className="flex items-center gap-1.5">
+                <Clock size={14} /> {formatUptime(health.uptime_seconds)} uptime
+              </span>
+              <Badge variant={operational ? "success" : "destructive"}>
+                {operational ? "Operational" : "Degraded"}
+              </Badge>
+              {isAdmin && (
+                <Link to="/admin/jobs" className="text-primary hover:underline">
+                  {health.background_jobs.running ?? 0} running jobs
+                </Link>
               )}
             </>
           )}
+          {healthError && <span className="text-destructive">Health check unavailable</span>}
+          {dataUpdatedAt > 0 && <UpdatedAgo timestamp={dataUpdatedAt} />}
         </div>
+      </header>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {serviceCards.map((service) => (
+          <ServiceCard key={service.title} {...service} loading={healthLoading} />
+        ))}
+        {showAdminSlots && (
+          <>
+            <ServiceCard
+              title="S3 Storage"
+              icon={<Cloud size={20} />}
+              check={currentOperations?.storage}
+              loading={userLoading || operationsLoading}
+            />
+            <IndexingWorkersCard
+              indexing={currentOperations?.indexing}
+              loading={userLoading || operationsLoading}
+            />
+          </>
+        )}
       </div>
 
-      {/* Overall Status */}
-      <Card
-        className={`border-2 ${health ? (health.status === "healthy" ? "border-green-200 dark:border-green-800" : "border-amber-200 dark:border-amber-800") : ""}`}
-      >
-        <CardContent className="p-3 sm:px-6 sm:py-4">
-          {health ? (
-            <div className="grid min-h-32 content-center items-center justify-items-start gap-2 sm:flex sm:min-h-12 sm:justify-between">
-              <div className="flex min-w-0 items-center gap-3">
-                <div
-                  className={`p-3 rounded-full ${health.status === "healthy" ? "bg-green-500/10" : "bg-amber-500/10"}`}
-                >
-                  {health.status === "healthy" ? (
-                    <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400" />
-                  ) : (
-                    <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
-                  )}
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold">
-                    {health.status === "healthy" ? "All Systems Operational" : "System Degraded"}
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {health.status === "healthy"
-                      ? "All services are running normally"
-                      : "One or more services are experiencing issues"}
-                  </p>
-                </div>
-              </div>
-              <Badge
-                variant={health.status === "healthy" ? "success" : "destructive"}
-                className="text-sm px-3 py-1"
-              >
-                {health.status.toUpperCase()}
-              </Badge>
-            </div>
-          ) : (
-            <div className="flex min-h-32 items-center gap-3 sm:min-h-12">
-              {hl ? (
-                <>
-                  <Skeleton className="h-12 w-12 shrink-0 rounded-full" />
-                  <div className="w-52 min-w-0 space-y-2">
-                    <Skeleton className="h-5 w-5/6" />
-                    <Skeleton className="h-4 w-full" />
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">System status unavailable</p>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Service Cards */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <ServiceCard
-          title="API Server"
-          icon={<Server className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
-          status={apiStatus}
-          isLoading={hl}
-        />
-        <ServiceCard
-          title="PostgreSQL"
-          icon={<Database className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />}
-          status={postgresStatus}
-          isLoading={hl}
-          latency={health?.checks?.postgres?.latency_ms}
-        />
-        <ServiceCard
-          title="Qdrant"
-          icon={<HardDrive className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />}
-          status={qdrantStatus}
-          isLoading={hl}
-          latency={health?.checks?.qdrant?.latency_ms}
-        />
-        <ServiceCard
-          title="LLM"
-          icon={<Cpu className="h-5 w-5 text-orange-600 dark:text-orange-400" />}
-          status={llmStatus}
-          isLoading={hl}
-          latency={health?.checks?.llm?.latency_ms}
-          details={health?.checks?.llm?.models || undefined}
-          showDetails
-        />
-      </div>
-
-      {/* Quick Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
-        <StatCard
-          label="Users"
-          value={users ? (users.total ?? users.users?.length ?? 0) : undefined}
-          isLoading={usersLoading}
-          icon={Users}
-          color="bg-violet-500/10 text-violet-600 dark:text-violet-400"
-        />
-        <StatCard
-          label="Groups"
-          value={groups?.length}
-          isLoading={groupsLoading}
-          icon={FolderOpen}
-          color="bg-pink-500/10 text-pink-600 dark:text-pink-400"
-        />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {showAdminSlots && (
+          <>
+            <StatCard
+              label="Users"
+              value={users?.total ?? users?.users?.length}
+              icon={<Users size={18} />}
+              to={isAdmin ? "/admin/users" : undefined}
+              loading={userLoading || usersLoading}
+            />
+            <StatCard
+              label="Groups"
+              value={groups?.length}
+              icon={<FolderOpen size={18} />}
+              to={isAdmin ? "/admin/groups" : undefined}
+              loading={userLoading || groupsLoading}
+            />
+          </>
+        )}
         <StatCard
           label="Documents"
-          value={documents?.length}
-          isLoading={dl}
-          icon={FileText}
-          color="bg-blue-500/10 text-blue-600 dark:text-blue-400"
-        />
+          value={overview?.total}
+          icon={<FileText size={18} />}
+          to="/admin/documents"
+          loading={overviewLoading}
+        >
+          {failedCount > 0 && (
+            <Link
+              to="/admin/documents?status=failed"
+              className="block border-t px-4 py-2 text-xs font-medium text-destructive hover:underline"
+            >
+              {failedCount.toLocaleString()} failed
+            </Link>
+          )}
+        </StatCard>
         <StatCard
-          label="Vector Points"
-          value={metrics ? Number(metrics.qdrant?.points || 0).toLocaleString() : undefined}
-          isLoading={ml}
-          icon={BarChart3}
-          color="bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
-        />
+          label={isAdmin ? "DB chunks / Qdrant points" : "DB chunks"}
+          value={
+            isAdmin && (chunks != null || points != null)
+              ? `${chunks?.toLocaleString() ?? "—"} / ${points?.toLocaleString() ?? "—"}`
+              : chunks
+          }
+          icon={<HardDrive size={18} />}
+          loading={overviewLoading || (isAdmin && metricsLoading)}
+        >
+          {mismatch && (
+            <p
+              role="status"
+              className="flex items-start gap-1.5 border-t px-4 py-2 text-xs text-amber-700 dark:text-amber-400"
+            >
+              <AlertCircle className="shrink-0" size={14} />
+              Chunk and point counts differ
+            </p>
+          )}
+        </StatCard>
         <StatCard
-          label="Total Chunks"
-          value={documents ? totalChunks.toLocaleString() : undefined}
-          isLoading={dl}
-          icon={TrendingUp}
-          color="bg-green-500/10 text-green-600 dark:text-green-400"
+          label={`Requests · ${periods.find((period) => period.hours === hours)?.label}`}
+          value={rag?.stats.total}
+          icon={<Activity size={18} />}
+          to={rag && chatLogsUrl(rag.dates)}
+          loading={ragLoading}
         />
       </div>
 
-      {/* Documents + RAG Pipeline */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Documents */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Documents
-            </CardTitle>
-            <CardDescription>Indexed document status</CardDescription>
-          </CardHeader>
-          <CardContent className="min-h-92">
-            {dl ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-3">
-                  {[1, 2, 3].map((i) => (
-                    <Skeleton key={i} className="h-19" />
-                  ))}
-                </div>
-                <div className="space-y-2">
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <Skeleton key={i} className="h-11" />
-                  ))}
-                </div>
-              </div>
-            ) : documents && documents.length > 0 ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="text-center p-3 rounded-lg bg-green-500/5">
-                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                      {docsDone}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Done</div>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-amber-500/5">
-                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                      {docsProcessing}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Processing</div>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-red-500/5">
-                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                      {docsFailed}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Failed</div>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {documents.slice(0, 5).map((d) => (
-                    <div
-                      key={d.id}
-                      className="flex items-center justify-between rounded-md border p-2.5 hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="text-sm font-medium truncate">{d.filename}</span>
-                      </div>
-                      <Badge
-                        variant={
-                          d.status === "done"
-                            ? "success"
-                            : d.status === "failed"
-                              ? "destructive"
-                              : d.status === "indexing"
-                                ? "default"
-                                : "secondary"
-                        }
-                      >
-                        {d.status}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                {documents ? "No documents yet" : "Documents unavailable"}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+      <section aria-labelledby="dashboard-rag-title" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="dashboard-rag-title" className="text-lg font-semibold">
+            RAG
+          </h2>
+          <div role="group" aria-label="RAG period" className="flex gap-1.5">
+            {periods.map((period) => (
+              <Button
+                key={period.hours}
+                size="sm"
+                variant={hours === period.hours ? "default" : "outline"}
+                aria-pressed={hours === period.hours}
+                onClick={() => setHours(period.hours)}
+              >
+                {period.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+        {ragError && (
+          <p role="status" className="text-sm text-destructive">
+            {rag ? "RAG statistics could not refresh" : "RAG statistics unavailable"}
+          </p>
+        )}
+        {rag && <DashboardRag stats={rag.stats} dates={rag.dates} />}
+        {ragLoading && <Skeleton className="h-48 w-full" />}
+      </section>
 
-        {/* RAG Pipeline */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
-              RAG Pipeline
-            </CardTitle>
-            <CardDescription>Query statistics and performance</CardDescription>
-          </CardHeader>
-          <CardContent className="min-h-48">
-            {ragStats ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="text-center p-3 rounded-lg bg-blue-500/5">
-                    <div className="text-2xl font-bold">{ragStats.total}</div>
-                    <div className="text-xs text-muted-foreground">Total Queries</div>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-amber-500/5">
-                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                      {ragNotFound}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Not Found</div>
-                  </div>
-                </div>
-                {ragStats.total > 0 ? (
-                  <div className="pt-3 border-t space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Latency p50 / p95</span>
-                      <span className="font-mono font-bold">
-                        {formatSeconds(ragStats.latency_p50)} /{" "}
-                        {formatSeconds(ragStats.latency_p95)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Cache hits</span>
-                      <span className="font-mono">{ragStats.cache_hits}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Errors</span>
-                      <span className="font-mono">{ragErrors}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground text-center py-2">No queries yet</p>
-                )}
-              </div>
-            ) : ragLoading ? (
-              <div className="grid grid-cols-2 gap-3">
-                <Skeleton className="h-19" />
-                <Skeleton className="h-19" />
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                Statistics unavailable
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* DB Pool + Ingestion */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* DB Pool */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5" />
-              Database Connection Pool
-            </CardTitle>
-            <CardDescription>PostgreSQL connection utilization</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="min-h-30 space-y-3">
-              {metrics ? (
-                (() => {
-                  const inUse = Number(
-                    metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0,
-                  );
-                  const idle = Number(
-                    metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0,
-                  );
-                  const poolSize = 100;
-                  const available = Math.max(0, poolSize - inUse - idle);
-                  const total = inUse + idle + available || 1;
-                  return [
-                    {
-                      label: "In Use",
-                      value: inUse,
-                      color: "bg-blue-500",
-                    },
-                    {
-                      label: "Idle",
-                      value: idle,
-                      color: "bg-green-500",
-                    },
-                    {
-                      label: "Available",
-                      value: available,
-                      color: "bg-emerald-500",
-                    },
-                  ].map(({ label, value, color }) => {
-                    const pct = (value / total) * 100;
-                    return (
-                      <div key={label}>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-muted-foreground">{label}</span>
-                          <span className="font-mono font-bold">{value}</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${color} transition-all`}
-                            style={{ width: `${Math.min(pct, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  });
-                })()
-              ) : ml ? (
-                [1, 2, 3].map((i) => <Skeleton key={i} className="h-8" />)
-              ) : (
-                <p className="text-sm text-muted-foreground">Metrics unavailable</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Ingestion */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              Ingestion Stats
-            </CardTitle>
-            <CardDescription>Document processing totals</CardDescription>
-          </CardHeader>
-          <CardContent className="min-h-52">
-            {/* Persisted document rows: uploads bypass the batch-ingest registry and
-                ingestion counters live in worker processes, not in the API. */}
-            <div className="space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Indexed Files</span>
-                <span className="font-mono font-bold">{documents ? docsDone : "—"}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Total Chunks</span>
-                <span className="font-mono font-bold">
-                  {documents ? totalChunks.toLocaleString() : "—"}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Documents Ingested</span>
-                <span className="font-mono font-bold">{documents ? documents.length : "—"}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Files Processed</span>
-                <span className="font-mono font-bold">
-                  {documents ? docsDone + docsFailed : "—"}
-                </span>
-              </div>
-              {metrics?.ingestion?.duration &&
-                typeof metrics.ingestion.duration === "object" &&
-                "sum" in (metrics.ingestion.duration as Record<string, unknown>) && (
-                  <div className="pt-3 border-t">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Total Processing Time</span>
-                      <span className="font-mono">
-                        {Number(
-                          (metrics.ingestion.duration as Record<string, number>).sum || 0,
-                        ).toFixed(1)}
-                        s
-                      </span>
-                    </div>
-                    {(metrics.ingestion.duration as Record<string, number>).count > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Avg per Document</span>
-                        <span className="font-mono">
-                          {(
-                            Number((metrics.ingestion.duration as Record<string, number>).sum) /
-                            Number((metrics.ingestion.duration as Record<string, number>).count)
-                          ).toFixed(1)}
-                          s
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* LLM Models + HTTP Requests + Ingestion by Status */}
-      <div className="grid gap-4 md:grid-cols-3">
-        {/* LLM Models */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Cpu className="h-5 w-5" />
-              LLM
-            </CardTitle>
-            <CardDescription>OpenAI-compatible endpoint</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <Badge variant="secondary" className="max-w-full text-xs wrap-anywhere">
-                {health?.checks?.llm?.models?.[0] || "—"}
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* HTTP Requests */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Globe className="h-5 w-5" />
-              HTTP Requests
-            </CardTitle>
-            <CardDescription>
-              Total: {metrics ? Number(metrics.http_requests?.total) || 0 : "—"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              const byEndpoint = (metrics?.http_requests?.by_endpoint || {}) as Record<
-                string,
-                number
-              >;
-              const topEndpoints = Object.entries(byEndpoint)
-                .sort(([, a], [, b]) => b - a)
-                .slice(0, 6);
-              return topEndpoints.length > 0 ? (
-                <div className="space-y-2">
-                  {topEndpoints.map(([endpoint, count]) => {
-                    const parts = endpoint.split("_");
-                    const method = parts.length >= 2 ? parts[parts.length - 2] : "";
-                    const path = parts.slice(0, -2).join("_") || endpoint;
-                    return (
-                      <div key={endpoint} className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
-                            {method.toUpperCase()}
-                          </Badge>
-                          <span className="truncate font-mono text-muted-foreground">{path}</span>
-                        </div>
-                        <span className="font-mono font-bold shrink-0">{Number(count)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {metrics
-                    ? "No requests recorded"
-                    : ml
-                      ? "Loading metrics…"
-                      : "Metrics unavailable"}
-                </p>
-              );
-            })()}
-          </CardContent>
-        </Card>
-
-        {/* Ingestion by Status */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              Ingestion by Status
-            </CardTitle>
-            <CardDescription>Document processing breakdown</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              // Ingestion runs in worker processes, so the API's Prometheus registry never
-              // sees it; the persisted document statuses are the source of truth.
-              const byStatus: Record<string, number> = {};
-              for (const d of documents || []) {
-                byStatus[d.status] = (byStatus[d.status] || 0) + 1;
-              }
-              const statusEntries = Object.entries(byStatus).sort(([, a], [, b]) => b - a);
-              return statusEntries.length > 0 ? (
-                <div className="space-y-2">
-                  {statusEntries.map(([status, count]) => (
-                    <div key={status} className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">{status}</span>
-                      <span className="font-mono font-bold">{Number(count)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {metrics ? "No ingestion data" : ml ? "Loading metrics…" : "Metrics unavailable"}
-                </p>
-              );
-            })()}
-          </CardContent>
-        </Card>
+      <div className="grid items-start gap-3 lg:grid-cols-2">
+        <DocumentStatusCard data={overview} loading={overviewLoading} />
+        {rag && <DashboardRagBreakdown stats={rag.stats} dates={rag.dates} />}
       </div>
     </div>
   );

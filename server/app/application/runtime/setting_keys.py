@@ -77,6 +77,8 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "chunk_contextualization_concurrency",
         "chunk_contextualization_timeout",
         "curator_scope_max_ids",
+        "otel_enabled",
+        "otel_exporter_endpoint",
         "redis_host",
         "redis_port",
         "redis_user",

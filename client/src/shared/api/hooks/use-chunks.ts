@@ -12,7 +12,13 @@ import type {
   ManualDocumentRequest,
 } from "../types";
 
-export function useChunks(documentId: number, limit?: number, offset?: number, highlight?: string) {
+export function useChunks(
+  documentId: number,
+  limit?: number,
+  offset?: number,
+  highlight?: string,
+  enabled = true,
+) {
   return useQuery({
     queryKey: queryKeys.chunks.list(documentId, limit, offset, highlight),
     queryFn: async () => {
@@ -27,17 +33,23 @@ export function useChunks(documentId: number, limit?: number, offset?: number, h
         )
       ).data;
     },
-    enabled: !!documentId,
+    enabled: enabled && !!documentId,
   });
 }
 
 export function useChunksCursor(
   documentId: number,
-  options?: { cursor?: string; direction?: "next" | "prev"; limit?: number; highlight?: string },
+  options?: {
+    cursor?: string;
+    direction?: "next" | "prev";
+    limit?: number;
+    highlight?: string;
+    enabled?: boolean;
+  },
 ) {
-  const { cursor, direction, limit = 50, highlight } = options ?? {};
+  const { cursor, direction, limit = 50, highlight, enabled = true } = options ?? {};
   return useQuery({
-    queryKey: queryKeys.chunks.cursor(documentId, { cursor, direction, highlight }),
+    queryKey: queryKeys.chunks.cursor(documentId, { cursor, direction, limit, highlight }),
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", String(limit));
@@ -50,7 +62,7 @@ export function useChunksCursor(
         )
       ).data;
     },
-    enabled: !!documentId,
+    enabled: enabled && !!documentId,
   });
 }
 

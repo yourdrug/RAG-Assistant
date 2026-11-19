@@ -20,6 +20,8 @@ class LogEntry(BaseModel):
     message: str
     filename: str | None = None
     lineno: int | None = None
+    user_id: int | None = None
+    user_login: str | None = None
 
 
 class LogsResponse(BaseModel):

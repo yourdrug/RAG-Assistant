@@ -1,0 +1,83 @@
+name: rag-playwright
+
+x-backend: &backend
+  image: ${E2E_SERVER_IMAGE:-rag-server:development-cpu-0.13.0}
+  environment:
+    PYTHONPATH: /code/project/app
+    STAGE: development
+    DATA_DIR: /tmp/rag-playwright
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    DB_USER: playwright
+    DB_NAME: playwright
+    DB_PASSWORD: playwright-local-db-password
+    REDIS_PASSWORD: playwright-local-redis-password
+    QDRANT_API_KEY: playwright-local-qdrant-key
+    S3_ACCESS_KEY: playwright-local-storage
+    S3_SECRET_KEY: playwright-local-storage-password
+    JWT_SECRET_KEY: 7d6143153a97ef67ca9c6f6f87f015e7d12fe3819e2ae59c
+    ADMIN_EMAIL: admin@playwright.example.com
+    ADMIN_PASSWORD: Pw-local-admin-51!
+    ALLOWED_ORIGINS: http://127.0.0.1:13001
+    EMBED_TOKENIZER_PATH: /tmp/embedding-tokenizer.json
+  volumes:
+    - ../../server/app:/code/project/app:ro
+    - ../../server/alembic.ini:/code/project/alembic.ini:ro
+    - type: bind
+      source: ${E2E_TOKENIZER_PATH:-../../data/tei_cache/bge-m3/tokenizer.json}
+      target: /tmp/embedding-tokenizer.json
+      read_only: true
+      bind:
+        create_host_path: false
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_started
+    qdrant:
+      condition: service_started
+    minio:
+      condition: service_started
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: playwright
+      POSTGRES_DB: playwright
+      POSTGRES_PASSWORD: playwright-local-db-password
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "playwright", "-d", "playwright"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "playwright-local-redis-password"]
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    environment:
+      QDRANT__SERVICE__API_KEY: playwright-local-qdrant-key
+  minio:
+    image: pgsty/silo:RELEASE.2026-10-26T00-00-00Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: playwright-local-storage
+      MINIO_ROOT_PASSWORD: playwright-local-storage-password
+  api:
+    <<: *backend
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["python app/scripts/migrate.py && python app/scripts/ensure_bucket.py && cd app && exec python -m composition.cli runserver"]
+    ports:
+      - "127.0.0.1:18001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:8001/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+  worker:
+    <<: *backend
+    command: ["python", "-m", "composition.cli", "worker"]
+    depends_on:
+      api:
+        condition: service_healthy

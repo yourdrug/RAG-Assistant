@@ -23,6 +23,7 @@ class ChatLogFilter:
     domain: str | None = None
     space_id: int | None = None
     outcome: str | None = None
+    error_code: str | None = None
     model: str | None = None
     breadth: str | None = None
     config_hash: str | None = None

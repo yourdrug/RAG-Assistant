@@ -2,6 +2,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { useCurrentUser } from "@/shared/api/hooks/use-auth";
 import {
   type ChatLogsParams,
@@ -12,6 +13,7 @@ import {
 import { queryKeys } from "@/shared/api/query-keys";
 import type { AnswerOutcome, ChatLogEntry, FeedbackReason, ReviewStatus } from "@/shared/api/types";
 import { formatDateTime } from "@/shared/lib/date-time";
+import { cn } from "@/shared/lib/utils";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -38,9 +40,15 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
   const [tab, setTab] = useState<"answer" | "trace">("answer");
   const { data, isLoading, isError } = useChatLog(entry.id, open);
   const log = data?.entry ?? entry;
+  const rating = entry.feedback?.rating;
   return (
     <details
-      className="group rounded-xl border bg-card p-5 transition-colors hover:border-muted-foreground/40"
+      className={cn(
+        "group rounded-xl border p-5 transition-colors",
+        rating === "up" && "border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/50",
+        rating === "down" && "border-rose-500/30 bg-rose-500/5 hover:border-rose-500/50",
+        !rating && "bg-card hover:border-muted-foreground/40",
+      )}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary className="cursor-pointer list-none flex flex-wrap items-center gap-2.5">
@@ -48,7 +56,7 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
           {OUTCOME_LABELS[entry.outcome]}
         </Badge>
         {entry.feedback && (
-          <Badge variant={entry.feedback.rating === "down" ? "destructive" : "outline"}>
+          <Badge variant={rating === "up" ? "success" : "destructive"}>
             {entry.feedback.rating === "down" ? "Negative" : "Positive"}
             {entry.feedback.comment ? " · Comment" : ""}
           </Badge>
@@ -114,7 +122,7 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
               <p className="whitespace-pre-wrap">{log.answer || "No answer delivered"}</p>
               {log.feedback && (
                 <div
-                  className={`space-y-3 rounded-lg border p-4 text-sm ${log.feedback.rating === "down" ? "border-amber-500/30 bg-amber-500/5" : "border-emerald-500/30 bg-emerald-500/5"}`}
+                  className={`space-y-3 rounded-lg border p-4 text-sm ${log.feedback.rating === "down" ? "border-rose-500/30 bg-rose-500/5" : "border-emerald-500/30 bg-emerald-500/5"}`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-muted-foreground">User feedback</span>
@@ -241,23 +249,43 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
   );
 }
 
+function isoDateTime(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : "";
+}
+
+function dateTimeInput(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+}
+
 export function AdminChatLogsPage() {
+  const location = useLocation();
+  return <ChatLogsPage key={location.search} />;
+}
+
+function ChatLogsPage() {
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState({
     search: "",
     domain: "",
-    space_id: "",
-    outcome: "",
-    model: "",
+    space_id: searchParams.get("space_id") ?? "",
+    outcome: String(outcomes.find((outcome) => outcome === searchParams.get("outcome")) ?? ""),
+    error_code: searchParams.get("error_code") ?? "",
+    model: searchParams.get("model") ?? "",
     breadth: "",
     config_hash: "",
     rating: "",
-    reason: "",
+    reason: searchParams.get("reason") ?? "",
     has_comment: "",
     review_status: "",
     user_id: "",
-    date_from: "",
-    date_to: "",
+    date_from: isoDateTime(searchParams.get("date_from")),
+    date_to: isoDateTime(searchParams.get("date_to")),
   });
   const [sortBy, setSortBy] = useState<"date" | "latency" | "confidence">("date");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -272,8 +300,6 @@ export function AdminChatLogsPage() {
     needs_review: needsReview,
     space_id: filters.space_id ? Number(filters.space_id) : undefined,
     user_id: filters.user_id ? Number(filters.user_id) : undefined,
-    date_from: filters.date_from ? new Date(filters.date_from).toISOString() : undefined,
-    date_to: filters.date_to ? new Date(filters.date_to).toISOString() : undefined,
     sort_by: sortBy,
     sort_order: sortOrder,
     limit: pageSize,
@@ -379,7 +405,7 @@ export function AdminChatLogsPage() {
           Clear filters
         </Button>
       </div>
-      <details className="rounded-xl border bg-card p-5">
+      <details className="rounded-xl border bg-card p-5" open={searchParams.size > 0}>
         <summary className="cursor-pointer text-sm font-semibold">
           Advanced filters{" "}
           <span className="ml-2 font-normal text-muted-foreground">
@@ -393,6 +419,7 @@ export function AdminChatLogsPage() {
               ["domain", "Domain"],
               ["space_id", "Space ID"],
               ["model", "Model"],
+              ["error_code", "Error code"],
               ["config_hash", "Configuration hash"],
               ["user_id", "User ID"],
               ["date_from", "From"],
@@ -405,8 +432,8 @@ export function AdminChatLogsPage() {
                 <Input
                   type="datetime-local"
                   step={1}
-                  value={filters[key]}
-                  onChange={(event) => update(key, event.target.value)}
+                  value={dateTimeInput(filters[key])}
+                  onChange={(event) => update(key, isoDateTime(event.target.value))}
                 />
               ) : (
                 <Input

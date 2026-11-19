@@ -51,6 +51,19 @@ class DocumentResponse(BaseModel):
     outbox_failed_details: list[dict[str, object]] | None = None
 
 
+class FailedDocumentSummary(BaseModel):
+    id: int
+    filename: str
+    error_message: str | None
+
+
+class DocumentOverviewResponse(BaseModel):
+    total: int
+    chunks: int
+    by_status: dict[str, int]
+    failed: list[FailedDocumentSummary]
+
+
 class UploadResponse(BaseModel):
     files: list[str]
 

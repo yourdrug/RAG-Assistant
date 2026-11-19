@@ -6,7 +6,7 @@ from dataclasses import replace
 import logging
 from typing import TYPE_CHECKING
 
-from application.documents.dto import ClientInfo, DocumentDTO
+from application.documents.dto import ClientInfo, DocumentDTO, DocumentOverviewDTO
 from application.identity import UserContextFactory
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import check_document_access, is_in_search_scope
@@ -60,12 +60,13 @@ class DocumentQueryService:
         offset: int = 0,
         *,
         space_id: int | None = None,
+        status: DocumentStatus | None = None,
     ) -> list[DocumentDTO]:
         async with self._uow_factory.create() as uow:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
 
             docs = await uow.documents.list_visible(
-                DocumentFilter(ctx, Pagination(limit, offset), space_id=space_id)
+                DocumentFilter(ctx, Pagination(limit, offset), space_id=space_id, status=status)
             )
             dtos = [DocumentDTO.from_entity(d, in_search_scope=is_in_search_scope(d, ctx)) for d in docs]
 
@@ -90,6 +91,20 @@ class DocumentQueryService:
                 else dto
                 for dto in dtos
             ]
+
+    async def get_overview(self, user_id: int, user_kind: str, user_role: str) -> DocumentOverviewDTO:
+        async with self._uow_factory.create() as uow:
+            ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
+            totals = await uow.documents.summarize_visible(DocumentFilter(ctx))
+            failed = await uow.documents.list_visible(
+                DocumentFilter(ctx, Pagination(limit=5), status=DocumentStatus.FAILED)
+            )
+            return DocumentOverviewDTO(
+                total=sum(totals.by_status.values()),
+                chunks=totals.chunks,
+                by_status={status.value: totals.by_status.get(status.value, 0) for status in DocumentStatus},
+                failed=[DocumentDTO.from_entity(doc) for doc in failed],
+            )
 
     async def get_document(
         self, document_id: int, user_id: int, user_kind: str, user_role: str

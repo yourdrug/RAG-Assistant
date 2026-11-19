@@ -20,6 +20,10 @@ class LLMSection(BaseModel):
     llm_num_ctx_broad: int = DEFAULT_NUM_CTX_BROAD
     llm_num_predict_narrow: int = DEFAULT_NUM_PREDICT_NARROW
     llm_num_predict_broad: int = DEFAULT_NUM_PREDICT_BROAD
+    # Ask hybrid reasoning models (Qwen3, ...) to answer without a thinking phase:
+    # reasoning burns the output budget and some providers return it inside the answer.
+    # Turn off for a provider or model that rejects the extra request field.
+    llm_disable_reasoning: bool = True
     llm_request_timeout: Static[PositiveInt] = 120
     llm_auxiliary_timeout: Static[PositiveInt] = (
         30  # seconds, caps semaphore hold time for auxiliary LLM calls
@@ -31,7 +35,7 @@ class LLMSection(BaseModel):
     llm_api_key: Secret = SecretStr("")
     llm_allowed_origins: Static[list[str]] = ["https://openrouter.ai"]
     llm_base_url: str = "https://openrouter.ai/api/v1"
-    llm_model: str = "qwen/qwen-2.5-7b-instruct"
+    llm_model: str = "qwen/qwen3-30b-a3b-instruct-2507"
     # Empty: auxiliary calls (condense, relevance, decomposition) reuse the main model.
     llm_auxiliary_model: str = ""
 

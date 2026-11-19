@@ -35,7 +35,11 @@ class MetricsService:
 
         # Qdrant
         qdrant_vals = reg.collect_gauge("qdrant_collection_points")
-        qdrant = {"points": sum(qdrant_vals.values()) if qdrant_vals else 0.0}
+        collected_at = reg.collect_gauge("qdrant_collection_points_collected_at_seconds")
+        qdrant = {
+            "points": sum(qdrant_vals.values()) if qdrant_vals else 0.0,
+            "collected_at": max(collected_at.values(), default=0.0),
+        }
 
         rag = self.collect_rag()
 

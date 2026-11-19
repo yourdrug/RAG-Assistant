@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Unpack
 
-from sqlalchemy import and_, distinct, func, or_, select
+from sqlalchemy import and_, distinct, false, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from config import JobsSection, process_section
@@ -19,6 +19,7 @@ from domain.knowledge.enums import (
     DomainKey,
     SourceType,
 )
+from domain.knowledge.repositories.document import DocumentTotals
 from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError
 from infrastructure.database.models import DocumentModel
 from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import unfinished_document_work
@@ -26,6 +27,7 @@ from infrastructure.repositories.sql_acl import render_visibility_conditions
 
 
 if TYPE_CHECKING:
+    from sqlalchemy import ColumnElement
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from domain.knowledge.repositories.document import DocumentFilter, DocumentStatusUpdate
@@ -279,14 +281,14 @@ class SQLAlchemyDocumentRepository:
         result = await self._db.execute(stmt)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    async def list_visible(self, filters: DocumentFilter) -> list[Document]:
+    @staticmethod
+    def visible_conditions(filters: DocumentFilter) -> list[ColumnElement[bool]]:
         ctx = filters.user
         user_kind, user_id, user_role = ctx.user_kind, ctx.user_id, ctx.user_role
         group_ids = list(ctx.group_ids)
         managed_client_ids = list(ctx.managed_client_ids)
         managed_internal_ids = list(ctx.managed_internal_ids)
         managed_group_ids = list(ctx.managed_group_ids)
-        limit, offset = filters.pagination.limit, filters.pagination.offset
         conditions = get_visibility_conditions(
             UserKind(user_kind),
             group_ids,
@@ -307,17 +309,39 @@ class SQLAlchemyDocumentRepository:
         )
 
         if not or_clauses:
-            return []
+            return [false()]
 
-        space_conditions = [] if filters.space_id is None else [DocumentModel.space_id == filters.space_id]
+        predicates = [or_(*or_clauses)]
+
+        if filters.space_id is not None:
+            predicates.append(DocumentModel.space_id == filters.space_id)
+
+        if filters.status is not None:
+            predicates.append(DocumentModel.status == filters.status.value)
+
+        return predicates
+
+    async def list_visible(self, filters: DocumentFilter) -> list[Document]:
         result = await self._db.execute(
             select(DocumentModel)
-            .where(or_(*or_clauses), *space_conditions)
-            .order_by(DocumentModel.creation_date.desc())
-            .offset(offset)
-            .limit(limit)
+            .where(*self.visible_conditions(filters))
+            .order_by(DocumentModel.creation_date.desc(), DocumentModel.id.desc())
+            .offset(filters.pagination.offset)
+            .limit(filters.pagination.limit)
         )
         return [self._to_entity(orm) for orm in result.scalars().all()]
+
+    async def summarize_visible(self, filters: DocumentFilter) -> DocumentTotals:
+        result = await self._db.execute(
+            select(DocumentModel.status, func.count(), func.coalesce(func.sum(DocumentModel.chunks), 0))
+            .where(*self.visible_conditions(filters))
+            .group_by(DocumentModel.status)
+        )
+        rows = result.all()
+        return DocumentTotals(
+            by_status={status: count for status, count, _ in rows},
+            chunks=sum(chunks for _, _, chunks in rows),
+        )
 
     async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]:
         result = await self._db.execute(

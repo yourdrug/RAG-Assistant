@@ -10,6 +10,7 @@ from enum import StrEnum
 from functools import partial
 import logging
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack
+from urllib.parse import urlsplit
 
 import httpx
 from langchain_openai import ChatOpenAI
@@ -115,18 +116,39 @@ class OpenAIParameters(TypedDict, total=False):
     openai_api_key: SecretStr | None
     openai_api_base: str
     temperature: float
+    top_p: float
     max_tokens: int
     max_retries: int
     http_client: httpx.Client
     http_async_client: httpx.AsyncClient
     request_timeout: float
     stream_usage: bool
+    extra_body: dict[str, Any]
+
+
+GENERATION_ROLES = frozenset({ChatModelRole.DEFAULT, ChatModelRole.NARROW, ChatModelRole.BROAD})
+OPENROUTER_HOST = "openrouter.ai"
+
+
+def reasoning_off_body(base_url: str) -> dict[str, Any]:
+    """Request fields that switch off the thinking phase of hybrid reasoning models.
+
+    OpenRouter normalizes reasoning control across providers; self-hosted servers
+    (vLLM, SGLang) take the chat-template switch that Qwen3-style templates read.
+    """
+    host = (urlsplit(base_url).hostname or "").lower()
+
+    if host == OPENROUTER_HOST or host.endswith(f".{OPENROUTER_HOST}"):
+        return {"reasoning": {"enabled": False}}
+
+    return {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 def build_chat_model(role: ChatModelRole, **options: Unpack[ChatModelOptions]) -> ChatOpenAI:
     """Build a chat client from one settings snapshot and its call role."""
     model = (options.get("model") or ml_client_settings()).model_copy()
     temperature = options.get("temperature")
+    top_p = options.get("top_p")
     num_predict = options.get("num_predict")
     model_name = options.get("model_name")
     output_limits = {
@@ -158,8 +180,14 @@ def build_chat_model(role: ChatModelRole, **options: Unpack[ChatModelOptions]) -
     if role != ChatModelRole.BENCHMARK:
         parameters["request_timeout"] = 10 if role == ChatModelRole.AUXILIARY else 120
 
-    if role not in (ChatModelRole.AUXILIARY, ChatModelRole.BENCHMARK):
+    if role in GENERATION_ROLES:
         parameters["stream_usage"] = True
+        # Auxiliary and benchmark calls run at temperature 0, where top-p has no effect.
+        parameters["top_p"] = top_p if top_p is not None else model.llm_top_p
+
+    # The benchmark judge budgets its own reasoning; every other call needs only the answer.
+    if role != ChatModelRole.BENCHMARK and model.llm_disable_reasoning:
+        parameters["extra_body"] = reasoning_off_body(model.llm_base_url)
 
     return ChatOpenAI(**parameters)
 

@@ -23,6 +23,7 @@ class LoginResult:
     access_token: str
     role: str
     kind: str
+    user_id: int
 
 
 @dataclass(frozen=True)

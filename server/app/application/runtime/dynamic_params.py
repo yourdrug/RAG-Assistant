@@ -222,6 +222,12 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("llm_temperature", float, DynamicParamCategory.LLM, "LLM temperature", 0.0, 2.0),
     DynamicParam("llm_top_p", float, DynamicParamCategory.LLM, "LLM top-p", 0.0, 1.0),
     DynamicParam(
+        "llm_disable_reasoning",
+        bool,
+        DynamicParamCategory.LLM,
+        "Ask hybrid reasoning models to answer without a thinking phase",
+    ),
+    DynamicParam(
         "llm_num_ctx_narrow", int, DynamicParamCategory.LLM, "LLM context window (narrow)", 512, 131072
     ),
     DynamicParam(

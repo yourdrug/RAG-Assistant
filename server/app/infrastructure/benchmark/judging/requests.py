@@ -24,6 +24,7 @@ from infrastructure.benchmark.judging.judge_diagnostics import (
 from infrastructure.benchmark.judging.prompts import INSTRUCTIONS, grouped_prompt
 from infrastructure.benchmark.judging.token_usage import record_judge_usage
 from infrastructure.ml.clients.llm_schemas import JudgeScore
+from infrastructure.telemetry.tracing import paid_call
 
 
 class RequestAttempt(TypedDict):
@@ -269,14 +270,17 @@ async def request_scores(
         request_started = time.monotonic()
         event["request_started"] = request_started
         event["queue_wait_sec"] = round(request_started - started, 3)
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            max_tokens=budget,
-            timeout=process_section(LLMSection).llm_auxiliary_timeout,
-        )
-    record_judge_usage(response)
+        with paid_call(
+            "chat", model, base_url=str(getattr(client, "base_url", "")), **{"rag.llm.judge": True}
+        ):
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                max_tokens=budget,
+                timeout=process_section(LLMSection).llm_auxiliary_timeout,
+            )
+            record_judge_usage(response)
     event.update(response_metadata(response))
     event["request_sec"] = round(time.monotonic() - request_started, 3)
     return response

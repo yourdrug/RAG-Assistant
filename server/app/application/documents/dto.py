@@ -94,6 +94,14 @@ class DocumentDTO:
 
 
 @dataclass(frozen=True)
+class DocumentOverviewDTO:
+    total: int
+    chunks: int
+    by_status: dict[str, int]
+    failed: list[DocumentDTO]
+
+
+@dataclass(frozen=True)
 class ClientInfo:
     id: int
     email: str

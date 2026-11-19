@@ -72,7 +72,7 @@ export function AdminLayout() {
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                     active
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/70",
+                      : "text-sidebar-foreground",
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -83,7 +83,7 @@ export function AdminLayout() {
           </nav>
 
           <Separator className="my-4" />
-          <div className="mb-2 px-3 text-xs font-semibold uppercase text-sidebar-foreground/50">
+          <div className="mb-2 px-3 text-xs font-semibold uppercase text-sidebar-foreground/75">
             Admin
           </div>
           <nav className="space-y-1">
@@ -109,7 +109,7 @@ export function AdminLayout() {
                       : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                     active
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/70",
+                      : "text-sidebar-foreground",
                   )}
                 >
                   <Icon className="h-4 w-4" />

@@ -14,13 +14,13 @@ from application.documents import (
     DocumentDTO,
     DocumentQueryService,
 )
-from application.documents.dto import ClientInfo
+from application.documents.dto import ClientInfo, DocumentOverviewDTO
 from application.ports.action_logger import ActionLoggerPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import UploadConfig
 from application.spaces import KnowledgeSpaceService
 from domain.identity.capabilities import Capability
-from domain.knowledge.enums import DocumentVisibility
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.runtime.jobs import BackgroundJobStatus
 from presentation.api.auth_dependencies import get_current_user, require_capability
 from presentation.api.dependencies import (
@@ -46,6 +46,7 @@ from presentation.api.schemas import (
     DocumentResponse,
     UploadStatusResponse,
 )
+from presentation.api.schemas.documents import DocumentOverviewResponse
 from presentation.api.schemas.validators import validate_uploaded_file
 
 
@@ -169,6 +170,7 @@ async def list_documents(
     ] = 200,
     offset: Annotated[int, Query(ge=0)] = 0,
     space_id: Annotated[int | None, Query(description="Only documents of this knowledge space")] = None,
+    status: Annotated[DocumentStatus | None, Query()] = None,
     current_user: Annotated[CurrentUser, Depends(require_capability(Capability.DOCUMENTS_VIEW))],
     query: Annotated[DocumentQueryService, Depends(create_document_query_service)],
 ) -> list[DocumentDTO]:
@@ -179,7 +181,17 @@ async def list_documents(
         limit=limit,
         offset=offset,
         space_id=space_id,
+        status=status,
     )
+
+
+@router.get("/documents/overview", response_model=DocumentOverviewResponse)
+async def document_overview(
+    *,
+    current_user: Annotated[CurrentUser, Depends(require_capability(Capability.DOCUMENTS_VIEW))],
+    query: Annotated[DocumentQueryService, Depends(create_document_query_service)],
+) -> DocumentOverviewDTO:
+    return await query.get_overview(current_user.id, current_user.kind, current_user.role)
 
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)

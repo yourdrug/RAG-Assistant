@@ -55,10 +55,11 @@ from domain.knowledge.repositories.chunk import (
     DEFAULT_CHUNK_INSERT_OPTIONS,
     DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
 )
+from domain.knowledge.repositories.document import DocumentTotals
 from domain.knowledge.space import KnowledgeSpace
 from domain.rag.breadth import Breadth
 from domain.rag.result import RagResult
-from domain.runtime.jobs import JobConcurrencyLimitReachedError
+from domain.runtime.jobs import IndexingQueueSnapshot, JobConcurrencyLimitReachedError
 from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError, ValidationError
 from domain.shared.pagination import CursorPage, encode_cursor
 
@@ -666,10 +667,27 @@ class FakeDocumentRepository:
         visible = [
             d
             for d in self._documents.values()
-            if can_view_document(d, filters.user) and filters.space_id in (None, d.space_id)
+            if can_view_document(d, filters.user)
+            and filters.space_id in (None, d.space_id)
+            and filters.status in (None, d.status)
         ]
         page = filters.pagination
         return visible[page.offset : page.offset + page.limit]
+
+    async def summarize_visible(self, filters: DocumentFilter) -> DocumentTotals:
+        by_status: dict[str, int] = {}
+        chunks = 0
+
+        for doc in self._documents.values():
+            if (
+                can_view_document(doc, filters.user)
+                and filters.space_id in (None, doc.space_id)
+                and filters.status in (None, doc.status)
+            ):
+                by_status[doc.status.value] = by_status.get(doc.status.value, 0) + 1
+                chunks += doc.chunks or 0
+
+        return DocumentTotals(by_status=by_status, chunks=chunks)
 
     async def save(self, document: Document) -> Document:
         document.id = self._next_id
@@ -1146,6 +1164,10 @@ class FakeBackgroundJobRepository:
     async def save_progress(self, job_id: int, progress: dict[str, str]) -> None:
         self.jobs[job_id].progress = dict(progress)
 
+    async def trace_context(self, job_id: int) -> dict[str, str] | None:
+        del job_id
+        return None
+
     async def create(self, job: BackgroundJob) -> BackgroundJob:
         job.id = len(self.jobs) + 1
         self.jobs[job.id] = job
@@ -1238,6 +1260,9 @@ class FakeBackgroundJobRepository:
 
     async def count_active(self) -> int:
         return 0
+
+    async def indexing_queue_snapshot(self) -> IndexingQueueSnapshot:
+        return IndexingQueueSnapshot()
 
     async def delete_old(self, days: int, limit: int = 1000) -> int:
         del days, limit

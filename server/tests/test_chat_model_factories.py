@@ -71,8 +71,37 @@ def test_roles_preserve_options(
         assert "request_timeout" not in options
 
     assert options.get("stream_usage", False) == (not auxiliary and not benchmark)
+    assert options.get("top_p") == (None if auxiliary or benchmark else 0.8)
     constructors.http_client.assert_called_once_with(follow_redirects=False)
     constructors.async_http_client.assert_called_once_with(follow_redirects=False)
+
+
+@pytest.mark.parametrize("role", list(factories.ChatModelRole))
+@pytest.mark.parametrize(
+    "base_url,body",
+    [
+        ("https://openrouter.ai/api/v1", {"reasoning": {"enabled": False}}),
+        ("http://vllm:8000/v1", {"chat_template_kwargs": {"enable_thinking": False}}),
+    ],
+)
+def test_reasoning_is_disabled_for_answer_calls(
+    constructors: SimpleNamespace,
+    model_settings: Settings,
+    role: factories.ChatModelRole,
+    base_url: str,
+    body: dict[str, object],
+) -> None:
+    factories.build_chat_model(role, model=model_settings.model_copy(update={"llm_base_url": base_url}))
+    options = constructors.chat_openai.call_args.kwargs
+
+    assert options.get("extra_body") == (None if role == factories.ChatModelRole.BENCHMARK else body)
+
+
+def test_reasoning_switch_can_be_turned_off(constructors: SimpleNamespace, model_settings: Settings) -> None:
+    model = model_settings.model_copy(update={"llm_disable_reasoning": False})
+    factories.build_chat_model(factories.ChatModelRole.NARROW, model=model)
+
+    assert "extra_body" not in constructors.chat_openai.call_args.kwargs
 
 
 @pytest.mark.parametrize("role", list(factories.ChatModelRole))
@@ -115,6 +144,7 @@ def test_factory_overrides_and_breadth_fallback(constructors: SimpleNamespace) -
     factories.create_llm(temperature=0, top_p=0, num_ctx=0, num_predict=0, model=model)
     options = constructors.chat_openai.call_args.kwargs
     assert options["temperature"] == 0
+    assert options["top_p"] == 0
 
     assert options["max_tokens"] == 0
 

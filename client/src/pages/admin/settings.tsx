@@ -215,6 +215,7 @@ const PARAMETER_LABELS: Record<string, string> = {
   llm_auxiliary_model: "Auxiliary model",
   llm_temperature: "Creativity (temperature)",
   llm_top_p: "Token diversity (top-p)",
+  llm_disable_reasoning: "Answer without reasoning (thinking off)",
   llm_num_ctx_narrow: "Context tokens · focused questions",
   llm_num_ctx_broad: "Context tokens · broad questions",
   llm_num_predict_narrow: "Maximum answer tokens · focused questions",
@@ -435,7 +436,7 @@ export function AdminSettingsPage() {
             onChange={(e) => setEdit(p, e.target.value)}
             className="w-full"
             placeholder={
-              auxiliary ? "Empty: same as answer model" : "e.g. qwen/qwen-2.5-7b-instruct"
+              auxiliary ? "Empty: same as answer model" : "e.g. qwen/qwen3-30b-a3b-instruct-2507"
             }
           />
           <p className="text-xs text-muted-foreground">

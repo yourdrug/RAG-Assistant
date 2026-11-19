@@ -15,3 +15,6 @@ class HealthSettingsPort(Protocol):
 
     @property
     def uptime_seconds(self) -> float: ...
+
+    @property
+    def stale_pending_timeout_minutes(self) -> int: ...

@@ -106,7 +106,7 @@ async def test_domain_profile_defaults_are_seeded_in_declared_scope() -> None:
     "key, expected",
     [
         ("llm_base_url", "https://openrouter.ai/api/v1"),
-        ("llm_model", "qwen/qwen-2.5-7b-instruct"),
+        ("llm_model", "qwen/qwen3-30b-a3b-instruct-2507"),
         ("embedding_base_url", "https://api.deepinfra.com/v1/openai"),
         ("rerank_api_format", "deepinfra"),
     ],
@@ -119,7 +119,7 @@ def test_seed_uses_defaults_and_preserves_domain_scope(monkeypatch: pytest.Monke
     monkeypatch.setattr(settings, "llm_model", "existing-deployment-model")
     rows = {(p.key, p.domain_key): p for p in initialization.build_defaults()}
     assert rows[("llm_base_url", None)].value == "https://openrouter.ai/api/v1"
-    assert rows[("llm_model", None)].value == "qwen/qwen-2.5-7b-instruct"
+    assert rows[("llm_model", None)].value == "qwen/qwen3-30b-a3b-instruct-2507"
     assert not [key for key in rows if key[1] is not None or key[0] == "legal_chunk_max_tokens"]
 
 

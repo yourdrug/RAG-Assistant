@@ -28,6 +28,7 @@ from infrastructure.ml.clients import factories
 from infrastructure.ml.rag.prompt_blocks import is_not_found_answer
 from infrastructure.ml.usage_capture import extract_usage_from_langchain  # noqa: F401
 from infrastructure.redis.redis_client import redis_client
+from infrastructure.telemetry.tracing import suppress_instrumentation
 from infrastructure.worker.queues import BATCH_QUEUE, DOCUMENTS_QUEUE, MAINTENANCE_QUEUE
 
 
@@ -196,6 +197,11 @@ QDRANT_POINTS = Gauge(
     "Number of points in Qdrant collection",
 )
 
+QDRANT_POINTS_COLLECTED_AT = Gauge(
+    "qdrant_collection_points_collected_at_seconds",
+    "Unix timestamp of the last successful Qdrant point sample",
+)
+
 
 # ---------------------------------------------------------------------------
 # Config listener metrics
@@ -333,9 +339,13 @@ async def collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
         if ml_clients is not None
         else factories.create_qdrant_client()
     )
-    # Sync qdrant-client call — must not run on the event loop.
-    info = await asyncio.to_thread(client.get_collection, process_section(VectorStoreSection).collection_name)
+    # Sync qdrant-client call — must not run on the event loop. A periodic gauge is not a trace.
+    with suppress_instrumentation():
+        info = await asyncio.to_thread(
+            client.get_collection, process_section(VectorStoreSection).collection_name
+        )
     QDRANT_POINTS.set(info.points_count or 0)
+    QDRANT_POINTS_COLLECTED_AT.set(time() if info.points_count is not None else 0)
 
 
 async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
@@ -356,6 +366,7 @@ async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
     try:
         await collect_qdrant_metrics(ml_clients)
     except Exception as e:
+        QDRANT_POINTS_COLLECTED_AT.set(0)
         log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e, exc_info=True)
 
 

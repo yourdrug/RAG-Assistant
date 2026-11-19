@@ -13,6 +13,7 @@ from config import JobsSection, process_section
 from domain.runtime.jobs import (
     BackgroundJob,
     BackgroundJobStatus,
+    IndexingQueueSnapshot,
     JobAdmissionError,
     JobConcurrencyLimitReachedError,
     JobType,
@@ -20,9 +21,11 @@ from domain.runtime.jobs import (
 from domain.shared.exceptions import BusinessRuleViolationError
 from infrastructure.database.models import BackgroundJobModel
 from infrastructure.metrics.jobs import measure_fencing
+from infrastructure.telemetry.tracing import current_trace_carrier
 
 
 if TYPE_CHECKING:
+    from sqlalchemy import ColumnElement
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from domain.runtime.jobs import ConcurrencyLimit
@@ -30,6 +33,17 @@ if TYPE_CHECKING:
 # A job still sitting in the broker is re-published at most this often; the
 # broker refuses the duplicate ID, and a lost delivery is restored within it.
 REDISPATCH_AFTER = timedelta(seconds=60)
+
+
+def expired_execution(now: datetime, timeout_minutes: int) -> ColumnElement[bool]:
+    return or_(
+        BackgroundJobModel.lease_until <= now,
+        BackgroundJobModel.lease_until.is_(None)
+        & (
+            func.coalesce(BackgroundJobModel.heartbeat_at, BackgroundJobModel.started_at)
+            < now - timedelta(minutes=timeout_minutes)
+        ),
+    )
 
 
 class SQLAlchemyBackgroundJobRepository:
@@ -60,6 +74,13 @@ class SQLAlchemyBackgroundJobRepository:
             progress=orm.progress,
         )
 
+    async def trace_context(self, job_id: int) -> dict[str, str] | None:
+        """W3C trace context recorded when the job was submitted (None for untraced jobs)."""
+        result = await self._db.execute(
+            select(BackgroundJobModel.trace_context).where(BackgroundJobModel.id == job_id)
+        )
+        return result.scalar_one_or_none()
+
     async def create(self, job: BackgroundJob) -> BackgroundJob:
         if job.job_type in {JobType.DOCUMENT_PROCESSING, JobType.INGEST, JobType.INGEST_FILE}:
             await self.check_admission((job.dispatch_payload or {}).get("cost_principal"))
@@ -73,6 +94,8 @@ class SQLAlchemyBackgroundJobRepository:
             payload_version=job.payload_version,
             deduplication_key=job.deduplication_key,
             progress=job.progress,
+            # Kept out of the payload contract: relays and task handlers of any version ignore it.
+            trace_context=current_trace_carrier() or None,
         )
         self._db.add(orm)
         try:
@@ -439,6 +462,36 @@ class SQLAlchemyBackgroundJobRepository:
             update(BackgroundJobModel).where(BackgroundJobModel.id == job_id).values(**values)
         )
 
+    async def indexing_queue_snapshot(self) -> IndexingQueueSnapshot:
+        now = datetime.now(UTC)
+        pending = BackgroundJobModel.status == BackgroundJobStatus.PENDING.value
+        running = BackgroundJobModel.status == BackgroundJobStatus.RUNNING.value
+        ready_since = func.coalesce(BackgroundJobModel.next_attempt_at, BackgroundJobModel.creation_date)
+        pending_count, running_count, oldest, expired = (
+            await self._db.execute(
+                select(
+                    func.count().filter(pending),
+                    func.count().filter(running),
+                    func.min(ready_since).filter(pending, ready_since <= now),
+                    func.count().filter(
+                        running,
+                        expired_execution(now, process_section(JobsSection).stuck_job_timeout_minutes),
+                    ),
+                ).where(
+                    BackgroundJobModel.job_type.in_(
+                        (JobType.DOCUMENT_PROCESSING, JobType.INGEST, JobType.INGEST_FILE)
+                    ),
+                    or_(pending, running),
+                )
+            )
+        ).one()
+        return IndexingQueueSnapshot(
+            pending=pending_count,
+            running=running_count,
+            oldest_ready_seconds=max(0, int((now - oldest).total_seconds())) if oldest is not None else None,
+            expired_leases=expired,
+        )
+
     async def lock_expired(self, timeout_minutes: int, limit: int = 100) -> list[BackgroundJob]:
         """Lock RUNNING jobs whose owner stopped renewing; concurrent recoveries skip them."""
         now = datetime.now(UTC)
@@ -446,14 +499,7 @@ class SQLAlchemyBackgroundJobRepository:
             select(BackgroundJobModel)
             .where(
                 BackgroundJobModel.status == BackgroundJobStatus.RUNNING.value,
-                or_(
-                    BackgroundJobModel.lease_until <= now,
-                    BackgroundJobModel.lease_until.is_(None)
-                    & (
-                        func.coalesce(BackgroundJobModel.heartbeat_at, BackgroundJobModel.started_at)
-                        < now - timedelta(minutes=timeout_minutes)
-                    ),
-                ),
+                expired_execution(now, timeout_minutes),
             )
             .order_by(BackgroundJobModel.id)
             .limit(limit)

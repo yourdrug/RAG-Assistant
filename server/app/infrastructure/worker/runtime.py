@@ -12,12 +12,14 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from arq import Retry
+from opentelemetry.trace import SpanKind
 
 from application.benchmark.sweep_jobs import IncompleteEvaluationError
 from application.jobs.execution import ExecutionLeaseLostError, JobExecution, current_execution
 from application.jobs.principal import job_principal
 from domain.runtime.jobs import JobConcurrencyLimitReachedError
 from infrastructure.metrics.jobs import FencingMeasurements, fencing_measurements, record_job_event
+from infrastructure.telemetry.tracing import context_from_carrier, step_span, tracing_enabled
 from infrastructure.worker.outcomes import job_error_message
 from infrastructure.worker.policy import (
     DEFAULT_MAX_TRIES,
@@ -209,6 +211,19 @@ async def run_tracked_job(  # noqa: C901, PLR0913, PLR0915 -- claim and outcome 
             await finish_attempt(uow_factory, job_id, attempt_id)
 
 
+async def submitted_trace(uow_factory: UnitOfWorkFactory, job_id: int) -> dict[str, str] | None:
+    """Trace context of the submitting request; a lookup failure only detaches the job trace."""
+    if not tracing_enabled():
+        return None
+
+    try:
+        async with uow_factory.create(master=True) as uow:
+            return await uow.background_jobs.trace_context(job_id)
+    except Exception:
+        logger.warning("Trace context lookup failed for job %d; starting a new trace", job_id, exc_info=True)
+        return None
+
+
 def job(
     job_type: str, *, max_tries: int | None = None
 ) -> Callable[[Callable[..., Awaitable[None]]], Callable[..., Coroutine[Any, Any, None]]]:
@@ -229,16 +244,26 @@ def job(
                 async def action() -> None:
                     await function(ctx, **kwargs)
 
-                await run_tracked_job(
-                    ctx["uow_factory"],
-                    kwargs["job_id"],
-                    action,
-                    description=function.__name__,
-                    job_try=ctx.get("job_try", 1),
-                    max_tries=tries,
-                    limit=concurrency_limit(job_type),
-                    job_type=job_type,
-                )
+                with step_span(
+                    f"job {job_type}",
+                    kind=SpanKind.CONSUMER,
+                    parent=context_from_carrier(await submitted_trace(ctx["uow_factory"], kwargs["job_id"])),
+                    attributes={
+                        "rag.job.id": kwargs["job_id"],
+                        "rag.job.type": str(job_type),
+                        "rag.job.delivery": ctx.get("job_try", 1),
+                    },
+                ):
+                    await run_tracked_job(
+                        ctx["uow_factory"],
+                        kwargs["job_id"],
+                        action,
+                        description=function.__name__,
+                        job_try=ctx.get("job_try", 1),
+                        max_tries=tries,
+                        limit=concurrency_limit(job_type),
+                        job_type=job_type,
+                    )
             finally:
                 job_principal.reset(token)
 

@@ -1,5 +1,8 @@
 """Exercise both SQL ACL consumers against allowed and forbidden rows."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -7,10 +10,30 @@ from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, 
 
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.knowledge.repositories.document import DocumentFilter
+from domain.knowledge.enums import DocumentStatus
+from domain.knowledge.repositories.document import DocumentFilter, DocumentTotals
 from infrastructure.database.models import ChunkModel, DocumentModel
 from infrastructure.repositories.chunk.chunk_search import build_acl_clauses
 from infrastructure.repositories.document.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
+
+
+async def assert_document_overview(connection: Connection, user: UserContext, expected: set[int]) -> None:
+    session = MagicMock()
+    session.execute = AsyncMock(side_effect=connection.execute)
+    repo = SQLAlchemyDocumentRepository(session)
+    failed_ids = {doc_id for doc_id in expected if doc_id % 2}
+    done_ids = expected - failed_ids
+    assert await repo.summarize_visible(DocumentFilter(user)) == DocumentTotals(
+        by_status={status: len(ids) for status, ids in (("done", done_ids), ("failed", failed_ids)) if ids},
+        chunks=sum(done_ids),
+    )
+    failed_filter = DocumentFilter(user, status=DocumentStatus.FAILED)
+    failed = select(DocumentModel.id).where(*repo.visible_conditions(failed_filter))
+    assert set(connection.scalars(failed)) == failed_ids
 
 
 @pytest.mark.asyncio
@@ -70,6 +93,8 @@ async def test_sql_consumers_preserve_scope(
         Column("visibility", String),
         Column("owner_id", Integer),
         Column("group_id", Integer),
+        Column("status", String),
+        Column("chunks", Integer),
     )
     rows = [
         (1, "internal_public", None, None),
@@ -82,17 +107,31 @@ async def test_sql_consumers_preserve_scope(
         (8, "client_private", 20, None),
         (9, "client_private", 30, None),
     ]
+
+    if role == "admin" and for_list:
+        expected = expected | {7, 8, 9}
+
     try:
         with engine.begin() as connection:
             table.create(connection)
             connection.execute(
                 table.insert(),
-                [dict(zip(("id", "visibility", "owner_id", "group_id"), row, strict=True)) for row in rows],
+                [
+                    {
+                        "id": doc_id,
+                        "visibility": visibility,
+                        "owner_id": owner_id,
+                        "group_id": group_id,
+                        "status": "failed" if doc_id % 2 else "done",
+                        "chunks": None if doc_id % 2 else doc_id,
+                    }
+                    for doc_id, visibility, owner_id, group_id in rows
+                ],
             )
             actual = set(connection.scalars(select(model.id).where(predicate)))
 
-        if role == "admin" and for_list:
-            expected = expected | {7, 8, 9}
+            if for_list:
+                await assert_document_overview(connection, user, expected)
 
         assert actual == expected
     finally:

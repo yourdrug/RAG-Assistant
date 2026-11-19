@@ -10,6 +10,7 @@ from config import (
     ChatSection,
     ChunkingSection,
     HybridSearchSection,
+    JobsSection,
     LLMSection,
     MLProviderSection,
     OCRSection,
@@ -172,6 +173,10 @@ class LiveHealthSettings:
     @property
     def uptime_seconds(self) -> float:
         return process_section(AppSection).uptime_seconds
+
+    @property
+    def stale_pending_timeout_minutes(self) -> int:
+        return process_section(JobsSection).stale_pending_timeout_minutes
 
 
 class LiveConfigAdminSettings:

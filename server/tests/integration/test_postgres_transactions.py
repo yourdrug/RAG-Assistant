@@ -368,6 +368,42 @@ async def test_stale_pending_preserves_durable_dispatch_but_fails_legacy_jobs(pg
         assert pending[0].status == BackgroundJobStatus.PENDING
 
 
+async def test_indexing_queue_snapshot_scopes_due_work_and_expired_leases(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    now = datetime.now(UTC)
+    old = now - timedelta(days=1)
+    fresh = now + timedelta(minutes=10)
+    async with sessions.begin() as session:
+        session.add_all(
+            [
+                BackgroundJobModel(
+                    job_type=JobType.DOCUMENT_PROCESSING,
+                    status="pending",
+                    creation_date=now - timedelta(seconds=75),
+                ),
+                BackgroundJobModel(
+                    job_type=JobType.INGEST_FILE,
+                    status="pending",
+                    creation_date=old,
+                    next_attempt_at=fresh,
+                ),
+                BackgroundJobModel(job_type=JobType.BENCHMARK, status="pending", creation_date=old),
+                BackgroundJobModel(job_type=JobType.INGEST, status="running", lease_until=old),
+                BackgroundJobModel(job_type=JobType.INGEST_FILE, status="running", lease_until=fresh),
+                BackgroundJobModel(job_type=JobType.DOCUMENT_PROCESSING, status="running", started_at=old),
+                BackgroundJobModel(job_type=JobType.SWEEP, status="running", lease_until=old),
+            ]
+        )
+    async with sessions() as session:
+        summary = await SQLAlchemyBackgroundJobRepository(session).indexing_queue_snapshot()
+
+    assert summary.pending == 2
+    assert summary.running == 3
+    assert summary.oldest_ready_seconds is not None
+    assert 75 <= summary.oldest_ready_seconds < 120
+    assert summary.expired_leases == 2
+
+
 async def test_two_workers_have_only_one_execution_owner(pg_engine: AsyncEngine) -> None:
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:

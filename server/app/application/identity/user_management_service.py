@@ -74,6 +74,14 @@ class UserManagementService:
                 total,
             )
 
+    async def get_user_logins(self, user_ids: list[int]) -> dict[int, str]:
+        if not user_ids:
+            return {}
+
+        async with self._uow_factory.create(master=True) as uow:
+            users = await uow.users.get_by_ids(user_ids)
+            return {user.id: user.email for user in users if user.id is not None}
+
     async def set_active(self, user_id: int, *, is_active: bool, admin_id: int) -> ToggleActiveResult:
         async with self._uow_factory.create(master=True) as uow:
             user = await uow.users.get_by_id(user_id)

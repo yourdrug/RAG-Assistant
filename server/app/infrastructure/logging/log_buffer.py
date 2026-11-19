@@ -33,6 +33,7 @@ class LogBufferHandler(logging.Handler):
                 "logger": record.name,
                 "request_id": getattr(record, "request_id", "-"),
                 "message": record.getMessage(),
+                "user_id": getattr(record, "action_user_id", None),
                 "filename": getattr(record, "filename", None),
                 "lineno": getattr(record, "lineno", None),
             }

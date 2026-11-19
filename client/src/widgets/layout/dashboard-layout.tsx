@@ -185,13 +185,13 @@ export function DashboardLayout() {
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                     active
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/70",
+                      : "text-sidebar-foreground",
                   )}
                 >
                   <Icon className="h-4 w-4" />
                   {item.title}
                   {item.href === "/chat" && (
-                    <History className="ml-auto h-3.5 w-3.5 text-sidebar-foreground/40" />
+                    <History className="ml-auto h-3.5 w-3.5 text-sidebar-foreground/70" />
                   )}
                 </Link>
               );
@@ -201,7 +201,7 @@ export function DashboardLayout() {
           {canAccessAdmin && (
             <>
               <Separator className="my-4" />
-              <div className="mb-2 px-3 text-xs font-semibold uppercase text-sidebar-foreground/50">
+              <div className="mb-2 px-3 text-xs font-semibold uppercase text-sidebar-foreground/75">
                 Admin
               </div>
               <nav className="space-y-1">
@@ -230,7 +230,7 @@ export function DashboardLayout() {
                             : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                           active
                             ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                            : "text-sidebar-foreground/70",
+                            : "text-sidebar-foreground",
                         )}
                       >
                         <Icon className="h-4 w-4" />
@@ -285,20 +285,20 @@ export function DashboardLayout() {
                     "flex w-full items-start gap-2 rounded-md px-3 py-2 text-left text-sm transition-all duration-150 cursor-pointer",
                     activeConversationId === String(conv.id)
                       ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground hover:shadow-sm",
+                      : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground hover:shadow-sm",
                   )}
                 >
                   <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="line-clamp-2 break-all">{formatConvTitle(conv.title)}</div>
-                    <div className="text-xs text-sidebar-foreground/40">
+                    <div className="text-xs text-sidebar-foreground/70">
                       {formatConvDate(conv.created_at)}
                     </div>
                   </div>
                 </button>
               ))}
               {convData?.conversations?.length === 0 && (
-                <p className="px-3 py-4 text-xs text-center text-sidebar-foreground/40">
+                <p className="px-3 py-4 text-xs text-center text-sidebar-foreground/70">
                   No dialogues yet
                 </p>
               )}

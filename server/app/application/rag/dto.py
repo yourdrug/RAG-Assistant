@@ -110,6 +110,8 @@ class SanitizedAnswer:
     # None when no LLM was called (grounded answer) or it produced no text.
     ttft_sec: float | None = None
     outcome: AnswerOutcome = AnswerOutcome.GENERATED
+    # The provider stopped at the output token limit; the text is incomplete and is not cached.
+    truncated: bool = False
 
 
 class SourceMetadata(TypedDict, total=False):

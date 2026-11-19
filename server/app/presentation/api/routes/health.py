@@ -6,10 +6,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
 
-from application.health.service import HealthService
+from application.health.service import HealthService, OperationalHealth
 from application.runtime.enums import HealthStatus
+from presentation.api.auth_dependencies import require_admin
 from presentation.api.dependencies import create_health_service
 from presentation.api.schemas import HealthCheck, HealthResponse
+from presentation.api.schemas.health import OperationalHealthResponse
 
 
 router = APIRouter(tags=["health"])
@@ -36,6 +38,13 @@ async def health(
 async def live() -> dict[str, str]:
     """Process liveness; independent of external dependencies."""
     return {"status": HealthStatus.OK.value}
+
+
+@router.get("/admin/health", response_model=OperationalHealthResponse, dependencies=[Depends(require_admin)])
+async def operational_health(
+    *, health_service: Annotated[HealthService, Depends(create_health_service)]
+) -> OperationalHealth:
+    return await health_service.check_operational_health()
 
 
 @router.get("/ready", response_model=HealthResponse, include_in_schema=False)

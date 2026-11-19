@@ -17,3 +17,20 @@ class HealthResponse(BaseModel):
     uptime_seconds: float
     checks: dict[str, HealthCheck]
     background_jobs: dict[str, int]
+
+
+class IndexingQueueResponse(BaseModel):
+    pending: int
+    running: int
+    oldest_ready_seconds: int | None
+    expired_leases: int
+
+
+class IndexingHealthResponse(BaseModel):
+    queue: IndexingQueueResponse
+    degraded: bool
+
+
+class OperationalHealthResponse(BaseModel):
+    storage: HealthCheck
+    indexing: IndexingHealthResponse | None

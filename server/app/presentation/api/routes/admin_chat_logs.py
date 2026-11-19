@@ -46,6 +46,7 @@ class ChatLogQuery:
     space_id: Annotated[int | None, Query(gt=0)] = None
     outcome: Annotated[AnswerOutcome | None, Query()] = None
     model: Annotated[str | None, Query()] = None
+    error_code: Annotated[str | None, Query()] = None
     breadth: Annotated[Literal["narrow", "broad"] | None, Query()] = None
     config_hash: Annotated[str | None, Query(pattern="^[a-f0-9]{64}$")] = None
     rating: Annotated[Literal["up", "down", "none"] | None, Query()] = None

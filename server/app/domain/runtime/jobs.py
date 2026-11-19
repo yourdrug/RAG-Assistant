@@ -32,6 +32,14 @@ class JobType(StrEnum):
 
 
 @dataclass(frozen=True)
+class IndexingQueueSnapshot:
+    pending: int = 0
+    running: int = 0
+    oldest_ready_seconds: int | None = None
+    expired_leases: int = 0
+
+
+@dataclass(frozen=True)
 class ConcurrencyLimit:
     """Cluster-wide cap on simultaneously running jobs of the given types."""
 

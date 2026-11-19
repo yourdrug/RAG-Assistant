@@ -108,6 +108,18 @@ tasks:
       - task: storage:init
       - task: ps
 
+  rebuild:
+    desc: "Пересобрать и перезапустить бэкенд (server, migrate, worker, worker-batch, maintenance) и фронт (client)"
+    vars:
+      APP_SERVICES: migrate server worker worker-batch maintenance client
+      FILES: -f docker-compose.yml -f docker-compose.override.yml
+    cmds:
+      # Сборка до остановки: стек простаивает только на время пересоздания, а при ошибке сборки остаётся работать.
+      - task: build
+      - "{{.COMPOSE}} {{.FILES}} stop {{.APP_SERVICES}}"
+      - "{{.COMPOSE}} {{.FILES}} up -d {{.APP_SERVICES}}"
+      - task: ps
+
   storage:init:
     desc: "Создать бакет S3/MinIO для загрузок, если его нет (идемпотентно)"
     cmds:

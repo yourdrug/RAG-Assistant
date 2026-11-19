@@ -51,7 +51,7 @@ class AuthService:
                 raise RuntimeError(msg)
 
             token = self._tokens.create_token(user_id=user.id, role=user.role)
-            return LoginResult(access_token=token, role=user.role, kind=user.kind)
+            return LoginResult(access_token=token, role=user.role, kind=user.kind, user_id=user.id)
 
     async def get_user_by_id(self, user_id: int) -> UserDTO | None:
         """Return user as UserDTO for auth lookups, or None if not found."""

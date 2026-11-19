@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -19,6 +19,11 @@ from application.runtime.enums import RerankApiFormat
 from domain.shared.exceptions import BusinessRuleViolationError
 from infrastructure.ml.clients.managed_http import ManagedHTTPPool
 from infrastructure.ml.usage_capture import record_inference_response
+from infrastructure.telemetry.tracing import paid_call
+
+
+if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
 
 
 log = logging.getLogger("default")
@@ -87,17 +92,22 @@ class EmbeddingsClient(ManagedHTTPPool):
 
         return cast("list[list[float]]", vectors)
 
+    def traced(self, count: int) -> AbstractContextManager[object]:
+        return paid_call("embeddings", self._model, base_url=self._base_url, **{"rag.batch_size": count})
+
     async def embed_query(self, text: str) -> list[float]:
-        return self.vectors(await self.post(**self.request(text)), 1)[0]
+        with self.traced(1):
+            return self.vectors(await self.post(**self.request(text)), 1)[0]
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
 
-        return self.vectors(await self.post(**self.request(texts)), len(texts))
+        with self.traced(len(texts)):
+            return self.vectors(await self.post(**self.request(texts)), len(texts))
 
     def embed_query_sync(self, text: str) -> list[float]:
-        with httpx.Client(timeout=INFERENCE_TIMEOUT, follow_redirects=False) as client:
+        with self.traced(1), httpx.Client(timeout=INFERENCE_TIMEOUT, follow_redirects=False) as client:
             return self.vectors(client.post(**self.request(text)), 1)[0]
 
 
@@ -192,15 +202,22 @@ class RerankerClient(ManagedHTTPPool):
 
         return [float(score) for score in scores]
 
+    def traced(self, count: int) -> AbstractContextManager[object]:
+        return paid_call("rerank", self._model, base_url=self._base_url, **{"rag.batch_size": count})
+
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
 
-        return self.scores(await self.post(**self.request(pairs)), len(pairs))
+        with self.traced(len(pairs)):
+            return self.scores(await self.post(**self.request(pairs)), len(pairs))
 
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
 
-        with httpx.Client(timeout=INFERENCE_TIMEOUT, follow_redirects=False) as client:
+        with (
+            self.traced(len(pairs)),
+            httpx.Client(timeout=INFERENCE_TIMEOUT, follow_redirects=False) as client,
+        ):
             return self.scores(client.post(**self.request(pairs)), len(pairs))

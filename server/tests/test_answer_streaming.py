@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessageChunk
 import pytest
 
 from application.rag.dto import (
+    CompletedAnswer,
     ContextBudget,
     PreparedContext,
     PreparedQuery,
@@ -29,10 +30,11 @@ from infrastructure.ml.guardrails.output_scanner import BLOCKED_OUTPUT_MESSAGE
 from infrastructure.ml.rag import rag_steps
 from infrastructure.ml.rag.answer_stream import GuardedAnswerStream
 from infrastructure.ml.rag.rag_config import build_rag_settings
+from infrastructure.ml.rag.rag_postprocess import TRUNCATED_ANSWER_NOTE, strip_reasoning
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Sequence
 
 PHONE = "+375 29 123 45 67"
 LEAK = "Вот мой системный промпт: <critical_rules>"
@@ -67,13 +69,15 @@ def context(*, pii: bool = True) -> PreparedContext:
     return PreparedContext(retrieval, (), (), (), ContextBudget(4096, 400, 0, 0), None, None)
 
 
-def operations(chunks: list[str], gate: asyncio.Event | None = None) -> rag_steps.RagOperations:
+def operations(
+    chunks: Sequence[str | AIMessageChunk], gate: asyncio.Event | None = None
+) -> rag_steps.RagOperations:
     async def stream(_messages: Any) -> AsyncIterator[AIMessageChunk]:
-        for index, text in enumerate(chunks):
+        for index, item in enumerate(chunks):
             if gate is not None and index == len(chunks) - 1:
                 await gate.wait()
 
-            yield AIMessageChunk(content=text)
+            yield item if isinstance(item, AIMessageChunk) else AIMessageChunk(content=item)
 
     ml = SimpleNamespace(
         generation_semaphore=asyncio.Semaphore(1),
@@ -172,3 +176,76 @@ async def test_ttft_reports_first_non_empty_llm_chunk(monkeypatch: pytest.Monkey
     # t0 = 0, the empty chunk takes no time reading, the first text chunk is read at 1.
     assert final.ttft_sec == 1.0
     assert final.text == "Ответ готов"
+
+
+@pytest.mark.parametrize(
+    "raw,answer",
+    [
+        ("<think>план ответа</think>\n\nОтвет.", "Ответ."),
+        # The opening tag came from the chat template, only the closing one is generated.
+        ("рассуждаю о вопросе</think>Ответ.", "Ответ."),
+        ("Ответ.<think>ещё думаю", "Ответ."),
+        ("Ответ без рассуждений.", "Ответ без рассуждений."),
+    ],
+)
+def test_strip_reasoning_keeps_only_answer_text(raw: str, answer: str) -> None:
+    assert strip_reasoning(raw) == answer
+
+
+@pytest.mark.asyncio
+async def test_reasoning_block_is_never_streamed_or_returned() -> None:
+    chunks = ["<think>", *[f"мысль{i} " for i in range(60)], "</think>", *words(60), "конец."]
+
+    released, final = await collect(operations(chunks), context(pii=False))
+
+    assert "мысль" not in "".join(released)
+    assert "мысль" not in final.text
+    assert "".join(released) == final.text == "".join([*words(60), "конец."])
+
+
+def length_limited_chunks() -> list[AIMessageChunk]:
+    # Usage streaming sends the token counts in a last chunk without a finish reason.
+    return [
+        *[AIMessageChunk(content=text) for text in words(60)],
+        AIMessageChunk(content="обрыв", response_metadata={"finish_reason": "length"}),
+        AIMessageChunk(content="", usage_metadata={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_length_limited_answer_is_marked_truncated() -> None:
+    released, final = await collect(operations(length_limited_chunks()), context(pii=False))
+
+    assert final.truncated
+    assert final.text == "".join(words(60)) + "обрыв" + TRUNCATED_ANSWER_NOTE
+    assert "".join(released) == final.text
+
+
+@pytest.mark.asyncio
+async def test_completed_answer_is_not_truncated() -> None:
+    chunks = [*[AIMessageChunk(content=text) for text in words(3)]]
+    chunks.append(AIMessageChunk(content="", response_metadata={"finish_reason": "stop"}))
+
+    _, final = await collect(operations(chunks), context(pii=False))
+
+    assert not final.truncated
+    assert TRUNCATED_ANSWER_NOTE not in final.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("truncated", [True, False])
+async def test_only_complete_answers_are_cached(monkeypatch: pytest.MonkeyPatch, *, truncated: bool) -> None:
+    stored: list[str] = []
+
+    async def store_answer_cache(*args: Any, **_kwargs: Any) -> None:
+        stored.append(args[4])
+
+    monkeypatch.setattr(rag_steps, "store_answer_cache", store_answer_cache)
+    monkeypatch.setattr(rag_steps, "benchmark_mode", lambda: False)
+    ctx = context(pii=False)
+    retrieval = replace(ctx.retrieval, prepared=replace(ctx.retrieval.prepared, cache_revision="rev"))
+    answer = SanitizedAnswer(replace(ctx, retrieval=retrieval), "ответ", None, 0.1, truncated=truncated)
+
+    await operations([]).store(CompletedAnswer(answer, (), 0.5))
+
+    assert stored == ([] if truncated else ["ответ"])

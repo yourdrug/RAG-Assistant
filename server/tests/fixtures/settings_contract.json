@@ -467,6 +467,12 @@
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
+  "llm_disable_reasoning": {
+    "annotation": "<class 'bool'>",
+    "default": "True",
+    "metadata": "[]",
+    "required": false
+  },
   "llm_generation_max_concurrent": {
     "annotation": "<class 'int'>",
     "default": "12",
@@ -481,7 +487,7 @@
   },
   "llm_model": {
     "annotation": "<class 'str'>",
-    "default": "'qwen/qwen-2.5-7b-instruct'",
+    "default": "'qwen/qwen3-30b-a3b-instruct-2507'",
     "metadata": "[]",
     "required": false
   },
@@ -608,6 +614,18 @@
   "ocr_vl_url": {
     "annotation": "<class 'str'>",
     "default": "'http://ocr-vl:8080'",
+    "metadata": "[]",
+    "required": false
+  },
+  "otel_enabled": {
+    "annotation": "<class 'bool'>",
+    "default": "False",
+    "metadata": "[]",
+    "required": false
+  },
+  "otel_exporter_endpoint": {
+    "annotation": "<class 'str'>",
+    "default": "''",
     "metadata": "[]",
     "required": false
   },

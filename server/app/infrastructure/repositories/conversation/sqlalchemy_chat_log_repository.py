@@ -156,7 +156,7 @@ class SQLAlchemyChatLogRepository:
 
     @staticmethod
     def apply_filters[T: tuple[Any, ...]](stmt: Select[T], filters: ChatLogFilter) -> Select[T]:
-        for name in ("user_id", "domain", "space_id", "outcome", "breadth", "config_hash"):
+        for name in ("user_id", "domain", "space_id", "outcome", "error_code", "breadth", "config_hash"):
             value = getattr(filters, name)
 
             if value is not None:
@@ -326,7 +326,7 @@ class SQLAlchemyChatLogRepository:
 
             return [dict(row) for row in (await self._db.execute(stmt)).mappings().all()]
 
-        day = func.date_trunc("day", ChatLogModel.creation_date)
+        day = func.date_trunc("day", func.timezone("UTC", ChatLogModel.creation_date))
         by_day = sorted(await groups(day, limit=None), key=lambda row: row["key"])
         return {
             **dict(totals),
