@@ -435,6 +435,7 @@ export interface BenchmarkResultDetail {
     evidence_metrics?: Record<string, number | null>;
     avg_similarity?: number;
     latency_sec?: number;
+    llm_replayed?: boolean;
   }> | null;
 }
 

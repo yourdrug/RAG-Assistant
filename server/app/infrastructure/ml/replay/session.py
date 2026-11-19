@@ -30,6 +30,7 @@ class ReplaySession:
     store: ReplayStore
     loop: asyncio.AbstractEventLoop
     stats: LLMReplayStats
+    epoch: str = ""
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def hit(self, response: RecordedResponse) -> None:
@@ -55,14 +56,16 @@ current_replay: ContextVar[ReplaySession | None] = ContextVar("llm_replay_sessio
 
 
 @asynccontextmanager
-async def llm_replay_scope(store: ReplayStore, mode: LLMReplayMode) -> AsyncIterator[LLMReplayStats]:
+async def llm_replay_scope(
+    store: ReplayStore, mode: LLMReplayMode, *, epoch: str = ""
+) -> AsyncIterator[LLMReplayStats]:
     stats = LLMReplayStats(mode=mode)
 
     if mode == LLMReplayMode.OFF:
         yield stats
         return
 
-    session = ReplaySession(mode=mode, store=store, loop=asyncio.get_running_loop(), stats=stats)
+    session = ReplaySession(mode=mode, store=store, loop=asyncio.get_running_loop(), stats=stats, epoch=epoch)
     token = current_replay.set(session)
     try:
         yield stats

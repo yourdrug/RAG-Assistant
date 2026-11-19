@@ -105,6 +105,7 @@ def compute_summary_from_results(results: list[dict[str, Any]]) -> dict[str, Any
                 "latency_sec": r["latency_sec"],
                 "generation_sec": r.get("generation_sec"),
                 "ttft_sec": r.get("ttft_sec"),
+                "llm_replayed": r.get("llm_replayed", False),
                 "breadth": r.get("breadth"),
             }
             for r in results

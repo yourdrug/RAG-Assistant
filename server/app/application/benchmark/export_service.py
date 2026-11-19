@@ -31,6 +31,7 @@ CSV_FIELDS = (
     "context_precision",
     "context_recall",
     "latency_sec",
+    "llm_replayed",
     "source_hit_rate",
     "source_mrr",
     "avg_sim",

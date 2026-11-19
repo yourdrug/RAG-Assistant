@@ -48,14 +48,18 @@ def summarize_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         if r.get("context_metrics", {}).get("context_recall") is not None
     ]
 
-    latencies = sorted(r["latency_sec"] for r in results)
+    # Cases with a replayed LLM call did not wait for the provider; their latency is not a measurement.
+    timed = [r for r in results if not r.get("llm_replayed")]
+    latencies = sorted(r["latency_sec"] for r in timed)
+    # Fully replayed results have no latency measurement at all, which is not a zero latency.
+    measured = bool(timed) or not results
     total_with_expected = sum(1 for r in results if r.get("expected_answer") is not None)
     total_input_tokens = sum(r.get("input_tokens") or 0 for r in results)
     total_output_tokens = sum(r.get("output_tokens") or 0 for r in results)
     known_cost = sum(r["cost_usd"] for r in results if r.get("cost_usd") is not None)
     cost_complete = all(r.get("cost_usd") is not None for r in results)
     total_cost = known_cost if cost_complete else None
-    rag_latencies = sorted(r["rag_latency_sec"] for r in results if r.get("rag_latency_sec") is not None)
+    rag_latencies = sorted(r["rag_latency_sec"] for r in timed if r.get("rag_latency_sec") is not None)
 
     return {
         **summarize_evidence(results),
@@ -65,7 +69,8 @@ def summarize_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         "total_questions": len(results),
         **judge_coverage(results),
         "pct_with_expected_answer": round(total_with_expected / len(results) * 100, 1) if results else 0,
-        "total_time_sec": round(sum(latencies), 1),
+        "total_time_sec": round(sum(r["latency_sec"] for r in results), 1),
+        "latency_replayed_excluded": len(results) - len(timed),
         "hit_rate": round(sum(hit_rates) / len(hit_rates), 3) if hit_rates else None,
         "avg_mrr": round(sum(mrrs) / len(mrrs), 3) if mrrs else None,
         "avg_faithfulness": round(sum(faiths) / len(faiths), 1) if faiths else None,
@@ -74,11 +79,11 @@ def summarize_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         "avg_similarity": round(sum(sims) / len(sims), 3) if sims else 0,
         "avg_context_precision": round(sum(cp_scores) / len(cp_scores), 1) if cp_scores else None,
         "avg_context_recall": round(sum(cr_scores) / len(cr_scores), 1) if cr_scores else None,
-        "latency_p50": round(percentile(latencies, 50), 2),
-        "latency_p95": round(percentile(latencies, 95), 2),
-        "latency_p99": round(percentile(latencies, 99), 2),
-        "latency_min": round(latencies[0], 2) if latencies else 0,
-        "latency_max": round(latencies[-1], 2) if latencies else 0,
+        "latency_p50": round(percentile(latencies, 50), 2) if measured else None,
+        "latency_p95": round(percentile(latencies, 95), 2) if measured else None,
+        "latency_p99": round(percentile(latencies, 99), 2) if measured else None,
+        "latency_min": (round(latencies[0], 2) if latencies else 0) if measured else None,
+        "latency_max": (round(latencies[-1], 2) if latencies else 0) if measured else None,
         **summarize_retrieval(results),
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
@@ -86,7 +91,9 @@ def summarize_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         "total_judge_output_tokens": sum(r.get("judge_output_tokens", 0) for r in results),
         "total_judge_calls": sum(r.get("judge_calls", 0) for r in results),
         "usage_scope": "observed RAG model calls plus judge responses, including validation retries",
-        "rag_time_sec": round(sum(rag_latencies), 2),
+        "rag_time_sec": round(
+            sum(r["rag_latency_sec"] for r in results if r.get("rag_latency_sec") is not None), 2
+        ),
         "rag_latency_p50": round(percentile(rag_latencies, 50), 2) if rag_latencies else None,
         "rag_latency_p95": round(percentile(rag_latencies, 95), 2) if rag_latencies else None,
         "total_cost_usd": round(total_cost, 6) if total_cost is not None else None,

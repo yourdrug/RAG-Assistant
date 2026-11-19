@@ -53,6 +53,12 @@
     "metadata": "[Gt(gt=0)]",
     "required": false
   },
+  "benchmark_llm_replay_epoch": {
+    "annotation": "<class 'str'>",
+    "default": "'1'",
+    "metadata": "[]",
+    "required": false
+  },
   "benchmark_llm_replay_retention_days": {
     "annotation": "<class 'int'>",
     "default": "90",

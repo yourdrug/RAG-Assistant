@@ -11,12 +11,17 @@ from typing import TYPE_CHECKING, Protocol
 import zlib
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from infrastructure.ml.replay.recording import RecordedResponse
 
 
 if TYPE_CHECKING:
     from infrastructure.database.database import DatabaseManager
+
+
+class ReplayStoreError(RuntimeError):
+    """A store failure without the statement parameters, which hold the recorded response."""
 
 
 class ReplayStore(Protocol):
@@ -59,6 +64,14 @@ class PostgresReplayStore:
         )
 
     async def save(self, key: str, model: str | None, response: RecordedResponse) -> None:
+        try:
+            await self.upsert(key, model, response)
+        except SQLAlchemyError as error:
+            # SQLAlchemy errors render the INSERT parameters, i.e. the response body.
+            message = f"Recorded LLM response not saved: {type(error).__name__}"
+            raise ReplayStoreError(message) from None
+
+    async def upsert(self, key: str, model: str | None, response: RecordedResponse) -> None:
         async with self._database.get_session(master=True) as session:
             await session.execute(
                 text("""
@@ -88,12 +101,19 @@ class PostgresReplayStore:
             await session.commit()
 
     async def purge(self, retention_days: int) -> int:
+        return await self.delete(unused_days=retention_days)
+
+    async def delete(self, *, model: str | None = None, unused_days: int | None = None) -> int:
+        """Delete recordings, optionally only of one model or unused for ``unused_days``; all otherwise."""
         async with self._database.get_session(master=True) as session:
             result = await session.execute(
-                text(
-                    "DELETE FROM llm_replay_entries WHERE last_used_at < now() - make_interval(days => :days)"
-                ),
-                {"days": retention_days},
+                text("""
+                DELETE FROM llm_replay_entries
+                WHERE (CAST(:model AS text) IS NULL OR model = :model)
+                  AND (CAST(:days AS integer) IS NULL
+                       OR last_used_at < now() - make_interval(days => CAST(:days AS integer)))
+            """),
+                {"model": model, "days": unused_days},
             )
             await session.commit()
 

@@ -8,8 +8,11 @@ import json
 from typing import Any
 
 
-# Bump to invalidate every recorded response, e.g. after a provider silently changed a model.
+# Format of the request identity. Operators invalidate recordings with the configured epoch.
 KEY_VERSION = "v1"
+
+# Added to the usage of a replayed response so its tokens and cost are not counted as paid.
+REPLAYED_USAGE_FLAG = "replayed"
 
 # Response headers needed to replay the body as the client originally parsed it.
 REPLAYED_HEADERS = ("content-type",)
@@ -34,11 +37,18 @@ def canonical_body(body: bytes) -> bytes:
     return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
 
 
-def request_key(method: str, url: str, body: bytes) -> str:
+def request_key(method: str, url: str, body: bytes, epoch: str = "") -> str:
     """Identity of an LLM request. Headers, and so the API key, never take part."""
     digest = hashlib.sha256()
+    parts = (
+        KEY_VERSION.encode(),
+        epoch.encode(),
+        method.upper().encode(),
+        url.encode(),
+        canonical_body(body),
+    )
 
-    for part in (KEY_VERSION.encode(), method.upper().encode(), url.encode(), canonical_body(body)):
+    for part in parts:
         digest.update(len(part).to_bytes(8, "big"))
         digest.update(part)
 
@@ -105,3 +115,48 @@ def recorded_response(status_code: int, headers: dict[str, str], body: bytes) ->
     input_tokens, output_tokens = response_usage(body)
     kept = {name: headers[name] for name in REPLAYED_HEADERS if name in headers}
     return RecordedResponse(status_code, kept, body, input_tokens, output_tokens)
+
+
+def mark_usage(payload: object) -> bool:
+    if not isinstance(payload, dict) or not isinstance(payload.get("usage"), dict):
+        return False
+
+    payload["usage"][REPLAYED_USAGE_FLAG] = True
+    return True
+
+
+def mark_replayed(body: bytes) -> bytes:
+    """Flag the usage of a replayed chat completion, plain JSON or an SSE stream.
+
+    Usage capture reads the flag per call, so a replayed call is neither billed nor timed.
+    A body without usage is returned unchanged.
+    """
+    try:
+        payload: Any = json.loads(body)
+    except (UnicodeDecodeError, ValueError):
+        payload = None
+
+    if payload is not None:
+        return json.dumps(payload, ensure_ascii=False).encode() if mark_usage(payload) else body
+
+    try:
+        lines = body.decode("utf-8").split("\n")
+    except UnicodeDecodeError:
+        return body
+
+    marked = False
+
+    for index, line in enumerate(lines):
+        if not line.startswith("data:"):
+            continue
+
+        try:
+            event = json.loads(line.removeprefix("data:"))
+        except ValueError:
+            continue
+
+        if mark_usage(event):
+            lines[index] = "data: " + json.dumps(event, ensure_ascii=False)
+            marked = True
+
+    return "\n".join(lines).encode() if marked else body

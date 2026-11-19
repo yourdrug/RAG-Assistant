@@ -5,6 +5,8 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Protocol, Self, cast
 
+from infrastructure.ml.replay.recording import REPLAYED_USAGE_FLAG
+
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -117,18 +119,29 @@ def record_model_response(response: object, *, model: str = "", operation: str =
         getattr(response, "model", None) or metadata.get("model_name") or metadata.get("model") or model
     )
     response_id = metadata.get("id") or getattr(response, "id", None)
-    records.append(
-        {
-            "model": actual_model,
-            "operation": operation,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cost_usd": usage.get("cost"),
-            "response_id": response_id
-            if isinstance(response_id, str) and response_id.startswith("gen-")
-            else None,
-        }
-    )
+    record = {
+        "model": actual_model,
+        "operation": operation,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd": usage.get("cost"),
+        "response_id": response_id
+        if isinstance(response_id, str) and response_id.startswith("gen-")
+        else None,
+    }
+
+    if usage.get(REPLAYED_USAGE_FLAG) is True:
+        # A recorded response was reused: nothing was paid now, its original usage is informational.
+        record.update(
+            replayed=True,
+            replayed_input_tokens=input_tokens,
+            replayed_output_tokens=output_tokens,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+        )
+
+    records.append(record)
 
 
 def summarize_usage(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -136,6 +149,7 @@ def summarize_usage(records: list[dict[str, Any]]) -> dict[str, Any]:
     known = sum(float(record["cost_usd"]) for record in records if record.get("cost_usd") is not None)
     return {
         "calls": len(records),
+        "replayed_calls": sum(1 for record in records if record.get("replayed")),
         "input_tokens": sum(record.get("input_tokens") or 0 for record in records),
         "output_tokens": sum(record.get("output_tokens") or 0 for record in records),
         "tokens_complete": all(

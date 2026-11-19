@@ -5,23 +5,35 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import json
+import logging
+import traceback
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 import httpx
 from langchain_openai import ChatOpenAI
+from openai import AsyncOpenAI
 from pydantic import SecretStr
 import pytest
+from sqlalchemy.exc import DBAPIError
 
+from application.benchmark import compute_summary_from_results
 from application.benchmark.dto import SweepCreateDTO
+from application.benchmark.export_service import encode_csv
 from application.benchmark.jobs import BenchmarkJobService
 from application.benchmark.services import BenchmarkSweepService
 from application.benchmark.sweep import SweepRun
 from composition.service_providers import build_sweep_engine
 from domain.benchmark.llm_replay import LLMReplayMode, LLMReplayStats
-from infrastructure.ml.replay.recording import RecordedResponse, request_key, response_usage
+from infrastructure.ml.replay.recording import (
+    RecordedResponse,
+    mark_replayed,
+    request_key,
+    response_usage,
+)
 from infrastructure.ml.replay.session import llm_replay_scope
+from infrastructure.ml.replay.store import PostgresReplayStore, ReplayStoreError
 from infrastructure.ml.replay.transport import (
     LLMReplayMissError,
     ReplayAsyncTransport,
@@ -30,6 +42,13 @@ from infrastructure.ml.replay.transport import (
     llm_sync_http_client,
     wrap_async_client,
     wrap_sync_client,
+)
+from infrastructure.ml.usage_capture import (
+    UsageCapturingCompletions,
+    active_llm_usage,
+    active_stream_response,
+    record_model_response,
+    summarize_usage,
 )
 from infrastructure.worker.registry import BenchmarkPayload
 from presentation.api.helpers import sweep_create_to_dto, sweep_to_response
@@ -42,13 +61,14 @@ if TYPE_CHECKING:
 
 
 URL = "http://llm.test/v1/chat/completions"
+USAGE = {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14}
 COMPLETION = {
     "id": "c1",
     "object": "chat.completion",
     "created": 0,
     "model": "m",
     "choices": [{"index": 0, "message": {"role": "assistant", "content": "ответ"}, "finish_reason": "stop"}],
-    "usage": {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14},
+    "usage": USAGE,
 }
 
 
@@ -116,7 +136,8 @@ async def test_record_reuses_an_identical_request_regardless_of_headers_and_key_
         )
 
     assert provider.calls == 1
-    assert first.json() == second.json() == COMPLETION
+    assert first.json() == COMPLETION
+    assert second.json() == {**COMPLETION, "usage": {**USAGE, "replayed": True}}
     assert stats == LLMReplayStats(
         mode=LLMReplayMode.RECORD, hits=1, misses=1, recorded=1, saved_input_tokens=11, saved_output_tokens=3
     )
@@ -295,7 +316,7 @@ async def test_sync_client_in_a_worker_thread_uses_the_benchmark_scope() -> None
     async with llm_replay_scope(store, LLMReplayMode.RECORD) as stats:
         for _ in range(2):
             response = await asyncio.to_thread(client.post, URL, json=body())
-            assert response.json() == COMPLETION
+            assert response.json()["choices"] == COMPLETION["choices"]
 
     assert provider.calls == 1
     assert stats.hits == 1
@@ -416,3 +437,165 @@ def test_queued_benchmark_payload_defaults_to_no_replay() -> None:
     assert BenchmarkPayload.model_validate(payload).llm_replay_mode == LLMReplayMode.OFF
     replayed = BenchmarkPayload.model_validate({**payload, "llm_replay_mode": "record"})
     assert replayed.llm_replay_mode == LLMReplayMode.RECORD
+
+
+PRIVATE = "фрагмент приватного документа"
+
+
+@pytest.mark.asyncio
+async def test_store_failure_is_logged_without_the_recorded_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = Provider()
+    store = MemoryStore()
+    failure = DBAPIError("INSERT INTO llm_replay_entries", {"body": PRIVATE}, Exception(PRIVATE))
+    store.load = AsyncMock(side_effect=failure)  # type: ignore[method-assign]
+    store.save = AsyncMock(side_effect=failure)  # type: ignore[method-assign]
+    client = async_client(provider)
+
+    with caplog.at_level(logging.WARNING):
+        async with llm_replay_scope(store, LLMReplayMode.RECORD) as stats:
+            await client.post(URL, json=body())
+
+    assert stats.store_errors == 2
+    assert caplog.records
+    assert PRIVATE not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_error_does_not_carry_statement_parameters() -> None:
+    store = PostgresReplayStore(SimpleNamespace())  # type: ignore[arg-type]
+    store.upsert = AsyncMock(  # type: ignore[method-assign]
+        side_effect=DBAPIError("INSERT INTO llm_replay_entries", {"body": PRIVATE}, Exception(PRIVATE))
+    )
+
+    with pytest.raises(ReplayStoreError) as raised:
+        await store.save("k", "m", RecordedResponse(200, {}, PRIVATE.encode()))
+
+    assert PRIVATE not in "".join(traceback.format_exception(raised.value))
+
+
+@pytest.mark.asyncio
+async def test_epoch_change_stops_reusing_earlier_recordings() -> None:
+    provider, store = Provider(), MemoryStore()
+    client = async_client(provider)
+
+    async with llm_replay_scope(store, LLMReplayMode.RECORD, epoch="1"):
+        await client.post(URL, json=body())
+
+    async with llm_replay_scope(store, LLMReplayMode.RECORD, epoch="2") as stats:
+        await client.post(URL, json=body())
+
+    assert provider.calls == 2
+    assert stats.hits == 0
+
+
+def test_replay_marker_is_added_to_plain_and_streamed_usage_only() -> None:
+    marked = json.loads(mark_replayed(json.dumps(COMPLETION).encode()))
+    assert marked["usage"]["replayed"] is True
+    streamed = b'data: {"choices": []}\n\ndata: {"usage": {"prompt_tokens": 5}}\n\ndata: [DONE]\n\n'
+    lines = mark_replayed(streamed).decode().split("\n")
+    assert json.loads(lines[0].removeprefix("data:")) == {"choices": []}
+    assert json.loads(lines[2].removeprefix("data:"))["usage"]["replayed"] is True
+    assert lines[4] == "data: [DONE]"
+    assert mark_replayed(b'{"no": "usage"}') == b'{"no": "usage"}'
+
+
+@pytest.mark.asyncio
+async def test_replayed_call_is_neither_billed_nor_counted_as_paid_tokens() -> None:
+    paid = {**COMPLETION, "usage": {**USAGE, "cost": 0.01}}
+    transport = httpx.MockTransport(lambda _request: httpx.Response(200, json=paid))
+    client = AsyncOpenAI(
+        api_key="test",
+        base_url="http://llm.test/v1",
+        http_client=wrap_async_client(httpx.AsyncClient(transport=transport)),
+    )
+    records: list[dict[str, Any]] = []
+    token = active_llm_usage.set(records)
+    try:
+        async with llm_replay_scope(MemoryStore(), LLMReplayMode.RECORD):
+            for _ in range(2):
+                response = await client.chat.completions.create(
+                    model="m", messages=[{"role": "user", "content": "вопрос"}]
+                )
+                record_model_response(response, operation="judge")
+    finally:
+        active_llm_usage.reset(token)
+
+    summary = summarize_usage(records)
+    assert records[1]["replayed"] is True
+    assert (records[1]["replayed_input_tokens"], records[1]["replayed_output_tokens"]) == (11, 3)
+    assert summary["cost_usd"] == 0.01
+    assert (summary["input_tokens"], summary["output_tokens"]) == (11, 3)
+    assert summary["replayed_calls"] == 1
+
+
+@pytest.mark.asyncio
+async def test_replayed_stream_is_flagged_through_raw_usage_capture() -> None:
+    stream = (
+        'data: {"id":"s","object":"chat.completion.chunk","created":0,"model":"m",'
+        '"choices":[{"index":0,"delta":{"role":"assistant","content":"Ответ"},"finish_reason":"stop"}]}\n\n'
+        'data: {"id":"s","object":"chat.completion.chunk","created":0,"model":"m","choices":[],'
+        '"usage":{"prompt_tokens":20,"completion_tokens":2,"total_tokens":22,"cost":0.02}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(200, headers={"content-type": "text/event-stream"}, content=stream)
+    )
+    llm = ChatOpenAI(
+        model_name="m",
+        openai_api_key=SecretStr("test"),
+        openai_api_base="http://llm.test/v1",
+        max_retries=0,
+        stream_usage=True,
+        http_async_client=wrap_async_client(httpx.AsyncClient(transport=transport)),
+    )
+    llm.async_client = UsageCapturingCompletions(llm.async_client)
+    records: list[dict[str, Any]] = []
+    token = active_llm_usage.set(records)
+    try:
+        async with llm_replay_scope(MemoryStore(), LLMReplayMode.RECORD):
+            for _ in range(2):
+                raw: dict[str, Any] = {}
+                capture = active_stream_response.set(raw)
+                try:
+                    _ = [chunk async for chunk in llm.astream("вопрос")]
+                finally:
+                    active_stream_response.reset(capture)
+                record_model_response(SimpleNamespace(**raw), operation="generate")
+    finally:
+        active_llm_usage.reset(token)
+
+    assert [record.get("replayed", False) for record in records] == [False, True]
+    assert [record["cost_usd"] for record in records] == [0.02, 0.0]
+    assert records[1]["input_tokens"] == 0
+
+
+def case(case_id: int, latency: float, *, replayed: bool) -> dict[str, Any]:
+    return {
+        "id": case_id,
+        "question": "q",
+        "answer": "a",
+        "latency_sec": latency,
+        "rag_latency_sec": latency / 2,
+        "llm_replayed": replayed,
+        "retriever_metrics": {"hit_rate": 1, "mrr": 1, "avg_similarity": 0.5},
+        "generator_metrics": {"faithfulness": 8, "relevancy": 8, "correctness": 8},
+        "cost_usd": 0.0,
+    }
+
+
+def test_replayed_cases_are_excluded_from_latency_percentiles_and_flagged() -> None:
+    summary = compute_summary_from_results([case(1, 10.0, replayed=False), case(2, 0.1, replayed=True)])
+
+    assert summary["latency_p50"] == summary["latency_min"] == 10.0
+    assert summary["rag_latency_p50"] == 5.0
+    assert summary["latency_replayed_excluded"] == 1
+    assert summary["total_time_sec"] == 10.1
+    assert [row["llm_replayed"] for row in summary["results"]] == [False, True]
+    assert encode_csv(None).decode().split(",").index("llm_replayed") > 0
+    assert ",True," in encode_csv(summary["results"][1]).decode()
+    replayed_only = compute_summary_from_results([case(1, 0.1, replayed=True)])
+    assert replayed_only["latency_p50"] is None
+    assert replayed_only["rag_latency_p50"] is None

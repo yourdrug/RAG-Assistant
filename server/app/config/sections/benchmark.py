@@ -16,3 +16,6 @@ class BenchmarkSection(BaseModel):
     benchmark_judge_model: Static[str] = ""  # empty = use fast_llm for OpenRouter
     # Recorded LLM responses hold private document text; unused ones are deleted after this.
     benchmark_llm_replay_retention_days: Static[PositiveInt] = 90
+    # Part of every recorded request identity: change it to stop reusing all earlier recordings,
+    # e.g. after a provider silently updated a model under the same name.
+    benchmark_llm_replay_epoch: Static[str] = "1"

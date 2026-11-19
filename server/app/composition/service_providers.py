@@ -36,7 +36,7 @@ from application.rag.space_router import SpaceRagRouter
 from application.spaces import SpacePackHooks
 from application.spaces.resolution import default_space_ref
 from composition.utils import require
-from config import ChunkingSection, process_section
+from config import BenchmarkSection, ChunkingSection, process_section
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.space_scope import space_corpus_metadata, sweep_space_scope
@@ -157,7 +157,8 @@ def create_llm_replay_store(infra: InfrastructureContainer) -> PostgresReplaySto
 
 
 def create_llm_replay_scope(store: PostgresReplayStore) -> LLMReplayScope:
-    return partial(llm_replay_scope, store)
+    epoch = process_section(BenchmarkSection).benchmark_llm_replay_epoch
+    return partial(llm_replay_scope, store, epoch=epoch)
 
 
 def create_chunk_contextualization(infra: InfrastructureContainer) -> ChunkContextualization | None:

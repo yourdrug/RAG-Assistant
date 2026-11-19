@@ -104,10 +104,13 @@ class BenchmarkCaseEvaluator:
         token = judge_usage.set(records)
         try:
             result = await self.evaluate_case(idx, question, run_idx, ctx, checkpoint_path)
+            all_records = (result.get("rag_usage") or []) + records
+            # Replayed calls are neither paid nor timed: latency of such a case is not a measurement.
+            result["llm_replayed_calls"] = sum(1 for r in all_records if r.get("replayed"))
+            result["llm_replayed"] = result["llm_replayed_calls"] > 0
             result["judge_input_tokens"] = sum(r.get("input_tokens") or 0 for r in records)
             result["judge_output_tokens"] = sum(r.get("output_tokens") or 0 for r in records)
             result["judge_calls"] = len(records)
-            all_records = (result.get("rag_usage") or []) + records
             result["judge_usage"] = records
             result["total_usage"] = summarize_usage(all_records)
             result["total_cost_usd"] = (
@@ -271,10 +274,15 @@ class BenchmarkCaseEvaluator:
         retriever_metrics.setdefault("avg_similarity", 0.0)
         retriever_metrics.setdefault("retrieved_sources", [])
         diagnostics["judge"] = judge_metrics["details"]
+        # A replayed generation was not paid in this run.
+        generation_replayed = any(
+            record.get("replayed") and record.get("operation") == "generate"
+            for record in generated.llm_usage or []
+        )
+        input_tokens = 0 if generation_replayed else generated.input_tokens
+        output_tokens = 0 if generation_replayed else generated.output_tokens
         cost = metrics.estimate_cost_usd(
-            process_section(LLMSection).llm_model,
-            generated.input_tokens or 0,
-            generated.output_tokens or 0,
+            process_section(LLMSection).llm_model, input_tokens or 0, output_tokens or 0
         )
         return {
             "id": question.get("id", str(run.idx)),
@@ -333,8 +341,8 @@ class BenchmarkCaseEvaluator:
             "rag_cost_usd": summarize_usage(generated.llm_usage)["cost_usd"]
             if generated.llm_usage is not None
             else None,
-            "input_tokens": generated.input_tokens,
-            "output_tokens": generated.output_tokens,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
             "estimated_generation_cost_usd": round(cost, 6),
             "generation_sec": generated.generation_sec,
             "ttft_sec": generated.ttft_sec,

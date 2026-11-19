@@ -27,6 +27,7 @@ from application.spaces.resolution import default_space_ref
 from composition.cli.commands.ingest import run_with_infrastructure
 from composition.domain_packs import PACK_REGISTRATIONS, selected_pack
 from composition.infrastructure import InfrastructureContainer
+from composition.service_providers import create_llm_replay_store
 from config import LLMSection, RetrievalSection, process_section
 from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.policy import GateStatus
@@ -211,7 +212,7 @@ async def require_synced_questions(infra: InfrastructureContainer, datasets: lis
 
 
 @benchmark_app.command("run")
-def benchmark_run(
+def benchmark_run(  # noqa: PLR0913 - one parameter per CLI option
     *,
     datasets: Annotated[
         list[str] | None, typer.Option("--dataset", "-d", help="Dataset to run (repeatable); default: all")
@@ -238,7 +239,8 @@ def benchmark_run(
             "--llm-replay",
             help=(
                 "Reuse recorded LLM responses: off; record (reuse, pay and record misses); "
-                "replay_only (a miss fails the call, nothing is paid); refresh (pay and overwrite). "
+                "replay_only (a miss fails the call, no new paid LLM call); refresh (pay and overwrite). "
+                "Embeddings and the reranker are never replayed and are still paid. "
                 "Replayed answers do not measure judge noise or latency."
             ),
         ),
@@ -271,6 +273,27 @@ def benchmark_run(
 
     if not succeeded:
         raise typer.Exit(1)
+
+
+@benchmark_app.command("llm-replay-purge")
+def llm_replay_purge(
+    *,
+    purge_all: Annotated[bool, typer.Option("--all", help="Delete every recorded LLM response")] = False,
+    model: Annotated[str | None, typer.Option("--model", help="Only recordings of this model")] = None,
+    unused_days: Annotated[
+        int | None, typer.Option("--unused-days", min=1, help="Only recordings unused for this many days")
+    ] = None,
+) -> None:
+    """Delete recorded benchmark LLM responses, e.g. after a silent model update."""
+    if not purge_all and model is None and unused_days is None:
+        typer.echo("Choose recordings to delete: --all, --model or --unused-days", err=True)
+        raise typer.Exit(2)
+
+    async def run_action(infra: InfrastructureContainer) -> int:
+        return await create_llm_replay_store(infra).delete(model=model, unused_days=unused_days)
+
+    deleted = asyncio.run(run_with_infrastructure(run_action))
+    typer.echo(f"deleted {deleted} recorded LLM responses")
 
 
 async def export_run(run_id: int, export_format: str, out: Path) -> None:

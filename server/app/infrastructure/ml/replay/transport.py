@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING
 import httpx
 
 from domain.benchmark.llm_replay import LLMReplayMode
-from infrastructure.ml.replay.recording import recorded_response, request_key, request_model
+from infrastructure.ml.replay.recording import (
+    mark_replayed,
+    recorded_response,
+    request_key,
+    request_model,
+)
 from infrastructure.ml.replay.session import current_replay
 
 
@@ -41,7 +46,10 @@ def recordable(response: httpx.Response) -> bool:
 
 def replayed(recorded: RecordedResponse, request: httpx.Request) -> httpx.Response:
     return httpx.Response(
-        recorded.status_code, headers=recorded.headers, content=recorded.body, request=request
+        recorded.status_code,
+        headers=recorded.headers,
+        content=mark_replayed(recorded.body),
+        request=request,
     )
 
 
@@ -55,6 +63,16 @@ def passthrough(
         stream=stream,
         extensions=response.extensions,
     )
+
+
+def store_failed(session: ReplaySession, action: str, error: Exception) -> None:
+    """Log a store failure by type only.
+
+    Database errors carry the statement parameters, i.e. the recorded response, which may
+    quote private documents; neither the message nor the traceback is logged.
+    """
+    session.store_error()
+    log.warning("LLM replay: %s (%s)", action, type(error).__name__)
 
 
 def miss_error(request: httpx.Request) -> LLMReplayMissError:
@@ -91,9 +109,8 @@ class RecordingAsyncStream(httpx.AsyncByteStream):
             await recording.session.store.save(
                 recording.key, recording.model, recording.response(self._response, b"".join(chunks))
             )
-        except Exception:  # a lost recording only costs a future paid call
-            recording.session.store_error()
-            log.warning("LLM replay: response not recorded", exc_info=True)
+        except Exception as error:  # noqa: BLE001 — a lost recording only costs a future paid call
+            store_failed(recording.session, "response not recorded", error)
         else:
             recording.session.recorded()
 
@@ -122,9 +139,8 @@ class RecordingSyncStream(httpx.SyncByteStream):
                     recording.key, recording.model, recording.response(self._response, b"".join(chunks))
                 ),
             )
-        except Exception:  # a lost recording only costs a future paid call
-            recording.session.store_error()
-            log.warning("LLM replay: response not recorded", exc_info=True)
+        except Exception as error:  # noqa: BLE001 — a lost recording only costs a future paid call
+            store_failed(recording.session, "response not recorded", error)
         else:
             recording.session.recorded()
 
@@ -155,14 +171,13 @@ class ReplayAsyncTransport(httpx.AsyncBaseTransport):
             return await self._inner.handle_async_request(request)
 
         body = await request.aread()
-        key = request_key(request.method, str(request.url), body)
+        key = request_key(request.method, str(request.url), body, session.epoch)
 
         if session.mode != LLMReplayMode.REFRESH:
             try:
                 recorded = await session.store.load(key)
-            except Exception:  # treated as a miss below
-                session.store_error()
-                log.warning("LLM replay: lookup failed", exc_info=True)
+            except Exception as error:  # noqa: BLE001 — treated as a miss below
+                store_failed(session, "lookup failed", error)
                 recorded = None
 
             if recorded is not None:
@@ -199,14 +214,13 @@ class ReplaySyncTransport(httpx.BaseTransport):
             return self._inner.handle_request(request)
 
         body = request.read()
-        key = request_key(request.method, str(request.url), body)
+        key = request_key(request.method, str(request.url), body, session.epoch)
 
         if session.mode != LLMReplayMode.REFRESH:
             try:
                 recorded = run_on_loop(session, session.store.load(key))
-            except Exception:  # treated as a miss below
-                session.store_error()
-                log.warning("LLM replay: lookup failed", exc_info=True)
+            except Exception as error:  # noqa: BLE001 — treated as a miss below
+                store_failed(session, "lookup failed", error)
                 recorded = None
 
             if recorded is not None:

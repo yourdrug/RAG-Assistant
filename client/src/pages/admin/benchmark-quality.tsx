@@ -453,6 +453,12 @@ export function RunQuestionResults({ runId, rows }: { runId: number; rows: Quest
                     ))}
                   <TableCell className="text-xs text-muted-foreground">
                     {row.latency_sec != null ? `${row.latency_sec.toFixed(1)}s` : "-"}
+                    {row.llm_replayed && (
+                      <span title="Есть повторённые вызовы LLM: латентность не является замером">
+                        {" "}
+                        (повтор)
+                      </span>
+                    )}
                   </TableCell>
                 </TableRow>
               );
