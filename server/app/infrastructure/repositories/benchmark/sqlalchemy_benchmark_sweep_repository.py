@@ -8,6 +8,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.sweep import (
     BenchmarkStrategy,
     BenchmarkSweep,
@@ -54,6 +55,7 @@ class SQLAlchemyBenchmarkSweepRepository:
             top_n_llm=sweep.top_n_llm,
             judge_model=sweep.judge_model,
             evaluation_mode=sweep.evaluation_mode,
+            llm_replay_mode=sweep.llm_replay_mode,
             status=sweep.status,
             job_id=sweep.job_id,
             total_configs=sweep.total_configs,
@@ -236,6 +238,8 @@ class SQLAlchemyBenchmarkSweepRepository:
             top_n_llm=orm.top_n_llm,
             judge_model=orm.judge_model,
             evaluation_mode=SweepEvaluationMode(orm.evaluation_mode),
+            # NOT NULL in the database; an unsaved model has no server default yet.
+            llm_replay_mode=LLMReplayMode(orm.llm_replay_mode or LLMReplayMode.OFF),
             job_id=orm.job_id,
             total_configs=orm.total_configs,
             evaluated_configs=orm.evaluated_configs,

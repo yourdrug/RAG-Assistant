@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.policy import GateStatus
 from domain.benchmark.question import DEFAULT_DATASET, validate_annotations, validate_history
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS, validate_objective_weights
@@ -30,6 +31,13 @@ class BenchmarkRequest(BaseModel):
     )
     top_k: int | None = None
     judge_model: str | None = None
+    llm_replay_mode: LLMReplayMode = Field(
+        default=LLMReplayMode.OFF,
+        description=(
+            "Reuse of recorded LLM responses: off, record (reuse, record misses), "
+            "replay_only (a miss fails the call instead of paying), refresh (call and overwrite)."
+        ),
+    )
 
 
 class BenchmarkResponse(BaseModel):
@@ -166,6 +174,13 @@ class SweepCreateRequest(BaseModel):
     top_n_llm: int = Field(3, ge=0, le=20)
     evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
     judge_model: str | None = Field(default=None, min_length=1, max_length=255)
+    llm_replay_mode: LLMReplayMode = Field(
+        default=LLMReplayMode.OFF,
+        description=(
+            "Reuse of recorded LLM responses: off, record (reuse, record misses), "
+            "replay_only (a miss fails the call instead of paying), refresh (call and overwrite)."
+        ),
+    )
 
     @field_validator("judge_model")
     @classmethod
@@ -204,6 +219,7 @@ class SweepResponse(BaseModel):
     top_n_llm: int
     evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
     judge_model: str | None = None
+    llm_replay_mode: LLMReplayMode = LLMReplayMode.OFF
     total_configs: int
     evaluated_configs: int
     best_run_id: int | None = None

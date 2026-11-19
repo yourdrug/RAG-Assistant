@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Unpack
 from arq.jobs import Job
 from redis.exceptions import RedisError
 
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.knowledge.enums import DocumentVisibility
 from domain.runtime.jobs import JobType
 from infrastructure.worker.document_dispatch import delivery_id
@@ -108,6 +109,7 @@ class JobEnqueuerAdapter:
         judge_model: str,
         job_id: int,
         space_id: int | None = None,
+        llm_replay_mode: str = LLMReplayMode.OFF.value,
     ) -> None:
         await _enqueue_benchmark(
             dataset=dataset,
@@ -115,6 +117,7 @@ class JobEnqueuerAdapter:
             judge_model=judge_model,
             job_id=job_id,
             space_id=space_id,
+            llm_replay_mode=llm_replay_mode,
         )
 
     async def enqueue_sweep(

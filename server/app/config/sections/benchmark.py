@@ -14,3 +14,5 @@ class BenchmarkSection(BaseModel):
     benchmark_judge_initial_tokens: Static[PositiveInt] = 2048
     benchmark_judge_retry_tokens: Static[PositiveInt] = 8192
     benchmark_judge_model: Static[str] = ""  # empty = use fast_llm for OpenRouter
+    # Recorded LLM responses hold private document text; unused ones are deleted after this.
+    benchmark_llm_replay_retention_days: Static[PositiveInt] = 90

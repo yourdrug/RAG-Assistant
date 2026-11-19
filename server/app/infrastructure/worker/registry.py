@@ -2,10 +2,11 @@
 
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.knowledge.enums import DocumentVisibility
 from domain.runtime.jobs import JobType
 from infrastructure.worker.document_deletion import delete_document
@@ -71,6 +72,8 @@ class BenchmarkPayload(Payload):
     out_dir: str | None = None
     # Hash of the questions at enqueue time; the worker refuses a different set.
     dataset_hash: str | None = None
+    # Stored as its string value in the job row; strict mode would reject the string.
+    llm_replay_mode: Annotated[LLMReplayMode, Field(strict=False)] = LLMReplayMode.OFF
 
 
 class SweepPayload(Payload):

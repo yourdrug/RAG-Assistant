@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.sweep import (
     BenchmarkStrategy,
     BenchmarkSweep,
@@ -82,3 +83,4 @@ def test_orm_strings_become_enum_fields() -> None:
     assert sweep.status is BenchmarkSweepStatus.CANCELLED
     assert sweep.strategy is BenchmarkStrategy.GRID
     assert sweep.evaluation_mode is SweepEvaluationMode.FULL
+    assert sweep.llm_replay_mode is LLMReplayMode.OFF

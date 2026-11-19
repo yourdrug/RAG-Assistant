@@ -8,10 +8,15 @@ Verifies the fixes for:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import sys
-from unittest.mock import MagicMock, patch
+from typing import TYPE_CHECKING, cast
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import instructor
+from openai import AsyncOpenAI
 import pytest
 
 from infrastructure.benchmark.judging.clients import _judge_client_cache, get_judge_client
@@ -27,6 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 
 
+if TYPE_CHECKING:
+    from infrastructure.ml.clients.managed_llm import ManagedInstructor
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -36,7 +45,7 @@ def _mock_instructor_client(return_score: float = 8.0, return_reason: str = "goo
     """Create a mock instructor client that returns a valid JudgeScore."""
     client = MagicMock()
     result = JudgeScore(score=return_score, reason=return_reason)
-    client.chat.completions.create.return_value = result
+    client.chat.completions.create = AsyncMock(return_value=result)
     return client
 
 
@@ -46,15 +55,17 @@ def _mock_instructor_client(return_score: float = 8.0, return_reason: str = "goo
 
 
 class TestJudgeWithStructuredOutput:
-    def test_returns_judge_score(self) -> None:
+    @pytest.mark.asyncio
+    async def test_returns_judge_score(self) -> None:
 
         client = _mock_instructor_client(return_score=7.5, return_reason="decent")
-        result = judge_with_structured_output(client, "test prompt", "model")
+        result = await judge_with_structured_output(client, "test prompt", "model")
         assert isinstance(result, JudgeScore)
         assert result.score == 7.5
         client.chat.completions.create.assert_called_once()
 
-    def test_no_tenacity_retry_on_failure(self) -> None:
+    @pytest.mark.asyncio
+    async def test_no_tenacity_retry_on_failure(self) -> None:
         """When instructor raises, judge_with_structured_output should NOT retry externally.
 
         The old code had @retry(stop=stop_after_attempt(3)) which would catch
@@ -62,19 +73,20 @@ class TestJudgeWithStructuredOutput:
         """
 
         client = MagicMock()
-        client.chat.completions.create.side_effect = RuntimeError("LLM unavailable")
+        client.chat.completions.create = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
 
         with pytest.raises(RuntimeError, match="LLM unavailable"):
-            judge_with_structured_output(client, "prompt", "model")
+            await judge_with_structured_output(client, "prompt", "model")
 
         # Called exactly once — no outer retry
         assert client.chat.completions.create.call_count == 1
 
-    def test_instructor_max_retries_is_two(self) -> None:
+    @pytest.mark.asyncio
+    async def test_instructor_max_retries_is_two(self) -> None:
         """Verify the instructor call uses max_retries=2 (not 3 or more)."""
 
         client = _mock_instructor_client()
-        judge_with_structured_output(client, "prompt", "model")
+        await judge_with_structured_output(client, "prompt", "model")
 
         call_kwargs = client.chat.completions.create.call_args
         assert call_kwargs.kwargs["max_retries"].stop.max_attempt_number == 2
@@ -163,7 +175,7 @@ class TestJudgeAnswerAsync:
         """
 
         client = MagicMock()
-        client.chat.completions.create.side_effect = RuntimeError("LLM down")
+        client.chat.completions.create = AsyncMock(side_effect=RuntimeError("LLM down"))
         with (
             patch("infrastructure.benchmark.judging.judge.get_judge_model", return_value="m"),
             patch("infrastructure.benchmark.judging.judge.get_judge_client", return_value=client),
@@ -193,3 +205,29 @@ class TestJudgeAnswerAsync:
             result = await judge_answer_async("q", "a", "ctx", expected_answer="expected")
         assert "correctness" in result
         assert result["correctness"] == 7.0
+
+
+@pytest.mark.asyncio
+async def test_judge_timeout_cancels_the_provider_request() -> None:
+    """A timed-out judge call must not keep a paid request running in the background."""
+    started, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+        return httpx.Response(500)
+
+    async with AsyncOpenAI(
+        api_key="test", max_retries=0, http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    ) as raw:
+        client = cast("ManagedInstructor", instructor.from_openai(raw, mode=instructor.Mode.JSON))
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(judge_with_structured_output(client, "score", "model"), timeout=0.2)
+
+    assert started.is_set()
+    assert cancelled.is_set()

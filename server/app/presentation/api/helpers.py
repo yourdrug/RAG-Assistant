@@ -302,6 +302,7 @@ def sweep_create_to_dto(body: SweepCreateRequest) -> SweepCreateDTO:
         top_n_llm=body.top_n_llm,
         judge_model=body.judge_model,
         evaluation_mode=body.evaluation_mode,
+        llm_replay_mode=body.llm_replay_mode,
     )
 
 
@@ -367,6 +368,7 @@ def sweep_to_response(s: BenchmarkSweep, *, job_id: int | None = None) -> SweepR
         top_n_llm=s.top_n_llm,
         judge_model=s.judge_model,
         evaluation_mode=s.evaluation_mode,
+        llm_replay_mode=s.llm_replay_mode,
         total_configs=s.total_configs,
         evaluated_configs=s.evaluated_configs,
         best_run_id=s.best_run_id,

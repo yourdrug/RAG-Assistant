@@ -381,7 +381,7 @@ def test_worker_dependencies_are_assembled_in_composition(monkeypatch: pytest.Mo
     factory = object()
     storage = object()
     infra = SimpleNamespace(
-        db=SimpleNamespace(uow=factory),
+        db=SimpleNamespace(uow=factory, db=object()),
         ml=SimpleNamespace(file_storage=storage, benchmark_service=object(), ml_clients=None),
         services=SimpleNamespace(cache_invalidator=object(), action_logger=object()),
     )
@@ -408,6 +408,7 @@ def test_worker_dependencies_are_assembled_in_composition(monkeypatch: pytest.Mo
     assert dependencies["sweep_engine"] is engine
     assert dependencies["sweep_jobs"].uow_factory is factory
     assert dependencies["sweep_jobs"].publish is sweep.publish_sweep_event
+    assert dependencies["llm_replay_store"] is not None
     constructors["create_document_processor"].assert_called_once_with(infra)
     constructors["create_ingestion_service"].assert_called_once_with(infra)
     constructors["create_sweep_engine"].assert_called_once_with(infra)

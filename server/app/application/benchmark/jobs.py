@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING, Any
 
 from application.benchmark.dataset import load_benchmark_questions
 from application.benchmark.identity import fingerprint
+from application.benchmark.replay_ports import replay_disabled
 from application.spaces.resolution import default_space_ref
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.run import BenchmarkRun
 from domain.shared.exceptions import BusinessRuleViolationError
 
@@ -18,6 +20,7 @@ if TYPE_CHECKING:
 
     from application.benchmark.export_service import BenchmarkExportService
     from application.benchmark.orchestrator import BenchmarkService
+    from application.benchmark.replay_ports import LLMReplayScope
     from application.benchmark.result_service import BenchmarkResultService
     from application.uow.factory import UnitOfWorkFactory
 
@@ -33,12 +36,15 @@ class BenchmarkJobService:
         results: BenchmarkResultService,
         exports: BenchmarkExportService,
         corpus_scope: Callable[[], AbstractAsyncContextManager[dict[str, Any]]],
+        *,
+        replay: LLMReplayScope = replay_disabled,
     ) -> None:
         self.uow_factory = uow_factory
         self.benchmark = benchmark
         self.results = results
         self.exports = exports
         self.corpus_scope = corpus_scope
+        self.replay = replay
 
     async def run(
         self,
@@ -49,6 +55,7 @@ class BenchmarkJobService:
         job_id: int,
         space_id: int | None = None,
         expected_dataset_hash: str | None = None,
+        llm_replay_mode: LLMReplayMode = LLMReplayMode.OFF,
     ) -> None:
         service = self.results
         existing = await service.get_job_result(job_id)
@@ -64,11 +71,15 @@ class BenchmarkJobService:
                     message = f"Questions of dataset {dataset} changed after the run was queued"
                     raise BusinessRuleViolationError(message)
 
-                summary = await self.benchmark.run(
-                    questions=questions,
-                    top_k=top_k,
-                    judge_model=judge_model,
-                    space_id=space.id,
+                async with self.replay(llm_replay_mode) as replay:
+                    summary = await self.benchmark.run(
+                        questions=questions,
+                        top_k=top_k,
+                        judge_model=judge_model,
+                        space_id=space.id,
+                    )
+                replay_metrics = (
+                    {"llm_replay": replay.as_dict()} if llm_replay_mode != LLMReplayMode.OFF else {}
                 )
                 existing = await service.record_result(
                     BenchmarkRun(
@@ -83,7 +94,12 @@ class BenchmarkJobService:
                             "pack_key": space.pack_key,
                         },
                         summary_metrics={
-                            key: value for key, value in summary.items() if key not in {"results", "status"}
+                            **{
+                                key: value
+                                for key, value in summary.items()
+                                if key not in {"results", "status"}
+                            },
+                            **replay_metrics,
                         },
                         per_question_results=summary["results"],
                         duration_sec=summary["total_time_sec"],

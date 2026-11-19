@@ -235,9 +235,11 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch: p
         "judge_answer_async",
         AsyncMock(return_value={"faithfulness": 8, "relevancy": 8, "correctness": 8}),
     )
-    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *_a, **_k: {})
+    monkeypatch.setattr(context_judge, "compute_context_precision_recall", AsyncMock(return_value={}))
     monkeypatch.setattr(
-        evidence_judge, "judge_evidence", lambda *_a, **_kw: {"scores": {"refusal_score": 10}, "details": {}}
+        evidence_judge,
+        "judge_evidence",
+        AsyncMock(return_value={"scores": {"refusal_score": 10}, "details": {}}),
     )
 
     exclusions = [{"reason": ExclusionReason.BUDGET.value, "stage": "context"}]
@@ -268,28 +270,30 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch: p
     assert result["evidence_diagnostics"]["missing_context_fragments"] == [FRAGMENT]
 
 
-def test_judge_failures_are_unavailable_with_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_judge_failures_are_unavailable_with_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *_a, **_kwargs: object())
 
-    def fail(*args: Any) -> None:
+    async def fail(*args: Any) -> None:
         msg = "judge offline"
         raise RuntimeError(msg)
 
     monkeypatch.setattr(evidence_judge, "judge_with_structured_output", fail)
-    result = evidence_judge.judge_evidence("Q", "A", "C", {"expected_refusal": True}, "model")
+    result = await evidence_judge.judge_evidence("Q", "A", "C", {"expected_refusal": True}, "model")
     assert result["scores"]["refusal_score"] is None
     assert result["details"]["refusal_score"]["error"] == "judge offline"
 
 
-def test_legacy_annotations_skip_extra_judge(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_legacy_annotations_skip_extra_judge(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def fail(*args: Any) -> None:
         msg = "legacy case must not call judge"
         raise AssertionError(msg)
 
     monkeypatch.setattr(evidence_judge, "get_judge_client", fail)
-    assert evidence_judge.judge_evidence("Q", "A", "C", None, "model") == {"scores": {}, "details": {}}
+    assert await evidence_judge.judge_evidence("Q", "A", "C", None, "model") == {"scores": {}, "details": {}}
 
 
 def test_annotation_copy_does_not_mutate_dataset() -> None:
@@ -338,7 +342,8 @@ def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval() -> None:
     assert any(evidence.context in message.content for message in messages)
 
 
-def test_judge_client_failure_is_reported_and_missing_context_is_not_scored(
+@pytest.mark.asyncio
+async def test_judge_client_failure_is_reported_and_missing_context_is_not_scored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
@@ -347,7 +352,7 @@ def test_judge_client_failure_is_reported_and_missing_context_is_not_scored(
         raise RuntimeError(msg)
 
     monkeypatch.setattr(evidence_judge, "get_judge_client", fail)
-    result = evidence_judge.judge_evidence("Q", "A", None, {"expected_refusal": True}, "model")
+    result = await evidence_judge.judge_evidence("Q", "A", None, {"expected_refusal": True}, "model")
     assert "citation_support_score" not in result["scores"]
     assert result["scores"]["refusal_score"] is None
     assert result["details"]["refusal_score"]["error"] == "client offline"

@@ -387,11 +387,14 @@ export interface HealthResponse {
 
 // ─── Benchmark ───────────────────────────────────────────────────────────────
 
+export type LLMReplayMode = "off" | "record" | "replay_only" | "refresh";
+
 export interface BenchmarkRequest {
   space_id?: number | null;
   dataset?: string;
   top_k?: number | null;
   judge_model?: string | null;
+  llm_replay_mode?: LLMReplayMode;
 }
 
 export interface BenchmarkResponse {
@@ -704,6 +707,7 @@ export interface SweepCreateRequest {
   dataset?: string;
   top_n_llm?: number;
   judge_model?: string | null;
+  llm_replay_mode?: LLMReplayMode;
 }
 
 export interface SweepResponse {
@@ -717,6 +721,7 @@ export interface SweepResponse {
   dataset: string;
   top_n_llm: number;
   judge_model?: string | null;
+  llm_replay_mode?: LLMReplayMode;
   total_configs: number;
   evaluated_configs: number;
   best_run_id?: number | null;

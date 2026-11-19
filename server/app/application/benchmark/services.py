@@ -10,6 +10,7 @@ from application.benchmark.dto import (
     ApplyConfigResult,
 )
 from application.spaces.resolution import resolve_space
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.question import BenchmarkQuestion, new_case_id, validate_annotations
 from domain.benchmark.question_snapshot import in_snapshot_scope, plan_question_sync, question_key
 from domain.benchmark.sweep import (
@@ -220,6 +221,7 @@ class BenchmarkSweepService:
                 top_n_llm=body.top_n_llm,
                 judge_model=body.judge_model,
                 evaluation_mode=SweepEvaluationMode(body.evaluation_mode),
+                llm_replay_mode=LLMReplayMode(body.llm_replay_mode),
                 status=BenchmarkSweepStatus.PENDING,
             )
             sweep = await uow.benchmark_sweeps.create(sweep_entity)

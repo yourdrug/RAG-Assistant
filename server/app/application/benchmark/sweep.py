@@ -8,6 +8,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 
 from application.benchmark.identity import fingerprint
+from application.benchmark.replay_ports import replay_disabled
 from application.benchmark.sweep_evaluation import SweepEvaluationPlan
 from application.benchmark.sweep_ports import (
     SweepCancelled,
@@ -15,6 +16,7 @@ from application.benchmark.sweep_ports import (
     report_progress,
 )
 from domain.benchmark.evaluation import has_retrieval_labels
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.scoring import validate_objective_weights
 from domain.benchmark.sweep import SweepEvaluationMode, validate_sweep_mode
 
@@ -23,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from application.benchmark import BenchmarkCheckpoints
+    from application.benchmark.replay_ports import LLMReplayScope
     from application.benchmark.sweep_dto import CandidateCache, DenseCache, RerankerCache, SparseCache
     from application.benchmark.sweep_evaluation import SweepFullEvaluator
     from application.benchmark.sweep_ports import (
@@ -89,12 +92,14 @@ class SweepRun:
     corpus: dict[str, Any] | None = None
     checkpoints: BenchmarkCheckpoints | None = None
     baseline_config: dict[str, Any] = field(default_factory=dict[str, Any])
+    replay_mode: LLMReplayMode = LLMReplayMode.OFF
 
 
 @dataclass(frozen=True)
 class SweepBenchmarkDependencies:
     service: SweepBenchmarkPort | None = None
     checkpoint_factory: Callable[[int], BenchmarkCheckpoints] | None = None
+    replay: LLMReplayScope = replay_disabled
 
 
 class SweepEngine:
@@ -113,6 +118,7 @@ class SweepEngine:
         self._runtime = runtime
         self._checkpoint_factory = benchmark.checkpoint_factory
         self._benchmark_service = benchmark.service
+        self._replay = benchmark.replay
         self._data = data
         self._full = full_evaluator
         self._strategies = strategies
@@ -128,7 +134,7 @@ class SweepEngine:
     ) -> list[dict[str, Any]]:
         scope = self._corpus(sweep.space_id) if sweep.space_id is not None else self._corpus()
         async with scope as corpus:
-            run = SweepRun(corpus=corpus)
+            run = SweepRun(corpus=corpus, replay_mode=sweep.llm_replay_mode)
             mode, factory = self.prepare_strategy(sweep, judge_model)
             strategy = factory(sweep.search_space)
             await self.check_cancelled(should_cancel, "before sweep preparation")
@@ -366,12 +372,18 @@ class SweepEngine:
 
             extra.update({"resume": True, "checkpoints": checkpoints, "checkpoint_prefix": prefix})
 
-        return await self._benchmark_service.run(
-            questions=questions,
-            top_k=self._runtime.top_k,
-            judge_model=judge_model,
-            **extra,
-        )
+        async with self._replay(run.replay_mode) as replay:
+            summary = await self._benchmark_service.run(
+                questions=questions,
+                top_k=self._runtime.top_k,
+                judge_model=judge_model,
+                **extra,
+            )
+
+        if run.replay_mode != LLMReplayMode.OFF:
+            summary["llm_replay"] = replay.as_dict()
+
+        return summary
 
     async def load_runtime_snapshot(self, run: SweepRun) -> dict[str, Any]:
         runtime_snapshot = self._runtime.snapshot()

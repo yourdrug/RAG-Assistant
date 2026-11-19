@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.question import DEFAULT_DATASET
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
 from domain.shared.enums import LifecycleStatus, parse_enum
@@ -57,6 +58,7 @@ class BenchmarkSweep:
     top_n_llm: int = 3
     judge_model: str | None = None
     evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
+    llm_replay_mode: LLMReplayMode = LLMReplayMode.OFF
     status: BenchmarkSweepStatus = BenchmarkSweepStatus.PENDING
     job_id: int | None = None
     total_configs: int = 0
@@ -69,6 +71,7 @@ class BenchmarkSweep:
     def __post_init__(self) -> None:
         self.strategy = parse_enum(BenchmarkStrategy, self.strategy)
         self.evaluation_mode = parse_enum(SweepEvaluationMode, self.evaluation_mode)
+        self.llm_replay_mode = parse_enum(LLMReplayMode, self.llm_replay_mode)
         self.status = parse_enum(BenchmarkSweepStatus, self.status)
 
     def transition_to(self, status: BenchmarkSweepStatus) -> None:

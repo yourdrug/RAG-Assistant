@@ -53,7 +53,7 @@ async def test_resume_only_missing_generator_context_and_evidence_scores(  # noq
     calls = []
     failing = True
 
-    def score(client: Any, prompt: str, model: str) -> JudgeScore:
+    async def score(client: Any, prompt: str, model: str) -> JudgeScore:
         calls.append(prompt)
 
         # Fail a different independent metric in each scoring group.
@@ -118,7 +118,7 @@ async def test_success_checkpoint_is_written_before_next_metric(
     )
     calls = 0
 
-    def score(*args: Any) -> JudgeScore:
+    async def score(*args: Any) -> JudgeScore:
         nonlocal calls
         calls += 1
 

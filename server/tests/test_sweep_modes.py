@@ -238,8 +238,10 @@ def mock_judges(monkeypatch: pytest.MonkeyPatch) -> None:
         "judge_answer_async",
         AsyncMock(return_value={"faithfulness": 10, "relevancy": 10, "correctness": 10}),
     )
-    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *_a, **_k: {})
-    monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *_a, **_kw: {"scores": {}, "details": {}})
+    monkeypatch.setattr(context_judge, "compute_context_precision_recall", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        evidence_judge, "judge_evidence", AsyncMock(return_value={"scores": {}, "details": {}})
+    )
 
 
 @pytest.mark.asyncio

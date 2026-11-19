@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from config import JobsSection, ObservabilitySection, process_section
+from config import BenchmarkSection, JobsSection, ObservabilitySection, process_section
 from infrastructure.metrics.jobs import record_job_event
 from infrastructure.worker.policy import RetryPolicy, max_tries
 
@@ -134,3 +134,12 @@ async def cron_chat_log_cleanup(ctx: dict[str, Any]) -> None:
 
         if deleted < CLEANUP_BATCH_SIZE:
             break
+
+
+async def cron_llm_replay_cleanup(ctx: dict[str, Any]) -> None:
+    """Delete recorded benchmark LLM responses that no run reused within the retention period."""
+    retention_days = process_section(BenchmarkSection).benchmark_llm_replay_retention_days
+    deleted = await ctx["llm_replay_store"].purge(retention_days)
+
+    if deleted:
+        logger.info("Cron: deleted %d unused recorded LLM responses", deleted)

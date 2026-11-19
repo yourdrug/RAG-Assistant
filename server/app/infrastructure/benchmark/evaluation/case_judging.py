@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 
 from config import BenchmarkSection, process_section
@@ -74,34 +73,27 @@ async def judge_generated(
             saved_metrics=stages.get("generator_metrics"),
             metric_callback=lambda value: save_stage("generator_metrics", value),
         )
-        loop = asyncio.get_running_loop()
-
-        def save_sync(name: str, value: dict[str, Any]) -> None:
-            asyncio.run_coroutine_threadsafe(save_stage(name, value), loop).result()
-
         context_metrics = (
-            await asyncio.to_thread(
-                context_judge.compute_context_precision_recall,
+            await context_judge.compute_context_precision_recall(
                 question["question"],
                 question.get("expected_answer") or "",
                 context_override=generated.context,
                 judge_model=judge_model,
                 saved_metrics=stages.get("context_metrics"),
-                metric_callback=lambda value: save_sync("context_metrics", value),
+                metric_callback=lambda value: save_stage("context_metrics", value),
             )
             if generated.context
             else {"context_precision": None, "context_recall": None}
         )
 
-        judge_metrics = await asyncio.to_thread(
-            evidence_judge.judge_evidence,
+        judge_metrics = await evidence_judge.judge_evidence(
             question["question"],
             generated.answer,
             generated.evidence.context if generated.evidence else None,
             annotations,
             judge_model,
             saved_metrics=stages.get("evidence_judge"),
-            metric_callback=lambda value: save_sync("evidence_judge", value),
+            metric_callback=lambda value: save_stage("evidence_judge", value),
         )
 
     return generator_metrics, context_metrics, judge_metrics

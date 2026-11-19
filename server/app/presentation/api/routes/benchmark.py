@@ -86,11 +86,17 @@ async def run_benchmark(
             "space_id": space.id,
             "top_k": k,
             "judge_model": judge,
+            "llm_replay_mode": req.llm_replay_mode.value,
         },
     )
     try:
         await submission.enqueuer.enqueue_benchmark(
-            dataset=req.dataset, top_k=k, judge_model=judge, job_id=job_id, space_id=space.id
+            dataset=req.dataset,
+            top_k=k,
+            judge_model=judge,
+            job_id=job_id,
+            space_id=space.id,
+            llm_replay_mode=req.llm_replay_mode.value,
         )
     except Exception:  # noqa: BLE001 — committed work remains available to the relay
         logger.warning("Benchmark delivery deferred: job_id=%d", job_id)

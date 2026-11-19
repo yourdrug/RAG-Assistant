@@ -6,7 +6,7 @@ import asyncio
 import threading
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -160,7 +160,7 @@ async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellati
 @pytest.mark.asyncio
 async def test_async_judge_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
-    create = MagicMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
+    create = AsyncMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
     monkeypatch.setattr(judge, "get_judge_client", lambda _model, **_kwargs: client)
     monkeypatch.setattr(judge, "get_judge_model", lambda: "default-model")
@@ -169,13 +169,14 @@ async def test_async_judge_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) 
     assert all(call.kwargs["model"] == "requested-model" for call in create.call_args_list)
 
 
-def test_context_judge_uses_same_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_context_judge_uses_same_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
-    score = MagicMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
+    score = AsyncMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
     monkeypatch.setattr(judge, "get_judge_client", lambda _model, **_kwargs: object())
     monkeypatch.setattr(judge, "get_judge_model", lambda: "default-model")
     monkeypatch.setattr(judge, "judge_with_structured_output", score)
-    result = context_judge.compute_context_precision_recall(
+    result = await context_judge.compute_context_precision_recall(
         "question", "answer", context_override="context", judge_model="requested-model"
     )
     assert result["context_precision"] == 8.0

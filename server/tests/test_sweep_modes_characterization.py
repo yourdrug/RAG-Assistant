@@ -32,8 +32,10 @@ async def test_case_evaluator_preserves_question_and_actual_context(monkeypatch:
         "judge_answer_async",
         AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": 9}),
     )
-    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *_a, **_k: {})
-    monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *_a, **_kw: {"scores": {}, "details": {}})
+    monkeypatch.setattr(context_judge, "compute_context_precision_recall", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        evidence_judge, "judge_evidence", AsyncMock(return_value={"scores": {}, "details": {}})
+    )
     documents = [{"content": "article 17", "metadata": {"source": "law.pdf"}}]
     evidence = BenchmarkEvidence(documents, documents, "actual prompt")
     answer = BenchmarkAnswer(

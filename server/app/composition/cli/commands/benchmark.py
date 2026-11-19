@@ -28,6 +28,7 @@ from composition.cli.commands.ingest import run_with_infrastructure
 from composition.domain_packs import PACK_REGISTRATIONS, selected_pack
 from composition.infrastructure import InfrastructureContainer
 from config import LLMSection, RetrievalSection, process_section
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.policy import GateStatus
 from domain.runtime.jobs import BackgroundJobStatus, JobType
 from domain.shared.exceptions import EntityNotFoundError, ValidationError
@@ -58,6 +59,7 @@ SUMMARY_KEYS = (
     "avg_correctness",
     "avg_faithfulness",
     "total_time_sec",
+    "llm_replay",
 )
 
 
@@ -91,6 +93,7 @@ async def enqueue_runs(
     space_id: int | None = None,
     *,
     require_ready: bool = True,
+    llm_replay_mode: LLMReplayMode = LLMReplayMode.OFF,
 ) -> dict[str, int]:
     """Create one durable benchmark job per dataset and hand it to the worker, like POST /benchmark.
 
@@ -126,6 +129,7 @@ async def enqueue_runs(
                 "judge_model": judge,
                 "space_id": space.id,
                 "dataset_hash": hashes[dataset],
+                "llm_replay_mode": llm_replay_mode.value,
             }
             job_id = await jobs.create_job(
                 JobType.BENCHMARK, cost_principal=job_principal.get(), dispatch_payload=payload
@@ -138,11 +142,15 @@ async def enqueue_runs(
                     job_id=job_id,
                     space_id=space.id,
                     dataset_hash=hashes[dataset],
+                    llm_replay_mode=llm_replay_mode.value,
                 )
             except Exception:  # noqa: BLE001 — committed work remains available to the relay
                 logger.warning("Benchmark delivery deferred: job_id=%d", job_id)
             job_ids[dataset] = job_id
-            typer.echo(f"queued dataset={dataset} job_id={job_id} top_k={k} judge={judge}")
+            typer.echo(
+                f"queued dataset={dataset} job_id={job_id} top_k={k} judge={judge} "
+                f"llm_replay={llm_replay_mode.value}"
+            )
     finally:
         await close_arq_pool()
 
@@ -224,6 +232,17 @@ def benchmark_run(
         bool,
         typer.Option("--allow-unready", help="Run although documents of the space are not indexed yet"),
     ] = False,
+    llm_replay: Annotated[
+        LLMReplayMode,
+        typer.Option(
+            "--llm-replay",
+            help=(
+                "Reuse recorded LLM responses: off; record (reuse, pay and record misses); "
+                "replay_only (a miss fails the call, nothing is paid); refresh (pay and overwrite). "
+                "Replayed answers do not measure judge noise or latency."
+            ),
+        ),
+    ] = LLMReplayMode.OFF,
 ) -> None:
     """Queue benchmark runs for the worker (same path as Admin -> Benchmark)."""
 
@@ -234,7 +253,13 @@ def benchmark_run(
             await require_synced_questions(infra, datasets or [])
 
         job_ids = await enqueue_runs(
-            infra, datasets or [], top_k, judge_model, space_id, require_ready=not allow_unready
+            infra,
+            datasets or [],
+            top_k,
+            judge_model,
+            space_id,
+            require_ready=not allow_unready,
+            llm_replay_mode=llm_replay,
         )
         return await wait_for_runs(infra, job_ids) if wait else True
 

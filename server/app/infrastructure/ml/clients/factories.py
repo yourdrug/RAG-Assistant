@@ -25,6 +25,7 @@ from infrastructure.database.database import database
 from infrastructure.ml.clients.inference_clients import EmbeddingsClient, RerankerClient
 from infrastructure.ml.clients.instructor_client import NO_API_KEY, llm_auth_headers
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
+from infrastructure.ml.replay import llm_async_http_client, llm_sync_http_client
 
 
 if TYPE_CHECKING:
@@ -150,8 +151,8 @@ def build_chat_model(role: ChatModelRole, **options: Unpack[ChatModelOptions]) -
         "max_tokens": num_predict if num_predict is not None else output_limits[role],
         "max_retries": 0,
         # Endpoint origins are restricted to deployment-approved lists by endpoint_policy.
-        "http_client": httpx.Client(follow_redirects=False),
-        "http_async_client": httpx.AsyncClient(follow_redirects=False),
+        "http_client": llm_sync_http_client(),
+        "http_async_client": llm_async_http_client(),
     }
 
     if role != ChatModelRole.BENCHMARK:

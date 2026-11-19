@@ -45,6 +45,7 @@ import type {
   BenchmarkQuestion,
   BenchmarkQuestionCreate,
   BenchmarkRun,
+  LLMReplayMode,
   SweepResponse,
 } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
@@ -67,6 +68,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Textarea } from "@/shared/ui/textarea";
 import { BenchmarkJudgeModel } from "./benchmark-judge-model";
+import { BenchmarkLLMReplay, LLMReplaySummary } from "./benchmark-llm-replay";
 import {
   AcceptanceTab,
   DiagnosisCounts,
@@ -745,6 +747,7 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
   const [topNLlm, setTopNLlm] = useState(3);
   const [evaluationMode, setEvaluationMode] = useState<"fast" | "full">("fast");
   const [judgeModel, setJudgeModel] = useState<string | null>(null);
+  const [llmReplayMode, setLLMReplayMode] = useState<LLMReplayMode>("off");
   const [dataset, setDataset] = useState("belarus_law-main");
   const { data: spaces } = useSpaces();
   const [spaceId, setSpaceId] = useState<string>("");
@@ -831,6 +834,7 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
         dataset,
         top_n_llm: topNLlm,
         judge_model: judgeModel?.trim() || null,
+        llm_replay_mode: llmReplayMode,
       });
       toast.success(`Sweep #${result.id} started`);
       onSweepCreated(result.id);
@@ -1026,6 +1030,11 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
               onChange={setJudgeModel}
               disabled={evaluationMode === "fast" && topNLlm === 0}
             />
+            <BenchmarkLLMReplay
+              value={llmReplayMode}
+              onChange={setLLMReplayMode}
+              disabled={evaluationMode === "fast" && topNLlm === 0}
+            />
             <div className="mt-4 p-3 bg-muted rounded-md text-sm">
               <div className="font-medium">Estimated combinations</div>
               <div className="text-2xl font-bold font-mono mt-1">{estimatedConfigs}</div>
@@ -1191,6 +1200,9 @@ function SweepProgressTab({
                     {s.evaluation_mode === "fast" && s.top_n_llm === 0
                       ? "-"
                       : s.judge_model || "Default"}
+                    {s.llm_replay_mode && s.llm_replay_mode !== "off" && (
+                      <div className="text-muted-foreground">replay: {s.llm_replay_mode}</div>
+                    )}
                   </TableCell>
                   <TableCell className="text-xs font-mono">
                     {s.best_run_id ? `#${s.best_run_id}` : "-"}
@@ -1235,6 +1247,7 @@ function SweepProgressTab({
                                 top_n_llm: s.top_n_llm,
                                 judge_model: s.judge_model,
                                 evaluation_mode: s.evaluation_mode,
+                                llm_replay_mode: s.llm_replay_mode,
                               });
                               onSweepSelect(created.id);
                               toast.success(
@@ -1551,6 +1564,7 @@ function LeaderboardTab() {
                                 auxiliary calls are excluded. Cost estimate covers generation only.
                               </p>
                             )}
+                            <LLMReplaySummary stats={run.summary_metrics.llm_replay} />
                             {run.summary_metrics.retrieval_labelled_count != null && (
                               <p className="text-xs text-muted-foreground mb-2">
                                 Annotated cases: {run.summary_metrics.retrieval_annotated_count};

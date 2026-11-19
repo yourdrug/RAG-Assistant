@@ -6,7 +6,7 @@ from typing import Any, Unpack
 from langchain.schema import Document
 
 from infrastructure.benchmark.judging import judge
-from infrastructure.benchmark.judging.callbacks import SyncMetricOptions
+from infrastructure.benchmark.judging.callbacks import AsyncMetricOptions
 from infrastructure.benchmark.judging.prompts import (
     CONTEXT_PRECISION_CRITERIA,
     CONTEXT_RECALL_CRITERIA,
@@ -17,14 +17,14 @@ from infrastructure.benchmark.judging.prompts import (
 logger = logging.getLogger("default")
 
 
-def compute_context_precision_recall(
+async def compute_context_precision_recall(
     question: str,
     answer: str,
     docs_with_scores: list[tuple[Document, float]] | list[dict[str, Any]] | None = None,
     context_override: str | None = None,
     *,
     judge_model: str | None = None,
-    **options: Unpack[SyncMetricOptions],
+    **options: Unpack[AsyncMetricOptions],
 ) -> dict[str, Any]:
     """Compute context_precision and context_recall via LLM judge.
 
@@ -72,7 +72,7 @@ def compute_context_precision_recall(
 
         try:
             client = judge.get_judge_client(model)
-            score = judge.judge_with_structured_output(
+            score = await judge.judge_with_structured_output(
                 client,
                 metric_prompt(criteria, {"question": question, "answer": answer, "context": context}),
                 model,
@@ -92,6 +92,6 @@ def compute_context_precision_recall(
             result[f"{key}_reason"] = f"[Error: {exc}]"
 
         if metric_callback is not None:
-            metric_callback(dict(result))
+            await metric_callback(dict(result))
 
     return result

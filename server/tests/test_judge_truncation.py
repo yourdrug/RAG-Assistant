@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 import httpx
 import instructor
 from instructor.core.exceptions import IncompleteOutputException
-from openai import OpenAI
+from openai import AsyncOpenAI
 import pytest
 
 from config import settings
@@ -20,14 +20,15 @@ from infrastructure.benchmark.judging.judge import (
 
 
 if TYPE_CHECKING:
-    from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
+    from infrastructure.ml.clients.managed_llm import ManagedInstructor
 
 
 @pytest.mark.parametrize("still_truncated", [False, True])
 @pytest.mark.parametrize(
     "budgets_pair", [(JUDGE_OUTPUT_TOKENS, JUDGE_EXPANDED_OUTPUT_TOKENS), (100, 200), (100, 100)]
 )
-def test_truncated_judge_retries_once_with_larger_budget(
+@pytest.mark.asyncio
+async def test_truncated_judge_retries_once_with_larger_budget(
     still_truncated: bool, budgets_pair: tuple[int, int], monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
@@ -55,17 +56,14 @@ def test_truncated_judge_retries_once_with_larger_budget(
             },
         )
 
-    with OpenAI(
-        api_key="test", max_retries=0, http_client=httpx.Client(transport=httpx.MockTransport(respond))
+    async with AsyncOpenAI(
+        api_key="test", max_retries=0, http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond))
     ) as raw:
-        client = instructor.from_openai(raw, mode=instructor.Mode.MD_JSON)
+        client = cast("ManagedInstructor", instructor.from_openai(raw, mode=instructor.Mode.MD_JSON))
 
         if still_truncated:
             with pytest.raises(IncompleteOutputException):
-                judge_with_structured_output(cast("ManagedSyncInstructor", client), "score", "test")
+                await judge_with_structured_output(client, "score", "test")
         else:
-            assert (
-                judge_with_structured_output(cast("ManagedSyncInstructor", client), "score", "test").score
-                == 8
-            )
+            assert (await judge_with_structured_output(client, "score", "test")).score == 8
     assert budgets == list(budgets_pair)

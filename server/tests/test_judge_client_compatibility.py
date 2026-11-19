@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import instructor
-from openai import OpenAI
+from openai import AsyncOpenAI
 from pydantic import SecretStr
 import pytest
 
@@ -20,8 +20,9 @@ if TYPE_CHECKING:
     from infrastructure.ml.clients.llm_schemas import JudgeScore
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("base_url", ["https://openrouter.ai/api/v1", "http://vllm:8000/v1"])
-def test_judge_client_endpoint_compatibility(monkeypatch: pytest.MonkeyPatch, base_url: str) -> None:
+async def test_judge_client_endpoint_compatibility(monkeypatch: pytest.MonkeyPatch, base_url: str) -> None:
     requests = []
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -49,24 +50,24 @@ def test_judge_client_endpoint_compatibility(monkeypatch: pytest.MonkeyPatch, ba
     monkeypatch.setattr(judge_clients, "_judge_client_cache", {})
     records: list[dict[str, Any]] = []
     token = judge_usage.set(records)
-    with OpenAI(
+    async with AsyncOpenAI(
         base_url=base_url,
         api_key="test-key",
-        http_client=httpx.Client(transport=httpx.MockTransport(respond)),
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)),
         max_retries=0,
     ) as raw:
 
-        def create_raw(**kwargs: Any) -> OpenAI:
+        def create_raw(**kwargs: Any) -> AsyncOpenAI:
             assert kwargs["base_url"] == base_url
             assert kwargs["max_retries"] == 0
             return raw
 
-        monkeypatch.setattr(judge_clients, "OpenAI", create_raw)
+        monkeypatch.setattr(judge_clients, "AsyncOpenAI", create_raw)
         try:
             client = judge_clients.get_judge_client("judge-model")
             assert client.mode == instructor.Mode.JSON
             assert judge_clients.get_judge_client("judge-model") is client
-            score = judge.judge_with_structured_output(client, "Evaluate the answer", "judge-model")
+            score = await judge.judge_with_structured_output(client, "Evaluate the answer", "judge-model")
         finally:
             judge_usage.reset(token)
 

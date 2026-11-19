@@ -20,6 +20,8 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
+    SmallInteger,
     String,
     Table,
     Text,
@@ -30,6 +32,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.sweep import (
     BenchmarkStrategy,
     BenchmarkSweepStatus,
@@ -589,6 +592,10 @@ class BenchmarkSweepModel(BaseModel):
             f"OR strategy = '{BenchmarkStrategy.GRID.value}'",
             name="benchmark_sweeps_full_grid_check",
         ),
+        CheckConstraint(
+            "llm_replay_mode IN (" + ", ".join(f"'{mode.value}'" for mode in LLMReplayMode) + ")",
+            name="benchmark_sweeps_llm_replay_mode_check",
+        ),
         Index(
             BENCHMARK_ACTIVE_SWEEP_INDEX,
             text("(1)"),
@@ -614,6 +621,9 @@ class BenchmarkSweepModel(BaseModel):
     judge_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     evaluation_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default=SweepEvaluationMode.FAST.value
+    )
+    llm_replay_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=LLMReplayMode.OFF.value
     )
     job_id: Mapped[int | None] = mapped_column(
         ForeignKey("background_jobs.id", ondelete="SET NULL"), nullable=True
@@ -818,4 +828,21 @@ benchmark_human_labels = Table(
     CheckConstraint("metric IN ('correctness', 'faithfulness')", name="ck_benchmark_human_labels_metric"),
     CheckConstraint("score >= 0 AND score <= 10", name="ck_benchmark_human_labels_score"),
     UniqueConstraint("run_id", "question_key", "metric", "labeler_id", name="uq_benchmark_human_labels_case"),
+)
+
+
+# Recorded LLM responses reused by benchmark runs (infrastructure.ml.replay).
+llm_replay_entries = Table(
+    "llm_replay_entries",
+    BaseModel.metadata,
+    Column("key", String(64), primary_key=True),
+    Column("model", String(255), nullable=True),
+    Column("status_code", SmallInteger, nullable=False),
+    Column("headers", Text, nullable=False),
+    Column("body", LargeBinary, nullable=False),
+    Column("input_tokens", Integer, nullable=True),
+    Column("output_tokens", Integer, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("last_used_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index("idx_llm_replay_entries_last_used_at", "last_used_at"),
 )

@@ -11,6 +11,7 @@ import pytest
 from config import Settings, settings
 from infrastructure.benchmark.judging import clients as judge_clients
 from infrastructure.ml.clients import factories, instructor_client
+from infrastructure.ml.replay import transport as replay_transport
 
 
 @pytest.fixture
@@ -21,6 +22,9 @@ def constructors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     async_http_client = Mock(return_value="async")
     monkeypatch.setattr(httpx, "Client", http_client)
     monkeypatch.setattr(httpx, "AsyncClient", async_http_client)
+    # Replay wrapping is covered by test_llm_replay; the stubs here are not real clients.
+    monkeypatch.setattr(replay_transport, "wrap_sync_client", lambda client: client)
+    monkeypatch.setattr(replay_transport, "wrap_async_client", lambda client: client)
     return SimpleNamespace(
         chat_openai=chat_openai, http_client=http_client, async_http_client=async_http_client
     )

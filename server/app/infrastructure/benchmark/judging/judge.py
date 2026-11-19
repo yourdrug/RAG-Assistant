@@ -8,16 +8,16 @@ from typing import Any, Unpack, cast
 from instructor.core.exceptions import IncompleteOutputException
 from openai import APIConnectionError, InternalServerError, RateLimitError
 from pydantic import ValidationError
-from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config import BenchmarkSection, LLMSection, process_section
 from infrastructure.benchmark.judging.callbacks import AsyncMetricOptions
 from infrastructure.benchmark.judging.clients import get_judge_client, get_judge_model
 from infrastructure.benchmark.judging.judge_rubric import CORRECTNESS_CRITERIA, FAITHFULNESS_CRITERIA
 from infrastructure.benchmark.judging.prompts import RELEVANCY_CRITERIA, metric_prompt
-from infrastructure.ml.clients.client_lease import sync_client_operation
+from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import JudgeScore
-from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
+from infrastructure.ml.clients.managed_llm import ManagedInstructor
 
 
 __all__ = ["get_judge_client", "get_judge_model"]
@@ -28,8 +28,8 @@ JUDGE_OUTPUT_TOKENS = 2048
 JUDGE_EXPANDED_OUTPUT_TOKENS = 8192
 
 
-def judge_with_structured_output(
-    client: ManagedSyncInstructor,
+async def judge_with_structured_output(
+    client: ManagedInstructor,
     prompt: str,
     model: str,
 ) -> JudgeScore:
@@ -40,7 +40,7 @@ def judge_with_structured_output(
     """
     benchmark_settings = process_section(BenchmarkSection)
 
-    with sync_client_operation(client):
+    async with client_operation(client):
         initial_budget = benchmark_settings.benchmark_judge_initial_tokens
         retry_budget = benchmark_settings.benchmark_judge_retry_tokens
 
@@ -48,13 +48,13 @@ def judge_with_structured_output(
             try:
                 return cast(
                     "JudgeScore",
-                    client.chat.completions.create(
+                    await client.chat.completions.create(
                         model=model,
                         messages=[{"role": "user", "content": prompt}],
                         response_model=JudgeScore,
                         max_tokens=budget,
                         timeout=process_section(LLMSection).llm_auxiliary_timeout,
-                        max_retries=Retrying(
+                        max_retries=AsyncRetrying(
                             retry=retry_if_exception_type(
                                 (
                                     APIConnectionError,
@@ -106,42 +106,6 @@ def answer_prompts(question: str, answer: str, context: str, expected_answer: st
     return prompts
 
 
-def judge_answer(
-    question: str,
-    answer: str,
-    context: str,
-    expected_answer: str | None = None,
-) -> dict[str, Any]:
-    """Run judge LLM synchronously with structured output (instructor only)."""
-    model = get_judge_model()
-    prompts = answer_prompts(question, answer, context, expected_answer)
-
-    scores: dict[str, float | str | None] = {}
-
-    for key, prompt in prompts.items():
-        try:
-            client = get_judge_client(model)
-            result = judge_with_structured_output(client, prompt, model)
-            scores[key] = max(0.0, min(10.0, result.score))
-            scores[f"{key}_reason"] = result.reason
-        except Exception as exc:
-            logger.warning(
-                "Judge structured output failed for %s: %s",
-                key,
-                type(exc).__name__,
-                exc_info=(RuntimeError, RuntimeError(type(exc).__name__), exc.__traceback__),
-            )
-            scores[key] = None
-            scores[f"{key}_reason"] = f"[Ошибка вызова судьи: {exc}]"
-            scores[f"{key}_error"] = str(exc)
-
-    if "correctness" not in scores:
-        scores["correctness"] = None
-        scores["correctness_reason"] = "Эталонный ответ не задан"
-
-    return scores
-
-
 async def judge_answer_async(
     question: str,
     answer: str,
@@ -157,9 +121,11 @@ async def judge_answer_async(
 
     async def judge_one(prompt: str) -> JudgeScore:
         client = get_judge_client(model)
-        with sync_client_operation(client):
+        # The lease keeps an admitted call on its client if the provider is switched meanwhile;
+        # cancellation on timeout aborts the request instead of leaving it running unobserved.
+        async with client_operation(client):
             return await asyncio.wait_for(
-                asyncio.to_thread(judge_with_structured_output, client, prompt, model),
+                judge_with_structured_output(client, prompt, model),
                 timeout=process_section(LLMSection).llm_auxiliary_timeout * 3 + 3,
             )
 

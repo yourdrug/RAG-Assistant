@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.question import DEFAULT_DATASET
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
 from domain.benchmark.sweep import SweepEvaluationMode
@@ -50,6 +51,7 @@ class SweepCreateDTO:
     judge_model: str | None = None
     evaluation_mode: str = SweepEvaluationMode.FAST.value
     space_id: int | None = None
+    llm_replay_mode: str = LLMReplayMode.OFF.value
 
 
 @dataclass(frozen=True)

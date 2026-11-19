@@ -10,11 +10,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import httpx
 import instructor
 from openai import AsyncOpenAI, OpenAI
 
 from config import LLMSection, process_section
+from infrastructure.ml.replay import llm_async_http_client, llm_sync_http_client
 from infrastructure.ml.usage_capture import record_model_response
 
 
@@ -50,7 +50,7 @@ def create_instructor_client(base_url: str, api_key: str, model: str = "") -> In
         max_retries=0,
         base_url=base_url,
         api_key=api_key or NO_API_KEY,
-        http_client=httpx.Client(follow_redirects=False),
+        http_client=llm_sync_http_client(),
     )
     client = instructor.from_openai(raw_client, mode=STRUCTURED_OUTPUT_MODE)
     client.on("completion:response", record_model_response)
@@ -67,7 +67,7 @@ def create_async_instructor_client(base_url: str, api_key: str, model: str = "")
         max_retries=0,
         base_url=base_url,
         api_key=api_key or NO_API_KEY,
-        http_client=httpx.AsyncClient(follow_redirects=False),
+        http_client=llm_async_http_client(),
     )
     client = instructor.from_openai(raw_client, mode=STRUCTURED_OUTPUT_MODE)
     client.on("completion:response", record_model_response)

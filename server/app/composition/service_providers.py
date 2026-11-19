@@ -9,6 +9,7 @@ and application.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from functools import partial
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -56,6 +57,7 @@ from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualize
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_steps import RagOperations
+from infrastructure.ml.replay import PostgresReplayStore, llm_replay_scope
 from infrastructure.redis.redis_client import redis_client
 
 
@@ -63,6 +65,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Mapping
 
     from application.benchmark import BenchmarkCheckpoints
+    from application.benchmark.replay_ports import LLMReplayScope
     from application.benchmark.sweep import SweepBenchmarkPort
     from application.benchmark.sweep_ports import SweepSearchStrategy, SweepSettingsPort
     from application.chat import PIIRedactorPort
@@ -89,6 +92,7 @@ def build_sweep_engine(  # noqa: PLR0913 - independent build options
     checkpoint_factory: Callable[[int], BenchmarkCheckpoints] | None = None,
     evidence_profile: EvidenceProfile | None = None,
     evidence_profiles: Mapping[str, EvidenceProfile] | None = None,
+    replay: LLMReplayScope | None = None,
 ) -> SweepEngine:
     """Bind retrieval and full evaluation to the selected space and its pack's evidence rules."""
 
@@ -118,7 +122,11 @@ def build_sweep_engine(  # noqa: PLR0913 - independent build options
     runtime = runtime if runtime is not None else LiveSweepSettings()
     return SweepEngine(
         data=SweepDataSource(uow_factory, ml_clients),
-        benchmark=SweepBenchmarkDependencies(benchmark_service, checkpoint_factory),
+        benchmark=(
+            SweepBenchmarkDependencies(benchmark_service, checkpoint_factory)
+            if replay is None
+            else SweepBenchmarkDependencies(benchmark_service, checkpoint_factory, replay)
+        ),
         runtime=runtime,
         full_evaluator=SweepFullEvaluator(runtime),
         strategies=strategies if strategies is not None else default_strategy_factories(),
@@ -140,7 +148,16 @@ def create_sweep_engine(infra: InfrastructureContainer) -> SweepEngine:
         ml_clients=require(infra.ml.ml_clients, "ml_clients"),
         checkpoint_factory=checkpoints,
         evidence_profiles={key: catalog.pack(key).evidence_profile for key in catalog.pack_keys()},
+        replay=create_llm_replay_scope(create_llm_replay_store(infra)),
     )
+
+
+def create_llm_replay_store(infra: InfrastructureContainer) -> PostgresReplayStore:
+    return PostgresReplayStore(infra.db.db)
+
+
+def create_llm_replay_scope(store: PostgresReplayStore) -> LLMReplayScope:
+    return partial(llm_replay_scope, store)
 
 
 def create_chunk_contextualization(infra: InfrastructureContainer) -> ChunkContextualization | None:

@@ -12,6 +12,8 @@ from application.documents.delete_job import DocumentDeletionJob
 from composition.service_providers import (
     create_document_processor,
     create_ingestion_service,
+    create_llm_replay_scope,
+    create_llm_replay_store,
     create_sweep_engine,
 )
 from infrastructure.benchmark.corpus import benchmark_scope
@@ -40,6 +42,7 @@ def worker_dependencies(infra: InfrastructureContainer, application: Application
         raise RuntimeError(message)
 
     results = BenchmarkResultService(infra.db.uow)
+    replay_store = create_llm_replay_store(infra)
     return {
         "uow_factory": infra.db.uow,
         "file_storage": infra.ml.file_storage,
@@ -55,7 +58,9 @@ def worker_dependencies(infra: InfrastructureContainer, application: Application
             results,
             exports,
             partial(benchmark_scope, infra.ml.ml_clients),
+            replay=create_llm_replay_scope(replay_store),
         ),
+        "llm_replay_store": replay_store,
         "document_processor": create_document_processor(infra),
         "ingestion_service": create_ingestion_service(infra),
         "sweep_engine": create_sweep_engine(infra),

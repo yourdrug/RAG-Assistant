@@ -22,6 +22,7 @@ from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_clean
 from infrastructure.worker.cron import (
     cron_chat_log_cleanup,
     cron_job_cleanup,
+    cron_llm_replay_cleanup,
     cron_recover_orphaned_jobs,
     cron_recover_stuck_processing,
 )
@@ -116,6 +117,13 @@ def worker(
                     cron_chat_log_cleanup,
                     job_id="maintenance:cron_chat_log_cleanup",
                     minute=15,
+                    timeout=CRON_TIMEOUT,
+                ),
+                cron(
+                    cron_llm_replay_cleanup,
+                    job_id="maintenance:cron_llm_replay_cleanup",
+                    minute=45,
+                    hour=3,
                     timeout=CRON_TIMEOUT,
                 ),
                 cron(

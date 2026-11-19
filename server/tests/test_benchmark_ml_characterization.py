@@ -6,9 +6,10 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from openai import OpenAI
+from openai import AsyncOpenAI
 from pydantic import SecretStr
 import pytest
+import pytest_asyncio
 
 from composition.container import Container
 from config import settings
@@ -16,11 +17,22 @@ from infrastructure.benchmark.judging import clients as judge_clients, judge
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import AsyncIterator
 
 
-@pytest.fixture
-def judge_http(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[list[Any], list[Any]]]:
+async def eventually_closed(pool: httpx.AsyncClient) -> bool:
+    """A retired pool closes in a background task once its last call has finished."""
+    for _ in range(100):
+        if pool.is_closed:
+            return True
+
+        await asyncio.sleep(0)
+
+    return pool.is_closed
+
+
+@pytest_asyncio.fixture
+async def judge_http(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[tuple[list[Any], list[Any]]]:
     requests = []
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -45,43 +57,45 @@ def judge_http(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[list[Any], lis
 
     pools = []
 
-    def create(**kwargs: Any) -> OpenAI:
-        pool = httpx.Client(transport=httpx.MockTransport(respond), follow_redirects=False)
+    def create(**kwargs: Any) -> AsyncOpenAI:
+        pool = httpx.AsyncClient(transport=httpx.MockTransport(respond), follow_redirects=False)
         pools.append(pool)
         kwargs["http_client"] = pool
-        return OpenAI(**kwargs)
+        return AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr(judge_clients, "OpenAI", create)
+    monkeypatch.setattr(judge_clients, "AsyncOpenAI", create)
     monkeypatch.setattr(judge_clients, "_judge_client_cache", {})
     yield requests, pools
 
     for pool in pools:
-        pool.close()
+        await pool.aclose()
 
 
-def test_judge_client_reuses_model_and_returns_validated_score(
+@pytest.mark.asyncio
+async def test_judge_client_reuses_model_and_returns_validated_score(
     judge_http: tuple[list[Any], list[Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "llm_base_url", "https://openrouter.ai/api/v1")
     client = judge_clients.get_judge_client("test-model")
     assert judge_clients.get_judge_client("test-model") is client
-    result = judge.judge_with_structured_output(client, "evaluate", "test-model")
+    result = await judge.judge_with_structured_output(client, "evaluate", "test-model")
     assert result.score == 7
     assert result.reason == "supported"
     assert judge_http[0][0].url.host == "openrouter.ai"
 
 
-def test_next_judge_call_uses_new_endpoint_and_closes_idle_previous_pool(
+@pytest.mark.asyncio
+async def test_next_judge_call_uses_new_endpoint_and_closes_idle_previous_pool(
     judge_http: tuple[list[Any], list[Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "llm_base_url", "https://old.openrouter.ai/v1")
     old = judge_clients.get_judge_client("test-model")
-    assert judge.judge_with_structured_output(old, "evaluate", "test-model").score == 7
+    assert (await judge.judge_with_structured_output(old, "evaluate", "test-model")).score == 7
     monkeypatch.setattr(settings, "llm_base_url", "https://new.openrouter.ai/v1")
     new = judge_clients.get_judge_client("test-model")
-    assert judge.judge_with_structured_output(new, "evaluate", "test-model").score == 7
+    assert (await judge.judge_with_structured_output(new, "evaluate", "test-model")).score == 7
     assert judge_http[0][-1].url.host == "new.openrouter.ai"
-    assert judge_http[1][0].is_closed
+    assert await eventually_closed(judge_http[1][0])
 
 
 @pytest.mark.asyncio
@@ -89,16 +103,16 @@ async def test_queued_judge_preserves_client_until_worker_admission(
     judge_http: tuple[list[Any], list[Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     queued, release = asyncio.Event(), asyncio.Event()
-    real_thread = asyncio.to_thread
+    real_judge = judge.judge_with_structured_output
 
-    async def thread(function: Any, *args: Any, **kwargs: Any) -> Any:
-        if function is judge.judge_with_structured_output and not queued.is_set():
+    async def gated(client: Any, prompt: str, model: str) -> Any:
+        if not queued.is_set():
             queued.set()
             await release.wait()
 
-        return await real_thread(function, *args, **kwargs)
+        return await real_judge(client, prompt, model)
 
-    monkeypatch.setattr(asyncio, "to_thread", thread)
+    monkeypatch.setattr(judge, "judge_with_structured_output", gated)
     monkeypatch.setattr(settings, "llm_base_url", "https://old.openrouter.ai/v1")
     call = asyncio.create_task(judge.judge_answer_async("question", "answer", "context"))
     await queued.wait()
@@ -127,7 +141,8 @@ async def test_container_shutdown_closes_benchmark_judge_pool(
     assert judge_http[1][0].is_closed
 
 
-def test_judge_constructor_cannot_mix_old_origin_with_new_provider_credentials(
+@pytest.mark.asyncio
+async def test_judge_constructor_cannot_mix_old_origin_with_new_provider_credentials(
     judge_http: tuple[list[Any], list[Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
@@ -142,7 +157,7 @@ def test_judge_constructor_cannot_mix_old_origin_with_new_provider_credentials(
     monkeypatch.setattr(settings, "llm_base_url", "https://openrouter.ai/api/v1")
     monkeypatch.setattr(judge_clients, "_judge_client_lock", UpdatingLock())
     client = judge_clients.get_judge_client("test-model")
-    result = judge.judge_with_structured_output(client, "evaluate", "test-model")
+    result = await judge.judge_with_structured_output(client, "evaluate", "test-model")
     assert result.score == 7
     request = judge_http[0][0]
     assert request.url.host == "openrouter.ai"

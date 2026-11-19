@@ -39,12 +39,12 @@ def benchmark_io(monkeypatch: pytest.MonkeyPatch) -> tuple[list[dict[str, Any]],
     monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
     questions = [{"id": "first", "question": "question", "source_hint": "report"}]
     monkeypatch.setattr(
-        evidence_judge, "judge_evidence", lambda *_args, **_kwargs: {"scores": {}, "details": {}}
+        evidence_judge, "judge_evidence", AsyncMock(return_value={"scores": {}, "details": {}})
     )
     score = AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": None})
     monkeypatch.setattr(judge, "judge_answer_async", score)
     monkeypatch.setattr(
-        context_judge, "compute_context_precision_recall", lambda *_a, **_kw: {"context_precision": 6}
+        context_judge, "compute_context_precision_recall", AsyncMock(return_value={"context_precision": 6})
     )
     monkeypatch.setattr(metrics, "estimate_cost_usd", lambda *_a: 0.25)
     monkeypatch.setattr(persistence, "log_question_result", lambda *_a: None)

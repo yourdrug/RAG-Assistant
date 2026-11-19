@@ -4,7 +4,7 @@ import logging
 from typing import Any, Unpack
 
 from domain.benchmark.question import answer_annotations
-from infrastructure.benchmark.judging.callbacks import SyncMetricOptions
+from infrastructure.benchmark.judging.callbacks import AsyncMetricOptions
 from infrastructure.benchmark.judging.judge import get_judge_client, judge_with_structured_output
 from infrastructure.benchmark.judging.judge_rubric import CITATION_SUPPORT_CRITERIA
 from infrastructure.benchmark.judging.prompts import metric_prompt
@@ -13,13 +13,13 @@ from infrastructure.benchmark.judging.prompts import metric_prompt
 logger = logging.getLogger("default")
 
 
-def judge_evidence(
+async def judge_evidence(
     question: str,
     answer: str,
     context: str | None,
     annotations: dict[str, Any] | None,
     model: str,
-    **options: Unpack[SyncMetricOptions],
+    **options: Unpack[AsyncMetricOptions],
 ) -> dict[str, Any]:
     result: dict[str, Any] = options.get("saved_metrics") or {"scores": {}, "details": {}}
     metric_callback = options.get("metric_callback")
@@ -39,7 +39,7 @@ def judge_evidence(
         prompt = metric_prompt(instruction, payload)
         try:
             client = get_judge_client(model)
-            score = judge_with_structured_output(client, prompt, model)
+            score = await judge_with_structured_output(client, prompt, model)
             result["scores"][metric] = max(0.0, min(10.0, score.score))
             result["details"][metric] = {"reason": score.reason}
         except Exception as exc:
@@ -53,7 +53,7 @@ def judge_evidence(
             result["details"][metric] = {"error": str(exc)}
 
         if metric_callback is not None:
-            metric_callback(result)
+            await metric_callback(result)
 
     return result
 

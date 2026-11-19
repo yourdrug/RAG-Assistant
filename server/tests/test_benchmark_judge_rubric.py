@@ -158,10 +158,11 @@ def test_judge_prompts_share_xml_layout_and_escape_case_data() -> None:
     assert case_payload(grouped)["answer"] == hostile
 
 
-def test_context_and_evidence_judges_use_xml_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_context_and_evidence_judges_use_xml_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
     prompts: list[str] = []
 
-    def score(_client: object, prompt: str, _model: str) -> JudgeScore:
+    async def score(_client: object, prompt: str, _model: str) -> JudgeScore:
         prompts.append(prompt)
         return JudgeScore(score=5, reason="ok")
 
@@ -170,10 +171,10 @@ def test_context_and_evidence_judges_use_xml_prompts(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(evidence_judge, "judge_with_structured_output", score)
 
-    compute_context_precision_recall(
+    await compute_context_precision_recall(
         "вопрос", "ответ", None, context_override="контекст", judge_model="judge"
     )
-    evidence_judge.judge_evidence(
+    await evidence_judge.judge_evidence(
         "вопрос", "ответ", "контекст", {"expected_refusal": False, "required_facts": ["факт"]}, "judge"
     )
 

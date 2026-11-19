@@ -44,9 +44,12 @@ def capture_openai(monkeypatch: pytest.MonkeyPatch, name: str) -> list[dict[str,
     return calls
 
 
+@pytest.mark.asyncio
 @pytest.mark.usefixtures("local_llm")
-def test_sync_judge_uses_configured_endpoint_with_placeholder_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = capture_openai(monkeypatch, "OpenAI")
+async def test_cached_judge_uses_configured_endpoint_with_placeholder_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = capture_openai(monkeypatch, "AsyncOpenAI")
 
     client = judge_clients.get_judge_client(judge_clients.get_judge_model())
 
@@ -55,7 +58,7 @@ def test_sync_judge_uses_configured_endpoint_with_placeholder_key(monkeypatch: p
         # Question, answer and context must never leave the configured endpoint.
         assert calls[0]["api_key"] == "EMPTY"
     finally:
-        client.retire()
+        await client.close()
 
 
 @pytest.mark.asyncio

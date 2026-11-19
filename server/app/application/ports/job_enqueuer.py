@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, TypedDict, Unpack
 
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.knowledge.enums import DocumentVisibility
 
 
@@ -68,6 +69,7 @@ class JobEnqueuerPort(Protocol):
         judge_model: str,
         job_id: int,
         space_id: int | None = None,
+        llm_replay_mode: str = LLMReplayMode.OFF.value,
     ) -> None: ...
 
     async def enqueue_sweep(

@@ -176,6 +176,9 @@ class ManagedLLM(Runnable[object, BaseMessage]):
         if self._close_task is not None:
             await self._close_task
 
+    def is_closed(self) -> bool:
+        return self._close_task is not None and self._close_task.done()
+
 
 class ManagedInstructor(ManagedLLM):
     """Expose Instructor's async completion call through the same lease."""

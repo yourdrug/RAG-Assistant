@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import instructor
-from openai import OpenAI
+from openai import AsyncOpenAI
 import pytest
 
 from application.benchmark import BenchmarkSweepService
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from application.chat.ports import ChatRAGPort
     from domain.rag.context import RagContext
-    from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
+    from infrastructure.ml.clients.managed_llm import ManagedInstructor
 
 
 @pytest.fixture(autouse=True)
@@ -42,25 +42,26 @@ def individual_judge_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
 
 
-def test_invalid_provider_request_is_not_retried() -> None:
+@pytest.mark.asyncio
+async def test_invalid_provider_request_is_not_retried() -> None:
     requests = []
 
     def respond(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return httpx.Response(400, json={"error": {"message": "invalid request"}})
 
-    raw = OpenAI(
-        api_key="test", max_retries=0, http_client=httpx.Client(transport=httpx.MockTransport(respond))
+    raw = AsyncOpenAI(
+        api_key="test", max_retries=0, http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond))
     )
     client = instructor.from_openai(raw, mode=instructor.Mode.MD_JSON)
     with pytest.raises(Exception, match="invalid request"):
-        judge.judge_with_structured_output(
-            cast("ManagedSyncInstructor", client), "score the answer", "test-model"
+        await judge.judge_with_structured_output(
+            cast("ManagedInstructor", client), "score the answer", "test-model"
         )
     assert len(requests) == 1
     assert b'"tools"' not in requests[0].content
     assert json.loads(requests[0].content)["max_tokens"] == judge.JUDGE_OUTPUT_TOKENS
-    raw.close()
+    await raw.close()
 
 
 @pytest.mark.asyncio
@@ -173,7 +174,8 @@ async def test_resume_waits_for_cancelled_worker_to_stop(monkeypatch: pytest.Mon
     cast("AsyncMock", factory._uow.fake_benchmark_sweeps.requeue).assert_not_awaited()
 
 
-def test_judge_usage_includes_validation_retry_responses() -> None:
+@pytest.mark.asyncio
+async def test_judge_usage_includes_validation_retry_responses() -> None:
 
     responses = iter(["invalid json", '{"score":8,"reason":"ok"}'])
 
@@ -196,23 +198,21 @@ def test_judge_usage_includes_validation_retry_responses() -> None:
             },
         )
 
-    raw = OpenAI(
-        api_key="test", max_retries=0, http_client=httpx.Client(transport=httpx.MockTransport(respond))
+    raw = AsyncOpenAI(
+        api_key="test", max_retries=0, http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond))
     )
     client = instructor.from_openai(raw, mode=instructor.Mode.MD_JSON)
     client.on("completion:response", record_judge_usage)
     records: list[Any] = []
     token = judge_usage.set(records)
     try:
-        assert (
-            judge.judge_with_structured_output(cast("ManagedSyncInstructor", client), "score", "test").score
-            == 8
-        )
+        score = await judge.judge_with_structured_output(cast("ManagedInstructor", client), "score", "test")
+        assert score.score == 8
         assert sum(r["input_tokens"] for r in records) == 200
         assert len(records) == 2
     finally:
         judge_usage.reset(token)
-        raw.close()
+        await raw.close()
 
 
 @pytest.mark.asyncio

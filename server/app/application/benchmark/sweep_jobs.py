@@ -116,6 +116,7 @@ class SweepJobService:
                     "total_judge_output_tokens",
                     "total_judge_calls",
                     "usage_scope",
+                    "llm_replay",
                 )
             },
         }

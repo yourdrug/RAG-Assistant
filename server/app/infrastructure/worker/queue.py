@@ -20,6 +20,7 @@ from arq import create_pool
 from application.jobs.principal import job_principal
 from application.ports.job_enqueuer import DuplicateJobError
 from config import RedisSection, process_section
+from domain.benchmark.llm_replay import LLMReplayMode
 from domain.knowledge.enums import DocumentVisibility
 from domain.runtime.jobs import JobType
 from infrastructure.redis.arq_settings import arq_redis_settings
@@ -188,6 +189,7 @@ async def enqueue_benchmark(
     job_id: int,
     space_id: int | None = None,
     dataset_hash: str | None = None,
+    llm_replay_mode: str = LLMReplayMode.OFF.value,
 ) -> None:
     """Enqueue benchmark run via Arq (deduplicated per parameters)."""
     pinned = {} if dataset_hash is None else {"dataset_hash": dataset_hash}
@@ -201,6 +203,7 @@ async def enqueue_benchmark(
         judge_model=judge_model,
         job_id=job_id,
         **pinned,
+        llm_replay_mode=llm_replay_mode,
     )
 
 

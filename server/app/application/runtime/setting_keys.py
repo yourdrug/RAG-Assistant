@@ -67,6 +67,7 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "benchmark_judge_initial_tokens",
         "benchmark_judge_retry_tokens",
         "benchmark_judge_model",
+        "benchmark_llm_replay_retention_days",
         "embedding_model",
         "embedding_revision",
         "embed_dim",
