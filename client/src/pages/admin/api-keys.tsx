@@ -35,11 +35,12 @@ export function AdminApiKeysPage() {
   const revokeMut = useRevokeClientApiKey(clientUserId);
 
   const clientUsers = users?.users?.filter((u) => u.kind === "client") || [];
+  const keyName = newKeyName.trim();
 
   const handleCreateKey = async () => {
-    if (!selClient) return;
+    if (!selClient || !keyName) return;
     try {
-      const result = await createMut.mutateAsync({ name: newKeyName || undefined });
+      const result = await createMut.mutateAsync({ name: keyName });
       setCreatedKey(result.key);
       setNewKeyName("");
       refetch();
@@ -104,12 +105,17 @@ export function AdminApiKeysPage() {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Key name (optional)"
+                  placeholder="Key name (required)"
+                  aria-label="Key name"
+                  required
                   value={newKeyName}
                   onChange={(e) => setNewKeyName(e.target.value)}
                   className="flex-1 px-3 py-2 border rounded-md"
                 />
-                <Button onClick={handleCreateKey} disabled={createMut.isPending || !selClient}>
+                <Button
+                  onClick={handleCreateKey}
+                  disabled={createMut.isPending || !selClient || !keyName}
+                >
                   <Plus className="h-4 w-4 mr-1" />
                   Create
                 </Button>

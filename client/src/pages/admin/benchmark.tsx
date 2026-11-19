@@ -984,17 +984,6 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
           <CardContent className="space-y-3">
             <div className="flex items-center gap-3">
               <Label className="w-28 text-xs">Dataset</Label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setDataset("belarus_law-quick");
-                  setEvaluationMode("fast");
-                  setTopNLlm(1);
-                }}
-              >
-                Quick · Top-N 1
-              </Button>
               <BenchmarkDatasetSelect value={dataset} onChange={setDataset} />
             </div>
             <div className="flex items-center gap-3">
@@ -1615,12 +1604,14 @@ export function AdminBenchmarkPage() {
       : "questions";
   const sweepId = Number(searchParams.get("sweep"));
   const activeSweepId = Number.isSafeInteger(sweepId) && sweepId > 0 ? sweepId : null;
+
   function setActiveTab(tab: string) {
     setSearchParams((current) => {
       current.set("tab", tab);
       return current;
     });
   }
+
   function setActiveSweepId(id: number) {
     setSearchParams((current) => {
       current.set("sweep", String(id));

@@ -126,8 +126,13 @@ test("client API key is shown once and can be revoked", async ({
   await choose(page, `${client.email} (Active)`);
   await expect(page.getByText("No API keys found for this client")).toBeVisible();
   try {
-    await page.getByPlaceholder("Key name (optional)").fill(name);
-    await page.getByRole("button", { name: "Create", exact: true }).click();
+    const keyName = page.getByRole("textbox", { name: "Key name" });
+    const createButton = page.getByRole("button", { name: "Create", exact: true });
+    await expect(createButton).toBeDisabled();
+    await keyName.fill("   ");
+    await expect(createButton).toBeDisabled();
+    await keyName.fill(name);
+    await createButton.click();
     const dialog = page.getByRole("dialog", { name: "API Key Created" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("textbox")).not.toHaveValue("");

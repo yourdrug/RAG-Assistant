@@ -54,6 +54,10 @@ _TEST_DEFAULTS = {
 for _key, _val in _TEST_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
 
+# Tests never export spans to a real collector, even when the local .env enables tracing:
+# the global tracer provider is installed once per process and would shadow the test exporter.
+os.environ["OTEL_ENABLED"] = "false"
+
 
 # Modules whose import makes a test module a test of the Belarusian law pack.
 LAW_PACK_MODULES = (
