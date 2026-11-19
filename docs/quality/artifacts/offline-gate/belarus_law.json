@@ -1,7 +1,7 @@
 {
   "label": "offline-gate reference",
   "pack": "belarus_law",
-  "date": "2026-11-18",
+  "date": "2026-11-19",
   "tokenizer": "BAAI/bge-m3",
   "retrieval": "proxy: BM25 (prod tokenizer) / bge-m3 cosine / RRF k=60, no reranker, depth 50",
   "domains": {
@@ -24,13 +24,11 @@
       "body_retrieval": {
         "bm25": {
           "questions": 37,
-          "recall_at_5": 0.8108,
-          "recall_at_10": 0.8378,
-          "mrr": 0.7201,
+          "recall_at_5": 0.8378,
+          "recall_at_10": 0.8919,
+          "mrr": 0.786,
           "misses_at_10": [
-            "rag-c-011",
             "rag-c-014",
-            "rag-c-027",
             "rag-c-032",
             "rag-c-033",
             "rag-c-034"
@@ -40,13 +38,11 @@
       "retrieval": {
         "bm25": {
           "questions": 37,
-          "recall_at_5": 0.8108,
-          "recall_at_10": 0.8378,
-          "mrr": 0.7201,
+          "recall_at_5": 0.8378,
+          "recall_at_10": 0.8919,
+          "mrr": 0.786,
           "misses_at_10": [
-            "rag-c-011",
             "rag-c-014",
-            "rag-c-027",
             "rag-c-032",
             "rag-c-033",
             "rag-c-034"
@@ -73,9 +69,9 @@
       "body_retrieval": {
         "bm25": {
           "questions": 50,
-          "recall_at_5": 0.3533,
-          "recall_at_10": 0.3967,
-          "mrr": 0.2738,
+          "recall_at_5": 0.35,
+          "recall_at_10": 0.4033,
+          "mrr": 0.2748,
           "misses_at_10": [
             "rag-0007",
             "rag-0008",
@@ -85,7 +81,6 @@
             "rag-0028",
             "rag-0032",
             "rag-0033",
-            "rag-0035",
             "rag-0045",
             "rag-0046",
             "rag-0047",
@@ -100,6 +95,7 @@
             "rag-0067",
             "rag-0068",
             "rag-0069",
+            "rag-0072",
             "rag-0074",
             "rag-0078",
             "rag-0087",
@@ -115,9 +111,9 @@
       "retrieval": {
         "bm25": {
           "questions": 50,
-          "recall_at_5": 0.3533,
-          "recall_at_10": 0.4167,
-          "mrr": 0.276,
+          "recall_at_5": 0.35,
+          "recall_at_10": 0.4233,
+          "mrr": 0.2778,
           "misses_at_10": [
             "rag-0007",
             "rag-0008",
@@ -127,7 +123,6 @@
             "rag-0028",
             "rag-0032",
             "rag-0033",
-            "rag-0035",
             "rag-0045",
             "rag-0046",
             "rag-0047",
@@ -141,6 +136,7 @@
             "rag-0067",
             "rag-0068",
             "rag-0069",
+            "rag-0072",
             "rag-0074",
             "rag-0078",
             "rag-0087",
@@ -175,7 +171,7 @@
           "questions": 25,
           "recall_at_5": 0.96,
           "recall_at_10": 0.96,
-          "mrr": 0.876,
+          "mrr": 0.9033,
           "misses_at_10": [
             "chunk-gen-015"
           ]
@@ -186,7 +182,7 @@
           "questions": 25,
           "recall_at_5": 0.96,
           "recall_at_10": 0.96,
-          "mrr": 0.876,
+          "mrr": 0.9033,
           "misses_at_10": [
             "chunk-gen-015"
           ]
@@ -212,26 +208,28 @@
       "body_retrieval": {
         "bm25": {
           "questions": 30,
-          "recall_at_5": 0.8833,
-          "recall_at_10": 0.9167,
-          "mrr": 0.763,
+          "recall_at_5": 0.85,
+          "recall_at_10": 0.8833,
+          "mrr": 0.7509,
           "misses_at_10": [
             "rag-0038",
             "rag-0048",
-            "rag-0122"
+            "rag-0122",
+            "rag-n-007"
           ]
         }
       },
       "retrieval": {
         "bm25": {
           "questions": 30,
-          "recall_at_5": 0.8833,
-          "recall_at_10": 0.9167,
-          "mrr": 0.763,
+          "recall_at_5": 0.85,
+          "recall_at_10": 0.8833,
+          "mrr": 0.7509,
           "misses_at_10": [
             "rag-0038",
             "rag-0048",
-            "rag-0122"
+            "rag-0122",
+            "rag-n-007"
           ]
         }
       }
@@ -463,13 +461,11 @@
     "retrieval": {
       "bm25": {
         "questions": 142,
-        "recall_at_5": 0.6913,
-        "recall_at_10": 0.7277,
-        "mrr": 0.6002,
+        "recall_at_5": 0.6901,
+        "recall_at_10": 0.7371,
+        "mrr": 0.6203,
         "misses_at_10": [
-          "rag-c-011",
           "rag-c-014",
-          "rag-c-027",
           "rag-c-032",
           "rag-c-033",
           "rag-c-034",
@@ -481,7 +477,6 @@
           "rag-0028",
           "rag-0032",
           "rag-0033",
-          "rag-0035",
           "rag-0045",
           "rag-0046",
           "rag-0047",
@@ -495,6 +490,7 @@
           "rag-0067",
           "rag-0068",
           "rag-0069",
+          "rag-0072",
           "rag-0074",
           "rag-0078",
           "rag-0087",
@@ -507,7 +503,8 @@
           "chunk-gen-015",
           "rag-0038",
           "rag-0048",
-          "rag-0122"
+          "rag-0122",
+          "rag-n-007"
         ]
       }
     }
