@@ -73,7 +73,7 @@
   },
   "bm25_fetch_k": {
     "annotation": "<class 'int'>",
-    "default": "25",
+    "default": "30",
     "metadata": "[]",
     "required": false
   },
@@ -271,7 +271,7 @@
   },
   "dense_weight": {
     "annotation": "<class 'float'>",
-    "default": "1.5",
+    "default": "1.0",
     "metadata": "[]",
     "required": false
   },
@@ -859,7 +859,7 @@
   },
   "retriever_fetch_k": {
     "annotation": "<class 'int'>",
-    "default": "15",
+    "default": "30",
     "metadata": "[]",
     "required": false
   },
@@ -949,7 +949,7 @@
   },
   "sparse_weight": {
     "annotation": "<class 'float'>",
-    "default": "0.5",
+    "default": "1.0",
     "metadata": "[]",
     "required": false
   },

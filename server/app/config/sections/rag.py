@@ -8,7 +8,7 @@ from config.ownership import Static
 
 
 class RetrievalSection(BaseModel):
-    retriever_fetch_k: int = 15
+    retriever_fetch_k: int = 30
     retriever_top_k: int = 4
     retriever_fetch_k_broad: int = 40
     retriever_top_k_broad: int = 10
@@ -37,10 +37,10 @@ class RankingSection(BaseModel):
 
 class HybridSearchSection(BaseModel):
     hybrid_enabled: bool = True
-    bm25_fetch_k: int = 25
+    bm25_fetch_k: int = 30
     rrf_k: int = 30
-    dense_weight: float = 1.5
-    sparse_weight: float = 0.5
+    dense_weight: float = 1.0
+    sparse_weight: float = 1.0
 
 
 class RagFeaturesSection(BaseModel):
