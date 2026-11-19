@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import re
 
-from infrastructure.bm25.stemmer import stem_token
+from infrastructure.bm25.lemmatizer import normalize_token
 
 
 _TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.UNICODE)
 
 
 def tokenize(text: str) -> list[str]:
-    """Lowercase, split on non-alphanumeric, stem tokens; retain single digits but discard single letters."""
-    return [stem_token(t) for t in tokenize_raw(text)]
+    """Lowercase, split on non-alphanumeric and lemmatize; keep single digits, drop single letters."""
+    return [normalize_token(t) for t in tokenize_raw(text)]
 
 
 def tokenize_raw(text: str) -> list[str]:

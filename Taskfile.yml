@@ -120,6 +120,14 @@ tasks:
       - "{{.COMPOSE}} {{.FILES}} up -d {{.APP_SERVICES}}"
       - task: ps
 
+  corpus:migrate-sparse:
+    desc: "Пересчитать BM25 sparse-векторы Qdrant после смены SPARSE_VECTOR_NAME (без переиндексации) до запуска новой версии: останавливает server и воркеры, пересчитывает, сверяет с PostgreSQL по точкам; повторный запуск безопасен; task corpus:migrate-sparse [-- --dry-run]"
+    vars:
+      APP_SERVICES: server worker worker-batch maintenance
+    cmds:
+      - "{{.COMPOSE}} stop {{.APP_SERVICES}}"
+      - "{{.COMPOSE}} run --rm --no-deps server bash -c 'cd app && python -m composition.cli corpus migrate-sparse {{.CLI_ARGS}}'"
+
   storage:init:
     desc: "Создать бакет S3/MinIO для загрузок, если его нет (идемпотентно)"
     cmds:

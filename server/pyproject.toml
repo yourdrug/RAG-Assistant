@@ -37,6 +37,7 @@ dependencies = [
     "numpy==1.26.4",
     "tokenizers==0.22.2",
     "qdrant-client==1.11.3",
+    "pymorphy3==2.0.6", # Russian lemmas for BM25 sparse vectors
     # --- OCR ---
     "pillow==10.4.0",
     # --- Document parsers ---
