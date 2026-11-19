@@ -175,7 +175,8 @@ compose up -d --no-deps --no-recreate --pull never --wait --wait-timeout "${DEPL
 # Migrations must be backward-compatible with the running release (expand/contract).
 migrate_container="rag-migrate-$$"
 # timeout kills only the compose client; remove the container so it cannot keep the advisory lock and pending DDL.
-if ! timeout "${DEPLOY_MIGRATION_TIMEOUT:-300}" docker compose "${compose_args[@]}" run --rm --no-deps --name "$migrate_container" migrate; then
+# timeout runs compose in a background process group: a TTY-attached run is stopped by SIGTTOU/SIGTTIN, so use -T.
+if ! timeout "${DEPLOY_MIGRATION_TIMEOUT:-300}" docker compose "${compose_args[@]}" run -T --rm --no-deps --name "$migrate_container" migrate </dev/null; then
   docker rm -f "$migrate_container" >/dev/null 2>&1 || true
   echo "Migration failed or timed out; application containers left on the previous release" >&2
   exit 1
