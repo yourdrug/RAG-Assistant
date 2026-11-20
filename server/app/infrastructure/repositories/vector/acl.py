@@ -13,6 +13,7 @@ from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.access_control import get_visibility_conditions
+from domain.knowledge.revision import STAGED_KEY
 from domain.knowledge.space import SPACE_ID_KEY
 from infrastructure.repositories.vector.pack_selection import pack_selection_condition
 
@@ -25,6 +26,14 @@ if TYPE_CHECKING:
     from domain.knowledge.pack_metadata import MetadataCondition
 
 
+def unpublished_revision_condition() -> FieldCondition:
+    """Points of a staged revision: hidden from every search until it is published.
+
+    Not an access condition: it only hides content the document has not published yet.
+    """
+    return FieldCondition(key=f"metadata.{STAGED_KEY}", match=MatchValue(value=True))
+
+
 def build_qdrant_filter(
     user: UserContext | dict[str, Any],
     group_ids: list[int],
@@ -35,6 +44,7 @@ def build_qdrant_filter(
     """Build a Qdrant filter for documents visible to this user.
 
     Derives conditions from domain.knowledge.access_control.get_visibility_conditions().
+    Points of unpublished (staged) revisions are always excluded.
 
     Args:
         user: UserContext or dict with "id", "kind", and optionally "role" keys
@@ -77,7 +87,7 @@ def build_qdrant_filter(
 
         should.append(Filter(must=must) if len(must) > 1 else must[0])
 
-    return Filter(should=should)
+    return Filter(should=should, must_not=[unpublished_revision_condition()])
 
 
 def with_domain_filter(access_filter: Filter | None, doc_domain: str | Sequence[str]) -> Filter:

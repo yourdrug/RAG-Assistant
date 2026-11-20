@@ -7,6 +7,7 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.models import Modifier, Record, SparseVector
 
+from domain.knowledge.revision import STAGED_KEY
 from domain.shared.exceptions import ValidationError
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.corpus.snapshot import CorpusSnapshot
@@ -47,6 +48,9 @@ def validate_corpus(
         )
 
         for point in points:
+            if is_unpublished_point(point, expected):
+                continue
+
             validate_corpus_point(point, expected, seen, identity)
             seen.add(point.id)
 
@@ -58,6 +62,12 @@ def validate_corpus(
         raise ValidationError(message)
 
     return CorpusSnapshot(endpoint, name, physical, identity)
+
+
+def is_unpublished_point(point: Record, expected: Mapping[int | str, Mapping[str, Any]]) -> bool:
+    """A hidden point of a staged revision: not part of the published corpus yet."""
+    metadata = (point.payload or {}).get("metadata") or {}
+    return metadata.get(STAGED_KEY) is True and point.id not in expected
 
 
 def validate_corpus_point(

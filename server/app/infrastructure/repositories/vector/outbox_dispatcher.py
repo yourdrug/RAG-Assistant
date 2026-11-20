@@ -15,17 +15,20 @@ import uuid
 
 from config import JobsSection, MLProviderSection, process_section
 from domain.knowledge.chunk import Chunk
-from domain.knowledge.index_sync import OutboxOperation
+from domain.knowledge.enums import DocumentStatus
+from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.knowledge.pack_metadata import PACK_METADATA_KEY
+from domain.knowledge.revision import REUSE_POINT_KEY, STAGED_KEY, STAGED_REVISION_KEY
 from domain.shared.hashing import content_hash
 from infrastructure.utils.async_tasks import finish_owned_task
 
 
 if TYPE_CHECKING:
     from application.ports.cache_invalidator import CacheInvalidatorPort
+    from application.uow import UnitOfWork
     from application.uow.factory import UnitOfWorkFactory
     from domain.knowledge.chunk import ChunkRecord
-    from domain.knowledge.index_sync import VectorIndexWriter, VectorOutboxEntry
+    from domain.knowledge.index_sync import VectorIndexWriter
 
 
 log = logging.getLogger("default")
@@ -34,6 +37,18 @@ _BASE_BACKOFF_SEC = 5
 _MAX_BACKOFF_SEC = 900  # 15 minutes
 # Chunks read from SQL, embedded and written per step of one document upsert.
 _UPSERT_SLICE_SIZE = 256
+STAGED_UPDATE_FAILED_WARNING = (
+    "Новая версия документа не проиндексирована; поиск использует предыдущую версию"
+)
+
+
+def staged_token(entry: VectorOutboxEntry) -> str | None:
+    """Token of the staged revision an upsert entry uploads; ``None`` for published chunks."""
+    if entry.operation != OutboxOperation.UPSERT_CHUNKS:
+        return None
+
+    token = entry.payload.get(STAGED_REVISION_KEY)
+    return token if isinstance(token, str) else None
 
 
 class OutboxDispatcher:
@@ -169,6 +184,43 @@ class OutboxDispatcher:
             async with self._uow_factory.create(master=True) as uow:
                 await uow.vector_outbox.mark_failed(entry.id, str(e), backoff_seconds=backoff)
 
+                if entry.attempts + 1 >= entry.max_attempts and staged_token(entry) is not None:
+                    await self.abandon_staged_revision(uow, entry.aggregate_id, str(staged_token(entry)))
+
+    async def abandon_staged_revision(self, uow: UnitOfWork, document_id: int, token: str) -> None:
+        """A dead-lettered staged upload leaves the published revision in place.
+
+        The staged chunks and any of their uploaded points are removed, and the
+        document returns to ``done`` with a warning instead of staying ``indexing``.
+        """
+        staged = await uow.chunks.get_staged_revision(document_id)
+
+        if staged is None or staged.token != token:
+            return
+
+        await uow.documents.get_by_id(document_id, for_update=True)
+        staged_ids = await uow.chunks.discard_staged_revision(document_id)
+
+        if staged_ids:
+            await uow.vector_outbox.enqueue(
+                VectorOutboxEntry(
+                    operation=OutboxOperation.DELETE_CHUNKS,
+                    aggregate_type="document",
+                    aggregate_id=document_id,
+                    payload={"chunk_ids": staged_ids},
+                )
+            )
+
+        stats = await uow.chunks.get_document_stats(document_id)
+        await uow.documents.update_status(
+            document_id,
+            status=DocumentStatus.DONE.value,
+            chunks=stats.total_chunks,
+            chars=stats.total_chars,
+            warning=STAGED_UPDATE_FAILED_WARNING,
+        )
+        log.warning("Staged revision of document %d abandoned after repeated upload failures", document_id)
+
     async def _dispatch(self, entry: VectorOutboxEntry) -> None:
         operation: str = entry.operation
 
@@ -184,6 +236,10 @@ class OutboxDispatcher:
             await self.refresh_document_filename(entry.aggregate_id)
         elif operation == OutboxOperation.DELETE_CHUNKS:
             await self._vector_store.delete_by_ids(entry.payload["chunk_ids"])
+        elif operation == OutboxOperation.PUBLISH_REVISION:
+            # Reveal first: the document never disappears from search between the steps.
+            await self._vector_store.reveal_points(entry.payload["published_ids"])
+            await self._vector_store.delete_by_ids(entry.payload["replaced_ids"])
         elif operation == OutboxOperation.UPDATE_METADATA:
             await self._apply_pack_metadata(entry.aggregate_id, entry.payload.get("related_document_ids", []))
         elif operation == OutboxOperation.SET_DOCUMENT_ID:
@@ -233,12 +289,24 @@ class OutboxDispatcher:
 
         await self._vector_store.set_pack_metadata_by_document_id(document_id, pack_metadata)
 
-    async def current_chunks(self, document_id: int, chunk_ids: list[int]) -> dict[int, ChunkRecord]:
+    async def current_chunks(
+        self, document_id: int, chunk_ids: list[int], token: str | None = None
+    ) -> dict[int, ChunkRecord]:
+        """Committed chunks: published ones, or those of the staged revision ``token``."""
         async with self._uow_factory.create(master=True) as uow:
-            return {chunk.chunk_id: chunk for chunk in await uow.chunks.get_by_ids(document_id, chunk_ids)}
+            rows = (
+                await uow.chunks.get_by_ids(document_id, chunk_ids)
+                if token is None
+                else await uow.chunks.get_staged_by_ids(document_id, token, chunk_ids)
+            )
+            return {chunk.chunk_id: chunk for chunk in rows}
 
-    async def verify_uploaded_chunks(self, document_id: int, chunks: list[Chunk]) -> None:
-        current = await self.current_chunks(document_id, [chunk.metadata["chunk_id"] for chunk in chunks])
+    async def verify_uploaded_chunks(
+        self, document_id: int, chunks: list[Chunk], token: str | None = None
+    ) -> None:
+        current = await self.current_chunks(
+            document_id, [chunk.metadata["chunk_id"] for chunk in chunks], token
+        )
         obsolete_ids = [
             chunk.metadata["chunk_id"] for chunk in chunks if chunk.metadata["chunk_id"] not in current
         ]
@@ -279,9 +347,12 @@ class OutboxDispatcher:
 
         uploaded: set[str] = set()
         points = payload["points"]
+        token = payload.get(STAGED_REVISION_KEY)
 
         for start in range(0, len(points), _UPSERT_SLICE_SIZE):
-            chunks = await self.current_slice_chunks(points[start : start + _UPSERT_SLICE_SIZE], document_id)
+            chunks = await self.current_slice_chunks(
+                points[start : start + _UPSERT_SLICE_SIZE], document_id, token
+            )
 
             if not chunks:
                 continue
@@ -293,10 +364,13 @@ class OutboxDispatcher:
                 )
 
             await self._vector_store.upload_documents(chunks, should_cancel=_doc_cancelled)
-            await self.verify_uploaded_chunks(document_id, chunks)
+            await self.verify_uploaded_chunks(document_id, chunks, token)
             uploaded.update(
                 json.dumps(chunk.metadata.get(PACK_METADATA_KEY), sort_keys=True) for chunk in chunks
             )
+
+        if token is not None:
+            await self.publish_staged_revision(document_id, token)
 
         if not uploaded:
             return
@@ -307,10 +381,44 @@ class OutboxDispatcher:
         # Do not leave the snapshot in this upsert as the final state.
         await self.project_pack_metadata(document_id, unless_in=uploaded)
 
-    async def current_slice_chunks(self, points: list[dict[str, Any]], document_id: int) -> list[Chunk]:
+    async def publish_staged_revision(self, document_id: int, token: str) -> None:
+        """Every staged point is indexed: make the revision the one search and citations use."""
+        async with self._uow_factory.create(master=True) as uow:
+            # Same lock order as re-chunking and chunk edits: the document row first.
+            if await uow.documents.get_by_id(document_id, for_update=True) is None:
+                return
+
+            switch = await uow.chunks.publish_staged_revision(document_id, token)
+
+            if switch is None:
+                log.info("Staged revision of document %d was superseded; not published", document_id)
+                return
+
+            await uow.vector_outbox.enqueue(
+                VectorOutboxEntry(
+                    operation=OutboxOperation.PUBLISH_REVISION,
+                    aggregate_type="document",
+                    aggregate_id=document_id,
+                    payload={
+                        "published_ids": list(switch.published_ids),
+                        "replaced_ids": list(switch.replaced_ids),
+                    },
+                )
+            )
+
+        log.info(
+            "Document %d: staged revision published (%d chunks, %d replaced)",
+            document_id,
+            len(switch.published_ids),
+            len(switch.replaced_ids),
+        )
+
+    async def current_slice_chunks(
+        self, points: list[dict[str, Any]], document_id: int, token: str | None = None
+    ) -> list[Chunk]:
         """Build chunks from committed SQL content; drop points whose chunks no longer exist."""
         chunk_ids = [p["chunk_id"] for p in points]
-        current = await self.current_chunks(document_id, chunk_ids)
+        current = await self.current_chunks(document_id, chunk_ids, token)
         obsolete_ids = [chunk_id for chunk_id in chunk_ids if chunk_id not in current]
 
         if obsolete_ids:
@@ -326,6 +434,8 @@ class OutboxDispatcher:
                     "chunk_id": p["chunk_id"],
                     "content_hash": content_hash(current[p["chunk_id"]].content),
                     PACK_METADATA_KEY: dict(current[p["chunk_id"]].pack_metadata),
+                    **({STAGED_KEY: True} if token is not None else {}),
+                    **({REUSE_POINT_KEY: p[REUSE_POINT_KEY]} if p.get(REUSE_POINT_KEY) is not None else {}),
                 },
             )
             for p in points

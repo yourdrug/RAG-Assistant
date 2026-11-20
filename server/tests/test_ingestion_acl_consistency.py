@@ -17,7 +17,7 @@ from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility, SourceType
 from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
-from tests.fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory, publish_staged_revisions
 
 
 if TYPE_CHECKING:
@@ -76,6 +76,8 @@ async def reindex_for_client(
         visibility=DocumentVisibility.CLIENT_PRIVATE,
         client_id=client_id,
     )
+    # The re-indexed content becomes visible once its staged revision is published.
+    await publish_staged_revisions(factory)
     return chunks
 
 

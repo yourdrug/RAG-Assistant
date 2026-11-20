@@ -27,6 +27,7 @@ from qdrant_client.models import (
 
 from application.ports.ml_clients import AsyncSemaphorePort
 from config import MLProviderSection, process_section
+from domain.knowledge.revision import EMBED_HASH_KEY, REUSE_POINT_KEY
 from domain.shared.hashing import content_hash
 from infrastructure.bm25.document_text import bm25_document_text
 from infrastructure.corpus.snapshot import collection_for
@@ -40,6 +41,8 @@ from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 # Buffered points carry vectors plus ~10 KB of chunk metadata each; a small
 # buffer bounds peak memory without slowing writes measurably.
 QDRANT_UPSERT_BATCH_SIZE = 64
+# Upload inputs that are not part of the stored point payload.
+UPLOAD_ONLY_METADATA = frozenset({"embed_text", REUSE_POINT_KEY})
 
 
 log = logging.getLogger("default")
@@ -169,6 +172,8 @@ def ensure_payload_indexes(client: VectorClient) -> None:
         ("metadata.content_type", PayloadSchemaType.KEYWORD),
         ("metadata.doc_type", PayloadSchemaType.KEYWORD),
         ("metadata.has_dates", PayloadSchemaType.BOOL),
+        # Every search excludes points of unpublished revisions.
+        ("metadata.staged", PayloadSchemaType.BOOL),
     ]
 
     for field_name, field_type in acl_fields:
@@ -220,7 +225,9 @@ def build_points(chunks: list[Document], vectors: list[list[float]]) -> list[Poi
             vector=point_vectors(bm25_document_text(doc), vector),
             payload={
                 "page_content": doc.page_content,
-                "metadata": {key: value for key, value in doc.metadata.items() if key != "embed_text"},
+                "metadata": {
+                    key: value for key, value in doc.metadata.items() if key not in UPLOAD_ONLY_METADATA
+                },
             },
         )
         for doc, vector in zip(chunks, vectors, strict=True)
@@ -258,10 +265,92 @@ def filter_upload_chunks(chunks: list[Document]) -> list[Document]:
 
 def prepare_upload_texts(chunks: list[Document]) -> list[str]:
     # Identity is always the full persisted content; dense embeddings keep full scope.
-    for doc in chunks:
-        doc.metadata["content_hash"] = content_hash(doc.page_content)
+    texts = [doc.metadata.get("embed_text") or doc.page_content for doc in chunks]
 
-    return [doc.metadata.get("embed_text") or doc.page_content for doc in chunks]
+    for doc, text in zip(chunks, texts, strict=True):
+        doc.metadata["content_hash"] = content_hash(doc.page_content)
+        # Proves later that this point's dense vector encodes exactly this input.
+        doc.metadata[EMBED_HASH_KEY] = content_hash(text)
+
+    return texts
+
+
+def dense_part(vector: object) -> list[float] | None:
+    if isinstance(vector, dict):
+        vector = vector.get("")
+
+    return vector if isinstance(vector, list) else None
+
+
+def reusable_vectors(client: VectorClient, chunks: list[Document], identity: str) -> dict[int, list[float]]:
+    """Dense vectors of existing points that encode the same input with the same model.
+
+    Keyed by chunk position. A point qualifies only if its stored input hash and
+    embedding model match, so a stale or foreign point is never reused.
+    """
+    wanted = {
+        position: point_id
+        for position, doc in enumerate(chunks)
+        if isinstance(point_id := doc.metadata.get(REUSE_POINT_KEY), int)
+    }
+
+    if not wanted:
+        return {}
+
+    records = client.retrieve(
+        collection_name=collection_for(client),
+        ids=sorted(set(wanted.values())),
+        with_payload=True,
+        with_vectors=True,
+    )
+    by_id = {record.id: record for record in records}
+    reused: dict[int, list[float]] = {}
+
+    for position, point_id in wanted.items():
+        record = by_id.get(point_id)
+        metadata = (record.payload or {}).get("metadata") if record is not None else None
+        dense = dense_part(record.vector) if record is not None else None
+
+        if (
+            isinstance(metadata, dict)
+            and dense is not None
+            and metadata.get("embedding_model") == identity
+            and metadata.get(EMBED_HASH_KEY) == chunks[position].metadata[EMBED_HASH_KEY]
+        ):
+            reused[position] = dense
+
+    return reused
+
+
+async def tag_and_find_reusable(
+    client: VectorClient, chunks: list[Document], embeddings: DocumentEmbeddingClient
+) -> dict[int, list[float]]:
+    """Tag chunks with the corpus embedding model; return vectors proven reusable for them."""
+    identity = await asyncio.to_thread(
+        ensure_embedding_identity, client, getattr(embeddings, "embedding_identity", None)
+    )
+    tag_embedding_model(chunks, identity)
+    reused = await asyncio.to_thread(reusable_vectors, client, chunks, identity)
+
+    if reused:
+        log.info("Reusing %d/%d dense vectors of unchanged chunks", len(reused), len(chunks))
+
+    return reused
+
+
+async def embed_or_reuse(
+    embeddings: DocumentEmbeddingClient, texts: list[str], reused: dict[int, list[float]], offset: int
+) -> list[list[float]]:
+    """Vectors for one batch: reused where proven identical, embedded otherwise."""
+    missing = [index for index in range(len(texts)) if offset + index not in reused]
+    embedded = await embeddings.embed_documents([texts[index] for index in missing]) if missing else []
+
+    if len(embedded) != len(missing):
+        message = f"Embedding count mismatch: expected {len(missing)}, got {len(embedded)}"
+        raise ValueError(message)
+
+    vectors = dict(zip(missing, embedded, strict=True))
+    return [reused[offset + index] if index not in vectors else vectors[index] for index in range(len(texts))]
 
 
 def log_upload_progress(done: int, total: int, t0: float) -> None:
@@ -308,12 +397,7 @@ async def upload_document_batches(
     if client is None:
         client = create_qdrant_client()
 
-    chunks = tag_embedding_model(
-        chunks,
-        await asyncio.to_thread(
-            ensure_embedding_identity, client, getattr(embeddings, "embedding_identity", None)
-        ),
-    )
+    reused = await tag_and_find_reusable(client, chunks, embeddings)
 
     # Embed + upsert in sub-batches to limit peak memory and give visible progress
     pending_points: list[PointStruct] = []
@@ -333,7 +417,7 @@ async def upload_document_batches(
 
         log.info("  Embedding chunks %d/%d ...", batch_end, total)
         t_embed = time.monotonic()
-        batch_vectors = await embeddings.embed_documents(batch_texts)
+        batch_vectors = await embed_or_reuse(embeddings, batch_texts, reused, batch_start)
         log.info("  Embedded in %.1fs", time.monotonic() - t_embed)
 
         validate_embedding_batch(

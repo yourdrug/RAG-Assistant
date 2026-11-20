@@ -26,6 +26,12 @@ log = logging.getLogger("default")
 NEIGHBOR_CONTEXT_CHARS = 600
 
 
+def note_input_key(doc_title: str, section: str, previous: str, content: str, following: str) -> str:
+    """Cache identity of a note: every prompt input, so an edit elsewhere keeps the note."""
+    separator = "\n\x1e"
+    return content_hash(separator.join([doc_title, section, previous, content, following]))
+
+
 def contextualization_requests(chunks: list[RawDocument]) -> list[ContextualizationRequest]:
     """Describe every chunk with its document identity and immediate neighbors."""
     by_source: dict[str, list[int]] = {}
@@ -37,18 +43,21 @@ def contextualization_requests(chunks: list[RawDocument]) -> list[Contextualizat
 
     for indexes in by_source.values():
         bodies = [chunks[index].page_content for index in indexes]
-        document_key = content_hash("\n\x1e".join(bodies))
 
         for position, index in enumerate(indexes):
             metadata = chunks[index].metadata
+            doc_title = str(metadata.get("doc_title") or "")
+            section = str(metadata.get("section") or "")
+            # Neighbors cross section boundaries, so their text is part of the key.
+            previous = bodies[position - 1][-NEIGHBOR_CONTEXT_CHARS:] if position > 0 else ""
+            following = bodies[position + 1][:NEIGHBOR_CONTEXT_CHARS] if position + 1 < len(bodies) else ""
             requests[index] = ContextualizationRequest(
-                document_key=document_key,
-                content_key=content_hash(bodies[position]),
-                doc_title=str(metadata.get("doc_title") or ""),
-                section=str(metadata.get("section") or ""),
-                previous=bodies[position - 1][-NEIGHBOR_CONTEXT_CHARS:] if position > 0 else "",
+                input_key=note_input_key(doc_title, section, previous, bodies[position], following),
+                doc_title=doc_title,
+                section=section,
+                previous=previous,
                 content=bodies[position],
-                following=bodies[position + 1][:NEIGHBOR_CONTEXT_CHARS] if position + 1 < len(bodies) else "",
+                following=following,
             )
 
     return [request for request in requests if request is not None]

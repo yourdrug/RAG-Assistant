@@ -129,7 +129,21 @@ def test_requests_use_neighbors_within_one_document_only() -> None:
         ("A1", "A2", ""),
         ("", "B1", ""),
     ]
-    assert requests[0].document_key == requests[1].document_key != requests[2].document_key
+    assert len({request.input_key for request in requests}) == len(requests)
+
+
+def test_note_key_changes_only_with_prompt_inputs() -> None:
+    """An edit far from a chunk keeps its note; a neighbor or section change does not."""
+    before = contextualization_requests(chunks_for("A1", "A2", "A3", "A4"))
+    edited = contextualization_requests(chunks_for("A1", "A2", "A3", "A4 изменён"))
+    assert [r.input_key for r in before[:2]] == [r.input_key for r in edited[:2]]
+    # A3 sees A4 as its following neighbor; A4 changed itself.
+    assert before[2].input_key != edited[2].input_key
+    assert before[3].input_key != edited[3].input_key
+
+    moved = chunks_for("A1", "A2", "A3", "A4")
+    moved[1].metadata["section"] = "Другой раздел"
+    assert contextualization_requests(moved)[1].input_key != before[1].input_key
 
 
 class FakeLLM:

@@ -7,11 +7,12 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from langchain.schema import Document as LCDocument
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct, SparseVector
+from qdrant_client.models import FieldCondition, Filter, HasIdCondition, MatchValue, PointStruct, SparseVector
 
 from application.chunks.dto import IndexedPointSnapshot
 from config import VectorStoreSection, process_section
 from domain.knowledge.pack_metadata import PACK_METADATA_KEY
+from domain.knowledge.revision import STAGED_KEY
 from infrastructure.corpus.snapshot import collection_for, pin_corpus_call
 from infrastructure.ml.clients.factories import create_embeddings, create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
@@ -199,6 +200,20 @@ class QdrantVectorStoreRepository:
             )
 
         await asyncio.to_thread(delete)
+
+    @pin_corpus_call
+    @retry_on_transient
+    async def reveal_points(self, ids: list[int]) -> None:
+        """Clear the staged flag; an id filter makes points deleted meanwhile a no-op."""
+        client = self.get_qdrant_client()
+
+        def update() -> None:
+            if not ids:
+                return
+
+            self.patch_metadata(client, Filter(must=[HasIdCondition(has_id=list(ids))]), {STAGED_KEY: False})
+
+        await asyncio.to_thread(update)
 
     @pin_corpus_call
     @retry_on_transient

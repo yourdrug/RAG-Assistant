@@ -98,6 +98,7 @@ def _make_uow(doc: Document | None = None, chunk: ChunkRecord | None = None, max
     uow.chunks.insert_one = AsyncMock(return_value=20)
     uow.chunks.update_content = AsyncMock()
     uow.chunks.delete_one = AsyncMock()
+    uow.chunks.get_staged_revision = AsyncMock(return_value=None)
     uow.groups.get_user_group_ids = AsyncMock(return_value=[])
     # The only space; group 900 is admitted to fill it.
     space = KnowledgeSpace(id=1, name="Общее", pack_key="generic", upload_group_ids=frozenset({900}))

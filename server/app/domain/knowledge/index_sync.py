@@ -24,6 +24,8 @@ class OutboxOperation(StrEnum):
     # Re-project the committed pack metadata of a document onto its points.
     UPDATE_METADATA = "update_metadata"
     SET_DOCUMENT_ID = "set_document_id"
+    # Reveal the points of a just-published revision, then drop the replaced points.
+    PUBLISH_REVISION = "publish_revision"
 
 
 class OutboxStatus(
@@ -143,6 +145,10 @@ class VectorIndexWriter(Protocol):
     async def delete_by_document_id(self, document_id: int) -> None: ...
     async def upsert_point(self, point_id: int, vector: list[float], payload: dict[str, Any]) -> None: ...
     async def delete_by_ids(self, ids: list[int]) -> None: ...
+    async def reveal_points(self, ids: list[int]) -> None:
+        """Clear the staged flag of existing points; missing points are ignored."""
+        ...
+
     async def set_document_id_by_source(self, source: str, document_id: int) -> None: ...
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> None: ...
     async def set_pack_metadata_by_document_id(

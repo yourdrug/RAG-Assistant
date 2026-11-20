@@ -16,6 +16,12 @@ from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
+from domain.knowledge.revision import (
+    REUSE_POINT_KEY,
+    STAGED_REVISION_KEY,
+    embedding_input,
+    match_reusable_chunks,
+)
 from domain.knowledge.space import SPACE_ID_KEY
 from domain.shared.hashing import content_hash
 
@@ -26,6 +32,8 @@ if TYPE_CHECKING:
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.ingestion.raw_document import RawDocument
+    from domain.knowledge.chunk import ChunkRecord
+    from domain.knowledge.revision import StagedRevision
 
 log = logging.getLogger("default")
 
@@ -191,6 +199,32 @@ async def process_chunks(
         await process_chunks_in_uow(uow, document_id, filename, chunks, visibility, **write_options)
 
 
+def chunk_inserts(chunks: list[RawDocument]) -> list[ChunkInsert]:
+    return [
+        ChunkInsert(
+            content=rc.page_content,
+            embed_text=rc.embed_text,
+            content_hash=content_hash(rc.page_content),
+            section=rc.metadata.get("section"),
+            heading=rc.metadata.get("heading"),
+            heading_level=rc.metadata.get("heading_level"),
+            content_type=rc.metadata.get("content_type"),
+            doc_title=rc.metadata.get("doc_title"),
+            doc_type=rc.metadata.get("doc_type"),
+            context_metadata=extract_chunk_context(rc.metadata),
+        )
+        for rc in chunks
+    ]
+
+
+def reusable_point_ids(published: list[ChunkRecord], chunks: list[RawDocument]) -> list[int | None]:
+    """Published chunks whose dense vectors may serve the new chunks (same dense input)."""
+    return match_reusable_chunks(
+        [(chunk.chunk_id, embedding_input(chunk.content, chunk.embed_text)) for chunk in published],
+        [embedding_input(rc.page_content, rc.embed_text) for rc in chunks],
+    )
+
+
 async def process_chunks_in_uow(
     uow: UnitOfWork,
     document_id: int,
@@ -199,86 +233,66 @@ async def process_chunks_in_uow(
     visibility: str,
     **options: Unpack[ChunkWriteOptions],
 ) -> None:
-    replaced_ids = await uow.chunks.get_ids_by_document_id(document_id, for_update=True)
+    """Write a document's chunks and enqueue their vector upload.
+
+    A document without published chunks is written directly. Otherwise the new
+    chunks become a staged revision: search keeps the published one until the
+    dispatcher has indexed every staged point and publishes the revision.
+    A changed ACL replaces the chunks at once instead: narrowed access must
+    apply to the old content immediately, in SQL search as well.
+    """
+    published_ids = await uow.chunks.get_ids_by_document_id(document_id, for_update=True)
     document = await uow.documents.get_by_id(document_id)
     # Chunks and their vector payload carry the document's space as a search selection label.
     space_id = document.space_id if document is not None else None
-    # 1. Bulk insert → получаем chunk_ids
-    # Doc-level domain and pack metadata live identically on every chunk's metadata.
-    first_meta = chunks[0].metadata if chunks else {}
-    chunk_ids = await uow.chunks.bulk_insert(
-        document_id=document_id,
-        filename=filename,
-        visibility=visibility,
-        chunks=[
-            ChunkInsert(
-                content=rc.page_content,
-                embed_text=rc.embed_text,
-                content_hash=content_hash(rc.page_content),
-                section=rc.metadata.get("section"),
-                heading=rc.metadata.get("heading"),
-                heading_level=rc.metadata.get("heading_level"),
-                content_type=rc.metadata.get("content_type"),
-                doc_title=rc.metadata.get("doc_title"),
-                doc_type=rc.metadata.get("doc_type"),
-                context_metadata=extract_chunk_context(rc.metadata),
-            )
-            for rc in chunks
-        ],
-        options=ChunkInsertOptions(
-            owner_id=options["owner_id"],
-            group_id=options["group_id"],
-            space_id=space_id,
-            doc_domain=options["doc_domain"],
-            domain_metadata=first_meta.get("domain_metadata"),
-            pack_metadata=dict(first_meta.get(PACK_METADATA_KEY) or {}),
-        ),
-    )
+    insert_options = chunk_insert_options(chunks, space_id, options)
+    nodes = build_document_nodes([(rc.page_content, rc.metadata) for rc in chunks])
+    # A newer processing run supersedes an unpublished revision; its points go too.
+    superseded_ids = await uow.chunks.discard_staged_revision(document_id)
 
-    # Parent scopes are replaced with the chunks: their ranges are these chunk indexes.
-    await uow.chunks.replace_document_nodes(
-        document_id,
-        build_document_nodes([(rc.page_content, rc.metadata) for rc in chunks]),
-    )
+    if superseded_ids:
+        await enqueue_delete_chunks(uow, document_id, superseded_ids)
 
-    # 2. Enrich metadata with chunk_ids и chunk_index
+    staged: StagedRevision | None = None
+    reuse: list[int | None] = [None] * len(chunks)
+    published = await uow.chunks.list_document_chunks([document_id]) if published_ids and chunks else []
+
+    if published and not acl_changed(published, visibility, options["owner_id"], options["group_id"]):
+        reuse = reusable_point_ids(published, chunks)
+        staged = await uow.chunks.stage_revision(
+            document_id, filename, visibility, chunk_inserts(chunks), nodes=nodes, options=insert_options
+        )
+        chunk_ids = list(staged.chunk_ids)
+    else:
+        chunk_ids = await uow.chunks.bulk_insert(
+            document_id=document_id,
+            filename=filename,
+            visibility=visibility,
+            chunks=chunk_inserts(chunks),
+            options=insert_options,
+        )
+        # Parent scopes are replaced with the chunks: their ranges are these chunk indexes.
+        await uow.chunks.replace_document_nodes(document_id, nodes)
+
+        if published_ids:
+            # Re-processing produced no chunks: nothing to publish, the old points go.
+            await enqueue_delete_chunks(uow, document_id, published_ids)
+
     for i, (chunk_id, rc) in enumerate(zip(chunk_ids, chunks, strict=True)):
         rc.metadata["chunk_id"] = chunk_id
         rc.metadata["chunk_index"] = i
         rc.metadata[SPACE_ID_KEY] = space_id
         rc.metadata.pop(NODE_PATH_KEY, None)
 
-    # 3. Enqueue outbox for Qdrant
-    if replaced_ids:
-        await uow.vector_outbox.enqueue(
-            VectorOutboxEntry(
-                operation=OutboxOperation.DELETE_CHUNKS,
-                aggregate_type="document",
-                aggregate_id=document_id,
-                payload={"chunk_ids": replaced_ids},
-            )
-        )
-
     await uow.vector_outbox.enqueue(
         VectorOutboxEntry(
             operation=OutboxOperation.UPSERT_CHUNKS,
             aggregate_type="document",
             aggregate_id=document_id,
-            payload={
-                "points": [
-                    {
-                        "chunk_id": cid,
-                        "page_content": rc.page_content,
-                        "embed_text": rc.embed_text,
-                        "metadata": rc.metadata,
-                    }
-                    for cid, rc in zip(chunk_ids, chunks, strict=True)
-                ]
-            },
+            payload=upsert_payload(chunk_ids, chunks, reuse, staged),
         )
     )
 
-    # 4. Status update
     total_chars = sum(len(rc.page_content) for rc in chunks)
     await uow.documents.update_status(
         document_id,
@@ -290,8 +304,67 @@ async def process_chunks_in_uow(
     )
 
     log.info(
-        "Pipeline: doc %d -- %d chunks enqueued (%d chars)",
+        "Pipeline: doc %d -- %d chunks enqueued (%d chars, staged=%s, reusable vectors=%d)",
         document_id,
         len(chunks),
         total_chars,
+        staged is not None,
+        sum(item is not None for item in reuse),
+    )
+
+
+def chunk_insert_options(
+    chunks: list[RawDocument], space_id: int | None, options: ChunkWriteOptions
+) -> ChunkInsertOptions:
+    # Doc-level domain and pack metadata live identically on every chunk's metadata.
+    first_meta = chunks[0].metadata if chunks else {}
+    return ChunkInsertOptions(
+        owner_id=options["owner_id"],
+        group_id=options["group_id"],
+        space_id=space_id,
+        doc_domain=options["doc_domain"],
+        domain_metadata=first_meta.get("domain_metadata"),
+        pack_metadata=dict(first_meta.get(PACK_METADATA_KEY) or {}),
+    )
+
+
+def upsert_payload(
+    chunk_ids: list[int], chunks: list[RawDocument], reuse: list[int | None], staged: StagedRevision | None
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "points": [
+            {
+                "chunk_id": cid,
+                "page_content": rc.page_content,
+                "embed_text": rc.embed_text,
+                "metadata": rc.metadata,
+                **({REUSE_POINT_KEY: reuse_id} if reuse_id is not None else {}),
+            }
+            for cid, rc, reuse_id in zip(chunk_ids, chunks, reuse, strict=True)
+        ]
+    }
+
+    if staged is not None:
+        payload[STAGED_REVISION_KEY] = staged.token
+
+    return payload
+
+
+def acl_changed(
+    published: list[ChunkRecord], visibility: str, owner_id: int | None, group_id: int | None
+) -> bool:
+    return any(
+        (str(chunk.visibility), chunk.owner_id, chunk.group_id) != (str(visibility), owner_id, group_id)
+        for chunk in published
+    )
+
+
+async def enqueue_delete_chunks(uow: UnitOfWork, document_id: int, chunk_ids: list[int]) -> None:
+    await uow.vector_outbox.enqueue(
+        VectorOutboxEntry(
+            operation=OutboxOperation.DELETE_CHUNKS,
+            aggregate_type="document",
+            aggregate_id=document_id,
+            payload={"chunk_ids": chunk_ids},
+        )
     )

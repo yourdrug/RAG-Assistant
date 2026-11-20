@@ -27,7 +27,7 @@ from domain.knowledge.repositories.chunk import ChunkInsertOptions
 from domain.shared.hashing import content_hash
 from infrastructure.domain_packs.belarus_law.domain.decree import DecreeDomainProfile
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
-from tests.fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory, publish_staged_revisions
 from tests.law_pack import LawFakeUnitOfWorkFactory
 from tests.test_document_processor_characterization import build_harness, seed_document
 
@@ -148,10 +148,21 @@ async def test_replacement_enqueues_old_ids_and_preserves_other_documents(replac
     await index(factory, replacement)
     entries = list(factory._uow.fake_vector_outbox._entries.values())
     deletes = [e for e in entries if e.operation == OutboxOperation.DELETE_CHUNKS]
-    assert [e.payload["chunk_ids"] for e in deletes] == [[1]]
-    assert [c["content"] for c in factory._uow.fake_chunks._chunks] == (
-        ["other text", "new text"] if replacement else ["other text"]
-    )
+
+    if replacement:
+        # The new text waits as a staged revision; the old chunk stays searchable.
+        assert deletes == []
+        assert [c["content"] for c in factory._uow.fake_chunks._chunks] == ["old text", "other text"]
+        staged = await factory._uow.chunks.get_staged_revision(1)
+        assert staged is not None
+        switch = await factory._uow.chunks.publish_staged_revision(1, staged.token)
+        assert switch is not None
+        assert switch.replaced_ids == (1,)
+        assert [c["content"] for c in factory._uow.fake_chunks._chunks] == ["other text", "new text"]
+    else:
+        # No new chunks: nothing to publish, the old ones go at once.
+        assert [e.payload["chunk_ids"] for e in deletes] == [[1]]
+        assert [c["content"] for c in factory._uow.fake_chunks._chunks] == ["other text"]
 
 
 @pytest.mark.asyncio
@@ -215,7 +226,9 @@ async def test_replacement_during_upload_removes_inflight_old_points(monkeypatch
     points = {}
 
     async def upload(chunks: list[Chunk], **kwargs: Any) -> None:
+        # A newer revision is staged and published while the old upload runs.
         await index(factory, "new text")
+        await publish_staged_revisions(factory)
         points.update({c.metadata["chunk_id"]: c.content for c in chunks})
 
     async def delete(ids: list[int]) -> None:

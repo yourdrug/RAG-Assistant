@@ -450,6 +450,77 @@ class ChunkModel(BaseModel):
     doc_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
+class DocumentStagedRevisionModel(LinkedBaseModel):
+    """Hidden revision of a document's chunks, published once all its points are indexed.
+
+    The revision's parent nodes wait here as JSON; its chunks wait in ``chunk_staging``.
+    """
+
+    __tablename__ = "document_staged_revisions"
+
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    token: Mapped[str] = mapped_column(String(32), nullable=False)
+    nodes: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    creation_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class StagedChunkModel(LinkedBaseModel):
+    """Chunk of a staged revision; same columns as ``chunks`` and ids from its sequence.
+
+    Never read by search: its points are hidden in Qdrant until the revision is published.
+    """
+
+    __tablename__ = "chunk_staging"
+    __table_args__ = (
+        UniqueConstraint("document_id", "chunk_index", name="ux_chunk_staging_document_index"),
+        CheckConstraint(
+            "jsonb_typeof(context_metadata) = 'object'", name="chk_chunk_staging_context_metadata_object"
+        ),
+        CheckConstraint(
+            "jsonb_typeof(pack_metadata) = 'object'", name="chk_chunk_staging_pack_metadata_object"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, server_default=text("nextval('chunks_id_seq'::regclass)")
+    )
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("document_staged_revisions.document_id", ondelete="CASCADE"), nullable=False
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embed_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False)
+    doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default=DocDomain.GENERAL.value)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
+    space_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_spaces.id", ondelete="RESTRICT"), nullable=False
+    )
+    content_hash: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    domain_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    context_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    pack_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    section: Mapped[str | None] = mapped_column(Text, nullable=True)
+    heading: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    heading_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    doc_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    doc_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    creation_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class DocumentNodeModel(BaseModel):
     """Parent scope of chunks (article, point, section) for parent-child retrieval.
 
@@ -686,7 +757,7 @@ class VectorStoreOutboxModel(BaseModel):
         ),
         CheckConstraint(
             "operation IN ('upsert_chunks', 'delete_by_document', 'delete_chunks', "
-            "'update_metadata', 'set_document_id')",
+            "'update_metadata', 'set_document_id', 'rename_document', 'publish_revision')",
             name="vector_store_outbox_operation_check",
         ),
         Index(

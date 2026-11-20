@@ -50,6 +50,16 @@
     "CHECK ((octet_length((data)::text) <= 65536))"
   ],
   [
+    "chunk_staging",
+    "chk_chunk_staging_context_metadata_object",
+    "CHECK ((jsonb_typeof(context_metadata) = 'object'::text))"
+  ],
+  [
+    "chunk_staging",
+    "chk_chunk_staging_pack_metadata_object",
+    "CHECK ((jsonb_typeof(pack_metadata) = 'object'::text))"
+  ],
+  [
     "chunks",
     "chk_chunks_context_metadata_object",
     "CHECK ((jsonb_typeof(context_metadata) = 'object'::text))"
@@ -127,7 +137,7 @@
   [
     "vector_store_outbox",
     "vector_store_outbox_operation_check",
-    "CHECK (((operation)::text = ANY ((ARRAY['upsert_chunks'::character varying, 'delete_by_document'::character varying, 'delete_chunks'::character varying, 'update_metadata'::character varying, 'set_document_id'::character varying])::text[])))"
+    "CHECK (((operation)::text = ANY ((ARRAY['upsert_chunks'::character varying, 'delete_by_document'::character varying, 'delete_chunks'::character varying, 'update_metadata'::character varying, 'set_document_id'::character varying, 'rename_document'::character varying, 'publish_revision'::character varying])::text[])))"
   ],
   [
     "vector_store_outbox",

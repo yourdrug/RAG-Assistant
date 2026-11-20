@@ -19,7 +19,7 @@ from tests.fakes import FakeUnitOfWorkFactory
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reindex", [False, True])
 @pytest.mark.parametrize("qdrant_down", [False, True])
-async def test_cli_document_waits_for_outbox(
+async def test_cli_document_waits_for_outbox(  # noqa: PLR0915 - One scenario per indexing outcome.
     monkeypatch: pytest.MonkeyPatch, reindex: bool, qdrant_down: bool
 ) -> None:
     factory = FakeUnitOfWorkFactory()
@@ -54,11 +54,20 @@ async def test_cli_document_waits_for_outbox(
 
     dispatcher = OutboxDispatcher(factory, vector_store)
 
-    for _ in range(8 if qdrant_down else 1):
+    for _ in range(8 if qdrant_down else 2):
         for entry in await uow.vector_outbox.claim_batch("test-worker"):
             await dispatcher._apply_one(entry)
 
-    if qdrant_down:
+    if qdrant_down and reindex:
+        # The dead-lettered staged revision is abandoned; the published one stays.
+        rows, _ = await uow.chunks.list_for_document(1)
+        assert [row.content for row in rows] == ["old text"]
+        restored = await uow.documents.get_by_id(1)
+        assert restored is not None
+        assert restored.status == DocumentStatus.DONE
+        assert restored.warning_message is not None
+        assert await uow.chunks.get_staged_revision(1) is None
+    elif qdrant_down:
         assert any(
             entry.status == OutboxStatus.DEAD_LETTER for entry in await uow.vector_outbox.list_dead_letters()
         )
@@ -76,6 +85,8 @@ async def test_cli_document_waits_for_outbox(
     else:
         mark_done.assert_awaited_once_with(document.id)
         assert await uow.vector_outbox.count_pending() == 0
+        rows, _ = await uow.chunks.list_for_document(1)
+        assert [row.content for row in rows] == ["new text"]
         assert await uow.vector_outbox.list_dead_letters() == []
 
 

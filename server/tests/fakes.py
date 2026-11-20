@@ -56,6 +56,7 @@ from domain.knowledge.repositories.chunk import (
     DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
 )
 from domain.knowledge.repositories.document import DocumentTotals
+from domain.knowledge.revision import RevisionSwitch, StagedRevision
 from domain.knowledge.space import KnowledgeSpace
 from domain.rag.breadth import Breadth
 from domain.rag.document_outline import DocumentOutline
@@ -287,11 +288,132 @@ class FakeGroupRepository:
         pass
 
 
+def fake_chunk_record(c: dict[str, Any]) -> ChunkRecord:
+    return ChunkRecord(
+        chunk_id=c["id"],
+        document_id=c["document_id"],
+        filename=c.get("filename", ""),
+        content=c.get("content", ""),
+        embed_text=c.get("embed_text"),
+        chunk_index=c.get("chunk_index", 0),
+        visibility=c.get("visibility"),
+        doc_domain=c.get("doc_domain", "general"),
+        owner_id=c.get("owner_id"),
+        group_id=c.get("group_id"),
+        content_hash=c.get("content_hash"),
+        section=c.get("section"),
+        pack_metadata=c.get("pack_metadata") or {},
+        context_metadata=c.get("context_metadata", {}),
+    )
+
+
+async def publish_staged_revisions(factory: FakeUnitOfWorkFactory) -> None:
+    """Publish every staged revision, as the dispatcher does once its points are indexed."""
+    chunks = factory._uow.fake_chunks
+
+    for document_id in list(chunks._staged):
+        staged = await chunks.get_staged_revision(document_id)
+
+        if staged is not None:
+            await chunks.publish_staged_revision(document_id, staged.token)
+
+
 class FakeChunkRepository:
     def __init__(self) -> None:
         self._chunks: list[dict[str, Any]] = []
         self._next_id = 1
         self.document_nodes: dict[int, list[DocumentNode]] = {}
+        # document_id -> {"token", "rows", "nodes"} of the staged revision.
+        self._staged: dict[int, dict[str, Any]] = {}
+
+    def chunk_rows(
+        self,
+        document_id: int,
+        filename: str,
+        visibility: str,
+        chunks: list[ChunkInsert],
+        options: ChunkInsertOptions,
+    ) -> list[dict[str, Any]]:
+        rows = []
+
+        for i, chunk in enumerate(chunks):
+            rows.append(
+                {
+                    "id": self._next_id,
+                    "document_id": document_id,
+                    "content": chunk.content,
+                    "embed_text": chunk.embed_text,
+                    "domain_metadata": options.domain_metadata,
+                    "pack_metadata": dict(options.pack_metadata or {}),
+                    "filename": filename,
+                    "visibility": visibility,
+                    "doc_domain": options.doc_domain,
+                    "owner_id": options.owner_id,
+                    "group_id": options.group_id,
+                    "chunk_index": i,
+                    "content_hash": chunk.content_hash,
+                    "context_metadata": extract_chunk_context(chunk.context_metadata),
+                    "space_id": options.space_id,
+                    "section": chunk.section,
+                }
+            )
+            self._next_id += 1
+
+        return rows
+
+    async def stage_revision(
+        self,
+        document_id: int,
+        filename: str,
+        visibility: str,
+        chunks: list[ChunkInsert],
+        *,
+        nodes: list[DocumentNode],
+        options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
+    ) -> StagedRevision:
+        if document_id in self._staged:
+            message = "discard the staged revision first"
+            raise AssertionError(message)
+
+        rows = self.chunk_rows(document_id, filename, visibility, chunks, options)
+        token = f"rev-{rows[0]['id'] if rows else self._next_id}"
+        self._staged[document_id] = {"token": token, "rows": rows, "nodes": list(nodes)}
+        return StagedRevision(document_id, token, tuple(row["id"] for row in rows))
+
+    async def get_staged_revision(self, document_id: int) -> StagedRevision | None:
+        staged = self._staged.get(document_id)
+
+        if staged is None:
+            return None
+
+        return StagedRevision(document_id, staged["token"], tuple(row["id"] for row in staged["rows"]))
+
+    async def get_staged_by_ids(
+        self, document_id: int, token: str, chunk_ids: list[int]
+    ) -> list[ChunkRecord]:
+        staged = self._staged.get(document_id)
+
+        if staged is None or staged["token"] != token:
+            return []
+
+        ids = set(chunk_ids)
+        return [fake_chunk_record(row) for row in staged["rows"] if row["id"] in ids]
+
+    async def discard_staged_revision(self, document_id: int) -> list[int]:
+        staged = self._staged.pop(document_id, None)
+        return [row["id"] for row in staged["rows"]] if staged else []
+
+    async def publish_staged_revision(self, document_id: int, token: str) -> RevisionSwitch | None:
+        staged = self._staged.get(document_id)
+
+        if staged is None or staged["token"] != token:
+            return None
+
+        del self._staged[document_id]
+        replaced = tuple(c["id"] for c in self._chunks if c["document_id"] == document_id)
+        self._chunks = [c for c in self._chunks if c["document_id"] != document_id] + staged["rows"]
+        self.document_nodes[document_id] = staged["nodes"]
+        return RevisionSwitch(tuple(row["id"] for row in staged["rows"]), replaced)
 
     async def replace_document_nodes(self, document_id: int, nodes: list[DocumentNode]) -> None:
         self.document_nodes[document_id] = list(nodes)
@@ -369,6 +491,9 @@ class FakeChunkRepository:
     async def set_pack_metadata(self, document_id: int, pack_metadata: dict[str, Any]) -> int:
         updated = 0
 
+        for c in self._staged.get(document_id, {}).get("rows", []):
+            c["pack_metadata"] = dict(pack_metadata)
+
         for c in self._chunks:
             if c["document_id"] == document_id:
                 c["pack_metadata"] = dict(pack_metadata)
@@ -443,6 +568,9 @@ class FakeChunkRepository:
 
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
         count = 0
+
+        for c in self._staged.get(document_id, {}).get("rows", []):
+            c["filename"] = new_filename
 
         for c in self._chunks:
             if c["document_id"] == document_id:

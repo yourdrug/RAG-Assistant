@@ -233,6 +233,7 @@ async def test_pipeline_replaces_nodes_with_chunks_and_drops_transient_path() ->
     ]
     uow = Mock()
     uow.chunks.get_ids_by_document_id = AsyncMock(return_value=[])
+    uow.chunks.discard_staged_revision = AsyncMock(return_value=[])
     uow.chunks.bulk_insert = AsyncMock(return_value=[10, 11])
     uow.chunks.replace_document_nodes = AsyncMock()
     uow.vector_outbox.enqueue = AsyncMock()

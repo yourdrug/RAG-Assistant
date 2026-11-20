@@ -16,7 +16,7 @@ from domain.knowledge.repositories.chunk import (
     DEFAULT_MANUAL_CHUNK_INSERT_OPTIONS,
 )
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
-from infrastructure.database.models import ChunkModel, DocumentModel
+from infrastructure.database.models import ChunkModel, DocumentModel, StagedChunkModel
 from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_result
 from infrastructure.repositories.chunk.chunk_pagination import (
     build_cursor_backward_conditions,
@@ -218,6 +218,12 @@ class SQLAlchemyChunkCrudRepository:
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
         stmt = update(ChunkModel).where(ChunkModel.document_id == document_id).values(filename=new_filename)
         result = await self._session.execute(stmt)
+        # A staged revision is published under the document's current name.
+        await self._session.execute(
+            update(StagedChunkModel)
+            .where(StagedChunkModel.document_id == document_id)
+            .values(filename=new_filename)
+        )
         await self._session.flush()
         return result.rowcount
 

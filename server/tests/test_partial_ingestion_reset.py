@@ -27,7 +27,7 @@ from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOut
 from domain.knowledge.space import KnowledgeSpace
 from domain.runtime.jobs import BackgroundJob
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
-from tests.fakes import FakeUnitOfWorkFactory
+from tests.fakes import FakeUnitOfWorkFactory, publish_staged_revisions
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ def ingestion(tmp_path: Path) -> SimpleNamespace:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["batch", "single"])
-async def test_duplicate_basenames_keep_separate_content_and_incremental_state(
+async def test_duplicate_basenames_keep_separate_content_and_incremental_state(  # noqa: PLR0915 - Complete ingest/update lifecycle.
     ingestion: SimpleNamespace, mode: str
 ) -> None:
     env = ingestion
@@ -208,6 +208,10 @@ async def test_duplicate_basenames_keep_separate_content_and_incremental_state(
 
     env.files["docs/sub/a.txt"] = "updated sub text"
     await ingest()
+    # The updated text is a staged revision until the dispatcher publishes it.
+    rows, _ = await uow.chunks.list_for_document(documents["docs/sub/a.txt"].id)
+    assert [row.content for row in rows] == ["sub text"]
+    await publish_staged_revisions(env.factory)
     env.storage.download_to_temp.assert_awaited_once_with("docs/sub/a.txt")
     assert len(uow.documents._documents) == 2
     assert (await env.registry.list_all())["docs/other/a.txt"] == registry["docs/other/a.txt"]
@@ -458,6 +462,7 @@ async def test_ingestion_persists_detected_domain_and_updates_it_on_reindex(
             for key in ingestion.files:
                 await ingestion.service.run_single(key, domain=domain, force=True)
 
+        await publish_staged_revisions(ingestion.factory)
         uow = ingestion.factory._uow
         assert {doc.doc_domain for doc in uow.documents._documents.values()} == {domain}
         assert {chunk["doc_domain"] for chunk in uow.chunks._chunks} == {domain}

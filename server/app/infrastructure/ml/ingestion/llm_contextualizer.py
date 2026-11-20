@@ -114,7 +114,7 @@ class LLMChunkContextualizer:
 
     @staticmethod
     def cache_key(model: str, request: ContextualizationRequest) -> str:
-        return f"{PROMPT_VERSION}:{model}:{request.document_key}:{request.content_key}"
+        return f"{PROMPT_VERSION}:{model}:{request.input_key}"
 
     async def cached(self, key: str) -> str | None:
         if self._cache is None:

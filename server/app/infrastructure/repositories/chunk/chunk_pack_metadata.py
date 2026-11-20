@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select, update
 
-from infrastructure.database.models import ChunkModel
+from infrastructure.database.models import ChunkModel, StagedChunkModel
 
 
 if TYPE_CHECKING:
@@ -21,6 +21,12 @@ class SQLAlchemyChunkPackMetadataRepository:
         result = await self._session.execute(
             update(ChunkModel)
             .where(ChunkModel.document_id == document_id)
+            .values(pack_metadata=pack_metadata)
+        )
+        # A staged revision is published later and must not restore older pack state.
+        await self._session.execute(
+            update(StagedChunkModel)
+            .where(StagedChunkModel.document_id == document_id)
             .values(pack_metadata=pack_metadata)
         )
         await self._session.flush()

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
     from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
     from domain.knowledge.document_nodes import DocumentNode
+    from domain.knowledge.revision import RevisionSwitch, StagedRevision
     from domain.shared.pagination import CursorPage
 
 
@@ -148,3 +149,45 @@ class DocumentNodeRepository(Protocol):
     """Parent scopes of a document's chunks, replaced together with the chunks."""
 
     async def replace_document_nodes(self, document_id: int, nodes: list[DocumentNode]) -> None: ...
+
+
+@runtime_checkable
+class ChunkRevisionRepository(Protocol):
+    """Hidden (staged) revision of a document's chunks and its publication.
+
+    Staged chunks take ids from the same sequence as published chunks, so a point
+    keeps its id when its revision is published. Every method expects the caller
+    to hold the document row lock.
+    """
+
+    async def stage_revision(
+        self,
+        document_id: int,
+        filename: str,
+        visibility: str,
+        chunks: list[ChunkInsert],
+        *,
+        nodes: list[DocumentNode],
+        options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
+    ) -> StagedRevision:
+        """Write a new staged revision; an existing one must be discarded first."""
+        ...
+
+    async def get_staged_revision(self, document_id: int) -> StagedRevision | None: ...
+
+    async def get_staged_by_ids(
+        self, document_id: int, token: str, chunk_ids: list[int]
+    ) -> list[ChunkRecord]:
+        """Staged chunks of this revision token; empty once it is published or discarded."""
+        ...
+
+    async def discard_staged_revision(self, document_id: int) -> list[int]:
+        """Remove the staged revision; returns its chunk ids for vector cleanup."""
+        ...
+
+    async def publish_staged_revision(self, document_id: int, token: str) -> RevisionSwitch | None:
+        """Replace the published chunks and nodes with the staged revision of this token.
+
+        Returns ``None`` when the token is no longer the document's staged revision.
+        """
+        ...

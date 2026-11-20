@@ -14,6 +14,7 @@ from infrastructure.repositories.chunk.chunk_context import SQLAlchemyChunkConte
 from infrastructure.repositories.chunk.chunk_corpus import SQLAlchemyChunkCorpusRepository
 from infrastructure.repositories.chunk.chunk_crud import SQLAlchemyChunkCrudRepository
 from infrastructure.repositories.chunk.chunk_pack_metadata import SQLAlchemyChunkPackMetadataRepository
+from infrastructure.repositories.chunk.chunk_revisions import SQLAlchemyChunkRevisionRepository
 from infrastructure.repositories.chunk.chunk_search import SQLAlchemyChunkSearchRepository
 from infrastructure.repositories.chunk.document_nodes import SQLAlchemyDocumentNodeRepository
 
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from domain.knowledge.document_nodes import DocumentNode
     from domain.knowledge.pack_metadata import MetadataCondition
     from domain.knowledge.repositories.chunk import ChunkInsertOptions, ManualChunkInsertOptions
+    from domain.knowledge.revision import RevisionSwitch, StagedRevision
     from domain.rag.document_outline import DocumentOutline
     from domain.shared.pagination import CursorPage
 
@@ -41,6 +43,35 @@ class SQLAlchemyChunkRepository:
         self._pack_metadata = SQLAlchemyChunkPackMetadataRepository(session)
         self._search = SQLAlchemyChunkSearchRepository(session)
         self._nodes = SQLAlchemyDocumentNodeRepository(session)
+        self._revisions = SQLAlchemyChunkRevisionRepository(session)
+
+    async def stage_revision(
+        self,
+        document_id: int,
+        filename: str,
+        visibility: str,
+        chunks: list[ChunkInsert],
+        *,
+        nodes: list[DocumentNode],
+        options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
+    ) -> StagedRevision:
+        return await self._revisions.stage_revision(
+            document_id, filename, visibility, chunks, nodes=nodes, options=options
+        )
+
+    async def get_staged_revision(self, document_id: int) -> StagedRevision | None:
+        return await self._revisions.get_staged_revision(document_id)
+
+    async def get_staged_by_ids(
+        self, document_id: int, token: str, chunk_ids: list[int]
+    ) -> list[ChunkRecord]:
+        return await self._revisions.get_staged_by_ids(document_id, token, chunk_ids)
+
+    async def discard_staged_revision(self, document_id: int) -> list[int]:
+        return await self._revisions.discard_staged_revision(document_id)
+
+    async def publish_staged_revision(self, document_id: int, token: str) -> RevisionSwitch | None:
+        return await self._revisions.publish_staged_revision(document_id, token)
 
     async def replace_document_nodes(self, document_id: int, nodes: list[DocumentNode]) -> None:
         await self._nodes.replace_document_nodes(document_id, nodes)

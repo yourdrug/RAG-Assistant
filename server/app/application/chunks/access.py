@@ -20,6 +20,13 @@ if TYPE_CHECKING:
 _default_factory = UserContextFactory()
 
 
+async def ensure_no_staged_revision(uow: UnitOfWork, document_id: int) -> None:
+    """Publishing the staged revision would replace an edit of the published chunks."""
+    if await uow.chunks.get_staged_revision(document_id) is not None:
+        msg = "Document is being re-indexed; chunks can be edited after the new version is published"
+        raise BusinessRuleViolationError(msg)
+
+
 async def load_doc_for_edit(
     uow: UnitOfWork,
     document_id: int,
@@ -49,6 +56,7 @@ async def load_doc_for_edit(
         msg = "No permission to edit chunks for this document"
         raise BusinessRuleViolationError(msg)
 
+    await ensure_no_staged_revision(uow, document_id)
     return doc, ctx
 
 
@@ -89,4 +97,5 @@ async def load_doc_for_add(
         msg = "No permission to add chunks for this document"
         raise BusinessRuleViolationError(msg)
 
+    await ensure_no_staged_revision(uow, document_id)
     return doc, ctx

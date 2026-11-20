@@ -13,6 +13,7 @@ from qdrant_client.models import Distance, Modifier, PointStruct, SparseVectorPa
 
 from application.admin import ConfigService
 from config import settings
+from domain.knowledge.revision import STAGED_KEY
 from domain.shared.exceptions import ValidationError
 from infrastructure.corpus import control as module, snapshot as corpus_snapshot
 from infrastructure.corpus.clients import probe_active_corpus, validate_corpus_endpoint
@@ -135,6 +136,32 @@ def test_candidate_requires_exact_pg_acl_and_immutable_identity() -> None:
             validate_corpus(client, snapshot.endpoint, "docs_v1", identity, 3, rows=[row])
         with pytest.raises(ValidationError):
             validate_corpus(client, snapshot.endpoint, "docs_v1", identity, 2, rows=[])
+    finally:
+        client.close()
+
+
+def test_candidate_ignores_hidden_points_of_unpublished_revisions() -> None:
+    client, identity, row = fixture_corpus()
+    try:
+        client.upsert(
+            "docs_v1",
+            [
+                PointStruct(
+                    id=2,
+                    vector=point_vectors("staged text", [1.0, 0.0]),
+                    payload={
+                        "page_content": "staged text",
+                        "metadata": {"document_id": 10, STAGED_KEY: True, "embedding_model": identity},
+                    },
+                )
+            ],
+        )
+        validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, rows=[row])
+
+        # A visible point unknown to PostgreSQL is still rejected.
+        client.set_payload("docs_v1", {STAGED_KEY: False}, points=[2], key="metadata")
+        with pytest.raises(ValidationError):
+            validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, rows=[row])
     finally:
         client.close()
 

@@ -14,13 +14,12 @@ if TYPE_CHECKING:
 class ContextualizationRequest:
     """One chunk with its bounded document surroundings.
 
-    ``document_key`` and ``content_key`` identify the note for caching, so
-    re-indexing an unchanged document does not pay for the same calls again.
+    ``input_key`` hashes exactly the prompt inputs (title, section, neighbors,
+    content), so re-indexing pays only for chunks whose surroundings changed.
     All text fields are untrusted document content.
     """
 
-    document_key: str
-    content_key: str
+    input_key: str
     doc_title: str
     section: str
     previous: str
