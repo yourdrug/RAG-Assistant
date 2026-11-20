@@ -84,9 +84,14 @@ async def test_server_errors_are_not_repeated(waits: list[float]) -> None:
     assert waits == []
 
 
-def test_pools_retry_failed_connections_only() -> None:
-    # httpcore repeats only connection setup (refused, TLS handshake, connect timeout).
-    transport = managed_http.retrying_transport(httpx.Limits(max_connections=1))
+@pytest.mark.asyncio
+async def test_pools_retry_failed_connections_only() -> None:
+    client = EmbeddingsClient("https://embed.example/v1", "bge-m3")
 
-    assert transport._pool._retries == managed_http.CONNECT_RETRIES
-    assert managed_http.retrying_sync_transport()._pool._retries == managed_http.CONNECT_RETRIES
+    try:
+        # httpcore repeats only connection setup (refused, TLS handshake, connect timeout).
+        transport = client._client._transport
+        assert isinstance(transport, httpx.AsyncHTTPTransport)
+        assert transport._pool._retries == managed_http.CONNECT_RETRIES
+    finally:
+        await client.close()

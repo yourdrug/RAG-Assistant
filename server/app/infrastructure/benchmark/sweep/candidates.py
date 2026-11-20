@@ -71,7 +71,7 @@ async def cache_candidates(
         qtext = q["question"]
 
         dense_results = []
-        query_vector = await asyncio.to_thread(embeddings.embed_query_sync, qtext)
+        query_vector = await embeddings.embed_query(qtext)
         points = await asyncio.to_thread(
             client.search,
             collection_name=process_section(VectorStoreSection).collection_name,

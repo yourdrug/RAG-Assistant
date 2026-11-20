@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 class EmbeddingClientPort(Protocol):
     async def embed_query(self, text: str) -> list[float]: ...
-    def embed_query_sync(self, text: str) -> list[float]: ...
 
 
 class LLMMessagePort(Protocol):
@@ -33,7 +32,6 @@ class LLMClientPort(Protocol):
 
 class RerankerClientPort(Protocol):
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]: ...
-    def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]: ...
 
 
 @runtime_checkable

@@ -1,8 +1,7 @@
 """Instructor-wrapped LLM clients for structured output.
 
-Provides ``create_instructor_client`` (sync) and ``create_async_instructor_client``
-that wraps OpenAI-compatible clients with ``instructor`` for Pydantic-validated,
-auto-retried LLM calls.
+Provides ``create_async_instructor_client``, which wraps OpenAI-compatible clients with
+``instructor`` for Pydantic-validated, auto-retried LLM calls.
 """
 
 from __future__ import annotations
@@ -11,15 +10,14 @@ import logging
 from typing import TYPE_CHECKING
 
 import instructor
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI
 
-from config import LLMSection, process_section
-from infrastructure.ml.replay import llm_async_http_client, llm_sync_http_client
+from infrastructure.ml.replay import llm_async_http_client
 from infrastructure.ml.usage_capture import record_model_response
 
 
 if TYPE_CHECKING:
-    from instructor import AsyncInstructor, Instructor
+    from instructor import AsyncInstructor
     from pydantic import SecretStr
 
 
@@ -38,25 +36,6 @@ def llm_auth_headers(api_key: SecretStr) -> dict[str, str]:
     return {"Authorization": f"Bearer {secret}"} if secret else {}
 
 
-def create_instructor_client(base_url: str, api_key: str, model: str = "") -> Instructor:
-    """Create a sync instructor-wrapped OpenAI client.
-
-    Uses the active LLM provider endpoint.
-    The returned client supports ``client.chat.completions.create()``
-    with ``response_model=<Pydantic model>`` for structured output.
-    """
-    del model
-    raw_client = OpenAI(
-        max_retries=0,
-        base_url=base_url,
-        api_key=api_key or NO_API_KEY,
-        http_client=llm_sync_http_client(),
-    )
-    client = instructor.from_openai(raw_client, mode=STRUCTURED_OUTPUT_MODE)
-    client.on("completion:response", record_model_response)
-    return client
-
-
 def create_async_instructor_client(base_url: str, api_key: str, model: str = "") -> AsyncInstructor:
     """Create an async instructor-wrapped OpenAI client.
 
@@ -72,20 +51,3 @@ def create_async_instructor_client(base_url: str, api_key: str, model: str = "")
     client = instructor.from_openai(raw_client, mode=STRUCTURED_OUTPUT_MODE)
     client.on("completion:response", record_model_response)
     return client
-
-
-def create_llm_instructor_client(model: str | None = None) -> tuple[Instructor, str]:
-    """Create a sync instructor client configured for the active LLM provider.
-
-    Returns (client, model_name). If *model* is given it is used as-is;
-    otherwise the default model for the current provider is selected.
-    """
-    llm_settings = process_section(LLMSection)
-
-    client = create_instructor_client(
-        base_url=llm_settings.llm_base_url,
-        api_key=llm_settings.llm_api_key.get_secret_value(),
-    )
-    resolved_model = model or llm_settings.llm_model
-
-    return client, resolved_model

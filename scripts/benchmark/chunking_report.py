@@ -606,7 +606,10 @@ class RerankCache:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path)
         self.db.execute("CREATE TABLE IF NOT EXISTS scores (key TEXT PRIMARY KEY, score REAL NOT NULL)")
+        # RerankerClient builds requests and parses scores in the configured API format;
+        # this synchronous script sends them over its own client.
         self.client = RerankerClient(ML.rerank_base_url, ML.rerank_model, ML.rerank_api_format, api_key)
+        self.http = httpx.Client(timeout=60.0, follow_redirects=False)
         self.scored_pairs = 0
 
     @staticmethod
@@ -639,7 +642,8 @@ class RerankCache:
     def predict(self, query: str, texts: list[str]) -> list[float]:
         for attempt in range(EMBED_RETRIES):
             try:
-                return self.client.predict_sync([(query, text) for text in texts])
+                pairs = [(query, text) for text in texts]
+                return self.client.scores(self.http.post(**self.client.request(pairs)), len(pairs))
             except httpx.HTTPStatusError as error:
                 retryable = error.response.status_code in {429, 500, 502, 503, 504}
 

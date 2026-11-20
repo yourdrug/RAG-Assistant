@@ -37,11 +37,8 @@ from infrastructure.ml.replay.store import PostgresReplayStore, ReplayStoreError
 from infrastructure.ml.replay.transport import (
     LLMReplayMissError,
     ReplayAsyncTransport,
-    ReplaySyncTransport,
     llm_async_http_client,
-    llm_sync_http_client,
     wrap_async_client,
-    wrap_sync_client,
 )
 from infrastructure.ml.usage_capture import (
     UsageCapturingCompletions,
@@ -308,46 +305,14 @@ async def test_streamed_answer_is_recorded_and_replayed_through_the_openai_clien
     assert (stats.saved_input_tokens, stats.saved_output_tokens) == (20, 2)
 
 
-@pytest.mark.asyncio
-async def test_sync_client_in_a_worker_thread_uses_the_benchmark_scope() -> None:
-    provider, store = Provider(), MemoryStore()
-    client = wrap_sync_client(httpx.Client(transport=httpx.MockTransport(provider)))
-
-    async with llm_replay_scope(store, LLMReplayMode.RECORD) as stats:
-        for _ in range(2):
-            response = await asyncio.to_thread(client.post, URL, json=body())
-            assert response.json()["choices"] == COMPLETION["choices"]
-
-    assert provider.calls == 1
-    assert stats.hits == 1
-    assert stats.recorded == 1
-
-
-@pytest.mark.asyncio
-async def test_sync_client_on_the_event_loop_thread_is_not_replayed() -> None:
-    provider, store = Provider(), MemoryStore()
-    client = wrap_sync_client(httpx.Client(transport=httpx.MockTransport(provider)))
-
-    async with llm_replay_scope(store, LLMReplayMode.RECORD) as stats:
-        client.post(URL, json=body())
-
-    assert provider.calls == 1
-    assert stats.recorded == 0
-
-
 def test_llm_clients_keep_environment_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.test:3128")
     async_llm = llm_async_http_client()
-    sync_llm = llm_sync_http_client()
 
     async_mounts = [transport for transport in async_llm._mounts.values() if transport is not None]
-    sync_mounts = [transport for transport in sync_llm._mounts.values() if transport is not None]
     assert async_mounts
-    assert sync_mounts
     assert all(isinstance(transport, ReplayAsyncTransport) for transport in async_mounts)
-    assert all(isinstance(transport, ReplaySyncTransport) for transport in sync_mounts)
     assert isinstance(async_llm._transport, ReplayAsyncTransport)
-    assert isinstance(sync_llm._transport, ReplaySyncTransport)
 
 
 def test_usage_is_read_from_plain_and_streamed_bodies() -> None:

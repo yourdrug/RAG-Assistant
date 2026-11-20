@@ -37,10 +37,6 @@ def retrying_transport(limits: httpx.Limits) -> httpx.AsyncHTTPTransport:
     return httpx.AsyncHTTPTransport(limits=limits, retries=CONNECT_RETRIES)
 
 
-def retrying_sync_transport() -> httpx.HTTPTransport:
-    return httpx.HTTPTransport(retries=CONNECT_RETRIES)
-
-
 class HTTPRequestOptions(TypedDict, total=False):
     json: Any
     headers: dict[str, str]
@@ -48,6 +44,8 @@ class HTTPRequestOptions(TypedDict, total=False):
 
 class ManagedHTTPPool:
     def __init__(self, timeout: float, limits: httpx.Limits) -> None:
+        # An explicit transport also turns off environment proxies; inference endpoints are
+        # reached directly, as the OCR pool does with trust_env=False.
         self._client = httpx.AsyncClient(
             timeout=timeout, transport=retrying_transport(limits), follow_redirects=False
         )

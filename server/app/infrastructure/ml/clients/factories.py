@@ -26,7 +26,7 @@ from infrastructure.ml.clients.inference_clients import EmbeddingsClient, Rerank
 from infrastructure.ml.clients.instructor_client import NO_API_KEY, llm_auth_headers
 from infrastructure.ml.clients.llm_schemas import reasoning_off_body
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
-from infrastructure.ml.replay import llm_async_http_client, llm_sync_http_client
+from infrastructure.ml.replay import llm_async_http_client
 
 
 if TYPE_CHECKING:
@@ -119,7 +119,6 @@ class OpenAIParameters(TypedDict, total=False):
     top_p: float
     max_tokens: int
     max_retries: int
-    http_client: httpx.Client
     http_async_client: httpx.AsyncClient
     request_timeout: float
     stream_usage: bool
@@ -158,7 +157,6 @@ def build_chat_model(role: ChatModelRole, **options: Unpack[ChatModelOptions]) -
         "max_tokens": num_predict if num_predict is not None else output_limits[role],
         "max_retries": 0,
         # Endpoint origins are restricted to deployment-approved lists by endpoint_policy.
-        "http_client": llm_sync_http_client(),
         "http_async_client": llm_async_http_client(),
     }
 

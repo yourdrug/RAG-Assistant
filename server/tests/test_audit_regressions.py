@@ -148,7 +148,7 @@ async def test_sweep_dense_and_sparse_share_production_pack_selection() -> None:
 
     clients = MagicMock()
     clients.qdrant_client.return_value = SimpleNamespace(search=search)
-    clients.embeddings.return_value = SimpleNamespace(embed_query_sync=lambda _query: [0.1])
+    clients.embeddings.return_value = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1]))
     with evidence_profile_scope(HidingProfile()):
         dense, sparse, candidates = await SweepDataSource(FakeUnitOfWorkFactory(), clients).cache_candidates(
             [{"question": "evidence"}], 10
@@ -164,9 +164,6 @@ async def test_sweep_dense_and_sparse_share_production_pack_selection() -> None:
 
 class ClientFamily(ManagedLLM):
     async def embed_query(self, text: str) -> list[float]:
-        return self.embed_query_sync(text)
-
-    def embed_query_sync(self, text: str) -> list[float]:
         return [float(len(text))]
 
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
