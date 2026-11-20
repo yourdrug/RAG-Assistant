@@ -59,7 +59,10 @@ def probe_active_corpus(client: QdrantClient, snapshot: CorpusSnapshot, *, compl
     sparse = info.config.params.sparse_vectors or {}
 
     if SPARSE_VECTOR_NAME not in sparse or sparse[SPARSE_VECTOR_NAME].modifier != Modifier.IDF:
-        message = "Active corpus has no compatible BM25 sparse index"
+        message = (
+            "Active corpus has no compatible BM25 sparse index; "
+            "run `corpus migrate-sparse` (task corpus:migrate-sparse)"
+        )
         raise ValidationError(message)
 
     if not info.points_count and physical + "__embedding_identity" not in names:

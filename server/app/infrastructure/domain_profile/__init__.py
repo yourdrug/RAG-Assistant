@@ -6,10 +6,8 @@ pack registry (``composition/domain_packs/__init__.py``); the core does not chan
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
-from domain.ingestion.profiles.base import SettingsBackedProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 
@@ -20,30 +18,17 @@ if TYPE_CHECKING:
     from infrastructure.domain_profile.packs import DomainPack
 
 
-log = logging.getLogger("default")
-
-
 def register_pack_profiles(
     registry: DomainProfileRegistry, pack: DomainPack, settings: DomainSettingsPort
 ) -> None:
     """Register the document profiles and document-type keywords of one domain pack.
 
-    Validates that DomainSettingsPort is functional before registering
-    settings-backed profiles so configuration errors are caught at startup,
-    not on the first document processing request.
+    Profile settings are not read here: the settings snapshot is still empty at registration.
+    Missing domain keys fail startup in ``bootstrap_configuration`` (``require_complete=True``).
     """
     registry.doc_type_keywords = pack.doc_type_keywords
 
     for profile in pack.build_profiles(settings):
-        if isinstance(profile, SettingsBackedProfile):
-            try:
-                profile.get_setting(f"{profile.key}_chunk_max_tokens")
-            except (KeyError, RuntimeError):
-                log.warning(
-                    "DomainSettingsPort validation failed for %s -- config parameters may not be seeded yet",
-                    type(profile).__name__,
-                )
-
         registry.register(profile)
 
 

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
 import type { JobResponse, JobsListResponse, JobsStatsResponse } from "../types";
@@ -38,6 +39,6 @@ export function useJobAction(action: "retry" | "cancel") {
       await apiClient.post(path);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.jobs.all }),
-    onError: () => toast.error("Could not update the task. Refresh and try again."),
+    onError: (error) => toast.error(getErrorMessage(error, "Could not update the task.")),
   });
 }

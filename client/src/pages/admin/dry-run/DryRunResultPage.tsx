@@ -1,7 +1,7 @@
 "use client";
 import { ArrowLeft } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { DryRunResponse } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { DryRunActions } from "./DryRunActions";
@@ -33,9 +33,9 @@ export function DryRunResultPage() {
         </Button>
         <p className="text-muted-foreground">
           No dry-run results. Go to{" "}
-          <a href="/admin/quality" className="underline">
+          <Link to="/admin/quality" className="underline">
             Quality
-          </a>{" "}
+          </Link>{" "}
           to run a preview.
         </p>
       </div>

@@ -15,6 +15,7 @@ import {
 } from "@/shared/api/hooks";
 import type { IngestRegistryItem } from "@/shared/api/types";
 import { formatDateTime } from "@/shared/lib/date-time";
+import { getErrorMessage } from "@/shared/lib/errors";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,25 +32,31 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/sha
 import { DataTable } from "@/shared/ui/data-table";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 export function AdminIngestPage() {
-  const { data: registry, refetch } = useIngestRegistry();
+  const registryQuery = useIngestRegistry();
+  const registry = registryQuery.data;
   const allMut = useIngestAll();
   const fileMut = useIngestFile();
-  const { data: groups } = useGroups();
-  const { data: uploadableClients } = useUploadableClients();
+  const groupsQuery = useGroups();
+  const clientsQuery = useUploadableClients();
+  const { data: groups } = groupsQuery;
+  const { data: uploadableClients } = clientsQuery;
   const [docsDir, setDocsDir] = useState("docs/");
   const [filePath, setFilePath] = useState("");
   const [domain, setDomain] = useState("auto");
   const [visibility, setVisibility] = useState("internal_public");
   const [groupId, setGroupId] = useState<number | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
-  const { data: spaces } = useSpaces();
+  const spacesQuery = useSpaces();
+  const { data: spaces } = spacesQuery;
   const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
   // New documents go to one knowledge space; profiles come from its domain pack.
   const spaceId = spaceChoice ?? defaultSpaceId(spaces);
-  const { data: documentDomains } = useDocumentDomains(spaceId, spaceId != null);
+  const domainsQuery = useDocumentDomains(spaceId, spaceId != null);
+  const { data: documentDomains } = domainsQuery;
 
   const [resetAll, setResetAll] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -70,8 +77,8 @@ export function AdminIngestPage() {
         spaceId,
       });
       toast.success("Ingestion started");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not schedule directory indexing."));
     }
   };
 
@@ -88,8 +95,8 @@ export function AdminIngestPage() {
         spaceId,
       });
       toast.success("Ingestion started (reset mode)");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not schedule a full reindex."));
     }
   };
 
@@ -106,8 +113,8 @@ export function AdminIngestPage() {
         spaceId,
       });
       toast.success("File ingestion started");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not schedule file indexing."));
     }
   };
 
@@ -144,12 +151,24 @@ export function AdminIngestPage() {
           <h1 className="text-2xl font-bold">Ingestion</h1>
           <p className="text-muted-foreground">Manage document ingestion</p>
         </div>
-        <Button variant="outline" onClick={() => refetch()}>
+        <Button variant="outline" onClick={() => void registryQuery.refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>
       </div>
 
+      {spacesQuery.isError && (
+        <QueryError query={spacesQuery} fallback="Could not load knowledge spaces." />
+      )}
+      {domainsQuery.isError && (
+        <QueryError query={domainsQuery} fallback="Could not load document types." />
+      )}
+      {visibility === "internal_group" && groupsQuery.isError && (
+        <QueryError query={groupsQuery} fallback="Could not load groups." />
+      )}
+      {visibility === "client_private" && clientsQuery.isError && (
+        <QueryError query={clientsQuery} fallback="Could not load clients." />
+      )}
       <Card>
         <CardHeader>
           <CardTitle>Ingest Directory</CardTitle>
@@ -271,7 +290,7 @@ export function AdminIngestPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {(!uploadableClients || uploadableClients.length === 0) && (
+                {uploadableClients?.length === 0 && (
                   <p className="text-xs text-muted-foreground">No clients assigned</p>
                 )}
               </div>
@@ -389,7 +408,7 @@ export function AdminIngestPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {(!uploadableClients || uploadableClients.length === 0) && (
+                {uploadableClients?.length === 0 && (
                   <p className="text-xs text-muted-foreground">No clients assigned</p>
                 )}
               </div>
@@ -401,18 +420,26 @@ export function AdminIngestPage() {
       <Card>
         <CardHeader>
           <CardTitle>Ingestion Registry</CardTitle>
-          <CardDescription>
-            {registry?.total_files || 0} files · {registry?.total_chunks?.toLocaleString() || 0}{" "}
-            chunks
-          </CardDescription>
+          {registry && (
+            <CardDescription>
+              {registry?.total_files || 0} files · {registry?.total_chunks?.toLocaleString() || 0}{" "}
+              chunks
+            </CardDescription>
+          )}
         </CardHeader>
         <CardContent>
-          <DataTable
-            columns={columns}
-            data={registry?.files || []}
-            searchKey="ingestion_key"
-            searchPlaceholder="Search registry..."
-          />
+          {registryQuery.isError && (
+            <QueryError query={registryQuery} fallback="Could not load the ingestion registry." />
+          )}
+          {registry && (
+            <DataTable
+              columns={columns}
+              data={registry?.files || []}
+              searchKey="ingestion_key"
+              searchPlaceholder="Search registry..."
+            />
+          )}
+          {registryQuery.isPending && <p role="status">Loading the ingestion registry…</p>}
         </CardContent>
       </Card>
 

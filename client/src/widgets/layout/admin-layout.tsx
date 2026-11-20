@@ -1,30 +1,29 @@
 "use client";
 import { Menu, Shield, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useCurrentUser } from "@/shared/api/hooks";
 import { adminNavItems, userNavItems } from "@/shared/config/nav";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
+import { ErrorBoundary } from "@/shared/ui/error-boundary";
+import { QueryError } from "@/shared/ui/query-error";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Separator } from "@/shared/ui/separator";
 import { useAuthStore } from "@/stores/auth-store";
 import { PageBreadcrumbs } from "./page-breadcrumbs";
 
 export function AdminLayout() {
-  const navigate = useNavigate();
   const location = useLocation();
-  const { token, isAuthenticated } = useAuthStore();
-  const { data: user } = useCurrentUser();
+  const token = useAuthStore((s) => s.token);
+  const account = useCurrentUser();
+  const { data: user } = account;
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  useEffect(() => {
-    if (!isAuthenticated && !token) navigate("/login");
-  }, [isAuthenticated, token, navigate]);
-
-  useEffect(() => {
-    if (user && user.role !== "admin" && user.role !== "curator") navigate("/chat");
-  }, [user, navigate]);
+  if (!token) return <Navigate to="/login" replace />;
+  if (user && user.role !== "admin" && user.role !== "curator") {
+    return <Navigate to="/chat" replace />;
+  }
 
   const isAdmin = user?.role === "admin";
   const visibleNavItems = adminNavItems.filter((item) => !item.adminOnly || isAdmin);
@@ -130,6 +129,8 @@ export function AdminLayout() {
             variant="ghost"
             size="icon"
             className="lg:hidden"
+            aria-label="Open navigation"
+            aria-expanded={sidebarOpen}
             onClick={() => setSidebarOpen(true)}
           >
             <Menu className="h-5 w-5" />
@@ -137,7 +138,19 @@ export function AdminLayout() {
           <PageBreadcrumbs canOpenAdmin={isAdmin} />
         </header>
         <main className="flex-1 overflow-auto">
-          <Outlet />
+          {user ? (
+            <ErrorBoundary key={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
+          ) : account.isError ? (
+            <div className="p-6">
+              <QueryError query={account} fallback="Could not verify your account." />
+            </div>
+          ) : (
+            <p role="status" className="p-6 text-muted-foreground">
+              Checking your account…
+            </p>
+          )}
         </main>
       </div>
     </div>

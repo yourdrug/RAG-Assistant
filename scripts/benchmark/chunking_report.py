@@ -6,7 +6,9 @@ Splits the benchmark corpus with the current code, then measures:
 - fragment reachability: labelled fragments that lie whole inside one chunk;
 - BM25 recall@5/@10 and MRR with the production sparse encoder and Qdrant IDF (free, local);
 - with ``--dense``: bge-m3 recall via DeepInfra (embeddings cached by text hash,
-  so only changed chunks are paid for) and an RRF hybrid of BM25 + dense;
+  so only changed chunks are paid for) and the production weighted RRF hybrid of BM25 + dense;
+- with ``--rerank`` (implies ``--dense``): the production reranker over the hybrid
+  candidates, with its score filters (scores cached by query + text hash);
 - with ``--contextualize``: plan 4.3 LLM notes (OpenRouter, the production auxiliary
   model) are added to dense inputs; notes are cached in ``data/chunking_cache/notes.sqlite``.
 
@@ -14,11 +16,14 @@ No generation and no judge: this is the cheap per-change check of the chunking
 plan. The full online benchmark is run only at the end of a phase.
 
 Dense text includes parent scope; BM25 indexes source bodies without the context prefix. Fragments are
-matched against the chunk as ``matches_fragment`` does online. Reranking, ACL
-and temporal filters are not reproduced, so absolute numbers are a proxy;
+matched against the chunk as ``matches_fragment`` does online. Search depths, RRF constant
+and weights (including the exact-reference sparse boost), the rerank budget and its
+thresholds are read from the production config sections. Provision diversity
+reordering, ACL and temporal filters are not reproduced, so absolute numbers are a proxy;
 compare runs of this script with each other, not with the online table.
 
     task chunking:report
+    task chunking:report -- --rerank --out data/chunking_reports/prod-proxy.json
     task chunking:report -- --dense --baseline data/chunking_reports/v1.json --out data/chunking_reports/phase1.json
 """
 
@@ -46,16 +51,22 @@ import numpy as np
 from tokenizers import Tokenizer
 
 from application.indexing.contextualization import ChunkContextualization
+from application.search import HybridRetriever
 from composition.domain_packs import PACK_REGISTRATIONS, selected_pack
+from config.sections.ml import MLProviderSection
+from config.sections.rag import HybridSearchSection, RankingSection, RetrievalSection
 from domain.benchmark.evaluation import matches_fragment, source_name
 from domain.benchmark.question import evaluation_annotations
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
+from domain.rag.classification import has_exact_reference
 from domain.rag.evidence.context import content_with_parent_scope
 from infrastructure.domain_profile import register_pack_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
+from infrastructure.ml.clients.inference_clients import RerankerClient
 from infrastructure.ml.ingestion.llm_contextualizer import LLMChunkContextualizer
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+from infrastructure.ml.rag.rag_reranking import reranker_text
 from infrastructure.ml.tokenization import build_token_counter
 from infrastructure.repositories.vector.sparse_vectors import encode_sparse
 
@@ -67,8 +78,16 @@ if TYPE_CHECKING:
 log = logging.getLogger("chunking_report")
 
 ROOT = Path(__file__).resolve().parents[2]
-SEARCH_DEPTH = 50
-RRF_K = 60
+# Production retrieval defaults (standard breadth); runtime overrides are not applied.
+HYBRID = HybridSearchSection()
+RETRIEVAL = RetrievalSection()
+RANKING = RankingSection()
+ML = MLProviderSection()
+DENSE_DEPTH = RETRIEVAL.retriever_fetch_k
+SPARSE_DEPTH = HYBRID.bm25_fetch_k
+FUSED_DEPTH = RETRIEVAL.retriever_fetch_k
+RERANK_TOP_N = RETRIEVAL.retriever_top_k_broad
+RRF_K = HYBRID.rrf_k
 SMALL_CHUNK_TOKENS = 50
 EMBED_MODEL = "BAAI/bge-m3"
 EMBED_URL = "https://api.deepinfra.com/v1/openai/embeddings"
@@ -124,6 +143,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--label", default="working tree")
     parser.add_argument("--dense", action="store_true", help="add bge-m3 and hybrid recall (DeepInfra, paid)")
     parser.add_argument("--cache", type=Path, default=ROOT / "data/chunking_cache/embeddings.sqlite")
+    parser.add_argument(
+        "--rerank",
+        action="store_true",
+        help="rerank hybrid candidates with the production reranker (DeepInfra, paid); implies --dense",
+    )
+    parser.add_argument("--rerank-cache", type=Path, default=ROOT / "data/chunking_cache/rerank.sqlite")
     parser.add_argument("--chunks-out", type=Path, default=None, help="dump chunks as JSON for inspection")
     parser.add_argument(
         "--contextualize",
@@ -134,7 +159,9 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
 
     # `task chunking:report` runs from server/; relative paths always mean the repository root.
-    path_options = ("corpus", "baseline", "thresholds", "tokenizer", "out", "cache", "chunks_out", "notes_cache")
+    path_options = (
+        "corpus", "baseline", "thresholds", "tokenizer", "out", "cache", "rerank_cache", "chunks_out", "notes_cache"
+    )
 
     for name in path_options:
         value = getattr(args, name)
@@ -142,6 +169,7 @@ def parse_args() -> argparse.Namespace:
         if value is not None and not value.is_absolute():
             setattr(args, name, ROOT / value)
 
+    args.dense = args.dense or args.rerank
     pack = selected_pack(args.pack)
     defaults = [path for path in pack.benchmark_sets if path.is_dir()]
 
@@ -293,6 +321,10 @@ def split_corpus(
 
             asyncio.run(contextualization.apply(chunks))
 
+        def rerank_input(chunk: Any, source: str = path.name) -> str:
+            metadata = {**chunk.metadata, "source": source}
+            return reranker_text(Document(page_content=chunk.page_content, metadata=metadata))
+
         documents.append(
             {
                 "file": path.name,
@@ -305,6 +337,7 @@ def split_corpus(
                         ),
                         "prefix": (chunk.embed_text or chunk.page_content).removesuffix(chunk.page_content),
                         "index_text": chunk.embed_text or chunk.page_content,
+                        "rerank_text": rerank_input(chunk),
                         "metadata": {
                             "source": path.name,
                             **{
@@ -454,19 +487,25 @@ def bm25_rankings(questions: list[dict[str, Any]], chunks: list[dict[str, Any]])
                 scores[position] += query_weight * idf * weight
 
         ranked = sorted(scores, key=lambda position: (-scores[position], position))
-        rankings[question["case_id"]] = ranked[:SEARCH_DEPTH]
+        rankings[question["case_id"]] = ranked[:SPARSE_DEPTH]
 
     return rankings
 
 
-def rrf(*rankings: list[int]) -> list[int]:
+def rrf(question: str, dense: list[int], sparse: list[int]) -> list[int]:
+    """Weighted RRF as ``rrf_merge``: the sparse weight is boosted for exact structural references."""
+    sparse_weight = HYBRID.sparse_weight
+
+    if has_exact_reference(question):
+        sparse_weight *= RANKING.exact_ref_sparse_boost
+
     scores: dict[int, float] = {}
 
-    for ranking in rankings:
+    for ranking, weight in ((dense, HYBRID.dense_weight), (sparse, sparse_weight)):
         for rank, index in enumerate(ranking, 1):
-            scores[index] = scores.get(index, 0.0) + 1 / (RRF_K + rank)
+            scores[index] = scores.get(index, 0.0) + weight / (RRF_K + rank)
 
-    return sorted(scores, key=lambda index: -scores[index])[:SEARCH_DEPTH]
+    return sorted(scores, key=lambda index: -scores[index])[:FUSED_DEPTH]
 
 
 class EmbeddingCache:
@@ -538,9 +577,9 @@ class EmbeddingCache:
         raise RuntimeError(message)
 
 
-def deepinfra_key() -> str:
+def secret(key_name: str) -> str:
     """Read the key from the environment or server/.env.secrets; it is never printed."""
-    if key := os.environ.get("EMBEDDING_API_KEY"):
+    if key := os.environ.get(key_name):
         return key
 
     secrets = ROOT / "server/.env.secrets"
@@ -549,10 +588,10 @@ def deepinfra_key() -> str:
         for line in secrets.read_text().splitlines():
             name, _, value = line.partition("=")
 
-            if name.strip() == "EMBEDDING_API_KEY" and value.strip():
+            if name.strip() == key_name and value.strip():
                 return value.strip().strip("'\"")
 
-    message = "EMBEDDING_API_KEY (DeepInfra) is not set (environment or server/.env.secrets)"
+    message = f"{key_name} is not set (environment or server/.env.secrets)"
     raise SystemExit(message)
 
 
@@ -562,8 +601,87 @@ def dense_rankings(
     chunk_matrix = cache.vectors([chunk["index_text"] for chunk in chunks])
     query_matrix = cache.vectors([question["question"] for question in questions])
     scores = query_matrix @ chunk_matrix.T
-    top = np.argsort(-scores, axis=1)[:, :SEARCH_DEPTH]
+    top = np.argsort(-scores, axis=1)[:, :DENSE_DEPTH]
     return {question["case_id"]: [int(i) for i in row] for question, row in zip(questions, top, strict=True)}
+
+
+class RerankCache:
+    """Reranker scores keyed by sha256(model + query + text); repeated pairs are never re-scored."""
+
+    def __init__(self, path: Path, api_key: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.db = sqlite3.connect(path)
+        self.db.execute("CREATE TABLE IF NOT EXISTS scores (key TEXT PRIMARY KEY, score REAL NOT NULL)")
+        # RerankerClient builds requests and parses scores in the configured API format;
+        # this synchronous script sends them over its own client.
+        self.client = RerankerClient(ML.rerank_base_url, ML.rerank_model, ML.rerank_api_format, api_key)
+        self.http = httpx.Client(timeout=60.0, follow_redirects=False)
+        self.scored_pairs = 0
+
+    @staticmethod
+    def key(query: str, text: str) -> str:
+        return hashlib.sha256(f"{ML.rerank_model}\n{query}\n{text}".encode()).hexdigest()
+
+    def scores(self, query: str, texts: list[str]) -> list[float]:
+        if not texts:
+            return []
+
+        keys = [self.key(query, text) for text in texts]
+        placeholders = ",".join("?" * len(keys))
+        known: dict[str, float] = dict(
+            self.db.execute(f"SELECT key, score FROM scores WHERE key IN ({placeholders})", keys)
+        )
+        missing = list(dict.fromkeys((key, text) for key, text in zip(keys, texts, strict=True) if key not in known))
+
+        if missing:
+            for key, score in zip(
+                [key for key, _ in missing], self.predict(query, [text for _, text in missing]), strict=True
+            ):
+                known[key] = score
+                self.db.execute("INSERT OR REPLACE INTO scores VALUES (?, ?)", (key, score))
+
+            self.db.commit()
+            self.scored_pairs += len(missing)
+
+        return [known[key] for key in keys]
+
+    def predict(self, query: str, texts: list[str]) -> list[float]:
+        for attempt in range(EMBED_RETRIES):
+            try:
+                pairs = [(query, text) for text in texts]
+                return self.client.scores(self.http.post(**self.client.request(pairs)), len(pairs))
+            except httpx.HTTPStatusError as error:
+                retryable = error.response.status_code in {429, 500, 502, 503, 504}
+
+                if not retryable or attempt + 1 == EMBED_RETRIES:
+                    raise
+
+            time.sleep(2**attempt)
+
+        message = "unreachable"
+        raise RuntimeError(message)
+
+
+def rerank_rankings(
+    questions: list[dict[str, Any]],
+    candidates: dict[str, list[int]],
+    chunks: list[dict[str, Any]],
+    cache: RerankCache,
+) -> dict[str, list[int]]:
+    """Rerank hybrid candidates, apply the production score filters and keep the rerank budget."""
+    retriever = HybridRetriever()
+    rankings = {}
+
+    for question in questions:
+        positions = candidates[question["case_id"]]
+        scores = cache.scores(question["question"], [chunks[index]["rerank_text"] for index in positions])
+        scored = sorted(zip(positions, scores, strict=True), key=lambda item: -item[1])
+        eligible = retriever.apply_rerank_filters(
+            scored, min_score=RANKING.rerank_min_score, score_gap_ratio=RANKING.rerank_score_gap_ratio
+        )
+        rankings[question["case_id"]] = [index for index, _ in eligible[:RERANK_TOP_N]]
+
+    return rankings
 
 
 # --- report ----------------------------------------------------------------------------------
@@ -602,7 +720,16 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "pack": args.pack,
         "date": date.today().isoformat(),
         "tokenizer": "BAAI/bge-m3",
-        "retrieval": f"proxy: BM25 (prod tokenizer) / bge-m3 cosine / RRF k={RRF_K}, no reranker, depth {SEARCH_DEPTH}",
+        "retrieval": (
+            f"proxy: BM25 (prod tokenizer, depth {SPARSE_DEPTH}) / bge-m3 cosine (depth {DENSE_DEPTH}) / "
+            f"RRF k={RRF_K}, weights {HYBRID.dense_weight}/{HYBRID.sparse_weight} "
+            f"(exact-ref sparse x{RANKING.exact_ref_sparse_boost}), fused depth {FUSED_DEPTH}"
+            + (
+                f" / {ML.rerank_model} top {RERANK_TOP_N}, min_score {RANKING.rerank_min_score}, "
+                f"gap {RANKING.rerank_score_gap_ratio}"
+                if args.rerank else ", no reranker"
+            )
+        ),
         "domains": {},
         "documents": [
             {"file": d["file"], "domain": d["domain"], **size_stats(d["chunks"], count)} for d in documents
@@ -619,11 +746,18 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     cache = None
 
     if args.dense:
-        cache = EmbeddingCache(args.cache, deepinfra_key())
+        cache = EmbeddingCache(args.cache, secret("EMBEDDING_API_KEY"))
         rankings["dense"] = dense_rankings(flat_questions, all_chunks, cache)
         rankings["hybrid"] = {
-            case: rrf(rankings["bm25"][case], rankings["dense"][case]) for case in rankings["bm25"]
+            q["case_id"]: rrf(q["question"], rankings["dense"][q["case_id"]], rankings["bm25"][q["case_id"]])
+            for q in flat_questions
         }
+
+    rerank_cache = None
+
+    if args.rerank:
+        rerank_cache = RerankCache(args.rerank_cache, secret("RERANK_API_KEY"))
+        rankings["rerank"] = rerank_rankings(flat_questions, rankings["hybrid"], all_chunks, rerank_cache)
 
     report["overall"] = {
         "dataset_questions": len(flat_questions),
@@ -673,6 +807,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     if cache is not None:
         report["embedding_tokens_paid"] = cache.paid_tokens
+
+    if rerank_cache is not None:
+        report["rerank_pairs_paid"] = rerank_cache.scored_pairs
 
     return report
 
@@ -814,6 +951,9 @@ def print_comparison(report: dict[str, Any], baseline: dict[str, Any] | None) ->
 
     if "embedding_tokens_paid" in report:
         print(f"\nDeepInfra embedding tokens paid in this run: {report['embedding_tokens_paid']}")
+
+    if "rerank_pairs_paid" in report:
+        print(f"Reranker pairs paid in this run: {report['rerank_pairs_paid']}")
 
 
 def main() -> None:

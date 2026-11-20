@@ -5,7 +5,6 @@ from infrastructure.ml.replay.store import PostgresReplayStore
 from infrastructure.ml.replay.transport import (
     LLMReplayMissError,
     llm_async_http_client,
-    llm_sync_http_client,
 )
 
 
@@ -14,5 +13,4 @@ __all__ = [
     "PostgresReplayStore",
     "llm_async_http_client",
     "llm_replay_scope",
-    "llm_sync_http_client",
 ]

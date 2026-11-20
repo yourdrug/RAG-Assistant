@@ -40,7 +40,7 @@ async def test_sweep_candidates_forward_acl_to_qdrant_sparse() -> None:
     client = SimpleNamespace(search=MagicMock(return_value=points))
     clients = SimpleNamespace(
         qdrant_client=lambda: client,
-        embeddings=lambda: SimpleNamespace(embed_query_sync=lambda _query: [0.1]),
+        embeddings=lambda: SimpleNamespace(embed_query=AsyncMock(return_value=[0.1])),
     )
     data = SweepDataSource(FakeUnitOfWorkFactory(), clients)
 
@@ -126,7 +126,7 @@ async def test_sparse_only_payload_is_available_for_reranking(
     client = SimpleNamespace(
         search=MagicMock(side_effect=[[dense_point], [sparse_point]]), scroll=MagicMock()
     )
-    embeddings = SimpleNamespace(embed_query_sync=lambda _query: [0.1])
+    embeddings = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1]))
     acl = Filter(must_not=[])
     clients = None
 
@@ -166,7 +166,7 @@ async def test_sparse_resolution_without_acl_fails_closed(monkeypatch: pytest.Mo
     client = SimpleNamespace(search=MagicMock(return_value=[]), scroll=MagicMock())
     monkeypatch.setattr(factories, "create_qdrant_client", lambda: client)
     monkeypatch.setattr(
-        factories, "create_embeddings", lambda: SimpleNamespace(embed_query_sync=lambda _q: [])
+        factories, "create_embeddings", lambda: SimpleNamespace(embed_query=AsyncMock(return_value=[]))
     )
     with pytest.raises(RuntimeError, match="ACL scope"):
         await cache_candidates([{"question": "q"}], 2)

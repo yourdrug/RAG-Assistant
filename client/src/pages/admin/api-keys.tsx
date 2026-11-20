@@ -9,6 +9,7 @@ import {
   useUsers,
 } from "@/shared/api/hooks";
 import { formatDate } from "@/shared/lib/date-time";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -20,17 +21,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 export function AdminApiKeysPage() {
-  const { data: users } = useUsers();
+  const usersQuery = useUsers();
+  const users = usersQuery.data;
   const [selClient, setSelClient] = useState<string>("");
   const [newKeyName, setNewKeyName] = useState<string>("");
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const clientUserId = Number(selClient) || 0;
-  const { data: apiKeys, isLoading, refetch } = useClientApiKeys(clientUserId);
+  const keysQuery = useClientApiKeys(clientUserId);
+  const { data: apiKeys, isLoading, refetch } = keysQuery;
   const createMut = useCreateClientApiKey(clientUserId);
   const revokeMut = useRevokeClientApiKey(clientUserId);
 
@@ -44,8 +48,8 @@ export function AdminApiKeysPage() {
       setCreatedKey(result.key);
       setNewKeyName("");
       refetch();
-    } catch (e) {
-      toast.error("Failed to create API key");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not create the API key."));
     }
   };
 
@@ -61,8 +65,8 @@ export function AdminApiKeysPage() {
       await revokeMut.mutateAsync({ apiKeyId });
       toast.success("API key revoked");
       refetch();
-    } catch (e) {
-      toast.error("Failed to revoke API key");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not revoke the API key."));
     }
   };
 
@@ -73,6 +77,7 @@ export function AdminApiKeysPage() {
         <p className="text-muted-foreground">Manage API keys for client users</p>
       </div>
 
+      {usersQuery.isError && <QueryError query={usersQuery} fallback="Could not load users." />}
       <Card>
         <CardHeader>
           <CardTitle>Select Client</CardTitle>
@@ -136,7 +141,9 @@ export function AdminApiKeysPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {isLoading ? (
+              {keysQuery.isError && !apiKeys ? (
+                <QueryError query={keysQuery} fallback="Could not load API keys." />
+              ) : isLoading ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map((i) => (
                     <div key={i} className="p-3 border rounded-md">

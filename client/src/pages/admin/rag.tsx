@@ -4,10 +4,12 @@ import { RotateCcw, Save } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import { apiClient } from "@/shared/api/client";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
+import { QueryError } from "@/shared/ui/query-error";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 
@@ -25,11 +27,12 @@ export function AdminRAGPage() {
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Record<string, string>>({});
 
-  const { data: params, isLoading } = useQuery({
+  const parameters = useQuery({
     queryKey: ["admin", "config"],
     queryFn: async () => (await apiClient.get<ConfigParam[]>("/admin/config")).data,
   });
 
+  const { data: params, isLoading } = parameters;
   const updateMutation = useMutation({
     mutationFn: async ({ key, value }: { key: string; value: string }) => {
       return (await apiClient.put(`/admin/config/${key}`, { value })).data;
@@ -43,8 +46,8 @@ export function AdminRAGPage() {
       });
       toast.success(`Parameter "${variables.key}" updated`);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Failed to update parameter");
+    onError: (error) => {
+      toast.error(getErrorMessage(error, "Failed to update parameter"));
     },
   });
 
@@ -132,6 +135,9 @@ export function AdminRAGPage() {
       </div>
     );
   };
+
+  if (parameters.isError)
+    return <QueryError query={parameters} fallback="Could not load RAG settings." />;
 
   if (isLoading) {
     return (

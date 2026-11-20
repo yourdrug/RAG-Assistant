@@ -24,7 +24,13 @@ from domain.knowledge.document import Document
 from domain.knowledge.enums import DocDomain, DocumentVisibility, SourceType
 from domain.knowledge.space import KnowledgeSpace
 from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
-from domain.shared.exceptions import LLMUnavailableError
+from domain.shared.exceptions import (
+    AuthenticationError,
+    LLMUnavailableError,
+    PermissionDeniedError,
+    RateLimitExceededError,
+    ValidationError,
+)
 from domain.shared.pagination import CursorPage
 from main import app
 from presentation.api import dependencies as deps
@@ -409,6 +415,12 @@ async def test_message_feedback_routes_map_ownership_and_invariants(asgi_client:
     )
     assert rated.status_code == 200
     assert rated.json()["reasons"] == ["outdated"]
+    invalid_reason = await asgi_client.put(
+        "/chat/messages/2/feedback", json={"rating": "down", "reasons": ["invalid"]}
+    )
+    assert invalid_reason.status_code == 422
+    assert "reasons.0" in invalid_reason.json()["errors"]
+
     invalid = await asgi_client.put(
         "/chat/messages/2/feedback", json={"rating": "up", "reasons": ["outdated"]}
     )
@@ -419,6 +431,66 @@ async def test_message_feedback_routes_map_ownership_and_invariants(asgi_client:
     sign_in(user_id=2)
     assert (await asgi_client.put("/chat/messages/2/feedback", json={"rating": "up"})).status_code == 404
     assert factory._uow.fake_message_feedback.items == {}
+
+
+@pytest.mark.asyncio
+async def test_missing_route_uses_public_error_envelope(
+    asgi_client: httpx.AsyncClient,
+) -> None:
+    missing = await asgi_client.get("/nonexistent-path")
+    assert missing.status_code == 404
+    assert missing.json() == {"message": "Not Found"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error,code,message,retry_after",
+    [
+        (
+            ValidationError("Choose a knowledge space", field="space_id"),
+            "validation_error",
+            "Choose a knowledge space",
+            None,
+        ),
+        (PermissionDeniedError(), "forbidden", "Недостаточно прав", None),
+        (AuthenticationError(), "unauthorized", "Не авторизован", None),
+        (RateLimitExceededError(12, 1), "rate_limit_exceeded", "Too many requests", 12),
+        (LLMUnavailableError(), "llm_unavailable", "LLM временно недоступен", 30),
+        (RuntimeError("private diagnostics"), "internal_error", "Внутренняя ошибка сервера", None),
+    ],
+)
+async def test_chat_stream_returns_actionable_client_errors(
+    asgi_client: httpx.AsyncClient, error: Exception, code: str, message: str, retry_after: int | None
+) -> None:
+    sign_in()
+    service = MagicMock()
+    service.stream_chat.side_effect = error
+    app.dependency_overrides[deps.create_chat_service] = lambda: service
+    response = await asgi_client.post("/chat", json={"question": "test"})
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert f'"code": "{code}"' in response.text
+    assert message in response.text
+    assert "event: done" not in response.text
+    assert "private diagnostics" not in response.text
+
+    if retry_after is not None:
+        assert f'"retry_after": {retry_after}' in response.text
+
+
+@pytest.mark.asyncio
+async def test_unexpected_error_preserves_cors_and_request_id(asgi_client: httpx.AsyncClient) -> None:
+    sign_in()
+    service = SimpleNamespace(sync_chat=AsyncMock(side_effect=RuntimeError("private diagnostics")))
+    app.dependency_overrides[deps.create_chat_service] = lambda: service
+    origin = "https://ui.example.org"
+    response = await asgi_client.post("/chat/sync", json={"question": "test"}, headers={"Origin": origin})
+
+    assert response.status_code == 500
+    assert response.json() == {"message": "Внутренняя ошибка сервера"}
+    assert response.headers["access-control-allow-origin"] in (origin, "*")
+    assert "retry-after" in response.headers["access-control-expose-headers"].lower()
+    assert response.headers["x-request-id"]
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ import { type SearchMode, useExactSearch } from "@/shared/api/hooks/use-search";
 import { getSearchPagination } from "@/shared/lib/search-pagination";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 const SEARCH_PAGE_SIZE = 50;
@@ -30,7 +31,8 @@ export function SearchPage() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("exact");
   const [search, setSearch] = useState({ query: "", mode: "exact" as SearchMode, offset: 0 });
-  const { data: spaces, isPending: spacesPending, isError: spacesError } = useSpaces();
+  const spacesQuery = useSpaces();
+  const spaces = spacesQuery.data;
   const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
   // The search runs in one knowledge space: the chosen one, or the only one.
   const spaceId = spaces?.find((space) => space.id === spaceChoice)?.id ?? defaultSpaceId(spaces);
@@ -205,19 +207,19 @@ export function SearchPage() {
             </nav>
           )}
 
-          {query.trim().length >= 3 && spaceId == null && (
-            <p
-              role={spacesError && !spaces ? "alert" : "status"}
-              className="text-sm text-muted-foreground py-6"
-            >
-              {spacesPending
-                ? "Loading knowledge spaces…"
-                : spacesError && !spaces
-                  ? "Could not load knowledge spaces."
+          {spacesQuery.isError && !spaces ? (
+            <QueryError query={spacesQuery} fallback="Could not load knowledge spaces." />
+          ) : (
+            query.trim().length >= 3 &&
+            spaceId == null && (
+              <p role="status" className="text-sm text-muted-foreground py-6">
+                {spacesQuery.isPending
+                  ? "Loading knowledge spaces…"
                   : spaces?.length
                     ? "Choose a knowledge space to search."
                     : "No knowledge spaces are available."}
-            </p>
+              </p>
+            )
           )}
 
           {hasSearched && exactSearch.isFetching && (
@@ -227,9 +229,7 @@ export function SearchPage() {
           )}
 
           {hasSearched && exactSearch.isError && (
-            <p role="alert" className="text-sm text-destructive py-6">
-              Search failed. Please try again.
-            </p>
+            <QueryError query={exactSearch} fallback="Could not search documents." />
           )}
 
           {/* Empty state after search */}

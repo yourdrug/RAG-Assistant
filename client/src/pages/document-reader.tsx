@@ -7,6 +7,7 @@ import { apiClient } from "@/shared/api/client";
 import { useDocument } from "@/shared/api/hooks/use-documents";
 import type { ChunkCursorListResponse } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
+import { QueryError } from "@/shared/ui/query-error";
 
 export function DocumentReaderPage() {
   const { documentId } = useParams();
@@ -36,8 +37,14 @@ export function DocumentReaderPage() {
       >
         <ArrowLeft className="h-4 w-4" /> Документы
       </Link>
-      {!id || document.isError ? (
-        <p role="alert">Документ недоступен: он удалён или у вас нет доступа.</p>
+      {!id ? (
+        <p role="alert">Некорректная ссылка на документ.</p>
+      ) : document.isError ? (
+        <QueryError
+          query={document}
+          fallback="Не удалось загрузить документ."
+          retryLabel="Повторить"
+        />
       ) : document.isPending ? (
         <p role="status">Загрузка документа…</p>
       ) : (
@@ -50,14 +57,18 @@ export function DocumentReaderPage() {
               Текст документа, используемый для поиска и ответов.
             </p>
           </header>
-          {content.isError ? (
-            <div role="alert" className="space-y-2">
-              <p>Не удалось загрузить текст документа.</p>
-              <Button variant="outline" onClick={() => content.refetch()}>
-                Повторить
-              </Button>
-            </div>
-          ) : content.isPending ? (
+          {content.isError && (
+            <QueryError
+              query={
+                content.isFetchNextPageError
+                  ? { ...content, refetch: content.fetchNextPage }
+                  : content
+              }
+              fallback="Не удалось загрузить текст документа."
+              retryLabel="Повторить"
+            />
+          )}
+          {content.isError && !content.data ? null : content.isPending ? (
             <p role="status">Загрузка текста…</p>
           ) : fragments.length === 0 ? (
             <p>Текст документа пока не готов.</p>
@@ -75,7 +86,7 @@ export function DocumentReaderPage() {
               ))}
             </article>
           )}
-          {content.hasNextPage && (
+          {content.hasNextPage && !content.isFetchNextPageError && (
             <Button
               variant="outline"
               disabled={content.isFetchingNextPage}

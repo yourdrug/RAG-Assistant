@@ -91,9 +91,18 @@ _CONDITIONAL_MARKERS = [
 ]
 
 
+# Every grammatical case ("пунктом 9", "статьёй 5", "требования глав 3 и 4") is a reference,
+# and so is every number of an enumeration ("статьям 12, 13 и 15"). Tables, appendices, fields
+# and positions are not: provision search has no structural metadata for them.
+_PROVISION_NUMBER = r"\d+(?:\.\d+)*"
 _EXACT_REF_RE = re.compile(
-    r"\b(стать(?:я|и|ю|е|ей)|(?:под)?пункт[аеу]?|раздел[аеу]?|глав[аыеу]|параграф[аеу]?|пп?\.|ст\.)"
-    r"\s*(\d+(?:\.\d+)*)\b",
+    r"\b(стать(?:я|и|ю|е|ей|ёй|ям|ями|ях)|статей"
+    r"|(?:под)?пункт(?:а|у|е|ом|ы|ов|ам|ами|ах)?"
+    r"|раздел(?:а|у|е|ом|ы|ов|ам|ами|ах)?"
+    r"|глав(?:а|ы|е|у|ой|ам|ами|ах)?"
+    r"|параграф(?:а|у|е|ом|ы|ов|ам|ами|ах)?"
+    r"|подп\.|пп?\.|ст\.)"
+    rf"\s*({_PROVISION_NUMBER}(?:\s*(?:,|\bи\b|\bили\b)\s*{_PROVISION_NUMBER})*)\b",
     re.IGNORECASE,
 )
 
@@ -198,17 +207,19 @@ def extract_structural_references(question: str) -> list[ExactReference]:
         ("глав", "chapter"),
         ("раздел", "section"),
         ("параграф", "clause"),
-        ("подпункт", "subpoint_num"),
+        ("подп", "subpoint_num"),
         ("пп.", "subpoint_num"),
     )
 
     for match in _EXACT_REF_RE.finditer(question):
-        label, number = match.groups()
+        label, numbers = match.groups()
         kind = next((kind for stem, kind in kinds if label.lower().startswith(stem)), "point")
-        reference = ExactReference(kind, number)
 
-        if reference not in references:
-            references.append(reference)
+        for number in re.findall(_PROVISION_NUMBER, numbers):
+            reference = ExactReference(kind, number)
+
+            if reference not in references:
+                references.append(reference)
 
     return references
 

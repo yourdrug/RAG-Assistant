@@ -7,7 +7,6 @@ Chat requests never enter the scope, so their LLM calls are never replayed.
 
 from __future__ import annotations
 
-import asyncio
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -28,7 +27,6 @@ if TYPE_CHECKING:
 class ReplaySession:
     mode: LLMReplayMode
     store: ReplayStore
-    loop: asyncio.AbstractEventLoop
     stats: LLMReplayStats
     epoch: str = ""
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -65,7 +63,7 @@ async def llm_replay_scope(
         yield stats
         return
 
-    session = ReplaySession(mode=mode, store=store, loop=asyncio.get_running_loop(), stats=stats, epoch=epoch)
+    session = ReplaySession(mode=mode, store=store, stats=stats, epoch=epoch)
     token = current_replay.set(session)
     try:
         yield stats

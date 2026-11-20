@@ -5,6 +5,7 @@ Reads from BenchmarkRunRepository (DB) instead of JSON files on disk.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from application.benchmark.diagnosis import rediagnose
@@ -15,6 +16,7 @@ from application.benchmark.dto import (
     RegressionCheckOutput,
     RegressionCheckResult,
 )
+from application.benchmark.quality import run_replayed_llm
 from application.benchmark.regression import regression_report
 from domain.benchmark.policy import GateStatus
 
@@ -123,8 +125,27 @@ class BenchmarkResultService:
 
             previous = await uow.benchmark_runs.get_baseline(run)
             policy = await uow.benchmark_quality.get_policy(run.dataset)
+            noise_warning = None
+
+            if policy is not None and policy.noise is not None:
+                noise_runs = await uow.benchmark_runs.get_by_ids(policy.noise.run_ids)
+
+                # Sigma saved before replayed runs were rejected would understate the noise.
+                if replayed := sorted(r.id for r in noise_runs if r.id is not None and run_replayed_llm(r)):
+                    policy = replace(policy, noise=None)
+                    noise_warning = (
+                        f"stored noise used runs {replayed} with recorded LLM responses; "
+                        "default thresholds apply until noise is re-measured with --llm-replay off"
+                    )
 
         report = regression_report(run, previous, policy, history_port)
+
+        if noise_warning is not None:
+            report.warnings = [
+                noise_warning,
+                *(w for w in report.warnings if not w.startswith("noise not measured")),
+            ]
+
         return RegressionCheckOutput(
             passed=report.passed,
             status=report.status,

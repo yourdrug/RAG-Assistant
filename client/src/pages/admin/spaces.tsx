@@ -1,6 +1,5 @@
 "use client";
 import { type ColumnDef } from "@tanstack/react-table";
-import { isAxiosError } from "axios";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
@@ -13,6 +12,7 @@ import {
   useUpdateSpace,
 } from "@/shared/api/hooks";
 import type { GroupResponse, KnowledgeSpace } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +37,7 @@ import {
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 interface SpaceForm {
@@ -47,14 +48,6 @@ interface SpaceForm {
 }
 
 const EMPTY_FORM: SpaceForm = { id: null, name: "", packKey: "", groupIds: [] };
-
-function errorMessage(error: unknown, fallback: string): string {
-  if (isAxiosError(error)) {
-    const data = error.response?.data as { message?: string; detail?: string } | undefined;
-    return data?.message || data?.detail || fallback;
-  }
-  return fallback;
-}
 
 function GroupPicker({
   groups,
@@ -91,7 +84,8 @@ function GroupPicker({
 }
 
 export function AdminSpacesPage() {
-  const { data: spaces } = useSpaces();
+  const spacesQuery = useSpaces();
+  const spaces = spacesQuery.data;
   const { data: groups } = useGroups();
   const { data: packKeys } = useDomainPacks();
   const createMut = useCreateSpace();
@@ -122,7 +116,7 @@ export function AdminSpacesPage() {
       }
       setForm(null);
     } catch (error) {
-      toast.error(errorMessage(error, "Failed to save the space"));
+      toast.error(getErrorMessage(error, "Failed to save the space"));
     }
   };
 
@@ -132,7 +126,7 @@ export function AdminSpacesPage() {
       await deleteMut.mutateAsync(deleteTarget.id);
       toast.success("Space deleted");
     } catch (error) {
-      toast.error(errorMessage(error, "Failed to delete the space"));
+      toast.error(getErrorMessage(error, "Failed to delete the space"));
     }
     setDeleteTarget(null);
   };
@@ -221,15 +215,21 @@ export function AdminSpacesPage() {
       <Card>
         <CardHeader>
           <CardTitle>Spaces</CardTitle>
-          <CardDescription>{spaces?.length || 0} space(s)</CardDescription>
+          {spaces && <CardDescription>{spaces.length} space(s)</CardDescription>}
         </CardHeader>
         <CardContent>
-          <DataTable
-            columns={columns}
-            data={spaces || []}
-            searchKey="name"
-            searchPlaceholder="Search spaces..."
-          />
+          {spacesQuery.isError && (
+            <QueryError query={spacesQuery} fallback="Could not load knowledge spaces." />
+          )}
+          {spaces && (
+            <DataTable
+              columns={columns}
+              data={spaces || []}
+              searchKey="name"
+              searchPlaceholder="Search spaces..."
+            />
+          )}
+          {spacesQuery.isPending && <p role="status">Loading knowledge spaces…</p>}
         </CardContent>
       </Card>
 

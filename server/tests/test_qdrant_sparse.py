@@ -19,7 +19,7 @@ from domain.identity.roles import UserKind
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from domain.knowledge.pack_metadata import AnyOf, Equals, Missing
-from infrastructure.bm25.stemmer import stem_token
+from infrastructure.bm25.lemmatizer import normalize_token
 from infrastructure.bm25.tokenizer import tokenize, tokenize_raw
 from infrastructure.ml.rag import rag_retrieval
 from infrastructure.ml.rag.rag_config import build_rag_settings
@@ -83,7 +83,7 @@ def point(
     )
 
 
-def test_sparse_encoder_preserves_russian_stems_and_numbers() -> None:
+def test_sparse_encoder_preserves_russian_lemmas_and_numbers() -> None:
     document = encode_sparse("маркировки товаров 2026")
     query = sparse_query("маркировка 2026")
     assert set(query.vector.indices) <= set(document.indices)
@@ -273,7 +273,7 @@ def test_tokenizers_keep_numbers_and_normalize_yo(tokenizer: Callable[[str], lis
 )
 def test_sparse_word_forms_match(base: str, inflected: str) -> None:
     assert tokenize(base) == tokenize(inflected)
-    assert stem_token(base) == stem_token(inflected)
+    assert normalize_token(base) == normalize_token(inflected)
     assert encode_sparse(base).indices == encode_sparse(inflected).indices
 
 

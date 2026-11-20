@@ -17,7 +17,16 @@ from application.ports.action_logger import ActionLoggerPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.rag.stream_events import MetaEvent, StatusEvent, StreamEvent, TextChunk
 from domain.rag.exceptions import ContextBudgetExceededError
-from domain.shared.exceptions import LLMUnavailableError, SemaphoreTimeoutError
+from domain.shared.exceptions import (
+    AuthenticationError,
+    BusinessRuleViolationError,
+    EntityNotFoundError,
+    LLMUnavailableError,
+    PermissionDeniedError,
+    RateLimitExceededError,
+    SemaphoreTimeoutError,
+    ValidationError,
+)
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.constants import (
     CONFIDENCE_KEY,
@@ -47,21 +56,38 @@ router = APIRouter(tags=["chat"])
 logger = logging.getLogger("default")
 
 
-def _sse_error_event(code: str, message: str) -> str:
-    """Build a uniform SSE error event payload."""
-    return f"event: error\ndata: {json.dumps({'error': message, 'code': code}, ensure_ascii=False)}\n\n"
+def sse_error_event(code: str, message: str, retry_after: int | None = None) -> str:
+    """Build a terminal SSE error event."""
+    payload: dict[str, str | int] = {"error": message, "code": code}
+
+    if retry_after is not None:
+        payload["retry_after"] = retry_after
+
+    return f"event: error\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def _known_stream_error(exc: Exception) -> str:
-    logger.warning("Chat stream unavailable (%s)", type(exc).__name__)
+def known_stream_error(exc: Exception) -> str:
+    logger.warning("Chat stream failed (%s)", type(exc).__name__)
 
     if isinstance(exc, ContextBudgetExceededError):
-        return _sse_error_event(exc.code, exc.message)
+        code, message = exc.code, exc.message
+    elif isinstance(exc, SemaphoreTimeoutError):
+        code, message = "server_busy", "Сервер перегружен, повторите позже"
+    elif isinstance(exc, RateLimitExceededError):
+        return sse_error_event("rate_limit_exceeded", exc.message, exc.retry_after_sec)
+    elif isinstance(exc, PermissionDeniedError):
+        code, message = "forbidden", "Недостаточно прав для этого запроса."
+    elif isinstance(exc, EntityNotFoundError):
+        code, message = "not_found", "Чат или пространство не найдено. Откройте новый чат."
+    elif isinstance(exc, ValidationError):
+        details = " · ".join(value for value in (exc.errors or {}).values() if isinstance(value, str))
+        code, message = "validation_error", details or exc.message
+    elif isinstance(exc, BusinessRuleViolationError):
+        code, message = "conflict", exc.message
+    else:
+        return sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже", 30)
 
-    if isinstance(exc, SemaphoreTimeoutError):
-        return _sse_error_event("server_busy", "Сервер перегружен, повторите позже")
-
-    return _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
+    return sse_error_event(code, message)
 
 
 def format_sse_event(event: StreamEvent, req_id: str) -> str | None:
@@ -104,7 +130,8 @@ def format_sse_event(event: StreamEvent, req_id: str) -> str | None:
                 '"answer": string}, '
                 "final metadata (as_of_date is an ISO date; answer is the authoritative final text, "
                 "which replaces the streamed fragments); "
-                '`error`: {"error": string, "code": string}, a terminal stream error. '
+                '`error`: {"error": string, "code": string, "retry_after"?: seconds}, '
+                "a terminal stream error. "
                 "Errors after streaming starts retain HTTP 200. "
                 "Comment frames (`: heartbeat`) carry no event data and should be ignored."
             ),
@@ -270,13 +297,21 @@ async def stream_chat_events(
                 if sse_data is not None:
                     yield sse_data
 
-    except (ContextBudgetExceededError, LLMUnavailableError, SemaphoreTimeoutError) as exc:
-        yield _known_stream_error(exc)
-    except TimeoutError:
-        logger.warning("LLM auxiliary timeout", exc_info=True)
-        yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
+    except AuthenticationError:
+        yield sse_error_event("unauthorized", "Не авторизован")
+    except (
+        BusinessRuleViolationError,
+        EntityNotFoundError,
+        LLMUnavailableError,
+        PermissionDeniedError,
+        RateLimitExceededError,
+        SemaphoreTimeoutError,
+        TimeoutError,
+        ValidationError,
+    ) as exc:
+        yield known_stream_error(exc)
     except Exception:
         logger.exception("Chat stream error")
-        yield _sse_error_event("internal_error", "Internal error")
+        yield sse_error_event("internal_error", "Внутренняя ошибка сервера")
     finally:
         request_id_ctx.reset(token)

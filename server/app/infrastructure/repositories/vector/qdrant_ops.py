@@ -116,7 +116,10 @@ def ensure_collection(client: VectorClient, vector_size: int, *, reset: bool = F
         sparse = info.config.params.sparse_vectors or {}
 
         if SPARSE_VECTOR_NAME not in sparse or sparse[SPARSE_VECTOR_NAME].modifier != Modifier.IDF:
-            msg = "Collection has no compatible BM25 sparse index; recreate it and re-ingest"
+            msg = (
+                "Collection has no compatible BM25 sparse index; "
+                "run `corpus migrate-sparse` (task corpus:migrate-sparse)"
+            )
             raise ValueError(msg)
 
         if reset:

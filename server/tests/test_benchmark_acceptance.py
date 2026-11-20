@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock
 
 import pytest
 
 from application.benchmark.quality import BenchmarkQualityService
 from application.benchmark.regression import comparable_rows, regression_report
+from application.benchmark.result_service import BenchmarkResultService
 from domain.benchmark.agreement import HumanLabel, LabelMetric, agreement, judge_agreement, ranks
 from domain.benchmark.composition import dataset_composition
 from domain.benchmark.policy import (
@@ -19,6 +21,7 @@ from domain.benchmark.policy import (
     NoiseEstimate,
     allowed_drops,
     metric_noise,
+    question_weights,
 )
 from domain.benchmark.run import BenchmarkRun
 from domain.shared.exceptions import EntityNotFoundError, ValidationError
@@ -214,6 +217,26 @@ def test_noise_widens_allowed_drop_only_for_the_same_judge() -> None:
     assert "judge-a" in other_warnings[0]
 
 
+def test_zero_noise_still_allows_one_question_to_change() -> None:
+    judge = JudgeIdentity(model="judge-a", rubric_version="r1")
+    noise = NoiseEstimate(sigma={"correctness": 0.0, "hit_rate": 0.0}, judge=judge, run_ids=[1, 2, 3])
+    weights = question_weights({"correctness_evaluated_count": 40, "hit_rate_evaluated_count": 20})
+
+    drops, _ = allowed_drops(noise, judge, weights)
+
+    # One whole question plus one rounding step of the stored summary.
+    assert weights == {"correctness": 0.35, "hit_rate": 0.0501}
+    assert drops["correctness"] == -0.35
+    assert drops["hit_rate"] == -0.0501
+    # Measured noise wider than one question is kept.
+    wide = NoiseEstimate(sigma={"correctness": 0.5}, judge=judge, run_ids=[1, 2, 3])
+    assert allowed_drops(wide, judge, weights)[0]["correctness"] == -1.0
+    # A drop of exactly one question passes despite float error in the delta.
+    assert question_weights({"hit_rate_evaluated_count": 33})["hit_rate"] > 0.9091 - 0.8788
+    # Without counts (old summaries) no floor is invented.
+    assert question_weights({"correctness_evaluated_count": 0}) == {}
+
+
 def test_metric_noise_is_sample_standard_deviation() -> None:
     noise = metric_noise([{"correctness": 7.0}, {"correctness": 8.0}, {"correctness": 9.0}])
 
@@ -339,6 +362,16 @@ async def test_noise_requires_repeated_runs_of_one_configuration() -> None:
         runs, manifested(manifest={**MANIFEST, "configuration_version": "c2"}, avg_correctness=9.0)
     )
     unverifiable = await stored_id(runs, run(0, [result(1)], avg_correctness=9.0))
+    # Recorded responses repeat earlier answers and scores; a run that missed every lookup is still real.
+    judge_replayed = await stored_id(
+        runs, manifested(avg_correctness=9.0, llm_replay={"mode": "record", "hits": 3, "misses": 0})
+    )
+    answer_replayed = await stored_id(
+        runs, run(0, [{**result(1), "run_manifest": MANIFEST, "llm_replayed": True}], avg_correctness=9.0)
+    )
+    recorded_only = await stored_id(
+        runs, manifested(avg_correctness=9.0, llm_replay={"mode": "record", "hits": 0, "misses": 5})
+    )
     service = BenchmarkQualityService(factory)
 
     policy = await service.measure_noise("belarus_law-main", ids, None)
@@ -348,7 +381,9 @@ async def test_noise_requires_repeated_runs_of_one_configuration() -> None:
     assert policy.noise.judge == JudgeIdentity(model="judge-a", rubric_version="r1")
     assert (await service.measure_noise("belarus_law-main", [*ids[:2], described], None)).noise
 
-    for rejected in (other_judge, other_config, unverifiable):
+    assert (await service.measure_noise("belarus_law-main", [*ids[:2], recorded_only], None)).noise
+
+    for rejected in (other_judge, other_config, unverifiable, judge_replayed, answer_replayed):
         with pytest.raises(ValidationError):
             await service.measure_noise("belarus_law-main", [*ids[:2], rejected], None)
 
@@ -418,3 +453,39 @@ def test_source_digest_tracks_python_modules_only(tmp_path: Path) -> None:
     module.write_text("TOP_K = 5\n")
     module.rename(tmp_path / "pkg" / "renamed.py")
     assert source_digest(tmp_path) != before
+
+
+@pytest.mark.asyncio
+async def test_stored_noise_from_replayed_runs_does_not_widen_regression_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    factory = FakeUnitOfWorkFactory()
+    uow = factory._uow
+    judge = JudgeIdentity(model="judge-a", rubric_version="r1")
+    clean = [await stored_id(uow.benchmark_runs, manifested(avg_correctness=v)) for v in (8.0, 9.0)]
+    replayed = await stored_id(
+        uow.benchmark_runs, manifested(avg_correctness=9.0, llm_replay={"mode": "record", "hits": 3})
+    )
+    previous = run(0, [result(1, correctness=9.0)], correctness=9.0)
+    current = await stored_id(uow.benchmark_runs, run(0, [result(1, correctness=7.5)], correctness=7.5))
+    monkeypatch.setattr(uow.benchmark_runs, "get_baseline", AsyncMock(return_value=previous))
+    service = BenchmarkResultService(factory)
+
+    async def check(run_ids: list[int]) -> tuple[float, list[str]]:
+        # sigma=1.0 allows a 2.0 drop; the default allows 1.0.
+        noise = NoiseEstimate(sigma={"correctness": 1.0}, judge=judge, run_ids=run_ids)
+        await uow.benchmark_quality.save_policy(DatasetPolicy(dataset="belarus_law-main", noise=noise))
+        output = await service.check_regression(current, BenchmarkHistoryAdapter())
+        threshold = next(
+            r.threshold for r in output.results if r.kind == "baseline" and r.metric == "correctness"
+        )
+        return threshold, output.warnings
+
+    threshold, warnings = await check(clean)
+    assert threshold == -2.0
+    assert not any("recorded LLM responses" in w for w in warnings)
+
+    threshold, warnings = await check([*clean, replayed])
+    assert threshold == -1.0
+    assert any(f"runs [{replayed}] with recorded LLM responses" in w for w in warnings)
+    assert not any(w.startswith("noise not measured") for w in warnings)

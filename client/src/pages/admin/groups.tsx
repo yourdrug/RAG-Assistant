@@ -12,6 +12,7 @@ import {
   useUsers,
 } from "@/shared/api/hooks";
 import type { GroupMemberResponse, GroupResponse } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { DataTable } from "@/shared/ui/data-table";
@@ -25,10 +26,12 @@ import {
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 export function AdminGroupsPage() {
-  const { data: groups } = useGroups();
+  const groupsQuery = useGroups();
+  const groups = groupsQuery.data;
   const { data: users } = useUsers();
   const createMut = useCreateGroup();
   const addMut = useAddGroupMember();
@@ -37,7 +40,8 @@ export function AdminGroupsPage() {
   const [selGroup, setSelGroup] = useState<number | null>(null);
   const [gName, setGName] = useState("");
   const [addUserId, setAddUserId] = useState("");
-  const { data: members } = useGroupMembers(selGroup ?? 0);
+  const membersQuery = useGroupMembers(selGroup ?? 0);
+  const members = membersQuery.data;
 
   const handleCreate = async () => {
     if (!gName.trim()) return;
@@ -46,8 +50,8 @@ export function AdminGroupsPage() {
       toast.success("Created");
       setCreateOpen(false);
       setGName("");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not create the group."));
     }
   };
 
@@ -57,8 +61,8 @@ export function AdminGroupsPage() {
       await addMut.mutateAsync({ groupId: selGroup, userId: Number(addUserId) });
       toast.success("Added");
       setAddUserId("");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not add the group member."));
     }
   };
 
@@ -67,8 +71,8 @@ export function AdminGroupsPage() {
     try {
       await removeMut.mutateAsync({ groupId: selGroup, userId: uid });
       toast.success("Removed");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not remove the group member."));
     }
   };
 
@@ -110,12 +114,18 @@ export function AdminGroupsPage() {
             <CardTitle>Groups</CardTitle>
           </CardHeader>
           <CardContent>
-            <DataTable
-              columns={columns}
-              data={groups || []}
-              searchKey="name"
-              searchPlaceholder="Search groups..."
-            />
+            {groupsQuery.isError && (
+              <QueryError query={groupsQuery} fallback="Could not load groups." />
+            )}
+            {groups && (
+              <DataTable
+                columns={columns}
+                data={groups || []}
+                searchKey="name"
+                searchPlaceholder="Search groups..."
+              />
+            )}
+            {groupsQuery.isPending && <p role="status">Loading groups…</p>}
           </CardContent>
         </Card>
         <Card>
@@ -142,7 +152,11 @@ export function AdminGroupsPage() {
                     Add
                   </Button>
                 </div>
-                {members && members.length > 0 ? (
+                {membersQuery.isError ? (
+                  <QueryError query={membersQuery} fallback="Could not load group members." />
+                ) : membersQuery.isPending ? (
+                  <p role="status">Loading group members…</p>
+                ) : members && members.length > 0 ? (
                   <div className="space-y-2">
                     {members.map((m: GroupMemberResponse) => (
                       <div

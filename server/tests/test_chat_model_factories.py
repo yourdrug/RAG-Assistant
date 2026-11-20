@@ -18,16 +18,11 @@ from infrastructure.ml.replay import transport as replay_transport
 def constructors(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     chat_openai = Mock()
     monkeypatch.setattr(factories, "ChatOpenAI", chat_openai)
-    http_client = Mock(return_value="sync")
     async_http_client = Mock(return_value="async")
-    monkeypatch.setattr(httpx, "Client", http_client)
     monkeypatch.setattr(httpx, "AsyncClient", async_http_client)
     # Replay wrapping is covered by test_llm_replay; the stubs here are not real clients.
-    monkeypatch.setattr(replay_transport, "wrap_sync_client", lambda client: client)
     monkeypatch.setattr(replay_transport, "wrap_async_client", lambda client: client)
-    return SimpleNamespace(
-        chat_openai=chat_openai, http_client=http_client, async_http_client=async_http_client
-    )
+    return SimpleNamespace(chat_openai=chat_openai, async_http_client=async_http_client)
 
 
 @pytest.fixture
@@ -61,7 +56,8 @@ def test_roles_preserve_options(
     assert options["openai_api_key"].get_secret_value() == "test"
     assert options["max_tokens"] == (200 if auxiliary else 222 if is_broad or benchmark else 111)
     assert options["max_retries"] == 0
-    assert options["http_client"] == "sync"
+    # Sync invocation is refused by ManagedLLM, so no replay-wrapped sync client is built.
+    assert "http_client" not in options
     assert options["http_async_client"] == "async"
     assert options["temperature"] == (0 if auxiliary or benchmark else 0.3)
 
@@ -72,7 +68,6 @@ def test_roles_preserve_options(
 
     assert options.get("stream_usage", False) == (not auxiliary and not benchmark)
     assert options.get("top_p") == (None if auxiliary or benchmark else 0.8)
-    constructors.http_client.assert_called_once_with(follow_redirects=False)
     constructors.async_http_client.assert_called_once_with(follow_redirects=False)
 
 
@@ -80,7 +75,10 @@ def test_roles_preserve_options(
 @pytest.mark.parametrize(
     "base_url,body",
     [
-        ("https://openrouter.ai/api/v1", {"reasoning": {"enabled": False}}),
+        (
+            "https://openrouter.ai/api/v1",
+            {"reasoning": {"enabled": False}, "provider": {"ignore": ["novita"]}},
+        ),
         ("http://vllm:8000/v1", {"chat_template_kwargs": {"enable_thinking": False}}),
     ],
 )
@@ -126,7 +124,6 @@ def test_endpoint_uses_configured_url_and_models(
     assert options["model_name"] == (
         (auxiliary_model or "Qwen/Qwen2.5-3B-Instruct") if auxiliary else "Qwen/Qwen2.5-3B-Instruct"
     )
-    constructors.http_client.assert_called_once_with(follow_redirects=False)
     constructors.async_http_client.assert_called_once_with(follow_redirects=False)
 
 

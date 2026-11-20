@@ -100,7 +100,7 @@ async def test_candidate_cache_keeps_client_across_switch(monkeypatch: pytest.Mo
     registry, old, new = corpus_pair()
     cast("MagicMock", old.client.search).return_value = []
     registry.cached_embeddings = Mock()
-    registry.cached_embeddings.embed_query_sync.return_value = [1.0]
+    registry.cached_embeddings.embed_query = AsyncMock(return_value=[1.0])
 
     def search(*args: Any, **kwargs: Any) -> list[Any]:
         registry.install_corpus(new)

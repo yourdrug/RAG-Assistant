@@ -14,6 +14,7 @@ from domain.benchmark.policy import (
     GateStatus,
     acceptance_checks,
     allowed_drops,
+    question_weights,
     run_judge,
 )
 
@@ -150,7 +151,9 @@ def regression_report(
         report.baseline_comparable = False
     else:
         judge = run_judge(run.config_json, run.per_question_results)
-        drops, warnings = allowed_drops(policy.noise if policy is not None else None, judge)
+        drops, warnings = allowed_drops(
+            policy.noise if policy is not None else None, judge, question_weights(metrics[0])
+        )
         report.warnings.extend(warnings)
         compared = history.compare_runs(
             {"metrics": normalize_metrics(metrics[0])},

@@ -12,6 +12,7 @@ import {
   useUsers,
 } from "@/shared/api/hooks";
 import type { UserResponse } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -32,6 +33,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 const roleBadgeVariant = (role: string) => {
@@ -46,7 +48,8 @@ const roleBadgeVariant = (role: string) => {
 };
 
 export function AdminUsersPage() {
-  const { data: users } = useUsers();
+  const usersQuery = useUsers();
+  const users = usersQuery.data;
   const { data: spaces } = useSpaces();
   const assignSpaceMut = useAssignClientSpace();
   const createMut = useCreateUser();
@@ -63,8 +66,8 @@ export function AdminUsersPage() {
       toast.success("User created");
       setOpen(false);
       setForm({ email: "", password: "", role: "user", kind: "internal" });
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not create the user."));
     }
   };
 
@@ -72,8 +75,8 @@ export function AdminUsersPage() {
     try {
       await toggleMut.mutateAsync({ userId: id, isActive: !active });
       toast.success(active ? "Deactivated" : "Activated");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not change the user’s status."));
     }
   };
 
@@ -83,8 +86,8 @@ export function AdminUsersPage() {
       await changeRoleMut.mutateAsync({ userId: roleDialogUser.id, role: newRole });
       toast.success(`Role changed to ${newRole}`);
       setRoleDialogUser(null);
-    } catch {
-      toast.error("Failed to change role");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not change the user’s role."));
     }
   };
 
@@ -132,8 +135,8 @@ export function AdminUsersPage() {
               spaceIds: checked ? [...assigned, spaceId] : assigned.filter((id) => id !== spaceId),
             });
             toast.success("Support spaces updated");
-          } catch {
-            toast.error("Failed to assign support spaces");
+          } catch (error) {
+            toast.error(getErrorMessage(error, "Could not assign support spaces."));
           }
         };
         return (
@@ -214,12 +217,16 @@ export function AdminUsersPage() {
       </div>
       <Card>
         <CardContent className="pt-6">
-          <DataTable
-            columns={columns}
-            data={users?.users || []}
-            searchKey="email"
-            searchPlaceholder="Search by email..."
-          />
+          {usersQuery.isError && <QueryError query={usersQuery} fallback="Could not load users." />}
+          {users && (
+            <DataTable
+              columns={columns}
+              data={users?.users || []}
+              searchKey="email"
+              searchPlaceholder="Search by email..."
+            />
+          )}
+          {usersQuery.isPending && <p role="status">Loading users…</p>}
         </CardContent>
       </Card>
 

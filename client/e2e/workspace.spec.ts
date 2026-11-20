@@ -50,8 +50,11 @@ test("documents filter, open the reader and delete the test document", async ({
 });
 
 test("document reader explains a missing record", async ({ adminPage: page }) => {
-  await page.goto("/documents/2147483647");
-  await expect(page.getByRole("alert")).toHaveText(/Документ недоступен/);
+  const id = 2147483647;
+  const missing = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/documents/${id}`);
+  await page.goto(`/documents/${id}`);
+  expect((await missing).status()).toBe(404);
+  await expect(page.getByRole("alert")).toHaveText(`Document with id=${id} not found`);
   await expect(page.getByRole("link", { name: "Документы", exact: true })).toBeVisible();
 });
 

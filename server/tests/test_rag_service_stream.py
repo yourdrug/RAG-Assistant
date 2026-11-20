@@ -96,7 +96,6 @@ def make_stream_service(llm_response: str = "Ответ из документо�
     chunk = MagicMock()
     chunk.content = llm_response
     mock_ml.llm_for_breadth.return_value.astream = MagicMock(return_value=_async_iter([chunk]))
-    mock_ml.reranker.return_value.predict_sync = MagicMock(return_value=[0.9, 0.8])
     mock_ml.fast_llm.return_value = MagicMock()
     mock_ml.llm_semaphore = asyncio.Semaphore(1)
     mock_ml.embeddings.return_value.embed_query = AsyncMock(return_value=[0.1] * 384)

@@ -8,6 +8,7 @@ from typer import Typer
 
 from composition.cli.commands.benchmark import benchmark_app
 from composition.cli.commands.config import config_app
+from composition.cli.commands.corpus import corpus_app
 from composition.cli.commands.ingest import ingest_app
 from composition.cli.commands.reconcile import reconcile_app
 from composition.cli.commands.reindex import reindex_app
@@ -48,6 +49,9 @@ class CLI:
 
         # Перенарезка сохранённых документов текущим кодом
         self.cli.add_typer(reindex_app, name="reindex")
+
+        # Пересчёт sparse-векторов BM25 при смене SPARSE_VECTOR_NAME
+        self.cli.add_typer(corpus_app, name="corpus")
 
         # Конфигурация
         self.cli.add_typer(config_app, name="config")

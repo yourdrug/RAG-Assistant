@@ -21,7 +21,11 @@ from domain.chat.message import MessageRole
 from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.clients.client_lease import client_operation
-from infrastructure.ml.clients.llm_schemas import DecompositionCheck, create_structured_response
+from infrastructure.ml.clients.llm_schemas import (
+    DecompositionCheck,
+    auxiliary_request_body,
+    create_structured_response,
+)
 from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.prompts import build_context_message, build_system_prompt
@@ -177,6 +181,7 @@ async def decompose_question(
                 max_tokens=llm_settings.llm_num_predict_narrow,
                 response_model=DecompositionCheck,
                 max_retries=2,
+                extra_body=auxiliary_request_body(llm_settings),
             ),
             timeout=llm_settings.llm_auxiliary_timeout,
         )

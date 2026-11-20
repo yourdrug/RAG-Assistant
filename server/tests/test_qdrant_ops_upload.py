@@ -60,9 +60,6 @@ class StrictQdrantClient:
 
 class FakeEmbeddings:
     async def embed_query(self, text: str) -> list[float]:
-        return self.embed_query_sync(text)
-
-    def embed_query_sync(self, text: str) -> list[float]:
         return [float(len(text)), 0.0, 1.0]
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:

@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Any
 
 from config import LLMSection, request_section
 from infrastructure.ml.clients.client_lease import client_operation
-from infrastructure.ml.clients.llm_schemas import RelevanceCheck, create_structured_response
+from infrastructure.ml.clients.llm_schemas import (
+    RelevanceCheck,
+    auxiliary_request_body,
+    create_structured_response,
+)
 from infrastructure.ml.rag.benchmark_evidence import capture_gate
 from infrastructure.ml.rag.rag_formatting import format_docs
 
@@ -66,6 +70,7 @@ async def check_relevance(
                     max_tokens=llm_settings.llm_num_predict_narrow,
                     response_model=RelevanceCheck,
                     max_retries=2,
+                    extra_body=auxiliary_request_body(llm_settings),
                 ),
                 timeout=llm_settings.llm_auxiliary_timeout,
             )

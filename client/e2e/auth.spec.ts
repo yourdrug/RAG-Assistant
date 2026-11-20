@@ -26,7 +26,7 @@ test("invalid credentials are rejected by the real API", async ({ page }) => {
   const response = await result;
   expect(response.status()).toBe(422);
   expect(await response.json()).toMatchObject({ message: "Invalid email or password" });
-  await expect(page.getByRole("status")).toHaveText("Login failed");
+  await expect(page.getByRole("alert")).toHaveText("Invalid email or password");
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
 });
@@ -62,4 +62,11 @@ test("regular user cannot open admin UI or list accounts", async ({ page, makeUs
     ).status;
   });
   expect(status).toBe(403);
+});
+
+test("signed-in users can recover from an unknown page", async ({ adminPage: page }) => {
+  await page.goto("/not-a-page");
+  await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+  await page.getByRole("link", { name: "Go to workspace" }).click();
+  await expect(page).toHaveURL(/\/chat$/);
 });

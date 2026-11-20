@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Toaster } from "react-hot-toast";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router-dom";
 import { ChatPage } from "@/pages/chat";
 import { DocumentReaderPage } from "@/pages/document-reader";
 import { DocumentsPage } from "@/pages/documents";
@@ -11,6 +11,7 @@ import { QueryProvider } from "@/providers/query-provider";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { ErrorBoundary } from "@/shared/ui/error-boundary";
 import { TooltipProvider } from "@/shared/ui/tooltip";
+import { useAuthStore } from "@/stores/auth-store";
 import { AdminLayout } from "@/widgets/layout/admin-layout";
 import { DashboardLayout } from "@/widgets/layout/dashboard-layout";
 import { PeopleLayout } from "@/widgets/layout/people-layout";
@@ -78,6 +79,21 @@ function AdminFallback() {
     <div className="flex items-center justify-center h-64">
       <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
     </div>
+  );
+}
+
+function NotFound() {
+  const token = useAuthStore((state) => state.token);
+  if (!token) return <Navigate to="/login" replace />;
+
+  return (
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-3 p-6">
+      <h1 className="text-2xl font-bold">Page not found</h1>
+      <p className="text-muted-foreground">Check the address or return to the workspace.</p>
+      <Link className="w-fit text-primary underline" to="/chat">
+        Go to workspace
+      </Link>
+    </main>
   );
 }
 
@@ -265,7 +281,7 @@ export default function App() {
                   />
                 </Route>
 
-                <Route path="*" element={<Navigate to="/chat" replace />} />
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </ErrorBoundary>
           </BrowserRouter>

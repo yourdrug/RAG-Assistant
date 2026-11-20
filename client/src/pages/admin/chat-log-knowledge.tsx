@@ -7,10 +7,12 @@ import { useAddChunk, useCreateManualDocument } from "@/shared/api/hooks/use-chu
 import { useDocuments, useUploadableClients } from "@/shared/api/hooks/use-documents";
 import { useGroups } from "@/shared/api/hooks/use-groups";
 import type { ChatLogEntry, DocumentResponse, DocumentVisibility } from "@/shared/api/types";
+import { getErrorMessage, getErrorStatus } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
 import { ChatLogContext } from "./chat-log-context";
@@ -37,8 +39,10 @@ export function ChatLogKnowledgePage() {
           Turn a reviewed answer into better source material.
         </p>
       </div>
-      {!valid || log.isError ? (
+      {!valid || getErrorStatus(log.error) === 404 ? (
         <p role="alert">Could not load this answer. Check the link and your access rights.</p>
+      ) : log.isError ? (
+        <QueryError query={log} fallback="Could not load this answer." />
       ) : log.isPending ? (
         <p role="status">Loading answer…</p>
       ) : (
@@ -142,9 +146,7 @@ function KnowledgeWorkspace({ entry }: { entry: ChatLogEntry }) {
       });
       setSaved({ id: target.id, title: target.filename, warning: result.warning });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not save the information. Please retry.",
-      );
+      setError(getErrorMessage(err, "Could not save the information. Please retry."));
     } finally {
       saving.current = false;
     }

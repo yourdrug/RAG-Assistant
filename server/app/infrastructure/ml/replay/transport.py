@@ -1,13 +1,12 @@
-"""httpx transports that replay recorded LLM responses inside a benchmark scope.
+"""httpx transport that replays recorded LLM responses inside a benchmark scope.
 
-Outside ``llm_replay_scope`` both transports only delegate. A real response is streamed
+Outside ``llm_replay_scope`` the transport only delegates. A real response is streamed
 to the caller unchanged and recorded once its body has been read completely, so
 streaming and time to first token stay real while recording.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -24,15 +23,13 @@ from infrastructure.ml.replay.session import current_replay
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Coroutine, Iterator
+    from collections.abc import AsyncIterator
 
     from infrastructure.ml.replay.recording import RecordedResponse
     from infrastructure.ml.replay.session import ReplaySession
 
 
 log = logging.getLogger("default")
-
-STORE_TIMEOUT = 30.0
 
 
 class LLMReplayMissError(RuntimeError):
@@ -53,9 +50,7 @@ def replayed(recorded: RecordedResponse, request: httpx.Request) -> httpx.Respon
     )
 
 
-def passthrough(
-    response: httpx.Response, stream: httpx.AsyncByteStream | httpx.SyncByteStream
-) -> httpx.Response:
+def passthrough(response: httpx.Response, stream: httpx.AsyncByteStream) -> httpx.Response:
     """A fresh response over the recording stream; the caller reads the body as it arrives."""
     return httpx.Response(
         response.status_code,
@@ -118,48 +113,6 @@ class RecordingAsyncStream(httpx.AsyncByteStream):
         await self._inner.aclose()
 
 
-class RecordingSyncStream(httpx.SyncByteStream):
-    def __init__(self, inner: httpx.SyncByteStream, response: httpx.Response, recording: Recording) -> None:
-        self._inner = inner
-        self._response = response
-        self._recording = recording
-
-    def __iter__(self) -> Iterator[bytes]:
-        chunks: list[bytes] = []
-
-        for chunk in self._inner:
-            chunks.append(chunk)
-            yield chunk
-
-        recording = self._recording
-        try:
-            run_on_loop(
-                recording.session,
-                recording.session.store.save(
-                    recording.key, recording.model, recording.response(self._response, b"".join(chunks))
-                ),
-            )
-        except Exception as error:  # noqa: BLE001 — a lost recording only costs a future paid call
-            store_failed(recording.session, "response not recorded", error)
-        else:
-            recording.session.recorded()
-
-    def close(self) -> None:
-        self._inner.close()
-
-
-def run_on_loop[T](session: ReplaySession, coroutine: Coroutine[object, object, T]) -> T:
-    """Run a store call from a worker thread on the loop that owns the database pool."""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run_coroutine_threadsafe(coroutine, session.loop).result(timeout=STORE_TIMEOUT)
-
-    coroutine.close()
-    message = "Synchronous LLM client called on the event loop thread"
-    raise RuntimeError(message)
-
-
 class ReplayAsyncTransport(httpx.AsyncBaseTransport):
     def __init__(self, inner: httpx.AsyncBaseTransport) -> None:
         self._inner = inner
@@ -203,48 +156,6 @@ class ReplayAsyncTransport(httpx.AsyncBaseTransport):
         await self._inner.aclose()
 
 
-class ReplaySyncTransport(httpx.BaseTransport):
-    def __init__(self, inner: httpx.BaseTransport) -> None:
-        self._inner = inner
-
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
-        session = current_replay.get()
-
-        if session is None or request.method != "POST":
-            return self._inner.handle_request(request)
-
-        body = request.read()
-        key = request_key(request.method, str(request.url), body, session.epoch)
-
-        if session.mode != LLMReplayMode.REFRESH:
-            try:
-                recorded = run_on_loop(session, session.store.load(key))
-            except Exception as error:  # noqa: BLE001 — treated as a miss below
-                store_failed(session, "lookup failed", error)
-                recorded = None
-
-            if recorded is not None:
-                session.hit(recorded)
-                return replayed(recorded, request)
-
-            session.miss()
-
-            if session.mode == LLMReplayMode.REPLAY_ONLY:
-                raise miss_error(request)
-
-        request.headers["accept-encoding"] = "identity"
-        response = self._inner.handle_request(request)
-
-        if not recordable(response) or not isinstance(response.stream, httpx.SyncByteStream):
-            return response
-
-        recording = Recording(session, key, request_model(body))
-        return passthrough(response, RecordingSyncStream(response.stream, response, recording))
-
-    def close(self) -> None:
-        self._inner.close()
-
-
 def wrap_async_client(client: httpx.AsyncClient) -> httpx.AsyncClient:
     """Wrap every transport the client already chose, proxy mounts from the environment included.
 
@@ -259,19 +170,6 @@ def wrap_async_client(client: httpx.AsyncClient) -> httpx.AsyncClient:
     return client
 
 
-def wrap_sync_client(client: httpx.Client) -> httpx.Client:
-    client._transport = ReplaySyncTransport(client._transport)  # noqa: SLF001
-    client._mounts = {  # noqa: SLF001
-        pattern: None if transport is None else ReplaySyncTransport(transport)
-        for pattern, transport in client._mounts.items()  # noqa: SLF001
-    }
-    return client
-
-
 def llm_async_http_client() -> httpx.AsyncClient:
     """HTTP client of every LLM call; replay applies only inside a benchmark scope."""
     return wrap_async_client(httpx.AsyncClient(follow_redirects=False))
-
-
-def llm_sync_http_client() -> httpx.Client:
-    return wrap_sync_client(httpx.Client(follow_redirects=False))

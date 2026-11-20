@@ -17,6 +17,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { ErrorBoundary } from "@/shared/ui/error-boundary";
+import { QueryError } from "@/shared/ui/query-error";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Separator } from "@/shared/ui/separator";
 import { useAuthStore } from "@/stores/auth-store";
@@ -32,7 +34,8 @@ export function DashboardLayout() {
   const [convPanelOpen, setConvPanelOpen] = useState(false);
   const convPanelRef = useRef<HTMLDivElement>(null);
   const { data: currentUser } = useCurrentUser();
-  const { data: convData } = useConversations();
+  const conversations = useConversations();
+  const { data: convData } = conversations;
 
   useEffect(() => {
     if (!isAuthenticated && !token) navigate("/login");
@@ -277,6 +280,14 @@ export function DashboardLayout() {
           </div>
           <ScrollArea className="flex-1">
             <nav className="space-y-0.5 p-2">
+              {conversations.isPending && (
+                <p role="status" className="p-2 text-sm">
+                  Loading dialogues…
+                </p>
+              )}
+              {conversations.isError && (
+                <QueryError query={conversations} fallback="Could not load dialogues." />
+              )}
               {convData?.conversations?.map((conv) => (
                 <button
                   key={conv.id}
@@ -297,7 +308,7 @@ export function DashboardLayout() {
                   </div>
                 </button>
               ))}
-              {convData?.conversations?.length === 0 && (
+              {!conversations.isError && convData?.conversations?.length === 0 && (
                 <p className="px-3 py-4 text-xs text-center text-sidebar-foreground/70">
                   No dialogues yet
                 </p>
@@ -313,6 +324,8 @@ export function DashboardLayout() {
             variant="ghost"
             size="icon"
             className="lg:hidden"
+            aria-label="Open navigation"
+            aria-expanded={sidebarOpen}
             onClick={() => setSidebarOpen(true)}
           >
             <Menu className="h-5 w-5" />
@@ -360,7 +373,9 @@ export function DashboardLayout() {
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-auto">
-          <Outlet />
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

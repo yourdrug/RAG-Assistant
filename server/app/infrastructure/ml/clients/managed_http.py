@@ -3,12 +3,38 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import logging
 from typing import Any, TypedDict, Unpack
 
 import httpx
 
 from infrastructure.ml.clients.client_lease import active_client_leases
 from infrastructure.utils.async_tasks import finish_owned_task
+
+
+logger = logging.getLogger(__name__)
+
+
+# httpx retries only failed connection attempts (refused, TLS handshake, connect timeout), so a
+# request is never sent twice; one bad upstream address no longer aborts a whole benchmark run.
+CONNECT_RETRIES = 2
+# A 429 means the endpoint rejected the request unprocessed, so repeating it is safe.
+RATE_LIMIT_RETRIES = 2
+MAX_RATE_LIMIT_WAIT_SEC = 10.0
+
+
+def rate_limit_wait(response: httpx.Response, attempt: int) -> float:
+    """Seconds to wait before repeating a 429: the endpoint's Retry-After, else a short backoff."""
+    try:
+        wait = float(response.headers.get("Retry-After", ""))
+    except ValueError:
+        wait = float(attempt)
+
+    return min(max(wait, 0.0), MAX_RATE_LIMIT_WAIT_SEC)
+
+
+def retrying_transport(limits: httpx.Limits) -> httpx.AsyncHTTPTransport:
+    return httpx.AsyncHTTPTransport(limits=limits, retries=CONNECT_RETRIES)
 
 
 class HTTPRequestOptions(TypedDict, total=False):
@@ -18,7 +44,11 @@ class HTTPRequestOptions(TypedDict, total=False):
 
 class ManagedHTTPPool:
     def __init__(self, timeout: float, limits: httpx.Limits) -> None:
-        self._client = httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=False)
+        # An explicit transport also turns off environment proxies; inference endpoints are
+        # reached directly, as the OCR pool does with trust_env=False.
+        self._client = httpx.AsyncClient(
+            timeout=timeout, transport=retrying_transport(limits), follow_redirects=False
+        )
         self._active = 0
         self._retired = False
         self._idle = asyncio.Event()
@@ -45,7 +75,20 @@ class ManagedHTTPPool:
 
     async def post(self, url: str, **kwargs: Unpack[HTTPRequestOptions]) -> httpx.Response:
         async with self.lease():
-            response = await self._client.post(url, **kwargs)
+            for attempt in range(1, RATE_LIMIT_RETRIES + 1):
+                response = await self._client.post(url, **kwargs)
+
+                if response.status_code != httpx.codes.TOO_MANY_REQUESTS:
+                    break
+
+                wait = rate_limit_wait(response, attempt)
+                logger.warning(
+                    "Inference endpoint rate-limited the request; retry %d in %.1fs", attempt, wait
+                )
+                await asyncio.sleep(wait)
+            else:
+                response = await self._client.post(url, **kwargs)
+
             response.raise_for_status()
             return response
 

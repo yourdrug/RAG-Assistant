@@ -2,9 +2,8 @@ import { expect, test } from "./support/fixtures";
 import { logsControls } from "./support/logs";
 
 test("mobile navigation opens documents and returns to chat", async ({ adminPage: page }) => {
-  // The hamburger has no accessible name. Scope the interaction to the app header.
   const sidebar = page.getByRole("complementary");
-  const menu = page.getByRole("banner").getByRole("button", { name: "", exact: true });
+  const menu = page.getByRole("banner").getByRole("button", { name: "Open navigation" });
   await expect(sidebar).not.toBeInViewport();
   await menu.click();
   const documents = sidebar

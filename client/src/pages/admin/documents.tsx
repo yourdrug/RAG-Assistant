@@ -30,6 +30,7 @@ import {
 } from "@/shared/api/hooks";
 import { documentStatuses } from "@/shared/api/hooks/use-documents";
 import type { ChunkResponse, DocumentResponse } from "@/shared/api/types";
+import { getErrorMessage } from "@/shared/lib/errors";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +48,7 @@ import { DataTable } from "@/shared/ui/data-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
@@ -61,11 +63,8 @@ export function AdminDocumentsPage() {
   const status = documentStatuses.find((value) => value === searchParams.get("status"));
   const offset = Number(searchParams.get("offset"));
   const pageOffset = status && Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
-  const {
-    data: documents,
-    isLoading: documentsLoading,
-    isError: documentsError,
-  } = useDocuments(status, pageOffset, filteredDocumentPageSize + 1);
+  const documentsQuery = useDocuments(status, pageOffset, filteredDocumentPageSize + 1);
+  const { data: documents, isLoading: documentsLoading } = documentsQuery;
   const changeOffset = (next: number) => {
     const params = new URLSearchParams(searchParams);
     if (next > 0) params.set("offset", String(next));
@@ -97,8 +96,8 @@ export function AdminDocumentsPage() {
     try {
       await deleteMut.mutateAsync(deleteId);
       toast.success("Deletion queued");
-    } catch {
-      toast.error("Failed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not delete the document."));
     }
     setDeleteId(null);
   };
@@ -108,8 +107,8 @@ export function AdminDocumentsPage() {
     try {
       await renameMut.mutateAsync({ id: renameId, filename: renameValue.trim() });
       toast.success("Renamed");
-    } catch {
-      toast.error("Failed to rename");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not rename the document."));
     }
     setRenameId(null);
     setRenameValue("");
@@ -354,28 +353,30 @@ export function AdminDocumentsPage() {
               </Button>
             </div>
           )}
-          {documentsError && (
-            <p role="status" className="text-sm text-destructive">
-              Documents unavailable
-            </p>
+          {documentsQuery.isError && (
+            <QueryError query={documentsQuery} fallback="Could not load documents." />
           )}
-          <DataTable
-            columns={columns}
-            data={status ? (documents ?? []).slice(0, filteredDocumentPageSize) : (documents ?? [])}
-            isLoading={documentsLoading}
-            searchKey="filename"
-            searchPlaceholder={status ? "Search this page..." : "Search documents..."}
-            serverPagination={
-              status
-                ? {
-                    canPreviousPage: pageOffset > 0,
-                    canNextPage: (documents?.length ?? 0) > filteredDocumentPageSize,
-                    onPreviousPage: () => changeOffset(pageOffset - filteredDocumentPageSize),
-                    onNextPage: () => changeOffset(pageOffset + filteredDocumentPageSize),
-                  }
-                : undefined
-            }
-          />
+          {(documents || !documentsQuery.isError) && (
+            <DataTable
+              columns={columns}
+              data={
+                status ? (documents ?? []).slice(0, filteredDocumentPageSize) : (documents ?? [])
+              }
+              isLoading={documentsLoading}
+              searchKey="filename"
+              searchPlaceholder={status ? "Search this page..." : "Search documents..."}
+              serverPagination={
+                status
+                  ? {
+                      canPreviousPage: pageOffset > 0,
+                      canNextPage: (documents?.length ?? 0) > filteredDocumentPageSize,
+                      onPreviousPage: () => changeOffset(pageOffset - filteredDocumentPageSize),
+                      onNextPage: () => changeOffset(pageOffset + filteredDocumentPageSize),
+                    }
+                  : undefined
+              }
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -464,12 +465,12 @@ function ChunkManager({
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const [offset, setOffset] = useState(0);
 
-  const { data: cursorData, isLoading: cursorLoading } = useChunksCursor(documentId, {
+  const cursorQuery = useChunksCursor(documentId, {
     cursor: cursorHistory.at(-1),
     limit: pageSize,
     enabled: useCursor,
   });
-  const { data: offsetData, isLoading: offsetLoading } = useChunks(
+  const offsetQuery = useChunks(
     documentId,
     pageSize,
     offset,
@@ -477,9 +478,12 @@ function ChunkManager({
     hasHighlight,
   );
 
+  const { data: cursorData } = cursorQuery;
+  const { data: offsetData } = offsetQuery;
+  const chunksQuery = useCursor ? cursorQuery : offsetQuery;
   const chunks = useCursor ? (cursorData?.chunks ?? []) : (offsetData?.chunks ?? []);
   const total = offsetData?.total ?? 0;
-  const isLoading = useCursor ? cursorLoading : offsetLoading;
+  const { isLoading } = chunksQuery;
 
   const handleNextPage = () => {
     if (hasHighlight) {
@@ -519,8 +523,8 @@ function ChunkManager({
     try {
       await deleteMut.mutateAsync({ documentId, chunkId: deleteChunkId });
       toast.success("Chunk deleted");
-    } catch {
-      toast.error("Failed to delete chunk");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not delete the chunk."));
     }
     setDeleteChunkId(null);
   };
@@ -630,37 +634,48 @@ function ChunkManager({
         </Button>
       </CardHeader>
       <CardContent className="px-3 sm:px-6 [&_table]:table-fixed [&_th]:bg-muted/40 [&_th]:px-3 [&_td]:px-3 [&_td]:py-3 [&_th[data-column=chunk\_index]]:w-16 [&_th[data-column=id]]:w-20 [&_th[data-column=actions]]:w-26 [&_[data-column=id]]:hidden sm:[&_[data-column=id]]:table-cell">
-        <DataTable
-          columns={columns}
-          data={chunks}
-          isLoading={isLoading}
-          searchKey="content"
-          searchPlaceholder="Search chunks..."
-          topPagination={
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Chunks per page</span>
-              <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
-                <SelectTrigger aria-label="Chunks per page" className="h-8 w-20">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {chunkPageSizes.map((size) => (
-                    <SelectItem key={size} value={String(size)}>
-                      {size}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          }
-          serverPagination={{
-            canPreviousPage: useCursor ? cursorHistory.length > 0 : offset > 0,
-            canNextPage: useCursor ? !!cursorData?.next_cursor : offset + pageSize < total,
-            onPreviousPage: handlePrevPage,
-            onNextPage: handleNextPage,
-          }}
-          onRowClick={setViewingChunk}
-        />
+        {chunksQuery.isError && (
+          <QueryError query={chunksQuery} fallback="Could not load document chunks." />
+        )}
+        {chunksQuery.isError && !chunksQuery.data ? (
+          (cursorHistory.length > 0 || offset > 0) && (
+            <Button variant="outline" onClick={handlePrevPage}>
+              Previous page
+            </Button>
+          )
+        ) : (
+          <DataTable
+            columns={columns}
+            data={chunks}
+            isLoading={isLoading}
+            searchKey="content"
+            searchPlaceholder="Search chunks..."
+            topPagination={
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Chunks per page</span>
+                <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
+                  <SelectTrigger aria-label="Chunks per page" className="h-8 w-20">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {chunkPageSizes.map((size) => (
+                      <SelectItem key={size} value={String(size)}>
+                        {size}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            }
+            serverPagination={{
+              canPreviousPage: useCursor ? cursorHistory.length > 0 : offset > 0,
+              canNextPage: useCursor ? !!cursorData?.next_cursor : offset + pageSize < total,
+              onPreviousPage: handlePrevPage,
+              onNextPage: handleNextPage,
+            }}
+            onRowClick={setViewingChunk}
+          />
+        )}
       </CardContent>
 
       <ChunkDetailsSheet
@@ -738,7 +753,7 @@ function EditChunkDialog({
       }
       onClose();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to update chunk";
+      const msg = getErrorMessage(e, "Failed to update chunk");
       toast.error(msg);
     }
   };
@@ -816,7 +831,7 @@ function AddChunkDialog({
       }
       onClose();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to add chunk";
+      const msg = getErrorMessage(e, "Failed to add chunk");
       toast.error(msg);
     }
   };
@@ -962,7 +977,7 @@ function ManualDocumentDialog({ open, onClose }: { open: boolean; onClose: () =>
           });
           added++;
         } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : "Failed to add chunk";
+          const msg = getErrorMessage(e, "Failed to add chunk");
           toast.error(`Chunk #${added + 1}: ${msg}`);
         }
       }
@@ -971,7 +986,7 @@ function ManualDocumentDialog({ open, onClose }: { open: boolean; onClose: () =>
       );
       onClose();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to create document";
+      const msg = getErrorMessage(e, "Failed to create document");
       toast.error(msg);
     }
   };

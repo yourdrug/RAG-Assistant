@@ -3,8 +3,6 @@
 Embeddings use the OpenAI-compatible ``POST {base}/embeddings`` (TEI ``/v1``, DeepInfra
 ``/v1/openai``, vLLM, OpenAI, Ollama, ...). Reranking has no common standard, so the
 client speaks one of ``RerankApiFormat``; every format returns scores in ``[0, 1]``.
-
-Each client exposes async methods and sync variants (``_sync`` suffix) for benchmarks.
 """
 
 from __future__ import annotations
@@ -105,10 +103,6 @@ class EmbeddingsClient(ManagedHTTPPool):
 
         with self.traced(len(texts)):
             return self.vectors(await self.post(**self.request(texts)), len(texts))
-
-    def embed_query_sync(self, text: str) -> list[float]:
-        with self.traced(1), httpx.Client(timeout=INFERENCE_TIMEOUT, follow_redirects=False) as client:
-            return self.vectors(client.post(**self.request(text)), 1)[0]
 
 
 def indexed_scores(items: object, count: int, score_key: str, *, logits: bool) -> list[float]:
@@ -211,13 +205,3 @@ class RerankerClient(ManagedHTTPPool):
 
         with self.traced(len(pairs)):
             return self.scores(await self.post(**self.request(pairs)), len(pairs))
-
-    def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
-        if not pairs:
-            return []
-
-        with (
-            self.traced(len(pairs)),
-            httpx.Client(timeout=INFERENCE_TIMEOUT, follow_redirects=False) as client,
-        ):
-            return self.scores(client.post(**self.request(pairs)), len(pairs))

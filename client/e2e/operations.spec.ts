@@ -173,3 +173,55 @@ test("settings tabs display their configuration panels", async ({ adminPage: pag
     await expect(page.getByRole("tabpanel", { name: new RegExp(`^${name}`) })).toBeVisible();
   }
 });
+
+test("settings keep the reasoning toggle below the main controls and adapt to the card width", async ({
+  adminPage: page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto("/admin/settings");
+  const model = page.getByRole("group", { name: "Answer model", exact: true });
+  const creativity = page.getByRole("group", { name: "Creativity (temperature)", exact: true });
+  const key = page.getByText("llm_disable_reasoning", { exact: true });
+  const toggle = page.getByRole("button", {
+    name: "Enable Answer without reasoning (thinking off)",
+  });
+  await expect(toggle).toBeVisible();
+  const keyBox = (await key.boundingBox())!;
+  expect(keyBox.y).toBeGreaterThan((await model.boundingBox())!.y);
+  expect(keyBox.y).toBeGreaterThan((await creativity.boundingBox())!.y);
+  expect(keyBox.width).toBeGreaterThan(120);
+  expect((await toggle.boundingBox())!.y).toBeGreaterThan(keyBox.y + keyBox.height);
+
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await expect
+    .poll(async () => (await toggle.boundingBox())!.x - (await key.boundingBox())!.x)
+    .toBeGreaterThan(keyBox.width);
+});
+
+test("models explains an outage and reloads the real configuration on retry", async ({
+  adminPage: page,
+}) => {
+  await page.route(
+    "**/api/admin/models/info",
+    (route) =>
+      route.fulfill({
+        status: 503,
+        headers: { "Retry-After": "12" },
+        json: { message: "Temporary service outage" },
+      }),
+    { times: 1 },
+  );
+  await page.goto("/admin/models");
+  const alert = page.getByRole("alert");
+  await expect(alert).toHaveText(
+    "The service is temporarily unavailable. Try again in 12 seconds.",
+  );
+  await expect(page.getByText("OCR Enabled", { exact: true })).toHaveCount(0);
+  const recovered = page.waitForResponse((response) =>
+    response.url().endsWith("/api/admin/models/info"),
+  );
+  await page.getByRole("button", { name: "Try again" }).click();
+  expect((await recovered).ok()).toBeTruthy();
+  await expect(alert).toHaveCount(0);
+  await expect(page.getByText("OCR Enabled", { exact: true })).toBeVisible();
+});

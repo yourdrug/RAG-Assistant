@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { useActVersions, useUpdateActVersion } from "@/shared/api/hooks";
 import type { ActSummary, ActVersionReviewItem } from "@/shared/api/types";
 import { formatDate } from "@/shared/lib/date-time";
+import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -20,6 +21,7 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 const sourceBadgeVariant = (source: string) => {
@@ -39,7 +41,8 @@ const formatConfidence = (v: number | null) => (v != null ? `${Math.round(v * 10
 
 export function AdminActVersionsPage() {
   const [offset, setOffset] = useState(0);
-  const { data } = useActVersions(offset);
+  const versions = useActVersions(offset);
+  const { data } = versions;
   const updateMut = useUpdateActVersion();
   const [editing, setEditing] = useState<ActVersionReviewItem | null>(null);
   const [form, setForm] = useState({ effective_from: "", effective_to: "", act_id: "" });
@@ -70,8 +73,8 @@ export function AdminActVersionsPage() {
       });
       toast.success("Version updated");
       setEditing(null);
-    } catch {
-      toast.error("Failed to update version");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not update the version."));
     }
   };
 
@@ -143,32 +146,48 @@ export function AdminActVersionsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Act Versions</h1>
-          <p className="text-muted-foreground">
+          <div className="text-muted-foreground">
             All versions
             {data != null && (
               <Badge variant="warning" className="ml-2">
                 {data.total}
               </Badge>
             )}
-          </p>
+          </div>
         </div>
       </div>
       <Card>
         <CardContent className="pt-6">
-          <DataTable
-            columns={columns}
-            data={data?.versions || []}
-            serverPagination={{
-              canPreviousPage: offset > 0,
-              canNextPage: data?.next_offset != null,
-              onPreviousPage: () => setOffset((value) => Math.max(0, value - 100)),
-              onNextPage: () => {
-                if (data?.next_offset != null) setOffset(data.next_offset);
-              },
-            }}
-            searchKey="date_source"
-            searchPlaceholder="Search by source..."
-          />
+          {versions.isError && (
+            <QueryError query={versions} fallback="Could not load act versions." />
+          )}
+          {versions.isPending && <p role="status">Loading act versions…</p>}
+          {data ? (
+            <DataTable
+              columns={columns}
+              data={data?.versions || []}
+              serverPagination={{
+                canPreviousPage: offset > 0,
+                canNextPage: data?.next_offset != null,
+                onPreviousPage: () => setOffset((value) => Math.max(0, value - 100)),
+                onNextPage: () => {
+                  if (data?.next_offset != null) setOffset(data.next_offset);
+                },
+              }}
+              searchKey="date_source"
+              searchPlaceholder="Search by source..."
+            />
+          ) : (
+            offset > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOffset((value) => Math.max(0, value - 100))}
+              >
+                Previous page
+              </Button>
+            )
+          )}
         </CardContent>
       </Card>
 
