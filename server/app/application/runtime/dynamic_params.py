@@ -240,25 +240,8 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     ),
     # ── OCR ─────────────────────────────────────────────────────
     DynamicParam("ocr_enabled", bool, DynamicParamCategory.OCR, "Enable OCR processing"),
-    DynamicParam(
-        "ocr_engine",
-        str,
-        DynamicParamCategory.OCR,
-        "OCR engine",
-        allowed=["paddleocr", "surya", "paddleocr_vl"],
-    ),
     DynamicParam("ocr_dpi", int, DynamicParamCategory.OCR, "OCR DPI for scanned pages", 72, 600),
     DynamicParam("ocr_min_chars", int, DynamicParamCategory.OCR, "Min chars to consider page text", 0, 500),
-    DynamicParam(
-        "ocr_min_confidence",
-        float,
-        DynamicParamCategory.OCR,
-        "Min OCR recognition confidence to keep text",
-        0.0,
-        1.0,
-    ),
-    DynamicParam("ocr_lang_surya", list, DynamicParamCategory.OCR, "Surya OCR languages"),
-    DynamicParam("ocr_lang_paddle", str, DynamicParamCategory.OCR, "PaddleOCR language"),
     DynamicParam("rate_limit_enabled", bool, DynamicParamCategory.RATE_LIMIT, "Enable request rate limits"),
     DynamicParam(
         "rate_limit_fail_open",

@@ -104,12 +104,27 @@ def test_ml_endpoint_change_rejected_before_commit(
         configuration.validate_change(key, value)
 
 
+def test_retired_ocr_settings_are_ignored(configuration: SettingsProviderConfiguration) -> None:
+    obsolete = [
+        row("ocr_engine", "paddleocr"),
+        row("ocr_lang_paddle", "en"),
+        row("ocr_lang_surya", "legacy", ConfigValueType.LIST),
+        row("ocr_min_confidence", "0.7", ConfigValueType.FLOAT),
+    ]
+    configuration.apply([*obsolete, row("ocr_dpi", "150", ConfigValueType.INT)])
+
+    assert configuration.settings.ocr_dpi == 150
+    assert all(
+        item.key not in {param.key for param in obsolete}
+        for item in configuration.effective_parameters(obsolete)
+    )
+
+
 @pytest.mark.parametrize(
     "rows",
     [
         [row("retriever_top_k_broad", "garbage", ConfigValueType.INT)],
         [row("retriever_top_k_broad", "0", ConfigValueType.INT)],
-        [row("ocr_lang_surya", "{}", ConfigValueType.LIST)],
         [row("retriever_top_k_broad", "7", ConfigValueType.STR)],
     ],
 )

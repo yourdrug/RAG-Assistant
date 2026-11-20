@@ -44,9 +44,6 @@ class ConfigAdminSettingsPort(Protocol):
     def rerank_api_key_configured(self) -> bool: ...
 
     @property
-    def ocr_engine(self) -> str: ...
-
-    @property
     def ocr_enabled(self) -> bool: ...
 
     @property

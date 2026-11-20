@@ -151,7 +151,6 @@ async def models_info(
         rerank_model=info.rerank_model,
         rerank_api_format=info.rerank_api_format,
         rerank_api_key_configured=info.rerank_api_key_configured,
-        ocr_engine=info.ocr_engine,
         ocr_enabled=info.ocr_enabled,
     )
 

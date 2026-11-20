@@ -56,7 +56,6 @@ async def test_models_info_reports_configured_endpoints() -> None:
         rerank_model="rerank-model",
         rerank_api_format="tei",
         rerank_api_key_configured=True,
-        ocr_engine="surya",
         ocr_enabled=True,
     )
     info = await ConfigAdminService(AsyncMock(), settings).get_models_info()
@@ -70,7 +69,6 @@ async def test_models_info_reports_configured_endpoints() -> None:
     assert info.rerank_api_format == "tei"
     assert info.rerank_api_key_configured
     assert info.ocr_enabled
-    assert info.ocr_engine == "surya"
 
 
 @pytest.mark.asyncio

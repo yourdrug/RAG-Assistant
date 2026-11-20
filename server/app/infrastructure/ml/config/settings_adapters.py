@@ -229,10 +229,6 @@ class LiveConfigAdminSettings:
         return bool(process_section(MLProviderSection).rerank_api_key.get_secret_value())
 
     @property
-    def ocr_engine(self) -> str:
-        return process_section(OCRSection).ocr_engine
-
-    @property
     def ocr_enabled(self) -> bool:
         return process_section(OCRSection).ocr_enabled
 

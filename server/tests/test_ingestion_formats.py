@@ -11,16 +11,15 @@ from langchain.schema import Document
 import pytest
 
 from config import settings
-from domain.ingestion.preview import DryRunPageResult, PDFQualityReport
+from domain.ingestion.preview import PDFQualityReport
 from domain.knowledge.enums import PageContentType
 from infrastructure.ingestion.document_parser_adapter import IngestionDocumentParser
 from infrastructure.ml.extraction.extraction_adapter import MLPDFQualityAssessor
-from infrastructure.ml.ingestion import docx, ocr, rtf
+from infrastructure.ml.ingestion import docx, rtf
 from infrastructure.ml.ingestion.format_tree import tree_from_sections
 from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS, FormatContext
 from infrastructure.ml.ingestion.sections import ParsedFormat, Section
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser
-from infrastructure.ml.preview import docx_preview_strategy
 from infrastructure.ml.preview.factory import PreviewStrategyFactory
 
 
@@ -95,42 +94,6 @@ def test_pdf_quality_uses_domain_report(tmp_path: Path) -> None:
     assert report.n_missing == 1
     assert report.n_ok == 1
     assert report.is_low_quality
-
-
-@pytest.mark.parametrize("paddle_text", ["", "Paddle recognized text"])
-def test_pdf_auto_falls_back_to_surya_only_for_empty_paddle_result(
-    paddle_text: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(settings, "ocr_engine", "auto")
-    paddle = Mock(return_value=paddle_text)
-    surya = Mock(return_value="Surya recognized text")
-    monkeypatch.setattr(ocr, "ocr_image_paddle", paddle)
-    monkeypatch.setattr(ocr, "ocr_image_surya", surya)
-    with fitz.Document() as pdf:
-        pdf.new_page(width=20, height=20)
-        results = ocr.ocr_pdf_pages(pdf, [1], "guide.pdf")
-    assert results == {1: paddle_text or "Surya recognized text"}
-    assert paddle.call_count == 1
-    assert surya.call_count == (0 if paddle_text else 1)
-
-
-def test_docx_auto_keeps_paddle_only_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Image decoding is exercised by VL tests; here the contract is engine selection.
-    image = Mock()
-    monkeypatch.setattr(docx_preview_strategy, "_extract_images_without_alt", Mock(return_value=[b"image"]))
-    monkeypatch.setattr("PIL.Image.open", Mock(return_value=image))
-    monkeypatch.setattr(settings, "ocr_engine", "auto")
-    paddle = Mock(return_value="")
-    surya = Mock()
-    monkeypatch.setattr(docx_preview_strategy, "ocr_image_paddle", paddle)
-    monkeypatch.setattr(docx_preview_strategy, "ocr_image_surya", surya)
-    unit = DryRunPageResult(page=1, type=PageContentType.IMAGE_ONLY)
-    units, _, _ = docx_preview_strategy.DocxPreviewStrategy().ocr_problem_units(
-        tmp_path / "guide.docx", [unit], [1]
-    )
-    paddle.assert_called_once_with(image)
-    surya.assert_not_called()
-    assert units == [unit]
 
 
 def test_rtf_structural_failure_preserves_flat_fallback(

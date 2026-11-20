@@ -31,7 +31,7 @@ class PdfPreviewStrategy:
     def analyze(self, path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         ocr_settings = process_section(OCRSection)
 
-        if ocr_settings.ocr_enabled and ocr_settings.ocr_engine == "paddleocr_vl":
+        if ocr_settings.ocr_enabled:
             return self.analyze_vl(path)
 
         page_results, types_count, total_chars = self._svc.analyze_text_layer(path)

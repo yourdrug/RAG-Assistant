@@ -17,7 +17,6 @@ class ModelsInfo:
     rerank_model: str
     rerank_api_format: str
     rerank_api_key_configured: bool
-    ocr_engine: str
     ocr_enabled: bool
 
 

@@ -82,25 +82,6 @@ dependencies = [
     "optuna>=4.0.0",
 ]
 
-[project.optional-dependencies]
-# Local CPU OCR: installed only in CPU images; GPU deployments use the ocr-vl service.
-paddle = [
-    "paddlepaddle==2.6.2",
-    "paddleocr==2.9.1",
-]
-
-surya = [
-    "surya-ocr==0.9.0",
-]
-
-cpu = [
-    "torch>=2.0.0",
-]
-
-gpu = [
-    "torch>=2.0.0",
-]
-
 [dependency-groups]
 testing = [
     "pytest==8.3.3",
@@ -129,32 +110,10 @@ managed = true
 package = false
 python-preference = "system"
 
-conflicts = [
-    [{ extra = "cpu" }, { extra = "gpu" }],
-]
-
 concurrent-downloads = 10
 
 environments = ["sys_platform == 'linux'"]
 required-environments = ["sys_platform == 'linux'"]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-default = false
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-gpu"
-url = "https://download.pytorch.org/whl/cu126"
-default = false
-explicit = true
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-gpu", extra = "gpu" },
-]
 
 [tool.uv.extra-build-dependencies]
 grpcio-tools = ["setuptools<81"]
@@ -851,14 +810,11 @@ directory = ".coverage_report"
 known_first_party = ["application", "composition", "config", "domain", "infrastructure", "presentation", "shared"]
 extend_exclude = ["app/infrastructure/database/migrations", "tests", "tools", "scripts"]
 
-[tool.deptry.package_module_name_map]
-"surya-ocr" = "surya"
-
 [tool.deptry.per_rule_ignores]
-# CLI entry points, database/OCR backends, and FastAPI/Pydantic plugins.
+# CLI entry points, database backends, and FastAPI/Pydantic plugins.
 DEP002 = [
     "uvicorn", "asyncpg", "alembic", "psycopg", "email-validator",
-    "paddlepaddle", "python-multipart", "torch",
+    "python-multipart",
 ]   # используются неявно (запуск/драйвер)
 
 # ----------------------------------------------------------------------------

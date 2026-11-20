@@ -342,14 +342,6 @@ services:
     environment:
       <<: *pooled-database
       STAGE: ${APP_STAGE:-${STAGE:-development}}
-    volumes:
-      - type: bind
-        source: ./data/paddleocr_cache
-        target: /home/raguser/.paddleocr
-        bind:
-          propagation: rprivate
-          create_host_path: true
-          selinux: Z
     healthcheck:
       # Keep the UI available for administration when RAG dependencies are degraded.
       # /ready continues to report whether the full RAG pipeline is ready.
@@ -404,14 +396,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    volumes:
-      - type: bind
-        source: ./data/paddleocr_cache
-        target: /home/raguser/.paddleocr
-        bind:
-          propagation: rprivate
-          create_host_path: true
-          selinux: Z
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -431,7 +415,6 @@ services:
       resources:
         limits:
           cpus: "4"
-          # 4G covers in-process PaddleOCR; with ocr-vl the worker only renders pages and calls HTTP.
           memory: ${WORKER_MEMORY_LIMIT:-4G}
         reservations:
           cpus: "1"
@@ -465,14 +448,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    volumes:
-      - type: bind
-        source: ./data/paddleocr_cache
-        target: /home/raguser/.paddleocr
-        bind:
-          propagation: rprivate
-          create_host_path: true
-          selinux: Z
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -492,7 +467,6 @@ services:
       resources:
         limits:
           cpus: "4"
-          # 4G covers in-process PaddleOCR; with ocr-vl the worker only renders pages and calls HTTP.
           memory: ${WORKER_MEMORY_LIMIT:-4G}
         reservations:
           cpus: "1"
@@ -528,14 +502,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    volumes:
-      - type: bind
-        source: ./data/paddleocr_cache
-        target: /home/raguser/.paddleocr
-        bind:
-          propagation: rprivate
-          create_host_path: true
-          selinux: Z
     depends_on:
       pgbouncer:
         condition: service_healthy

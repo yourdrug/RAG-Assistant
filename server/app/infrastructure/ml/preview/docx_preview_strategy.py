@@ -9,12 +9,10 @@ from typing import TYPE_CHECKING, Any
 import mammoth
 from PIL import Image
 
-from config import OCRSection, process_section
 from domain.ingestion.preview import DryRunPageResult, PreviewUnitKind
 from domain.ingestion.text_quality import classify_content
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.docx import parse_docx_sections
-from infrastructure.ml.ingestion.ocr import ocr_image_paddle, ocr_image_surya
 from infrastructure.ml.ingestion.ocr_vl import OCRServiceError, recognize_page
 from infrastructure.ml.ingestion.sections import Section
 
@@ -195,8 +193,6 @@ def classify_preview_section(
 def recognize_preview_images(
     problem_units: list[DryRunPageResult], image_only_blobs: list[bytes]
 ) -> dict[int, str]:
-    ocr_settings = process_section(OCRSection)
-
     ocr_results: dict[int, str] = {}
 
     for u in problem_units:
@@ -205,14 +201,8 @@ def recognize_preview_images(
         if blob_idx < len(image_only_blobs):
             blob = image_only_blobs[blob_idx]
             try:
-                img = Image.open(io.BytesIO(blob))
-
-                if ocr_settings.ocr_engine in ("paddleocr", "auto"):
-                    text = ocr_image_paddle(img)
-                elif ocr_settings.ocr_engine == "paddleocr_vl":
-                    text = "\n\n".join(block.text for block in recognize_page(img).blocks)
-                else:
-                    text = ocr_image_surya(img)
+                with Image.open(io.BytesIO(blob)) as image:
+                    text = "\n\n".join(block.text for block in recognize_page(image).blocks)
 
                 ocr_results[u.page] = text
             except OCRServiceError:

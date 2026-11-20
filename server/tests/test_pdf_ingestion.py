@@ -16,7 +16,6 @@ from infrastructure.ml.ingestion.pdf import (
     _extract_doc_metadata,
     _find_boilerplate_patterns,
     _order_blocks_columnwise,
-    _select_best_text,
     _should_ocr,
     parse_pdf,
     pymupdf_table_to_markdown,
@@ -178,28 +177,6 @@ class TestShouldOcr:
 
         assert _should_ocr("", 100, ocr_enabled=False) is False
         assert _should_ocr("hi", 100, ocr_enabled=False) is False
-
-
-# ---------------------------------------------------------------------------
-# Tests — _select_best_text
-# ---------------------------------------------------------------------------
-
-
-class TestSelectBestText:
-    def test_no_existing(self) -> None:
-
-        assert _select_best_text(None, "ocr text") == "ocr text"
-
-    def test_ocr_much_longer(self) -> None:
-
-        result = _select_best_text("short", "a" * 100)
-        assert result == "a" * 100
-
-    def test_existing_comparable(self) -> None:
-
-        result = _select_best_text("existing text here", "ocr")
-        # existing is not 1.5x shorter than ocr, so returns cleaned existing
-        assert "existing" in result or result == "ocr"
 
 
 # ---------------------------------------------------------------------------

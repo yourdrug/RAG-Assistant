@@ -1,4 +1,4 @@
-"""Local document OCR client; no cloud fallback or document-controlled URLs."""
+"""HTTP client for the deployment's PaddleOCR-VL service."""
 
 from __future__ import annotations
 
@@ -50,10 +50,10 @@ ocr_client_pool = OCRClientPool()
 
 
 class OCRServiceError(AppServerError):
-    """The selected OCR engine could not produce a usable page."""
+    """PaddleOCR-VL could not produce a usable page."""
 
     def __init__(self) -> None:
-        super().__init__("Локальный OCR недоступен или вернул некорректный результат")
+        super().__init__("Сервис OCR недоступен или вернул некорректный результат")
 
 
 class OCRBlock(BaseModel):

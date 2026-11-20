@@ -212,13 +212,6 @@ def selected_evidence_profile(request: pytest.FixtureRequest) -> Iterator[None]:
         yield
 
 
-# Mock surya before any test module imports domain.ingestion
-_surya_mock = MagicMock()
-sys.modules.setdefault("surya", _surya_mock)
-sys.modules.setdefault("surya.detection", _surya_mock)
-sys.modules.setdefault("surya.recognition", _surya_mock)
-
-
 # ---------------------------------------------------------------------------
 # Common fakes for application-layer unit tests
 # ---------------------------------------------------------------------------

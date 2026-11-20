@@ -61,8 +61,6 @@ from infrastructure.ml.config.provider_configuration import SettingsProviderConf
 from infrastructure.ml.config.settings_adapters import LivePreviewSettings
 from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
 from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
-from infrastructure.ml.ingestion import get_paddle_ocr, get_surya_predictors
-from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
 from infrastructure.ml.ingestion.ocr_vl import ocr_client_pool
 from infrastructure.ml.langchain_document_parser import (
     LangchainDocumentParser,
@@ -198,15 +196,8 @@ class MLContainer:
         self.metrics_collector = PrometheusMetricsCollector()
 
     def dispose(self) -> None:
-        """Clear ML-specific caches and release resources."""
+        """Release connections to the OCR service."""
         ocr_client_pool.close()
-        # Clear OCR/lru_cache caches — import may fail if optional deps
-        # (paddleocr, surya) are not installed.
-        try:
-            get_paddle_ocr.cache_clear()
-            get_surya_predictors.cache_clear()
-        except Exception:
-            log.warning("Failed to clear OCR caches", exc_info=True)
 
     @property
     def clients(self) -> MLClientRegistry:
@@ -467,7 +458,6 @@ class InfrastructureContainer:
         for handler in (
             self.request_configuration_sync,
             self.invalidate_config_clients,
-            invalidate_paddle_ocr_cache,
             audit_log_config_change,
         ):
             event_bus.subscribe(ConfigParameterChanged, handler)

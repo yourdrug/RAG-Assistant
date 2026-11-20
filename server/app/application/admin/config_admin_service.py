@@ -39,7 +39,6 @@ class ConfigAdminService:
             rerank_model=self._settings.rerank_model,
             rerank_api_format=self._settings.rerank_api_format,
             rerank_api_key_configured=self._settings.rerank_api_key_configured,
-            ocr_engine=self._settings.ocr_engine,
             ocr_enabled=self._settings.ocr_enabled,
         )
 

@@ -575,34 +575,10 @@
     "metadata": "[]",
     "required": false
   },
-  "ocr_engine": {
-    "annotation": "<class 'str'>",
-    "default": "'paddleocr_vl'",
-    "metadata": "[]",
-    "required": false
-  },
-  "ocr_lang_paddle": {
-    "annotation": "<class 'str'>",
-    "default": "'ru'",
-    "metadata": "[]",
-    "required": false
-  },
-  "ocr_lang_surya": {
-    "annotation": "list[str]",
-    "default": "['ru', 'en']",
-    "metadata": "[]",
-    "required": false
-  },
   "ocr_min_chars": {
     "annotation": "<class 'int'>",
     "default": "40",
     "metadata": "[]",
-    "required": false
-  },
-  "ocr_min_confidence": {
-    "annotation": "<class 'float'>",
-    "default": "0.5",
-    "metadata": "[Ge(ge=0), Le(le=1)]",
     "required": false
   },
   "ocr_vl_timeout": {

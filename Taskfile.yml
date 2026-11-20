@@ -68,7 +68,7 @@ tasks:
     desc: Создать все data-директории, необходимые для Docker-сервисов
     cmds:
       - python3 deploy/metrics-token.py
-      - mkdir -p data/qdrant_storage data/postgres data/minio data/paddleocr_cache data/db/postgres data/redis
+      - mkdir -p data/qdrant_storage data/postgres data/minio data/db/postgres data/redis
       - test -f data/redis/redis.conf || echo '# See data/redis/redis.conf in repo' > data/redis/redis.conf
       - 'echo "Data-директории созданы"'
 
@@ -312,18 +312,6 @@ tasks:
     dir: server
     cmds:
       - uv sync --frozen --group development --group testing
-
-  install:paddle:
-    desc: Доустановить локальный CPU OCR (PaddleOCR) для ocr_engine=paddleocr без сервиса ocr-vl
-    dir: server
-    cmds:
-      - uv sync --frozen --group development --group testing --extra paddle
-
-  install:surya:
-    desc: Доустановить опциональный OCR-движок Surya (см. README → «Лицензии»)
-    dir: server
-    cmds:
-      - uv sync --frozen --extra surya
 
   lock:
     desc: Пересобрать uv.lock после правки pyproject.toml

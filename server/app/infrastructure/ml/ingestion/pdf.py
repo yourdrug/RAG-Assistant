@@ -14,7 +14,7 @@ from langchain.schema import Document
 
 from config import OCRSection, process_section
 from domain.knowledge.enums import PageContentType
-from infrastructure.ml.ingestion.ocr import ocr_pdf_pages, ocr_vl_pdf_pages
+from infrastructure.ml.ingestion.ocr import ocr_vl_pdf_pages
 from infrastructure.ml.ingestion.pdf_headings import apply_pdf_headings, pdf_heading_tree
 from infrastructure.ml.ingestion.table_formatting import markdown_cell, render_table
 from infrastructure.ml.ingestion.utils import clean_pdf_text
@@ -58,7 +58,6 @@ class PageResult:
 
     text_doc: Document | None = None
     ocr_needed: bool = False
-    text_for_comparison: str = ""
     meta: dict[str, Any] = field(default_factory=dict)
     table_docs: list[Document] = field(default_factory=list)
     ordered_docs: list[Document] = field(default_factory=list)
@@ -298,17 +297,6 @@ def _should_ocr(text: str, min_chars: int, *, ocr_enabled: bool) -> bool:
     return bool(text and len(text.strip()) < min_chars and ocr_enabled)
 
 
-def _select_best_text(existing_text: str | None, ocr_text: str) -> str:
-    """Choose between OCR text and existing short text layer, preferring longer."""
-    if existing_text:
-        if len(ocr_text) > len(existing_text) * 1.5:
-            return ocr_text
-
-        return clean_pdf_text(existing_text) or ocr_text
-
-    return ocr_text
-
-
 def _process_page_text(text: str, *, tables_found: bool, page_num: int, file_path: Path) -> Document | None:
     if text and not tables_found:
         _detect_tabular_heuristic(text, page_num)
@@ -322,24 +310,6 @@ def _process_page_text(text: str, *, tables_found: bool, page_num: int, file_pat
         return None
 
     return Document(page_content=cleaned, metadata={"page": page_num, "source": str(file_path)})
-
-
-def _process_ocr_result(
-    page_num: int,
-    ocr_text: str,
-    text_to_compare: dict[int, str],
-    file_path: Path,
-) -> Document | None:
-    if not ocr_text:
-        return None
-
-    ocr_text = clean_pdf_text(ocr_text)
-
-    if not ocr_text:
-        return None
-
-    final_text = _select_best_text(text_to_compare.get(page_num), ocr_text)
-    return Document(page_content=final_text, metadata={"page": page_num, "source": str(file_path)})
 
 
 def _find_boilerplate_patterns(
@@ -464,7 +434,7 @@ def _process_page(
         "text_quality": round(_compute_text_quality(page), 3),
     }
 
-    if ocr_enabled and process_section(OCRSection).ocr_engine == "paddleocr_vl" and page_needs_vl(page):
+    if ocr_enabled and page_needs_vl(page):
         return PageResult(ocr_needed=True, meta=page_meta)
 
     table_docs = _extract_page_tables(page, file_path, page_num)
@@ -479,7 +449,6 @@ def _process_page(
     if _should_ocr(text, min_chars, ocr_enabled=ocr_enabled):
         return PageResult(
             ocr_needed=True,
-            text_for_comparison=text,
             meta=page_meta,
             table_docs=table_docs,
         )
@@ -498,31 +467,6 @@ def _process_page(
         text_doc.metadata.update(page_meta)
 
     return PageResult(text_doc=text_doc, meta=page_meta, table_docs=table_docs)
-
-
-def _process_ocr_batch(
-    doc: fitz.Document,
-    ocr_pages_needed: list[int],
-    text_to_compare: dict[int, str],
-    file_path: Path,
-) -> list[Document]:
-    """Run OCR on flagged pages and return the resulting Documents."""
-    if process_section(OCRSection).ocr_engine == "paddleocr_vl":
-        return ocr_vl_pdf_pages(doc, ocr_pages_needed, str(file_path))
-
-    pages: list[Document] = []
-    ocr_results = ocr_pdf_pages(doc, ocr_pages_needed, file_path.name)
-
-    for page_num, ocr_text in ocr_results.items():
-        ocr_doc = _process_ocr_result(page_num, ocr_text, text_to_compare, file_path)
-
-        if ocr_doc:
-            ocr_doc.metadata["has_images"] = True
-            ocr_doc.metadata["image_count"] = len(doc.load_page(page_num - 1).get_images(full=True))
-            ocr_doc.metadata["text_quality"] = 0.0
-            pages.append(ocr_doc)
-
-    return pages
 
 
 def _apply_document_metadata(
@@ -569,8 +513,6 @@ def extract_pdf_pages(doc: fitz.Document, file_path: Path) -> list[Document]:
 
     pages: list[Document] = []
     ocr_pages_needed: list[int] = []
-    text_to_compare: dict[int, str] = {}
-    ocr_page_set: set[int] = set()
 
     for page_num in range(1, n_pages + 1):
         result = _process_page(
@@ -586,17 +528,13 @@ def extract_pdf_pages(doc: fitz.Document, file_path: Path) -> list[Document]:
 
         if result.ocr_needed:
             ocr_pages_needed.append(page_num)
-            ocr_page_set.add(page_num)
-
-            if result.text_for_comparison:
-                text_to_compare[page_num] = result.text_for_comparison
         elif result.text_doc:
             pages.append(result.text_doc)
 
     if ocr_pages_needed:
-        pages.extend(_process_ocr_batch(doc, ocr_pages_needed, text_to_compare, file_path))
+        pages.extend(ocr_vl_pdf_pages(doc, ocr_pages_needed, str(file_path)))
 
-    is_scanned = len(ocr_page_set) >= n_pages * 0.8 if n_pages > 0 else False
+    is_scanned = n_pages > 0 and len(ocr_pages_needed) >= n_pages * 0.8
     pages.sort(key=lambda page: page.metadata["page"])
     _apply_document_metadata(pages, doc_metadata, is_scanned=is_scanned)
     return pages

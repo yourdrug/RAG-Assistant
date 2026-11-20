@@ -19,7 +19,6 @@ interface ModelsInfo {
   rerank_model: string;
   rerank_api_format: string;
   rerank_api_key_configured: boolean;
-  ocr_engine: string;
   ocr_enabled: boolean;
 }
 
@@ -89,8 +88,8 @@ export function AdminModelsPage() {
       description: `${data?.rerank_api_format ?? "—"} · ${data?.rerank_base_url ?? ""}`,
     },
     {
-      title: "OCR Engine",
-      value: data?.ocr_engine,
+      title: "OCR Service",
+      value: "PaddleOCR-VL",
       icon: ScanText,
       description: data?.ocr_enabled ? "Enabled" : "Disabled",
     },

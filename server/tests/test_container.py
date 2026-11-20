@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
@@ -36,7 +35,6 @@ from domain.identity.user_context import UserContext
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.space import SpaceRef
 from domain.rag.context import RagContext
-from domain.shared.exceptions import ValidationError
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.database.database import DatabaseManager
 from infrastructure.domain_profile.packs import NEUTRAL_PACK, NEUTRAL_PACK_KEY
@@ -44,8 +42,6 @@ from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 from infrastructure.ml.config.config_subscribers import audit_log_config_change
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
-from infrastructure.ml.ingestion import ocr
-from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
 
 
 if TYPE_CHECKING:
@@ -327,11 +323,10 @@ class TestSubscribeConfigEvents:
             assert mock_bus.subscribe.call_args_list == [
                 call(ConfigParameterChanged, c.infrastructure.request_configuration_sync),
                 call(ConfigParameterChanged, c.infrastructure.invalidate_config_clients),
-                call(ConfigParameterChanged, invalidate_paddle_ocr_cache),
                 call(ConfigParameterChanged, audit_log_config_change),
             ]
             c.subscribe_config_events()
-            assert mock_bus.subscribe.call_count == 4
+            assert mock_bus.subscribe.call_count == 3
             c.unsubscribe_config_events()
             assert mock_bus.unsubscribe.call_args_list == mock_bus.subscribe.call_args_list
 
@@ -369,54 +364,6 @@ class TestSubscribeConfigEvents:
                 h(bm25_event)
 
             mock_ml.invalidate_bm25.assert_not_called()
-
-
-@pytest.mark.parametrize("change", ["language", "unrelated", "invalid"])
-def test_ocr_cache_reacts_to_validated_configuration(monkeypatch: pytest.MonkeyPatch, change: str) -> None:  # noqa: PLR0915 - One scenario verifies the complete transaction/lifecycle.
-    monkeypatch.setattr(settings, "ocr_lang_paddle", "ru")
-    monkeypatch.setattr(settings, "ocr_dpi", settings.ocr_dpi)
-    monkeypatch.setattr(settings, "embedding_base_url", "http://tei-embed:8080")
-    monkeypatch.setattr(settings, "rerank_base_url", "http://tei-rerank:8080")
-    paddle = MagicMock(side_effect=SimpleNamespace)
-    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(PaddleOCR=paddle))
-    bus = InProcessEventBus()
-    monkeypatch.setattr("composition.infrastructure.event_bus", bus)
-    configuration = SettingsProviderConfiguration(settings, bus=bus)
-    infra = InfrastructureContainer(configuration=configuration)
-    infra.ml.ml_clients = MagicMock()
-    infra.subscribe_config_events()
-    ocr.get_paddle_ocr.cache_clear()
-    try:
-        original = ocr.get_paddle_ocr()
-        assert cast("SimpleNamespace", original).lang == "ru"
-        assert ocr.get_paddle_ocr() is original
-
-        if change == "language":
-            configuration.apply([ConfigParameter("ocr_lang_paddle", "en", ConfigValueType.STR, "ocr")])
-            # Invalidating the cache must not load a model inside the event handler.
-            assert paddle.call_count == 1
-            updated = ocr.get_paddle_ocr()
-            assert updated is not original
-            assert cast("SimpleNamespace", updated).lang == "en"
-            assert paddle.call_count == 2
-            configuration.apply([ConfigParameter("ocr_lang_paddle", "en", ConfigValueType.STR, "ocr")])
-            assert ocr.get_paddle_ocr() is updated
-        elif change == "unrelated":
-            configuration.apply([ConfigParameter("ocr_dpi", "200", ConfigValueType.INT, "ocr")])
-            assert ocr.get_paddle_ocr() is original
-        else:
-            with pytest.raises(ValidationError):
-                configuration.apply(
-                    [
-                        ConfigParameter("ocr_lang_paddle", "en", ConfigValueType.STR, "ocr"),
-                        ConfigParameter("chunk_size", "invalid", ConfigValueType.INT, "ingestion"),
-                    ]
-                )
-            assert settings.ocr_lang_paddle == "ru"
-            assert ocr.get_paddle_ocr() is original
-    finally:
-        infra.unsubscribe_config_events()
-        ocr.get_paddle_ocr.cache_clear()
 
 
 def neutral_catalog(**packs: LoadedPack) -> LoadedPackCatalog:

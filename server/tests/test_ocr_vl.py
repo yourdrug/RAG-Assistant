@@ -16,7 +16,7 @@ from PIL import Image
 import pytest
 
 from composition.infrastructure import MLContainer
-from config import JobsSection, OCRSection, process_section, settings
+from config import JobsSection, process_section, settings
 from domain.ingestion.preview import DryRunPageResult
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion import ocr
@@ -53,7 +53,6 @@ def ocr_client_lifecycle() -> Iterator[None]:
 
 @pytest.fixture
 def vl_engine(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "ocr_engine", "paddleocr_vl")
     monkeypatch.setattr(settings, "ocr_enabled", True)
     monkeypatch.setattr(settings, "ocr_dpi", 72)
 
@@ -72,11 +71,9 @@ def scan_pdf(path: Path) -> Path:
     return path
 
 
-def test_default_engine_uses_service_for_scans(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(settings, "ocr_engine", OCRSection().ocr_engine)
+def test_scans_use_ocr_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(settings, "ocr_dpi", 72)
     monkeypatch.setattr(settings, "ocr_enabled", True)
-    monkeypatch.setattr(ocr, "get_paddle_ocr", Mock(side_effect=RuntimeError("In-process OCR loaded")))
     page = OCRPage.model_validate({"blocks": [{"kind": "table", "text": TABLE}]})
     monkeypatch.setattr(ocr, "recognize_page", Mock(return_value=page))
 
@@ -160,7 +157,7 @@ def test_client_errors_are_explicit_and_pool_closes_on_shutdown(
         )
         client.post.return_value = response
 
-    with pytest.raises(OCRServiceError, match="Локальный OCR"):
+    with pytest.raises(OCRServiceError, match="Сервис OCR"):
         recognize_page(Image.new("RGB", (10, 10)))
     MLContainer().dispose()
     client.close.assert_called_once()
@@ -318,9 +315,7 @@ def test_malformed_markdown_tables_require_retry(content: str) -> None:
 
 
 @pytest.mark.parametrize("failed", [False, True])
-def test_docx_uses_selected_local_engine(
-    vl_engine: None, monkeypatch: pytest.MonkeyPatch, failed: bool
-) -> None:
+def test_docx_uses_ocr_service(vl_engine: None, monkeypatch: pytest.MonkeyPatch, failed: bool) -> None:
     data = io.BytesIO()
     Image.new("RGB", (10, 10)).save(data, "PNG")
     monkeypatch.setattr(docx, "_extract_images_without_alt", Mock(return_value=[data.getvalue()]))

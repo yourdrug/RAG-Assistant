@@ -111,7 +111,7 @@ jobs:
           IMAGE: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
         run: |
           docker run --rm --env-file .github/ci/smoke.env "$IMAGE" python \
-            -c 'from infrastructure.ml.ingestion import ocr; from paddleocr import PaddleOCR; import torch; print("OCR/ML imports OK")'
+            -c 'from infrastructure.ml.ingestion.ocr import ocr_pdf_pages; print("OCR client imports OK")'
           docker run --rm --network host --env-file .github/ci/smoke.env "$IMAGE" python main.py --help
           docker run --rm --network host --env-file .github/ci/smoke.env \
             --entrypoint python "$IMAGE" app/scripts/migrate.py
