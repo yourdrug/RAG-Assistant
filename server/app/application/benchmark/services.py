@@ -424,15 +424,20 @@ class BenchmarkRunService:
         applied_keys: list[str] = []
         failed_keys: list[dict[str, Any]] = []
 
-        for config_key, param_key in RUN_CONFIG_KEY_MAP.items():
-            if config_key in config:
-                try:
-                    await config_service.update_parameter(
-                        param_key, str(config[config_key]), changed_by=changed_by
-                    )
-                    applied_keys.append(param_key)
-                except Exception as e:
-                    log.warning("Failed to apply %s=%s: %s", param_key, config[config_key], e, exc_info=True)
-                    failed_keys.append({"key": param_key, "error": str(e)})
+        values = {
+            param_key: str(config[config_key])
+            for config_key, param_key in RUN_CONFIG_KEY_MAP.items()
+            if config_key in config
+        }
+
+        if values:
+            # One validated change: the benchmark checked these limits together (e.g. top_k <= fetch_k),
+            # so applying only part of them would put an unverified combination into the chat.
+            try:
+                await config_service.update_parameters(values, changed_by=changed_by)
+                applied_keys.extend(values)
+            except Exception as e:
+                log.warning("Failed to apply run %d config %s: %s", run_id, sorted(values), e, exc_info=True)
+                failed_keys.extend({"key": key, "error": str(e)} for key in values)
 
         return ApplyConfigResult(applied=len(applied_keys), keys=applied_keys, failed=failed_keys)

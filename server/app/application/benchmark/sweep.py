@@ -149,6 +149,9 @@ class SweepEngine:
                 "top_k": runtime_snapshot["retriever_top_k_broad"],
                 "fetch_k": runtime_snapshot["retriever_fetch_k_broad"],
                 **{name: runtime_snapshot[name] for name in CHEAP_PARAMS - {"top_k", "fetch_k"}},
+                # Not swept, but it shapes the BM25 sample: both phases use the saved value, so an
+                # admin change between stop and resume cannot mix two configurations in one sweep.
+                "bm25_fetch_k": runtime_snapshot["bm25_fetch_k"],
             }
             phase_a_identity = fingerprint(
                 {
@@ -168,9 +171,10 @@ class SweepEngine:
             )
 
             if results is None:
-                results = await self.evaluate_phase_a(
-                    sweep, questions, strategy, progress_callback, should_cancel
-                )
+                with self._runtime.override(run.baseline_config):
+                    results = await self.evaluate_phase_a(
+                        sweep, questions, strategy, progress_callback, should_cancel
+                    )
 
                 if run.checkpoints:
                     await run.checkpoints.save(phase_a_key, results)
@@ -361,6 +365,7 @@ class SweepEngine:
                     "fetch_k": self._runtime.fetch_k,
                     "judge": judge_model,
                     **{name: current_settings[name] for name in CHEAP_PARAMS - {"top_k", "fetch_k"}},
+                    "bm25_fetch_k": current_settings["bm25_fetch_k"],
                     "evaluation_version": SWEEP_EVALUATION_VERSION,
                 }
             )

@@ -39,7 +39,7 @@ class LivePreviewSettings:
 class LiveRagSettings:
     """RAG settings adapter — reads from global settings at access time (hot-reload).
 
-    Retrieval and ranking parameters that benchmarks and sweeps vary are read through
+    Retrieval and ranking parameters that benchmarks and sweeps vary or freeze are read through
     ``get_setting``, which prefers context-scoped overrides over the request snapshot;
     otherwise an experiment would record a value the pipeline never used.
     """
@@ -62,7 +62,7 @@ class LiveRagSettings:
 
     @property
     def bm25_fetch_k(self) -> int:
-        return request_section(HybridSearchSection).bm25_fetch_k
+        return cast("int", get_setting("bm25_fetch_k"))
 
     @property
     def rrf_k(self) -> int:

@@ -111,8 +111,9 @@ async def test_applying_a_run_config_sets_the_limits_chat_actually_reads() -> No
     # to the narrow ones would change nothing in the answers.
     service = BenchmarkRunService(FakeUnitOfWorkFactory())
     service.get = AsyncMock(return_value=SimpleNamespace(config_json={"top_k": 2, "fetch_k": 20}))  # type: ignore[method-assign]
-    config_service = SimpleNamespace(update_parameter=AsyncMock())
+    config_service = SimpleNamespace(update_parameters=AsyncMock())
     result = await service.apply_config(1, 7, cast("Any", config_service))
-    applied = {call.args[0]: call.args[1] for call in config_service.update_parameter.await_args_list}
+    config_service.update_parameters.assert_awaited_once()
+    applied = config_service.update_parameters.await_args.args[0]
     assert applied == {"retriever_top_k_broad": "2", "retriever_fetch_k_broad": "20"}
     assert result.failed == []

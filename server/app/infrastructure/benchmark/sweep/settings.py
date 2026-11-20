@@ -34,6 +34,8 @@ class LiveSweepSettings:
         mapping = {
             "top_k": "retriever_top_k_broad",
             "fetch_k": "retriever_fetch_k_broad",
+            # Frozen from runtime.json on resume; not a swept parameter.
+            "bm25_fetch_k": "bm25_fetch_k",
             "dense_weight": "dense_weight",
             "sparse_weight": "sparse_weight",
             "rrf_k": "rrf_k",

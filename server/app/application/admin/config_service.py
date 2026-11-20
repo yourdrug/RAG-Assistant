@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from application.admin.ports import ProviderConfigurationPort
     from application.ports.event_bus import EventBus
     from application.runtime.config import ConfigParameter
-    from application.uow import UnitOfWorkFactory
+    from application.uow import UnitOfWork, UnitOfWorkFactory
 
 
 class ConfigService:
@@ -100,44 +100,86 @@ class ConfigService:
         changed_by: int | None = None,
         domain_key: str | None = None,
     ) -> ConfigParameter:
-        validate_update_key(key, domain_key)
-        validated_version = await self.prepare_update(key, raw_value, domain_key)
+        (param,) = await self.update_parameters(
+            {key: raw_value}, changed_by=changed_by, domain_key=domain_key
+        )
+        return param
+
+    async def update_parameters(
+        self,
+        values: dict[str, str],
+        changed_by: int | None = None,
+        domain_key: str | None = None,
+    ) -> list[ConfigParameter]:
+        """Validate and store several parameters as one change: all of them or none.
+
+        Linked limits (e.g. top_k <= fetch_k) are checked against each other's new values, so a
+        valid pair is never rejected half-way because of the order in which it is written.
+        """
+        if not values:
+            message = "No configuration parameters to update"
+            raise ValidationError(message)
+
+        for key in values:
+            validate_update_key(key, domain_key)
+
+        validated_version = await self.prepare_updates(values, domain_key)
+        events = []
+        params = []
         async with self._uow_factory.create(master=True) as uow:
             await uow.config_parameters.lock_configuration()
+            await self.ensure_unchanged(uow, validated_version)
+            # Every value is normalized before the first write; the transaction stores all or none.
+            normalized = await self.normalized_values(uow, values, domain_key)
 
-            if self._provider_configuration is not None:
-                latest = await uow.config_parameters.get_all()
+            for key, (param, value) in normalized.items():
+                old_value = param.value
+                await uow.config_parameters.update_value(key, value, domain_key=domain_key)
+                param.value = value
+                event = ConfigParameterChanged(
+                    key=key,
+                    old_value=old_value,
+                    new_value=value,
+                    value_type=param.value_type,
+                    changed_by=changed_by,
+                    domain_key=domain_key or param.domain_key,
+                )
+                await uow.publish_event(event)
+                events.append(event)
+                params.append(param)
 
-                if self._provider_configuration.status_for(latest).saved_version != validated_version:
-                    message = "Configuration changed during preparation; reload and retry"
-                    raise ValidationError(message)
+        for event in events:
+            self._bus.publish(event)
 
+        return params
+
+    async def ensure_unchanged(self, uow: UnitOfWork, validated_version: str | None) -> None:
+        if self._provider_configuration is None:
+            return
+
+        latest = await uow.config_parameters.get_all()
+
+        if self._provider_configuration.status_for(latest).saved_version != validated_version:
+            message = "Configuration changed during preparation; reload and retry"
+            raise ValidationError(message)
+
+    async def normalized_values(
+        self, uow: UnitOfWork, values: dict[str, str], domain_key: str | None
+    ) -> dict[str, tuple[ConfigParameter, str]]:
+        normalized: dict[str, tuple[ConfigParameter, str]] = {}
+
+        for key, raw_value in values.items():
             param = await uow.config_parameters.get_by_key_and_domain(key, domain_key)
 
             if param is None:
                 entity_name = "ConfigParameter"
                 raise EntityNotFoundError(entity_name, f"{key}[domain={domain_key or 'global'}]")
 
-            normalized = self.normalize_parameter(param, raw_value, key, domain_key)
-            old_value = param.value
+            normalized[key] = (param, self.normalize_parameter(param, raw_value, key, domain_key))
 
-            await uow.config_parameters.update_value(key, normalized, domain_key=domain_key)
-            param.value = normalized
+        return normalized
 
-            event = ConfigParameterChanged(
-                key=key,
-                old_value=old_value,
-                new_value=normalized,
-                value_type=param.value_type,
-                changed_by=changed_by,
-                domain_key=domain_key or param.domain_key,
-            )
-            await uow.publish_event(event)
-
-        self._bus.publish(event)
-        return param
-
-    async def prepare_update(self, key: str, raw_value: str, domain_key: str | None) -> str | None:
+    async def prepare_updates(self, values: dict[str, str], domain_key: str | None) -> str | None:
         validated_version = None
 
         if self._provider_configuration is not None:
@@ -145,12 +187,17 @@ class ConfigService:
             async with self._uow_factory.create(master=True) as uow:
                 rows = await uow.config_parameters.get_all()
 
-            if not any((row.key, row.domain_key) == (key, domain_key) for row in rows):
-                entity_name = "ConfigParameter"
-                raise EntityNotFoundError(entity_name, f"{key}[domain={domain_key or 'global'}]")
+            present = {(row.key, row.domain_key) for row in rows}
+
+            for key in values:
+                if (key, domain_key) not in present:
+                    entity_name = "ConfigParameter"
+                    raise EntityNotFoundError(entity_name, f"{key}[domain={domain_key or 'global'}]")
 
             validated_version = self._provider_configuration.status_for(rows).saved_version
-            await self._provider_configuration.validate_snapshot_change(rows, key, raw_value, domain_key)
+            await self._provider_configuration.validate_snapshot_changes(
+                rows, {(key, domain_key): value for key, value in values.items()}
+            )
 
         return validated_version
 

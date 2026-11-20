@@ -12,7 +12,7 @@ import pytest
 
 from application.benchmark import sweep as sweep_engine_module
 from composition.service_providers import build_sweep_engine
-from config import settings
+from config import get_setting, settings
 from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.benchmark.sweep.settings import settings_fingerprint, settings_snapshot
@@ -197,3 +197,77 @@ async def test_resume_after_an_evaluation_change_recomputes_phase_a(
     monkeypatch.setattr(resumed, "run_phase_b", AsyncMock(return_value=[]))
     await resumed.run_sweep(sweep, "judge")
     cache_candidates.assert_awaited_once()
+
+
+def resumable_engine(
+    monkeypatch: pytest.MonkeyPatch,
+    checkpoints: Callable[[int], DatabaseBenchmarkCheckpoints],
+    question: dict[str, Any],
+    seen: list[tuple[str, object, object]],
+    *,
+    fail_full: bool,
+) -> Any:
+    """A sweep engine that records the BM25 limit each phase runs with."""
+    engine = build_sweep_engine(FakeUnitOfWorkFactory(), checkpoint_factory=checkpoints)
+    monkeypatch.setattr(engine, "load_questions", AsyncMock(return_value=[question]))
+
+    async def cache_candidates(*_args: object) -> tuple[dict[str, Any], ...]:
+        seen.append(("phase_a", get_setting("bm25_fetch_k"), None))
+        message = "worker stopped during retrieval"
+        raise RuntimeError(message)
+
+    async def full_run(**kwargs: Any) -> dict[str, Any]:
+        seen.append(("full", get_setting("bm25_fetch_k"), kwargs.get("checkpoint_prefix")))
+
+        if fail_full:
+            message = "judge truncated"
+            raise RuntimeError(message)
+
+        return {"hit_rate": 1}
+
+    monkeypatch.setattr(engine, "cache_candidates", cache_candidates)
+    engine._benchmark_service = SimpleNamespace(run=full_run)
+    return engine
+
+
+@pytest.mark.asyncio
+async def test_resume_keeps_the_saved_bm25_limit_in_both_phases(
+    monkeypatch: pytest.MonkeyPatch, checkpoints: Callable[[int], DatabaseBenchmarkCheckpoints]
+) -> None:
+    # An admin changes bm25_fetch_k between stop and resume: the resumed sweep must keep the
+    # saved value, otherwise restored and new questions would come from two configurations.
+    sweep = BenchmarkSweep(
+        id=125,
+        strategy=BenchmarkStrategy.RANDOM,
+        search_space={"top_k": {"values": [3]}, "_n_random": 1},
+        objective_weights={"hit_rate": 1},
+        top_n_llm=1,
+    )
+    question = {"question": "q", "source_hint": "law.pdf"}
+    seen: list[tuple[str, object, object]] = []
+    monkeypatch.setattr(settings, "bm25_fetch_k", 25)
+
+    with pytest.raises(RuntimeError, match="worker stopped"):
+        await resumable_engine(monkeypatch, checkpoints, question, seen, fail_full=True).run_sweep(
+            sweep, "judge"
+        )
+    monkeypatch.setattr(settings, "bm25_fetch_k", 5)
+    with pytest.raises(RuntimeError, match="worker stopped"):
+        await resumable_engine(monkeypatch, checkpoints, question, seen, fail_full=True).run_sweep(
+            sweep, "judge"
+        )
+    assert [limit for phase, limit, _ in seen if phase == "phase_a"] == [25, 25]
+
+    # Phase A completes after the change; the full stage still runs with the saved limit.
+    restored = resumable_engine(monkeypatch, checkpoints, question, seen, fail_full=True)
+    monkeypatch.setattr(restored, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
+    monkeypatch.setattr(restored._data, "cache_reranker_scores", AsyncMock(return_value={}))
+    monkeypatch.setattr(restored, "score_config_cheap", Mock(return_value={"composite_score": 1}))
+    with pytest.raises(RuntimeError, match="judge truncated"):
+        await restored.run_sweep(sweep, "judge")
+    await resumable_engine(monkeypatch, checkpoints, question, seen, fail_full=False).run_sweep(
+        sweep, "judge"
+    )
+    full = [(limit, prefix) for phase, limit, prefix in seen if phase == "full"]
+    assert [limit for limit, _ in full] == [25, 25]
+    assert len({prefix for _, prefix in full}) == 1
