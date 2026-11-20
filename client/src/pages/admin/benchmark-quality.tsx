@@ -39,8 +39,24 @@ type QuestionRow = NonNullable<BenchmarkResultDetail["per_question_results"]>[nu
   case_id?: string | null;
   history?: { role: string; content: string }[] | null;
   as_of_date?: string | null;
-  evidence?: { context?: string | null } | null;
+  evidence?: {
+    context?: string | null;
+    attempts?: { checks?: GateCheck[] | null }[] | null;
+  } | null;
 };
+
+type GateCheck = {
+  stage?: string;
+  context?: string | null;
+  result?: { is_relevant?: boolean; reason?: string } | null;
+};
+
+/** Last relevance-gate check: when the gate refused, it holds the only recorded context. */
+function lastGateCheck(row: QuestionRow): GateCheck | null {
+  const checks = (row.evidence?.attempts ?? []).flatMap((attempt) => attempt.checks ?? []);
+  const relevance = checks.filter((check) => check.stage === "relevance" && check.context);
+  return relevance.at(-1) ?? null;
+}
 
 const DIAGNOSIS_INFO: Record<
   string,
@@ -294,6 +310,45 @@ function AgreementSummary({ runId }: { runId: number }) {
   );
 }
 
+function ContextBlock({ row }: { row: QuestionRow }) {
+  if (row.evidence?.context) {
+    return (
+      <div className="mt-1 border-t pt-1">
+        Context given to the model:
+        <pre className="whitespace-pre-wrap font-sans max-h-64 overflow-auto mt-1">
+          {row.evidence.context}
+        </pre>
+      </div>
+    );
+  }
+
+  const gate = lastGateCheck(row);
+
+  if (!gate) {
+    return (
+      <div className="mt-1 border-t pt-1">
+        Context given to the model: <span>not recorded for this run</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 border-t pt-1">
+      <p>
+        {gate.result?.is_relevant === false
+          ? `No prompt was built: the relevance gate rejected the question.${
+              gate.result.reason ? ` Reason: ${gate.result.reason}` : ""
+            }`
+          : "No prompt context was recorded for this answer."}
+      </p>
+      <p className="mt-1">Context seen by the relevance gate:</p>
+      <pre className="whitespace-pre-wrap font-sans max-h-64 overflow-auto mt-1">
+        {gate.context}
+      </pre>
+    </div>
+  );
+}
+
 export function RunQuestionResults({ runId, rows }: { runId: number; rows: QuestionRow[] }) {
   const [diagnosisFilter, setDiagnosisFilter] = useState("all");
   const [labelling, setLabelling] = useState(false);
@@ -399,16 +454,7 @@ export function RunQuestionResults({ runId, rows }: { runId: number; rows: Quest
                             Reference: {row.expected_answer}
                           </p>
                         )}
-                        <div className="mt-1 border-t pt-1">
-                          Context given to the model:
-                          {row.evidence?.context ? (
-                            <pre className="whitespace-pre-wrap font-sans max-h-64 overflow-auto mt-1">
-                              {row.evidence.context}
-                            </pre>
-                          ) : (
-                            <span> not recorded for this run</span>
-                          )}
-                        </div>
+                        <ContextBlock row={row} />
                         {row.history === undefined && (
                           <p className="mt-1 italic">
                             History and as-of date were not recorded for this run.
