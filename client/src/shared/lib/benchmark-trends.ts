@@ -1,4 +1,4 @@
-import type { BenchmarkResultDetail, BenchmarkRun } from "../api/types.ts";
+import type { BenchmarkRun } from "../api/types.ts";
 
 export interface TrendMetric {
   key: string;
@@ -123,26 +123,6 @@ export function formatMetricDelta(
 export function preferredTrendRun(runs: BenchmarkRun[]): BenchmarkRun | undefined {
   // Callers supply newest first. Prefer actual answer evaluation to a later cheap trial.
   return runs.find((run) => run.llm_evaluated) ?? runs[0];
-}
-
-export function metricsWithQuestionCoverage(
-  run: BenchmarkRun,
-  detail?: BenchmarkResultDetail,
-): Record<string, unknown> {
-  const metrics: Record<string, unknown> = { ...run.summary_metrics };
-  if (detail?.id !== run.id) return metrics;
-  for (const key of ["answer_fact_coverage", "answer_condition_coverage"]) {
-    if (metricValue(metrics, key) !== null) continue;
-    const values = (detail.per_question_results ?? []).flatMap((question) => {
-      const value = metricValue(question.evidence_metrics ?? {}, key);
-      return value === null ? [] : [value];
-    });
-    if (values.length) {
-      metrics[key] = values.reduce((sum, value) => sum + value, 0) / values.length;
-      metrics[`${key}_evaluated_count`] = values.length;
-    }
-  }
-  return metrics;
 }
 
 /** Zoom to measured values with padding; retain the metric's physical bounds. */

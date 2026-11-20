@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, case, column, func, or_, select, update
+from sqlalchemy import JSON, and_, case, column, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import with_expression
 
@@ -22,10 +22,42 @@ class SQLAlchemyBenchmarkRunRepository:
         self._db = db
 
     async def get_by_id(self, run_id: int) -> BenchmarkRun | None:
-        stmt = select(BenchmarkRunModel).where(BenchmarkRunModel.id == run_id)
+        stmt = (
+            select(BenchmarkRunModel)
+            .where(BenchmarkRunModel.id == run_id)
+            .execution_options(populate_existing=True)
+        )
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         return self.to_entity(orm) if orm else None
+
+    async def exists(self, run_id: int) -> bool:
+        stmt = select(BenchmarkRunModel.id).where(BenchmarkRunModel.id == run_id)
+        return await self._db.scalar(stmt) is not None
+
+    async def get_review_run(self, run_id: int) -> BenchmarkRun | None:
+        runs = await self.get_review_runs([run_id])
+        return runs[0] if runs else None
+
+    async def get_review_runs(self, ids: list[int]) -> list[BenchmarkRun]:
+        if not ids:
+            return []
+
+        stmt = (
+            select(BenchmarkRunModel)
+            .where(BenchmarkRunModel.id.in_(ids))
+            .options(with_expression(BenchmarkRunModel.per_question_results, BenchmarkRunModel.review_rows))
+            .order_by(BenchmarkRunModel.creation_date.desc(), BenchmarkRunModel.id.desc())
+            .execution_options(populate_existing=True)
+        )
+        return [self.to_entity(row) for row in (await self._db.scalars(stmt)).all()]
+
+    async def get_result_question(self, run_id: int, position: int) -> dict[str, Any] | None:
+        stmt = select(BenchmarkRunModel.per_question_results[position]).where(
+            BenchmarkRunModel.id == run_id,
+            func.json_typeof(BenchmarkRunModel.per_question_results) == "array",
+        )
+        return await self._db.scalar(stmt)
 
     async def create(self, run: BenchmarkRun) -> BenchmarkRun:
         orm = BenchmarkRunModel(
@@ -219,18 +251,10 @@ class SQLAlchemyBenchmarkRunRepository:
         offset: int = 0,
     ) -> list[BenchmarkRun]:
         sort_col = getattr(BenchmarkRunModel, sort_by, BenchmarkRunModel.creation_date)
-        # Lists need only evidence scores for legacy summary recovery, never the
-        # multi-megabyte answers, contexts and retrieval traces of each question.
+        # Recovery for historic runs reads only compact scores. A recorded zero count
+        # already explains a null average in current summaries.
         questions = (
-            func.json_array_elements(
-                case(
-                    (
-                        func.json_typeof(BenchmarkRunModel.per_question_results) == "array",
-                        BenchmarkRunModel.per_question_results,
-                    ),
-                    else_=None,
-                )
-            )
+            func.json_array_elements(BenchmarkRunModel.review_rows)
             .table_valued(column("value", JSON))
             .alias("questions")
         )
@@ -239,7 +263,7 @@ class SQLAlchemyBenchmarkRunRepository:
                 func.json_agg(
                     func.json_build_object(
                         "evidence_metrics",
-                        func.coalesce(questions.c.value["evidence_metrics"], func.json_build_object()),
+                        questions.c.value["evidence_metrics"],
                     )
                 )
             )
@@ -249,7 +273,13 @@ class SQLAlchemyBenchmarkRunRepository:
         )
         needs_recovery = or_(
             *(
-                BenchmarkRunModel.summary_metrics[f"avg_{metric}"].as_string().is_(None)
+                and_(
+                    BenchmarkRunModel.summary_metrics[f"avg_{metric}"].as_string().is_(None),
+                    func.coalesce(
+                        BenchmarkRunModel.summary_metrics[f"{metric}_evaluated_count"].as_integer(), -1
+                    )
+                    != 0,
+                )
                 for metric in EVIDENCE_METRICS
             )
         )
@@ -259,9 +289,9 @@ class SQLAlchemyBenchmarkRunRepository:
         )
 
         if sort_order == "asc":
-            stmt = select(BenchmarkRunModel).order_by(sort_col.asc())
+            stmt = select(BenchmarkRunModel).order_by(sort_col.asc(), BenchmarkRunModel.id.asc())
         else:
-            stmt = select(BenchmarkRunModel).order_by(sort_col.desc())
+            stmt = select(BenchmarkRunModel).order_by(sort_col.desc(), BenchmarkRunModel.id.desc())
 
         if sweep_id is not None:
             stmt = stmt.where(BenchmarkRunModel.sweep_id == sweep_id)
@@ -269,7 +299,7 @@ class SQLAlchemyBenchmarkRunRepository:
         if dataset is not None:
             stmt = stmt.where(BenchmarkRunModel.dataset == dataset)
 
-        stmt = stmt.options(projection).offset(offset).limit(limit)
+        stmt = stmt.options(projection).offset(offset).limit(limit).execution_options(populate_existing=True)
         result = await self._db.execute(stmt)
         return [self.to_entity(orm) for orm in result.scalars().all()]
 

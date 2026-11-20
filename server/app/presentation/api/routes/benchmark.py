@@ -1,18 +1,19 @@
 """API endpoints for running and viewing RAG quality benchmarks."""
 
-from __future__ import annotations
-
+from dataclasses import asdict, dataclass
 import logging
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, Request
 from fastapi.responses import StreamingResponse
 
 from application.benchmark import BenchmarkExportService, BenchmarkResultService
+from application.benchmark.dto import BenchmarkReviewFilter
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ports.route_configs import BenchmarkConfig
 from application.spaces import KnowledgeSpaceService
+from domain.benchmark.diagnosis import DiagnosisClass
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import JobType
 from presentation.api.dependencies import (
@@ -35,6 +36,10 @@ from presentation.api.schemas import (
     BenchmarkResultsListResponse,
     CurrentUser,
 )
+from presentation.api.schemas.benchmark import (
+    BenchmarkResultSummary,
+    BenchmarkReviewPageResponse,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -45,7 +50,6 @@ router = APIRouter(tags=["benchmark"])
 
 @router.post(
     "/benchmark",
-    response_model=BenchmarkResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.BENCHMARK))],
 )
 async def run_benchmark(
@@ -109,7 +113,7 @@ async def run_benchmark(
     return response
 
 
-@router.get("/benchmark/results", response_model=BenchmarkResultsListResponse)
+@router.get("/benchmark/results")
 async def list_benchmark_results(
     *,
     _admin: Annotated[CurrentUser, Depends(require_admin)],
@@ -122,7 +126,7 @@ async def list_benchmark_results(
     )
 
 
-@router.get("/benchmark/results/{run_id}", response_model=BenchmarkResultDetail)
+@router.get("/benchmark/results/{run_id}")
 async def get_benchmark_result(
     *,
     run_id: int,
@@ -139,6 +143,65 @@ async def get_benchmark_result(
         summary=summary_to_response(detail.summary),
         per_question_results=detail.per_question_results,
     )
+
+
+@router.get("/benchmark/results/{run_id}/summary")
+async def get_benchmark_summary(
+    *,
+    run_id: int,
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[BenchmarkResultService, Depends(create_benchmark_result_service)],
+) -> BenchmarkResultSummary:
+    summary = await service.get_review_summary(run_id)
+
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Benchmark result not found")
+
+    return summary_to_response(summary)
+
+
+@dataclass(kw_only=True)
+class ReviewQuestionQuery:
+    query: Annotated[str, Query(max_length=500)] = ""
+    diagnosis: DiagnosisClass | None = None
+    metric: Literal["correctness", "faithfulness"] = "correctness"
+    comparison: Literal["eq", "lt", "gte", "unscored"] = "eq"
+    score: Annotated[float | None, Query(ge=0, le=10)] = None
+    sort: Literal["position", "score_asc", "score_desc"] = "position"
+    offset: Annotated[int, Query(ge=0)] = 0
+    limit: Annotated[int, Query(ge=1, le=100)] = 25
+
+
+@router.get("/benchmark/results/{run_id}/questions")
+async def list_benchmark_review_questions(
+    *,
+    run_id: int,
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[BenchmarkResultService, Depends(create_benchmark_result_service)],
+    options: Annotated[ReviewQuestionQuery, Depends()],
+) -> BenchmarkReviewPageResponse:
+    page = await service.list_review_questions(run_id, BenchmarkReviewFilter(**asdict(options)))
+
+    if page is None:
+        raise HTTPException(status_code=404, detail="Benchmark result not found")
+
+    return BenchmarkReviewPageResponse.model_validate(page, from_attributes=True)
+
+
+@router.get("/benchmark/results/{run_id}/questions/{position}")
+async def get_benchmark_review_question(
+    *,
+    run_id: int,
+    position: Annotated[int, PathParam(ge=1, le=2147483647)],
+    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    service: Annotated[BenchmarkResultService, Depends(create_benchmark_result_service)],
+) -> dict[str, Any]:
+    question = await service.get_review_question(run_id, position)
+
+    if question is None:
+        raise HTTPException(status_code=404, detail="Benchmark question result not found")
+
+    return question
 
 
 @router.get("/benchmark/results/{run_id}/export")

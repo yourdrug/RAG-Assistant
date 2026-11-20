@@ -132,7 +132,10 @@ class BenchmarkQualityService:
 
     async def list_labels(self, run_id: int) -> list[HumanLabel]:
         async with self._uow_factory.create() as uow:
-            await self.require_run(uow, run_id)
+            if not await uow.benchmark_runs.exists(run_id):
+                message = "BenchmarkRun"
+                raise EntityNotFoundError(message, run_id)
+
             return await uow.benchmark_quality.list_labels(run_id)
 
     async def save_label(
@@ -157,7 +160,10 @@ class BenchmarkQualityService:
 
     async def delete_label(self, *, run_id: int, question_key: str, metric: str, user_id: int) -> bool:
         async with self._uow_factory.create(master=True) as uow:
-            await self.require_run(uow, run_id)
+            if not await uow.benchmark_runs.exists(run_id):
+                message = "BenchmarkRun"
+                raise EntityNotFoundError(message, run_id)
+
             return await uow.benchmark_quality.delete_label(
                 run_id, question_key, LabelMetric(metric), user_id
             )
@@ -203,7 +209,7 @@ class BenchmarkQualityService:
 
     @staticmethod
     async def require_run(uow: UnitOfWork, run_id: int) -> BenchmarkRun:
-        run = await uow.benchmark_runs.get_by_id(run_id)
+        run = await uow.benchmark_runs.get_review_run(run_id)
 
         if run is None:
             message = "BenchmarkRun"

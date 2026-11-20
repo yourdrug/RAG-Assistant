@@ -9,12 +9,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useBenchmarkDatasets, useBenchmarkResult, useBenchmarkRuns } from "@/shared/api/hooks";
-import type { BenchmarkRun } from "@/shared/api/types";
+import { useBenchmarkDatasets, useBenchmarkRuns } from "@/shared/api/hooks";
+import {
+  useBenchmarkReviewQuestion,
+  useBenchmarkReviewQuestions,
+} from "@/shared/api/hooks/use-benchmark";
+import type { BenchmarkReviewQuestion, BenchmarkRun } from "@/shared/api/types";
 import {
   formatMetricDelta,
   formatTrendMetric,
-  metricsWithQuestionCoverage,
   metricValue,
   preferredTrendRun,
   TREND_METRICS,
@@ -25,11 +28,13 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 
 const RUN_LIMIT = 100;
+const DIAGNOSTIC_PAGE_SIZE = 25;
 
 function configLabel(run: BenchmarkRun): string {
   return (
@@ -43,12 +48,69 @@ function runLabel(run: BenchmarkRun): string {
   return `#${run.id} · ${run.llm_evaluated ? "Answers evaluated" : "Retrieval only"} · ${run.creation_date ? formatDateTime(run.creation_date) : "Unknown date"}`;
 }
 
+function TrendQuestionAnswer({
+  runId,
+  question,
+}: {
+  runId: number;
+  question: BenchmarkReviewQuestion;
+}) {
+  const detail = useBenchmarkReviewQuestion(runId, question.position, question.key);
+  if (detail.isError) {
+    return <QueryError query={detail} fallback="Could not load this answer." />;
+  }
+  if (!detail.data)
+    return (
+      <p className="mt-3 text-sm" role="status">
+        Loading answer…
+      </p>
+    );
+
+  return (
+    <div className="mt-3 space-y-2 whitespace-pre-wrap break-words text-sm">
+      <p>
+        <strong>Answer</strong> {detail.data.answer || "Not recorded"}
+      </p>
+      <p>
+        <strong>Reference</strong> {detail.data.expected_answer || "Not recorded"}
+      </p>
+    </div>
+  );
+}
+
+function TrendQuestion({ runId, question }: { runId: number; question: BenchmarkReviewQuestion }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <TableRow>
+      <TableCell className="min-w-64 max-w-xl">
+        <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+          <summary className="cursor-pointer whitespace-normal text-sm">
+            #{question.position} · {question.question}
+          </summary>
+          {open && <TrendQuestionAnswer runId={runId} question={question} />}
+        </details>
+      </TableCell>
+      <TableCell>{question.correctness} / 10</TableCell>
+      <TableCell>
+        {question.hit_rate == null ? "Not measured" : question.hit_rate ? "Yes" : "No"}
+      </TableCell>
+      <TableCell>
+        {formatTrendMetric(
+          metricValue(question.evidence_metrics, "context_fact_coverage"),
+          TREND_METRICS[5],
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
 export function BenchmarkTrendsTab() {
   const [datasetChoice, setDatasetChoice] = useState("");
   const [evaluation, setEvaluation] = useState("answers");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [baselineId, setBaselineId] = useState<number | null>(null);
   const [metricKey, setMetricKey] = useState("hit_rate");
+  const [diagnosticPage, setDiagnosticPage] = useState(0);
   const { data: datasets } = useBenchmarkDatasets();
   const { data, isLoading, isError, refetch } = useBenchmarkRuns({
     dataset: datasetChoice || undefined,
@@ -61,11 +123,12 @@ export function BenchmarkTrendsTab() {
   const runs = datasetRuns.filter((run) => evaluation === "all" || run.llm_evaluated);
   const selected = runs.find((run) => run.id === selectedId) ?? preferredTrendRun(runs);
   const baseline = runs.find((run) => run.id === baselineId && run.id !== selected?.id);
-  const detail = useBenchmarkResult(selected?.llm_evaluated ? selected.id : null, {
-    refetchInterval: false,
-  });
-  const baselineDetail = useBenchmarkResult(baseline?.llm_evaluated ? baseline.id : null, {
-    refetchInterval: false,
+  const diagnostics = useBenchmarkReviewQuestions(selected?.llm_evaluated ? selected.id : null, {
+    score: 7,
+    comparison: "lt",
+    sort: "score_asc",
+    limit: DIAGNOSTIC_PAGE_SIZE,
+    offset: diagnosticPage * DIAGNOSTIC_PAGE_SIZE,
   });
   const options = [
     ...new Set([
@@ -75,27 +138,22 @@ export function BenchmarkTrendsTab() {
     ]),
   ].sort();
   const metric = TREND_METRICS.find((item) => item.key === metricKey) ?? TREND_METRICS[1];
-  const selectedMetrics = selected ? metricsWithQuestionCoverage(selected, detail.data) : {};
-  const baselineMetrics = baseline
-    ? metricsWithQuestionCoverage(baseline, baselineDetail.data)
-    : {};
+  const selectedMetrics = selected?.summary_metrics ?? {};
+  const baselineMetrics = baseline?.summary_metrics ?? {};
   const chartData = [...runs].reverse().map((run) => ({
     run: `#${run.id}`,
     date: run.creation_date ? formatDateTime(run.creation_date) : "Unknown date",
-    value: metricValue(run.id === selected?.id ? selectedMetrics : run.summary_metrics, metric.key),
+    value: metricValue(run.summary_metrics, metric.key),
   }));
   const plottedCount = chartData.filter((point) => point.value !== null).length;
-  const questions =
-    detail.data?.id === selected?.id ? (detail.data?.per_question_results ?? []) : [];
-  const weakAnswers = [...questions]
-    .filter((question) => question.correctness != null && question.correctness < 7)
-    .sort((a, b) => (a.correctness ?? 0) - (b.correctness ?? 0));
+  const weakAnswers = diagnostics.data?.questions ?? [];
   const retrievedFragments = metricValue(selectedMetrics, "fragment_recall_at_k");
   const contextFragments = metricValue(selectedMetrics, "context_fragment_recall");
 
   function resetSelection() {
     setSelectedId(null);
     setBaselineId(null);
+    setDiagnosticPage(0);
   }
 
   return (
@@ -145,8 +203,7 @@ export function BenchmarkTrendsTab() {
           size="sm"
           onClick={() => {
             void refetch();
-            if (selected?.llm_evaluated) void detail.refetch();
-            if (baseline?.llm_evaluated) void baselineDetail.refetch();
+            if (selected?.llm_evaluated) void diagnostics.refetch();
           }}
         >
           <RefreshCw className="h-4 w-4 mr-2" />
@@ -185,7 +242,10 @@ export function BenchmarkTrendsTab() {
               <Label htmlFor="trend-run">Inspect run</Label>
               <Select
                 value={String(selected.id)}
-                onValueChange={(value) => setSelectedId(Number(value))}
+                onValueChange={(value) => {
+                  setSelectedId(Number(value));
+                  setDiagnosticPage(0);
+                }}
               >
                 <SelectTrigger id="trend-run">
                   <SelectValue />
@@ -335,19 +395,21 @@ export function BenchmarkTrendsTab() {
                 is low, inspect generation, table interpretation and version handling. Phrase
                 coverage and judge scores can disagree; verify the examples below.
               </p>
-              {selected.llm_evaluated && detail.isLoading && (
-                <p className="text-muted-foreground">Loading question diagnostics…</p>
-              )}
-              {detail.isError && (
-                <p role="alert" className="text-destructive">
-                  Question diagnostics could not be loaded. Summary metrics are still shown.
+              {selected.llm_evaluated && diagnostics.isLoading && (
+                <p className="text-muted-foreground" role="status">
+                  Loading question diagnostics…
                 </p>
               )}
-              {selected.llm_evaluated && !detail.isLoading && !detail.isError && (
+              {diagnostics.isError && (
+                <QueryError
+                  query={diagnostics}
+                  fallback="Question diagnostics could not be loaded."
+                />
+              )}
+              {diagnostics.data && (
                 <p className="text-muted-foreground">
-                  {weakAnswers.length} of{" "}
-                  {questions.filter((question) => question.correctness != null).length} scored
-                  answers have correctness below 7 / 10.
+                  {diagnostics.data.matched} of {diagnostics.data.scored} scored answers have
+                  correctness below 7 / 10.
                 </p>
               )}
               {weakAnswers.length > 0 && (
@@ -363,42 +425,36 @@ export function BenchmarkTrendsTab() {
                     </TableHeader>
                     <TableBody>
                       {weakAnswers.map((question) => (
-                        <TableRow key={question.id}>
-                          <TableCell className="min-w-64 max-w-xl">
-                            <details>
-                              <summary className="cursor-pointer text-sm">
-                                #{question.id} · {question.question}
-                              </summary>
-                              <div className="space-y-2 mt-3 text-xs">
-                                <p>
-                                  <strong>Answer:</strong> {question.answer}
-                                </p>
-                                <p>
-                                  <strong>Reference:</strong>{" "}
-                                  {question.expected_answer || "Not provided"}
-                                </p>
-                              </div>
-                            </details>
-                          </TableCell>
-                          <TableCell>{question.correctness?.toFixed(1)} / 10</TableCell>
-                          <TableCell>
-                            {question.hit_rate == null
-                              ? "Not measured"
-                              : question.hit_rate
-                                ? "Yes"
-                                : "No"}
-                          </TableCell>
-                          <TableCell>
-                            {formatTrendMetric(
-                              metricValue(question.evidence_metrics ?? {}, "context_fact_coverage"),
-                              TREND_METRICS[5],
-                            )}
-                          </TableCell>
-                        </TableRow>
+                        <TrendQuestion
+                          key={`${selected.id}:${question.position}`}
+                          runId={selected.id}
+                          question={question}
+                        />
                       ))}
                     </TableBody>
                   </Table>
                 </div>
+              )}
+              {(diagnosticPage > 0 || (diagnostics.data?.matched ?? 0) > DIAGNOSTIC_PAGE_SIZE) && (
+                <nav className="flex gap-2" aria-label="Question diagnostics pagination">
+                  <Button
+                    variant="outline"
+                    disabled={diagnosticPage === 0}
+                    onClick={() => setDiagnosticPage(diagnosticPage - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={
+                      !diagnostics.data ||
+                      (diagnosticPage + 1) * DIAGNOSTIC_PAGE_SIZE >= diagnostics.data.matched
+                    }
+                    onClick={() => setDiagnosticPage(diagnosticPage + 1)}
+                  >
+                    Next
+                  </Button>
+                </nav>
               )}
             </CardContent>
           </Card>

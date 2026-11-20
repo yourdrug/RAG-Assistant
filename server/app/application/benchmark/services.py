@@ -382,7 +382,7 @@ class BenchmarkRunService:
 
     async def get_by_ids(self, ids: Sequence[int]) -> builtins.list[BenchmarkRun]:
         async with self._uow_factory.create() as uow:
-            return await uow.benchmark_runs.get_by_ids(list(ids))
+            return await uow.benchmark_runs.get_review_runs(list(ids))
 
     async def compare(self, ids: Sequence[int]) -> RunCompareResult:
         if len(ids) < MIN_COMPARE_RUNS:

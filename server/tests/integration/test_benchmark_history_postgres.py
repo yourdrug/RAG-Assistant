@@ -5,15 +5,20 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
+from alembic import command
+from alembic.config import Config
+from fastapi import FastAPI
+import httpx
 import pytest
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from tests.integration.conftest import upgrade_schema
 from tests.integration.uow import session_factory
 
-from application.benchmark import BenchmarkExportService
+from application.benchmark import BenchmarkExportService, BenchmarkResultService
 from composition.service_providers import build_sweep_engine
 from config import settings
 from domain.benchmark.evaluation import EVIDENCE_METRICS
@@ -31,11 +36,15 @@ from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository i
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_sweep_repository import (
     SQLAlchemyBenchmarkSweepRepository,
 )
+from presentation.api.auth_dependencies import require_admin
+from presentation.api.dependencies import create_benchmark_export_service, create_benchmark_result_service
+from presentation.api.routes import benchmark as benchmark_routes
 
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from sqlalchemy.engine import Connection
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from application.benchmark.sweep import SweepEngine
@@ -191,6 +200,122 @@ async def test_run_list_skips_details_when_all_evidence_averages_are_saved(pg_en
         assert len(runs) == 1
         assert runs[0].summary_metrics == summary
         assert runs[0].per_question_results is None
+
+
+def review_results() -> list[dict[str, Any]]:
+    trace = "full retrieval trace " * 500
+    rows = [
+        {
+            "id": 41 if n in (2, 28) else n,
+            "run": 2 if n == 28 else 1,
+            "question": f"Пример {n}",
+            "answer": f"Answer {n}",
+            "expected_answer": f"Reference {n}",
+            "generator_metrics": {"correctness": 10 if n in (2, 28) else 0 if n == 3 else None},
+            "evidence": {"context": trace, "completion": "grounded_response"},
+            "evidence_metrics": {"answer_fact_coverage": 1 if n == 28 else 0},
+        }
+        for n in range(1, 30)
+    ]
+    # A legacy row with only a top-level score also participates in the filter.
+    rows[-1].update(correctness=10)
+    return rows
+
+
+async def test_review_api_pages_the_filtered_run_and_preserves_full_results(  # noqa: PLR0915
+    pg_engine: AsyncEngine,
+) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    factory = session_factory(sessions)
+    rows = review_results()
+    trace = rows[27]["evidence"]["context"]
+    async with sessions.begin() as session:
+        run = await SQLAlchemyBenchmarkRunRepository(session).create(
+            BenchmarkRun(dataset="review", llm_evaluated=True, per_question_results=rows)
+        )
+
+    assert run.id is not None
+    app = FastAPI()
+    app.include_router(benchmark_routes.router)
+    app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[create_benchmark_result_service] = lambda: BenchmarkResultService(factory)
+    app.dependency_overrides[create_benchmark_export_service] = lambda: BenchmarkExportService(factory)
+    path = f"/benchmark/results/{run.id}"
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:  # type: ignore[arg-type]
+        first = await client.get(f"{path}/questions", params={"score": 10, "limit": 1})
+        assert first.status_code == 200, first.text
+        page = first.json()
+        assert (page["total"], page["matched"], page["scored"]) == (29, 3, 4)
+        assert [(item["position"], item["key"]) for item in page["questions"]] == [(2, "41#1")]
+        assert "Answer" not in first.text
+        assert "Reference" not in first.text
+        assert trace not in first.text
+        remaining = await client.get(f"{path}/questions", params={"score": 10, "limit": 2, "offset": 1})
+        assert [(item["position"], item["key"]) for item in remaining.json()["questions"]] == [
+            (28, "41#2"),
+            (29, "29#1"),
+        ]
+        filtered = await client.get(f"{path}/questions", params={"comparison": "lt", "score": 7})
+        assert [item["position"] for item in filtered.json()["questions"]] == [3]
+        searched = await client.get(f"{path}/questions", params={"query": "пРИМЕР 28", "score": 10})
+        assert [item["position"] for item in searched.json()["questions"]] == [28]
+        assert (await client.get(f"{path}/questions", params={"score": 11})).status_code == 422
+        assert (await client.get(f"{path}/questions/30")).status_code == 404
+
+        detail = (await client.get(f"{path}/questions/28")).json()
+        assert detail["answer"] == "Answer 28"
+        assert detail["expected_answer"] == "Reference 28"
+        assert detail["evidence"]["context"] == trace
+        assert detail["question_key"] == "41#2"
+        assert detail["outcome"] == "grounded"
+        summary = (await client.get(f"{path}/summary")).json()["summary_metrics"]
+        assert summary["avg_answer_fact_coverage"] == round(1 / 29, 4)
+        assert summary["answer_fact_coverage_evaluated_count"] == 29
+        assert sum(summary["diagnosis_counts"].values()) == 29
+        export = await client.get(f"{path}/export")
+        assert export.json()["results"] == rows
+
+
+def rebuild_review_projection(connection: Connection) -> None:
+    config = Config("alembic.ini")
+    config.attributes["connection"] = connection
+    command.downgrade(config, "0006")
+    upgrade_schema(connection)
+
+
+async def test_review_projection_tracks_existing_writers(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    rows = review_results()
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBenchmarkRunRepository(session)
+        run = await repo.create(BenchmarkRun(per_question_results=[rows[0]]))
+        assert run.id is not None
+
+    async with pg_engine.connect() as connection:
+        await connection.run_sync(rebuild_review_projection)
+
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBenchmarkRunRepository(session)
+        backfilled = await repo.get_review_run(run.id)
+        assert backfilled is not None
+        assert backfilled.per_question_results
+        assert backfilled.per_question_results[0]["question"] == rows[0]["question"]
+        assert "answer" not in backfilled.per_question_results[0]
+        # Mixed-version writers still update the projection through the trigger.
+        await session.execute(
+            update(BenchmarkRunModel)
+            .where(BenchmarkRunModel.id == run.id)
+            .values(per_question_results=[rows[-1]])
+        )
+        review = await repo.get_review_run(run.id)
+        assert review is not None
+        assert review.per_question_results
+        assert review.per_question_results[0]["question"] == "Пример 29"
+        assert "answer" not in review.per_question_results[0]
+        full = await repo.get_by_id(run.id)
+        assert full is not None
+        assert full.per_question_results == [rows[-1]]
 
 
 async def test_db_retention_preserves_active_and_recent_failed_checkpoints(pg_engine: AsyncEngine) -> None:

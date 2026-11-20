@@ -1470,6 +1470,19 @@ class FakeBenchmarkRunRepository:
     async def get_by_id(self, run_id: int) -> BenchmarkRun | None:
         return self.runs.get(run_id)
 
+    async def exists(self, run_id: int) -> bool:
+        return run_id in self.runs
+
+    async def get_review_run(self, run_id: int) -> BenchmarkRun | None:
+        return await self.get_by_id(run_id)
+
+    async def get_review_runs(self, ids: list[int]) -> list[BenchmarkRun]:
+        return await self.get_by_ids(ids)
+
+    async def get_result_question(self, run_id: int, position: int) -> dict[str, Any] | None:
+        rows = await self.result_page(run_id, offset=position, limit=1)
+        return rows[0] if rows else None
+
     async def get_by_ids(self, ids: list[int]) -> list[BenchmarkRun]:
         return [self.runs[run_id] for run_id in ids if run_id in self.runs]
 

@@ -1,15 +1,5 @@
-import type { LLMReplayMode } from "@/shared/api/types";
+import type { LLMReplayMode, LLMReplayStats } from "@/shared/api/types";
 import { Label } from "@/shared/ui/label";
-
-export interface LLMReplayStats {
-  mode: LLMReplayMode;
-  hits: number;
-  misses: number;
-  recorded: number;
-  store_errors: number;
-  saved_input_tokens: number;
-  saved_output_tokens: number;
-}
 
 const MODES: { value: LLMReplayMode; label: string; hint: string }[] = [
   {

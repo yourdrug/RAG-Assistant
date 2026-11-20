@@ -1,7 +1,12 @@
-import { ListChecks } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useBenchmarkDatasets, useBenchmarkRuns, useCurrentUser } from "@/shared/api/hooks";
+import {
+  type ReviewQuestionParams,
+  useBenchmarkReviewQuestion,
+  useBenchmarkReviewQuestions,
+} from "@/shared/api/hooks/use-benchmark";
 import {
   type AcceptanceThresholds,
   type AgreementMetric,
@@ -9,7 +14,6 @@ import {
   type DiagnosisTransition,
   type HumanLabel,
   type LabelMetric,
-  resultKey,
   useDatasetComposition,
   useDatasetPolicy,
   useDeleteLabel,
@@ -21,7 +25,7 @@ import {
   useSaveLabel,
   useUpdateThresholds,
 } from "@/shared/api/hooks/use-benchmark-quality";
-import type { BenchmarkResultDetail } from "@/shared/api/types";
+import type { BenchmarkQuestionResult, BenchmarkReviewQuestion } from "@/shared/api/types";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -30,9 +34,10 @@ import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 
-type QuestionRow = NonNullable<BenchmarkResultDetail["per_question_results"]>[number] & {
+type QuestionRow = BenchmarkQuestionResult & {
   outcome?: string | null;
   diagnosis?: string | null;
   run?: number;
@@ -223,52 +228,90 @@ function LabelInput({
   metric: LabelMetric;
   label: HumanLabel | undefined;
 }) {
+  const inputId = useId();
   const save = useSaveLabel(runId);
   const remove = useDeleteLabel(runId);
-  const [value, setValue] = useState(label ? String(label.score) : "");
-
-  useEffect(() => setValue(label ? String(label.score) : ""), [label]);
-
-  const commit = async () => {
-    const text = value.trim();
-    try {
-      if (text === "") {
-        if (label) await remove.mutateAsync({ question_key: questionKey, metric });
-        return;
-      }
-      const score = Number(text);
-      if (!Number.isFinite(score) || score < 0 || score > 10) {
-        toast.error("Score must be between 0 and 10");
-        setValue(label ? String(label.score) : "");
-        return;
-      }
-      if (label?.score !== score)
-        await save.mutateAsync({ question_key: questionKey, metric, score });
-    } catch (error) {
-      toast.error(getErrorMessage(error, "Could not save the label"));
-    }
-  };
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? (label ? String(label.score) : "");
+  const pending = save.isPending || remove.isPending;
+  const title = metric === "correctness" ? "Correctness" : "Faithfulness";
 
   return (
-    <Input
-      aria-label={`Human ${metric}`}
-      inputMode="decimal"
-      className="h-7 w-14 px-1.5 text-xs"
-      placeholder="–"
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+    <form
+      className="space-y-2 rounded-lg border bg-background p-4"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const score = Number(value);
+        if (!value.trim() || !Number.isFinite(score) || score < 0 || score > 10) {
+          toast.error("Enter a score between 0 and 10");
+          return;
+        }
+        try {
+          await save.mutateAsync({ question_key: questionKey, metric, score, note: label?.note });
+          setDraft(null);
+        } catch (error) {
+          toast.error(getErrorMessage(error, "Could not save the score"));
+        }
       }}
-    />
+    >
+      <Label htmlFor={inputId} className="text-base font-semibold">
+        {title}
+      </Label>
+      <p className="text-sm text-muted-foreground">
+        {metric === "correctness"
+          ? "Does the answer match the reference?"
+          : "Is the answer supported by the recorded context?"}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          id={inputId}
+          type="number"
+          min={0}
+          max={10}
+          step="any"
+          required
+          inputMode="decimal"
+          className="h-10 w-24 text-base"
+          placeholder="0–10"
+          disabled={pending}
+          value={value}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <Button type="submit" disabled={pending || !value.trim() || Number(value) === label?.score}>
+          {save.isPending ? "Saving…" : "Save score"}
+        </Button>
+        {label && (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={pending}
+            onClick={async () => {
+              try {
+                await remove.mutateAsync({ question_key: questionKey, metric });
+                setDraft(null);
+              } catch (error) {
+                toast.error(getErrorMessage(error, "Could not remove the score"));
+              }
+            }}
+          >
+            {remove.isPending ? "Removing…" : "Remove"}
+          </Button>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground" role="status">
+        {label ? `Saved score · ${label.score}/10` : "No score saved"}
+      </p>
+    </form>
   );
 }
 
 function AgreementSummary({ runId }: { runId: number }) {
-  const { data: agreement } = useJudgeAgreement(runId);
+  const agreementQuery = useJudgeAgreement(runId);
+  const { data: agreement } = agreementQuery;
   const calibrate = useSaveCalibration(runId);
-  if (!agreement) return null;
+  if (agreementQuery.isError)
+    return <QueryError query={agreementQuery} fallback="Could not load judge agreement." />;
+  if (!agreement) return <p role="status">Loading judge agreement…</p>;
   const labelled = Object.values(agreement.metrics).some((metric) => metric.n > 0);
 
   const describe = (name: string, metric: AgreementMetric) => {
@@ -284,7 +327,7 @@ function AgreementSummary({ runId }: { runId: number }) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
       <span>
         Judge {agreement.judge_model ?? "?"} (rubric {agreement.judge_rubric_version ?? "?"}) vs
         human labels:
@@ -313,9 +356,9 @@ function AgreementSummary({ runId }: { runId: number }) {
 function ContextBlock({ row }: { row: QuestionRow }) {
   if (row.evidence?.context) {
     return (
-      <div className="mt-1 border-t pt-1">
+      <div className="mt-3 space-y-2 border-t pt-3">
         Context given to the model:
-        <pre className="whitespace-pre-wrap font-sans max-h-64 overflow-auto mt-1">
+        <pre className="whitespace-pre-wrap break-words font-sans text-base leading-relaxed">
           {row.evidence.context}
         </pre>
       </div>
@@ -326,14 +369,14 @@ function ContextBlock({ row }: { row: QuestionRow }) {
 
   if (!gate) {
     return (
-      <div className="mt-1 border-t pt-1">
+      <div className="mt-3 space-y-2 border-t pt-3">
         Context given to the model: <span>not recorded for this run</span>
       </div>
     );
   }
 
   return (
-    <div className="mt-1 border-t pt-1">
+    <div className="mt-3 space-y-2 border-t pt-3">
       <p>
         {gate.result?.is_relevant === false
           ? `No prompt was built: the relevance gate rejected the question.${
@@ -342,178 +385,547 @@ function ContextBlock({ row }: { row: QuestionRow }) {
           : "No prompt context was recorded for this answer."}
       </p>
       <p className="mt-1">Context seen by the relevance gate:</p>
-      <pre className="whitespace-pre-wrap font-sans max-h-64 overflow-auto mt-1">
+      <pre className="whitespace-pre-wrap break-words font-sans text-base leading-relaxed">
         {gate.context}
       </pre>
     </div>
   );
 }
 
-export function RunQuestionResults({ runId, rows }: { runId: number; rows: QuestionRow[] }) {
-  const [diagnosisFilter, setDiagnosisFilter] = useState("all");
-  const [labelling, setLabelling] = useState(false);
-  // Labels are given before seeing the judge, so they do not anchor on its scores.
-  const [blind, setBlind] = useState(true);
-  const hideJudge = labelling && blind;
-  const { data: user } = useCurrentUser();
-  const { data: labels } = useRunLabels(labelling ? runId : null);
+function RecordedContext({ row }: { row: QuestionRow }) {
+  const [open, setOpen] = useState(false);
+  const contentId = useId();
+  const toggle = useRef<HTMLButtonElement>(null);
 
-  const ownLabels = useMemo(() => {
-    const result = new Map<string, HumanLabel>();
-    for (const label of labels ?? []) {
-      if (label.labeler_id === user?.id) result.set(`${label.question_key}|${label.metric}`, label);
+  function toggleContext() {
+    setOpen(!open);
+    if (open) {
+      // Keep the control in view when the content under the scroll position disappears.
+      requestAnimationFrame(() => toggle.current?.scrollIntoView({ block: "nearest" }));
     }
-    return result;
-  }, [labels, user?.id]);
-
-  const visible = rows.filter(
-    (row) => hideJudge || diagnosisFilter === "all" || row.diagnosis === diagnosisFilter,
-  );
+  }
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <h4 className="text-sm font-medium flex items-center gap-1">
-          <ListChecks className="h-4 w-4" /> Per-question results ({visible.length}/{rows.length})
-        </h4>
-        {!hideJudge && (
-          <Select value={diagnosisFilter} onValueChange={setDiagnosisFilter}>
-            <SelectTrigger className="h-7 w-44 text-xs" aria-label="Failure class">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All classes</SelectItem>
-              {DIAGNOSIS_CLASSES.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {DIAGNOSIS_INFO[name].label} (
-                  {rows.filter((row) => row.diagnosis === name).length})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+    <section className="rounded-lg border bg-background">
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 rounded-t-lg bg-background px-4 py-2">
+        <h4 className="font-semibold">Recorded context</h4>
         <Button
-          variant={labelling ? "default" : "outline"}
+          ref={toggle}
+          type="button"
+          variant="outline"
           size="sm"
-          className="h-7"
-          onClick={() => setLabelling(!labelling)}
+          aria-label={open ? "Collapse recorded context" : "Expand recorded context"}
+          aria-expanded={open}
+          aria-controls={contentId}
+          onClick={toggleContext}
         >
-          {labelling ? "Hide labelling" : "Label answers"}
+          {open ? "Collapse" : "Expand"}
         </Button>
-        {labelling && (
-          <Button variant="outline" size="sm" className="h-7" onClick={() => setBlind(!blind)}>
-            {blind ? "Show judge scores" : "Hide judge scores"}
+      </div>
+      <div id={contentId} hidden={!open} className="select-text px-4 pb-4">
+        {open && <ContextBlock row={row} />}
+      </div>
+    </section>
+  );
+}
+
+const REVIEW_PAGE_SIZE = 25;
+const REVIEW_SELECT = "h-10 w-full rounded-md border bg-background px-2.5 text-sm";
+const REVIEW_ROW =
+  "grid grid-cols-2 items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_7rem_7rem]";
+
+export function RunQuestionResults({ runId }: { runId: number }) {
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [diagnosis, setDiagnosis] = useState("");
+  const [metric, setMetric] = useState<LabelMetric>("correctness");
+  const [comparison, setComparison] =
+    useState<NonNullable<ReviewQuestionParams["comparison"]>>("eq");
+  const [score, setScore] = useState("");
+  const [sort, setSort] = useState<NonNullable<ReviewQuestionParams["sort"]>>("position");
+  const [page, setPage] = useState(0);
+  const reviewTop = useRef<HTMLDivElement>(null);
+  const questionDetailsPrefix = useId();
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const [blind, setBlind] = useState(false);
+  const [showAgreement, setShowAgreement] = useState(false);
+  const userQuery = useCurrentUser();
+  const labelsQuery = useRunLabels(runId);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setQuery(search.trim());
+      setPage(0);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const questionsQuery = useBenchmarkReviewQuestions(runId, {
+    query: query || undefined,
+    diagnosis: !blind && diagnosis ? diagnosis : undefined,
+    metric: blind ? undefined : metric,
+    comparison: blind ? undefined : comparison,
+    score: !blind && score !== "" && comparison !== "unscored" ? Number(score) : undefined,
+    sort: blind ? undefined : sort,
+    limit: REVIEW_PAGE_SIZE,
+    offset: page * REVIEW_PAGE_SIZE,
+  });
+  const { data } = questionsQuery;
+  const canLabel = Boolean(userQuery.data && labelsQuery.data);
+  const ownLabels = useMemo(() => {
+    const grouped = new Map<string, Partial<Record<LabelMetric, HumanLabel>>>();
+    for (const label of labelsQuery.data ?? []) {
+      if (label.labeler_id === userQuery.data?.id) {
+        const scores = grouped.get(label.question_key) ?? {};
+        scores[label.metric] = label;
+        grouped.set(label.question_key, scores);
+      }
+    }
+    return grouped;
+  }, [labelsQuery.data, userQuery.data?.id]);
+
+  function toggleQuestion(position: number) {
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (next.has(position)) next.delete(position);
+      else next.add(position);
+      return next;
+    });
+  }
+
+  function goToPage(nextPage: number) {
+    setPage(nextPage);
+    reviewTop.current?.scrollIntoView({ block: "start" });
+  }
+
+  function selectExactTen() {
+    setMetric("correctness");
+    setComparison("eq");
+    setScore("10");
+    setPage(0);
+  }
+
+  function resetFilters() {
+    setSearch("");
+    setQuery("");
+    setDiagnosis("");
+    setMetric("correctness");
+    setComparison("eq");
+    setScore("");
+    setSort("position");
+    setPage(0);
+  }
+
+  const rangeStart = data?.questions.length ? page * REVIEW_PAGE_SIZE + 1 : 0;
+  const rangeEnd = data?.questions.length ? page * REVIEW_PAGE_SIZE + data.questions.length : 0;
+  const hasFilters = Boolean(
+    search ||
+      (!blind && (diagnosis || score !== "" || comparison === "unscored" || sort !== "position")),
+  );
+  const reviewedCount = [...ownLabels.values()].filter(
+    (scores) => scores.correctness && scores.faithfulness,
+  ).length;
+
+  return (
+    <div ref={reviewTop} className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground" role="status">
+          {data && canLabel
+            ? `${reviewedCount} of ${data.total} fully labelled`
+            : "Review and label answers"}
+          {blind && " · Blind review"}
+        </p>
+        <Button
+          variant="outline"
+          aria-pressed={blind}
+          onClick={() => {
+            setBlind(!blind);
+            setPage(0);
+          }}
+        >
+          {blind ? "Show judge scores" : "Hide judge scores"}
+        </Button>
+      </div>
+      <div className="space-y-3 rounded-lg border bg-muted/25 p-4">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-44 flex-1 space-y-1.5">
+            <Label htmlFor="review-question-search">Find a question</Label>
+            <Input
+              id="review-question-search"
+              type="search"
+              placeholder="Question text or number"
+              maxLength={500}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          {!blind && (
+            <Button variant="outline" onClick={selectExactTen}>
+              Correctness = 10
+            </Button>
+          )}
+          {hasFilters && (
+            <Button variant="ghost" onClick={resetFilters}>
+              Clear filters
+            </Button>
+          )}
+        </div>
+        {!blind && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="space-y-1.5">
+              <Label htmlFor="review-score-metric">Judge metric</Label>
+              <select
+                id="review-score-metric"
+                className={REVIEW_SELECT}
+                value={metric}
+                onChange={(event) => {
+                  setMetric(event.target.value as LabelMetric);
+                  setPage(0);
+                }}
+              >
+                <option value="correctness">Correctness</option>
+                <option value="faithfulness">Faithfulness</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="review-score-condition">Score condition</Label>
+              <select
+                id="review-score-condition"
+                className={REVIEW_SELECT}
+                value={comparison}
+                onChange={(event) => {
+                  setComparison(
+                    event.target.value as NonNullable<ReviewQuestionParams["comparison"]>,
+                  );
+                  setPage(0);
+                }}
+              >
+                <option value="eq">Equals</option>
+                <option value="gte">At least</option>
+                <option value="lt">Below</option>
+                <option value="unscored">Unscored</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="review-score-filter">Score (0–10)</Label>
+              <Input
+                id="review-score-filter"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={10}
+                step="any"
+                placeholder="Any score"
+                value={score}
+                disabled={comparison === "unscored"}
+                onChange={(event) => {
+                  const { value, validity } = event.currentTarget;
+                  if (validity.valid) {
+                    setScore(value);
+                    setPage(0);
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="review-diagnosis">Failure class</Label>
+              <select
+                id="review-diagnosis"
+                className={REVIEW_SELECT}
+                value={diagnosis}
+                onChange={(event) => {
+                  setDiagnosis(event.target.value);
+                  setPage(0);
+                }}
+              >
+                <option value="">All classes</option>
+                {DIAGNOSIS_CLASSES.map((name) => (
+                  <option key={name} value={name}>
+                    {DIAGNOSIS_INFO[name].label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="review-sort">Sort questions</Label>
+              <select
+                id="review-sort"
+                className={REVIEW_SELECT}
+                value={sort}
+                onChange={(event) => {
+                  setSort(event.target.value as NonNullable<ReviewQuestionParams["sort"]>);
+                  setPage(0);
+                }}
+              >
+                <option value="position">Question order</option>
+                <option value="score_desc">Highest score first</option>
+                <option value="score_asc">Lowest score first</option>
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+      {labelsQuery.isError && (
+        <QueryError query={labelsQuery} fallback="Could not load saved scores." />
+      )}
+      {userQuery.isError && (
+        <QueryError query={userQuery} fallback="Could not load the reviewer profile." />
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground" aria-live="polite">
+          {data
+            ? `${rangeStart}–${rangeEnd} of ${data.matched} matching · ${data.total} in this run`
+            : questionsQuery.isPending
+              ? "Loading question list…"
+              : "Question list unavailable"}
+        </p>
+        {expanded.size > 0 && (
+          <Button variant="ghost" size="sm" onClick={() => setExpanded(new Set())}>
+            Collapse all
           </Button>
         )}
       </div>
-      {labelling && !blind && <AgreementSummary runId={runId} />}
-      <div className="overflow-auto max-h-[420px] border rounded-md">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-xs">#</TableHead>
-              <TableHead className="text-xs">Question</TableHead>
-              {!hideJudge && <TableHead className="text-xs">Class</TableHead>}
-              <TableHead className="text-xs">Outcome</TableHead>
-              <TableHead className="text-xs">Fragment recall</TableHead>
-              <TableHead className="text-xs">Context fragments</TableHead>
-              <TableHead className="text-xs">Context facts</TableHead>
-              {!hideJudge && <TableHead className="text-xs">Correct</TableHead>}
-              {!hideJudge && <TableHead className="text-xs">Faith</TableHead>}
-              {labelling && <TableHead className="text-xs">Human correct</TableHead>}
-              {labelling && <TableHead className="text-xs">Human faith</TableHead>}
-              <TableHead className="text-xs">Latency</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visible.map((row, index) => {
-              const key = resultKey(row);
+      {questionsQuery.isError && (
+        <QueryError query={questionsQuery} fallback="Could not load this question list." />
+      )}
+      {questionsQuery.isPending && <Skeleton className="h-36 w-full" />}
+      {data?.questions.length === 0 && (
+        <p className="rounded-lg border p-5 text-muted-foreground">
+          {data.total === 0
+            ? "No questions were recorded for this run."
+            : "No questions match these filters."}
+        </p>
+      )}
+      {data && data.questions.length > 0 && (
+        <div className="rounded-lg border">
+          <div
+            className={`${REVIEW_ROW} hidden rounded-t-lg bg-muted/40 text-sm font-medium sm:grid`}
+            aria-hidden="true"
+          >
+            <span>Question</span>
+            <span>{blind ? "" : "Judge correct."}</span>
+            <span>{blind ? "" : "Judge faithful."}</span>
+            <span>Your scores</span>
+          </div>
+          <ul className="divide-y" aria-label="Run questions">
+            {data.questions.map((question) => {
+              const open = expanded.has(question.position);
+              const detailsId = `${questionDetailsPrefix}-${question.position}`;
+              const labels = ownLabels.get(question.key);
+              const saved =
+                Number(Boolean(labels?.correctness)) + Number(Boolean(labels?.faithfulness));
               return (
-                <TableRow key={key}>
-                  <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
-                  <TableCell className="text-xs max-w-[320px]">
-                    <div className="truncate" title={row.question}>
-                      {row.question}
+                <li key={question.position}>
+                  <div className={`${REVIEW_ROW} select-text`}>
+                    <div className="col-span-2 flex min-w-0 items-start gap-2 sm:col-span-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="-ml-2 -mt-1 size-9 shrink-0"
+                        aria-label={`${open ? "Collapse" : "Expand"} question ${question.position}`}
+                        aria-expanded={open}
+                        aria-controls={detailsId}
+                        onClick={() => toggleQuestion(question.position)}
+                      >
+                        {open ? <ChevronDown aria-hidden /> : <ChevronRight aria-hidden />}
+                      </Button>
+                      <div className="min-w-0 space-y-1">
+                        <p className="break-words font-medium">
+                          #{question.position} · {question.question || "Untitled question"}
+                        </p>
+                        {!blind && <DiagnosisBadge value={question.diagnosis} />}
+                      </div>
                     </div>
-                    {labelling && (
-                      <details className="text-muted-foreground">
-                        <summary className="cursor-pointer">Answer, reference and context</summary>
-                        {row.as_of_date && <p className="mt-1">As of: {row.as_of_date}</p>}
-                        {row.history && row.history.length > 0 && (
-                          <div className="mt-1 border-t pt-1 space-y-0.5">
-                            {row.history.map((turn, turnIndex) => (
-                              <p key={turnIndex} className="whitespace-pre-wrap">
-                                <span className="font-medium">{turn.role}:</span> {turn.content}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                        <p className="whitespace-pre-wrap mt-1 border-t pt-1">{row.answer}</p>
-                        {row.expected_answer && (
-                          <p className="whitespace-pre-wrap mt-1 border-t pt-1">
-                            Reference: {row.expected_answer}
-                          </p>
-                        )}
-                        <ContextBlock row={row} />
-                        {row.history === undefined && (
-                          <p className="mt-1 italic">
-                            History and as-of date were not recorded for this run.
-                          </p>
-                        )}
-                      </details>
+                    <span className="text-sm tabular-nums">
+                      {!blind && (
+                        <>
+                          <span className="sm:sr-only">Correctness </span>
+                          {question.correctness ?? "—"}
+                        </>
+                      )}
+                    </span>
+                    <span className="text-sm tabular-nums">
+                      {!blind && (
+                        <>
+                          <span className="sm:sr-only">Faithfulness </span>
+                          {question.faithfulness ?? "—"}
+                        </>
+                      )}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      {canLabel ? `${saved}/2 saved` : "—"}
+                    </span>
+                  </div>
+                  <div id={detailsId} hidden={!open}>
+                    {open && (
+                      <ReviewQuestionDetails
+                        key={question.key}
+                        runId={runId}
+                        question={question}
+                        labels={labels}
+                        canLabel={canLabel}
+                        refreshQuestions={() => void questionsQuery.refetch()}
+                      />
                     )}
-                  </TableCell>
-                  {!hideJudge && (
-                    <TableCell className="text-xs">
-                      <DiagnosisBadge value={row.diagnosis} />
-                    </TableCell>
-                  )}
-                  <TableCell className="text-xs font-mono">{row.outcome ?? "-"}</TableCell>
-                  <TableCell className="text-xs font-mono">
-                    {formatScore(row.evidence_metrics?.fragment_recall_at_k)}
-                  </TableCell>
-                  <TableCell className="text-xs font-mono">
-                    {formatScore(row.evidence_metrics?.context_fragment_recall)}
-                  </TableCell>
-                  <TableCell className="text-xs font-mono">
-                    {formatScore(row.evidence_metrics?.context_fact_coverage)}
-                  </TableCell>
-                  {!hideJudge && (
-                    <TableCell className="text-xs font-mono">
-                      {formatScore(row.correctness, 1)}
-                    </TableCell>
-                  )}
-                  {!hideJudge && (
-                    <TableCell className="text-xs font-mono">
-                      {formatScore(row.faithfulness, 1)}
-                    </TableCell>
-                  )}
-                  {labelling &&
-                    (["correctness", "faithfulness"] as const).map((metric) => (
-                      <TableCell key={metric} className="text-xs">
-                        <LabelInput
-                          runId={runId}
-                          questionKey={key}
-                          metric={metric}
-                          label={ownLabels.get(`${key}|${metric}`)}
-                        />
-                      </TableCell>
-                    ))}
-                  <TableCell className="text-xs text-muted-foreground">
-                    {row.latency_sec != null ? `${row.latency_sec.toFixed(1)}s` : "-"}
-                    {row.llm_replayed && (
-                      <span title="Есть повторённые вызовы LLM: латентность не является замером">
-                        {" "}
-                        (повтор)
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
+                  </div>
+                </li>
               );
             })}
-          </TableBody>
-        </Table>
+          </ul>
+        </div>
+      )}
+      {(page > 0 || (data?.matched ?? 0) > REVIEW_PAGE_SIZE) && (
+        <nav
+          className="flex flex-wrap items-center justify-between gap-2"
+          aria-label="Question pagination"
+        >
+          <span className="text-sm text-muted-foreground">
+            Page {page + 1}
+            {data && ` of ${Math.max(1, Math.ceil(data.matched / REVIEW_PAGE_SIZE))}`}
+          </span>
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={page === 0} onClick={() => goToPage(page - 1)}>
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!data || rangeEnd >= data.matched}
+              onClick={() => goToPage(page + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </nav>
+      )}
+      {!blind && (
+        <details
+          className="rounded-lg border p-4"
+          onToggle={(event) => setShowAgreement(event.currentTarget.open)}
+        >
+          <summary className="cursor-pointer font-medium">Judge agreement and calibration</summary>
+          <div className="mt-3">{showAgreement && <AgreementSummary runId={runId} />}</div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function ReviewQuestionDetails({
+  runId,
+  question,
+  labels,
+  canLabel,
+  refreshQuestions,
+}: {
+  runId: number;
+  question: BenchmarkReviewQuestion;
+  labels: Partial<Record<LabelMetric, HumanLabel>> | undefined;
+  canLabel: boolean;
+  refreshQuestions: () => void;
+}) {
+  const detailQuery = useBenchmarkReviewQuestion(runId, question.position, question.key);
+  const row: QuestionRow | undefined = detailQuery.data;
+
+  if (row?.question_key !== undefined && row.question_key !== question.key) {
+    return (
+      <div className="flex flex-wrap items-center gap-3 p-4">
+        <p className="text-sm" role="alert">
+          This run changed while it was open.
+        </p>
+        <Button variant="outline" onClick={refreshQuestions}>
+          Refresh questions
+        </Button>
       </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 border-t bg-muted/20 px-4 py-4 sm:px-7">
+      {detailQuery.isError && (
+        <QueryError query={detailQuery} fallback="Could not load the answer and evidence." />
+      )}
+      {detailQuery.isPending && (
+        <div role="status">
+          <Skeleton className="h-24 w-full" />
+          <span className="sr-only">Loading answer and evidence</span>
+        </div>
+      )}
+      {row && (
+        <>
+          {row.as_of_date && (
+            <p className="text-sm text-muted-foreground">As of {row.as_of_date}</p>
+          )}
+          {row.history && row.history.length > 0 && (
+            <details className="rounded-lg border bg-background p-4">
+              <summary className="cursor-pointer font-medium">Conversation history</summary>
+              <div className="mt-3 space-y-3">
+                {row.history.map((turn, index) => (
+                  <p key={index} className="whitespace-pre-wrap break-words leading-relaxed">
+                    <strong>{turn.role}</strong> {turn.content}
+                  </p>
+                ))}
+              </div>
+            </details>
+          )}
+          {row.history === undefined && (
+            <p className="text-sm text-muted-foreground">
+              History and as-of date were not recorded for this run.
+            </p>
+          )}
+          <div className="grid select-text gap-4 lg:grid-cols-2">
+            <section className="min-w-0 rounded-lg border bg-background p-4">
+              <h4 className="mb-2 font-semibold">Model answer</h4>
+              <p className="whitespace-pre-wrap break-words text-base leading-relaxed">
+                {row.answer || "No answer recorded."}
+              </p>
+            </section>
+            <section className="min-w-0 rounded-lg border bg-background p-4">
+              <h4 className="mb-2 font-semibold">Reference answer</h4>
+              <p className="whitespace-pre-wrap break-words text-base leading-relaxed">
+                {row.expected_answer || "No reference answer recorded."}
+              </p>
+            </section>
+          </div>
+          <RecordedContext row={row} />
+          {canLabel && (
+            <section
+              className="grid gap-4 lg:grid-cols-2"
+              aria-label={`Your scores for question ${question.position}`}
+            >
+              {(["correctness", "faithfulness"] as const).map((metric) => (
+                <LabelInput
+                  key={metric}
+                  runId={runId}
+                  questionKey={question.key}
+                  metric={metric}
+                  label={labels?.[metric]}
+                />
+              ))}
+            </section>
+          )}
+          <details className="rounded-lg border bg-background p-4">
+            <summary className="cursor-pointer font-semibold">Retrieval and timing</summary>
+            <dl className="mt-3 grid gap-x-5 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                ["Outcome", row.outcome ?? "—"],
+                ["Fragment recall", formatScore(row.evidence_metrics?.fragment_recall_at_k)],
+                ["Context fragments", formatScore(row.evidence_metrics?.context_fragment_recall)],
+                ["Context facts", formatScore(row.evidence_metrics?.context_fact_coverage)],
+                ["Latency", row.latency_sec == null ? "—" : `${row.latency_sec.toFixed(1)}s`],
+              ].map(([name, value]) => (
+                <div key={name}>
+                  <dt className="text-muted-foreground">{name}</dt>
+                  <dd className="font-medium">
+                    {value}
+                    {name === "Latency" && row.llm_replayed && " (replayed LLM calls)"}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        </>
+      )}
     </div>
   );
 }
@@ -845,8 +1257,8 @@ export function AcceptanceTab() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Judge calibration</CardTitle>
               <CardDescription>
-                Label 30–50 answers in a run (Leaderboard → run → Label answers), then save its
-                agreement here.
+                Label 30–50 answers in Leaderboard → Review questions. Save the calibration under
+                Judge agreement and calibration.
               </CardDescription>
             </CardHeader>
             <CardContent className="text-xs space-y-1">

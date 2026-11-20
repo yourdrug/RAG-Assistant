@@ -665,6 +665,7 @@ class BenchmarkRunModel(BaseModel):
     llm_evaluated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="belarus_law-main")
     per_question_results: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    review_rows: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True, deferred=True)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     legacy_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -12,10 +12,13 @@ export interface LLMModel {
 
 export const LLM_MODELS_QUERY_KEY = ["admin", "llm-models"] as const;
 
-export function useLLMModels() {
+export function useLLMModels(enabled = true) {
   return useQuery({
     queryKey: LLM_MODELS_QUERY_KEY,
-    queryFn: async () => (await apiClient.get<{ models: LLMModel[] }>("/admin/models/llm")).data,
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<{ models: LLMModel[] }>("/admin/models/llm", { signal })).data,
+    enabled,
+    staleTime: 60_000,
   });
 }
 

@@ -201,9 +201,9 @@ export function useSaveLabel(runId: number) {
       score: number;
       note?: string | null;
     }) => (await apiClient.put<HumanLabel>(`/admin/benchmark/runs/${runId}/labels`, body)).data,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["benchmark", "labels", runId] });
-      queryClient.invalidateQueries({ queryKey: ["benchmark", "agreement", runId] });
+    onSuccess: async () => {
+      void queryClient.invalidateQueries({ queryKey: ["benchmark", "agreement", runId] });
+      await queryClient.invalidateQueries({ queryKey: ["benchmark", "labels", runId] });
     },
   });
 }
@@ -213,9 +213,9 @@ export function useDeleteLabel(runId: number) {
   return useMutation({
     mutationFn: async (params: { question_key: string; metric: LabelMetric }) =>
       apiClient.delete(`/admin/benchmark/runs/${runId}/labels`, { params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["benchmark", "labels", runId] });
-      queryClient.invalidateQueries({ queryKey: ["benchmark", "agreement", runId] });
+    onSuccess: async () => {
+      void queryClient.invalidateQueries({ queryKey: ["benchmark", "agreement", runId] });
+      await queryClient.invalidateQueries({ queryKey: ["benchmark", "labels", runId] });
     },
   });
 }

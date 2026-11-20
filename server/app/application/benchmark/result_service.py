@@ -6,22 +6,28 @@ Reads from BenchmarkRunRepository (DB) instead of JSON files on disk.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from math import isfinite
+from operator import eq, ge, lt
+from typing import TYPE_CHECKING, Any
 
 from application.benchmark.diagnosis import rediagnose
 from application.benchmark.dto import (
     BenchmarkResultDetail,
     BenchmarkResultsList,
     BenchmarkResultSummary,
+    BenchmarkReviewPage,
+    BenchmarkReviewQuestion,
     RegressionCheckOutput,
     RegressionCheckResult,
 )
 from application.benchmark.quality import run_replayed_llm
 from application.benchmark.regression import regression_report
+from domain.benchmark.diagnosis import diagnose, metric, result_key, with_diagnosis
 from domain.benchmark.policy import GateStatus
 
 
 if TYPE_CHECKING:
+    from application.benchmark.dto import BenchmarkReviewFilter
     from application.benchmark.ports import BenchmarkHistoryPort
     from application.uow import UnitOfWorkFactory
     from domain.benchmark.run import BenchmarkRun
@@ -77,28 +83,92 @@ class BenchmarkResultService:
         if run is None:
             return None
 
-        if run.id is None:
-            message = "BenchmarkRun id is None"
-            raise RuntimeError(message)
-
         run = rediagnose(run)
-
-        summary = BenchmarkResultSummary(
-            id=run.id or 0,
-            config_json=run.config_json,
-            artifacts=run.artifacts,
-            summary_metrics=run.summary_metrics,
-            duration_sec=run.duration_sec,
-            llm_evaluated=run.llm_evaluated,
-            dataset=run.dataset,
-            sweep_id=run.sweep_id,
-            creation_date=run.creation_date,
-        )
+        summary = result_summary(run)
         return BenchmarkResultDetail(
-            id=run.id or 0,
+            id=summary.id,
             summary=summary,
             per_question_results=run.per_question_results,
         )
+
+    async def get_review_summary(self, run_id: int) -> BenchmarkResultSummary | None:
+        async with self._uow_factory.create() as uow:
+            run = await uow.benchmark_runs.get_review_run(run_id)
+
+        return result_summary(rediagnose(run)) if run is not None else None
+
+    async def list_review_questions(
+        self, run_id: int, filters: BenchmarkReviewFilter
+    ) -> BenchmarkReviewPage | None:
+        async with self._uow_factory.create() as uow:
+            run = await uow.benchmark_runs.get_review_run(run_id)
+
+        if run is None:
+            return None
+
+        rows = run.per_question_results or []
+        query = filters.query.strip().casefold()
+        matched: list[BenchmarkReviewQuestion] = []
+        scored = 0
+
+        for position, row in enumerate(rows, 1):
+            score = review_score(row, filters.metric)
+            scored += score is not None
+            title = row.get("question") or ""
+
+            if query and query not in title.casefold() and query != str(position):
+                continue
+
+            if not matches_review_score(score, filters):
+                continue
+
+            diagnosis = diagnose(row).value
+
+            if filters.diagnosis is not None and diagnosis != filters.diagnosis:
+                continue
+
+            matched.append(
+                BenchmarkReviewQuestion(
+                    position=position,
+                    key=result_key(row),
+                    question=title,
+                    diagnosis=diagnosis,
+                    correctness=review_score(row, "correctness"),
+                    faithfulness=review_score(row, "faithfulness"),
+                    hit_rate=review_score(row, "hit_rate"),
+                    evidence_metrics=row.get("evidence_metrics") or {},
+                )
+            )
+
+        if filters.sort != "position":
+            direction = -1 if filters.sort == "score_desc" else 1
+
+            def score_order(question: BenchmarkReviewQuestion) -> tuple[bool, float]:
+                value = question.correctness if filters.metric == "correctness" else question.faithfulness
+                return value is None, direction * (value or 0)
+
+            matched.sort(key=score_order)
+
+        return BenchmarkReviewPage(
+            questions=matched[filters.offset : filters.offset + filters.limit],
+            total=len(rows),
+            matched=len(matched),
+            scored=scored,
+        )
+
+    async def get_review_question(self, run_id: int, position: int) -> dict[str, Any] | None:
+        async with self._uow_factory.create() as uow:
+            row = await uow.benchmark_runs.get_result_question(run_id, position - 1)
+
+        if row is None:
+            return None
+
+        return {
+            **with_diagnosis([row])[0],
+            "question_key": result_key(row),
+            "correctness": review_score(row, "correctness"),
+            "faithfulness": review_score(row, "faithfulness"),
+        }
 
     async def check_regression(
         self,
@@ -169,3 +239,43 @@ class BenchmarkResultService:
             excluded_questions=report.excluded_questions,
             warnings=report.warnings,
         )
+
+
+def result_summary(run: BenchmarkRun) -> BenchmarkResultSummary:
+    if run.id is None:
+        message = "BenchmarkRun id is None"
+        raise RuntimeError(message)
+
+    return BenchmarkResultSummary(
+        id=run.id,
+        config_json=run.config_json,
+        artifacts=run.artifacts,
+        summary_metrics=run.summary_metrics,
+        duration_sec=run.duration_sec,
+        llm_evaluated=run.llm_evaluated,
+        dataset=run.dataset,
+        sweep_id=run.sweep_id,
+        creation_date=run.creation_date,
+    )
+
+
+def review_score(row: dict[str, Any], name: str) -> float | None:
+    group = "retriever_metrics" if name == "hit_rate" else "generator_metrics"
+    nested = metric(row, group, name)
+    value = nested if nested is not None else row.get(name)
+
+    if isinstance(value, int | float) and not isinstance(value, bool) and isfinite(value):
+        return float(value)
+
+    return None
+
+
+def matches_review_score(value: float | None, filters: BenchmarkReviewFilter) -> bool:
+    if filters.comparison == "unscored":
+        return value is None
+
+    if filters.score is None:
+        return True
+
+    operators = {"eq": eq, "lt": lt, "gte": ge}
+    return value is not None and operators[filters.comparison](value, filters.score)

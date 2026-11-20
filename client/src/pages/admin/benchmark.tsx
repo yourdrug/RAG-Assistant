@@ -2,8 +2,6 @@
 import {
   BarChart3,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   Download,
   GitCompare,
   History,
@@ -18,7 +16,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
@@ -26,7 +24,6 @@ import {
   useApplyRunConfig,
   useBenchmarkDatasets,
   useBenchmarkQuestions,
-  useBenchmarkResult,
   useBenchmarkRuns,
   useCancelSweep,
   useCompareRuns,
@@ -40,7 +37,10 @@ import {
   useSweeps,
   useUpdateBenchmarkQuestion,
 } from "@/shared/api/hooks";
-import { useExportBenchmarkQuestions } from "@/shared/api/hooks/use-benchmark";
+import {
+  useBenchmarkReviewSummary,
+  useExportBenchmarkQuestions,
+} from "@/shared/api/hooks/use-benchmark";
 import type {
   BenchmarkQuestion,
   BenchmarkQuestionCreate,
@@ -79,7 +79,10 @@ import {
 } from "./benchmark-quality";
 import { SourceHintPicker } from "./benchmark-source-hint-picker";
 import { SweepProgressDialog } from "./benchmark-sweep-progress";
-import { BenchmarkTrendsTab } from "./benchmark-trends";
+
+const BenchmarkTrendsTab = lazy(async () => ({
+  default: (await import("./benchmark-trends")).BenchmarkTrendsTab,
+}));
 
 // ─── Reusable widgets ─────────────────────────────────────────────────────
 
@@ -1314,19 +1317,19 @@ function SweepProgressTab({
 
 function LeaderboardTab() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [expandedRunId, setExpandedRunId] = useState<number | null>(null);
-  const runs = useBenchmarkRuns({ limit: 50 });
+  const [reviewRun, setReviewRun] = useState<BenchmarkRun | null>(null);
+  const reviewTrigger = useRef<HTMLButtonElement>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+  const runs = useBenchmarkRuns({ limit: pageSize, offset: (page - 1) * pageSize });
+  const totalPages = Math.max(1, Math.ceil((runs.data?.total ?? 0) / pageSize));
   const { data: runsData, isLoading } = runs;
   const applyConfig = useApplyRunConfig();
   const comparison = useCompareRuns(selectedIds);
-  const runQuery = useBenchmarkResult(expandedRunId);
   const { data: compareData } = comparison;
-  const { data: runDetail } = runQuery;
 
   const toggleSelect = (id: number) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id].slice(-5),
-    );
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
   };
 
   const handleApply = async (run: BenchmarkRun) => {
@@ -1348,6 +1351,21 @@ function LeaderboardTab() {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground" aria-live="polite">
+          {selectedIds.length} of 5 runs selected · Select 2 or more to compare
+        </p>
+        <div className="flex gap-2">
+          {selectedIds.length > 0 && (
+            <Button variant="ghost" onClick={() => setSelectedIds([])}>
+              Clear selection
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => void runs.refetch()} disabled={runs.isFetching}>
+            <RefreshCw aria-hidden="true" /> Refresh runs
+          </Button>
+        </div>
+      </div>
       {selectedIds.length >= 2 && (
         <Card className="border-primary">
           <CardHeader className="pb-2">
@@ -1356,7 +1374,8 @@ function LeaderboardTab() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-auto max-h-[200px]">
+            {comparison.isPending && <p role="status">Loading comparison…</p>}
+            <div className="overflow-auto max-h-80">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1381,9 +1400,6 @@ function LeaderboardTab() {
               </Table>
             </div>
             <DiagnosisTransitions transitions={compareData?.diagnosis_transitions} />
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => setSelectedIds([])}>
-              Clear selection
-            </Button>
           </CardContent>
         </Card>
       )}
@@ -1397,12 +1413,11 @@ function LeaderboardTab() {
           ))}
         </div>
       ) : (
-        <div className="max-h-[500px] overflow-auto border rounded-md">
+        <div className="overflow-hidden rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[30px]"></TableHead>
-                <TableHead className="w-[30px]"></TableHead>
+                <TableHead>Compare</TableHead>
                 <TableHead>Run</TableHead>
                 <TableHead>Config</TableHead>
                 <TableHead>Hit Rate</TableHead>
@@ -1411,205 +1426,248 @@ function LeaderboardTab() {
                 <TableHead>Composite</TableHead>
                 <TableHead>LLM</TableHead>
                 <TableHead>Time</TableHead>
-                <TableHead></TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {runsData?.runs.map((run) => {
-                const isExpanded = expandedRunId === run.id;
-                return (
-                  <Fragment key={run.id}>
-                    <TableRow className={isExpanded ? "bg-muted/50" : ""}>
-                      <TableCell>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.includes(run.id)}
-                          onChange={() => toggleSelect(run.id)}
-                          className="rounded"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <button
-                          className="p-0.5 hover:bg-muted rounded"
-                          onClick={() => setExpandedRunId(isExpanded ? null : run.id)}
-                        >
-                          {isExpanded ? (
-                            <ChevronDown className="h-3.5 w-3.5" />
-                          ) : (
-                            <ChevronRight className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">#{run.id}</TableCell>
-                      <TableCell className="text-xs max-w-[200px]">
-                        <div className="truncate font-mono">
-                          {Object.entries(run.config_json)
-                            .slice(0, 3)
-                            .map(([k, v]) => `${k}=${v}`)
-                            .join(" ")}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {run.summary_metrics.hit_rate !== null &&
-                        run.summary_metrics.hit_rate !== undefined ? (
-                          <span
-                            className={
-                              run.summary_metrics.hit_rate >= 0.5
-                                ? "text-green-500"
-                                : "text-red-500"
-                            }
-                          >
-                            {(run.summary_metrics.hit_rate * 100).toFixed(0)}%
-                          </span>
-                        ) : (
-                          "-"
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <ScoreBadge
-                          score={
-                            run.summary_metrics.faithfulness ?? run.summary_metrics.avg_faithfulness
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <ScoreBadge
-                          score={run.summary_metrics.relevancy ?? run.summary_metrics.avg_relevancy}
-                        />
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {run.summary_metrics.composite?.toFixed(3) ?? "-"}
-                        {run.summary_metrics.evaluation_mode && (
-                          <div className="text-muted-foreground">
-                            {run.summary_metrics.evaluation_mode}:{" "}
-                            {run.summary_metrics.evaluated_config_count}/
-                            {run.summary_metrics.search_config_count} evaluated
-                            {run.summary_metrics.scored_config_count != null && (
-                              <span> ({run.summary_metrics.scored_config_count} scored)</span>
-                            )}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {run.llm_evaluated ? (
-                          <Badge variant="success" className="text-xs">
-                            LLM
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="text-xs">
-                            Retrieval
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {run.duration_sec < 60
-                          ? `${run.duration_sec.toFixed(0)}s`
-                          : `${(run.duration_sec / 60).toFixed(1)}m`}
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="outline" size="sm" onClick={() => handleApply(run)}>
-                          Apply
-                        </Button>
-                        {(["csv", "json"] as const).map((format) => (
-                          <Button
-                            key={format}
-                            variant="outline"
-                            size="sm"
-                            onClick={async () => {
-                              try {
-                                const response = await apiClient.get(
-                                  `/benchmark/results/${run.id}/export?format=${format}`,
-                                  { responseType: "blob" },
-                                );
-                                const url = URL.createObjectURL(response.data);
-                                const anchor = document.createElement("a");
-                                anchor.href = url;
-                                anchor.download = `benchmark-${run.id}.${format}`;
-                                anchor.click();
-                                URL.revokeObjectURL(url);
-                              } catch (error) {
-                                toast.error(
-                                  getErrorMessage(error, "Could not export the benchmark run."),
-                                );
-                              }
-                            }}
-                          >
-                            {format.toUpperCase()}
-                          </Button>
-                        ))}
-                      </TableCell>
-                    </TableRow>
-                    {isExpanded && (
-                      <TableRow>
-                        <TableCell colSpan={11} className="p-0">
-                          <div className="px-4 py-3 bg-muted/30">
-                            {run.summary_metrics.judge_evaluated_count != null && (
-                              <p className="text-xs text-muted-foreground mb-2">
-                                Оценено {run.summary_metrics.judge_evaluated_count} из{" "}
-                                {run.summary_metrics.total_questions}, ошибок{" "}
-                                {run.summary_metrics.judge_error_count ?? 0}
-                              </p>
-                            )}
-                            {run.summary_metrics.total_judge_input_tokens != null && (
-                              <p className="text-xs text-muted-foreground mb-2">
-                                This configuration: generation{" "}
-                                {Number(
-                                  run.summary_metrics.total_input_tokens || 0,
-                                ).toLocaleString()}{" "}
-                                input /{" "}
-                                {Number(
-                                  run.summary_metrics.total_output_tokens || 0,
-                                ).toLocaleString()}{" "}
-                                output tokens; judge{" "}
-                                {Number(
-                                  run.summary_metrics.total_judge_input_tokens || 0,
-                                ).toLocaleString()}{" "}
-                                input /{" "}
-                                {Number(
-                                  run.summary_metrics.total_judge_output_tokens || 0,
-                                ).toLocaleString()}{" "}
-                                output tokens ({run.summary_metrics.total_judge_calls} calls). RAG
-                                auxiliary calls are excluded. Cost estimate covers generation only.
-                              </p>
-                            )}
-                            <LLMReplaySummary stats={run.summary_metrics.llm_replay} />
-                            {run.summary_metrics.retrieval_labelled_count != null && (
-                              <p className="text-xs text-muted-foreground mb-2">
-                                Annotated cases: {run.summary_metrics.retrieval_annotated_count};
-                                source-only cases: {run.summary_metrics.retrieval_source_only_count}
-                                ; unavailable retrieval evidence:{" "}
-                                {run.summary_metrics.retrieval_unavailable_count}.
-                              </p>
-                            )}
-                            <div className="mb-2">
-                              <DiagnosisCounts counts={run.summary_metrics.diagnosis_counts} />
-                            </div>
-                            {runQuery.isError ? (
-                              <QueryError query={runQuery} fallback="Could not load run details." />
-                            ) : runQuery.isPending ? (
-                              <p role="status">Loading run details…</p>
-                            ) : runDetail?.per_question_results ? (
-                              <RunQuestionResults
-                                runId={run.id}
-                                rows={runDetail.per_question_results}
-                              />
-                            ) : (
-                              <p className="text-sm text-muted-foreground">
-                                No per-question data available for this run.
-                              </p>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
+              {runsData?.runs.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                    {page === 1 ? "No benchmark runs yet." : "No runs on this page."}
+                  </TableCell>
+                </TableRow>
+              )}
+              {runsData?.runs.map((run) => (
+                <TableRow
+                  key={run.id}
+                  data-state={selectedIds.includes(run.id) ? "selected" : undefined}
+                >
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      aria-label={`Compare run #${run.id}`}
+                      checked={selectedIds.includes(run.id)}
+                      disabled={selectedIds.length >= 5 && !selectedIds.includes(run.id)}
+                      onChange={() => toggleSelect(run.id)}
+                      className="size-4 align-middle accent-primary"
+                    />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <p className="font-semibold">#{run.id}</p>
+                    {run.dataset && <p className="text-sm text-muted-foreground">{run.dataset}</p>}
+                    <Button
+                      size="sm"
+                      className="mt-2"
+                      aria-label={`Review questions for run #${run.id}`}
+                      onClick={(event) => {
+                        reviewTrigger.current = event.currentTarget;
+                        setReviewRun(run);
+                      }}
+                    >
+                      Review questions
+                    </Button>
+                  </TableCell>
+                  <TableCell className="text-xs max-w-[200px]">
+                    <div className="truncate font-mono">
+                      {Object.entries(run.config_json)
+                        .slice(0, 3)
+                        .map(([k, v]) => `${k}=${v}`)
+                        .join(" ")}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {run.summary_metrics.hit_rate !== null &&
+                    run.summary_metrics.hit_rate !== undefined ? (
+                      <span
+                        className={
+                          run.summary_metrics.hit_rate >= 0.5 ? "text-green-500" : "text-red-500"
+                        }
+                      >
+                        {(run.summary_metrics.hit_rate * 100).toFixed(0)}%
+                      </span>
+                    ) : (
+                      "-"
                     )}
-                  </Fragment>
-                );
-              })}
+                  </TableCell>
+                  <TableCell>
+                    <ScoreBadge
+                      score={
+                        run.summary_metrics.faithfulness ?? run.summary_metrics.avg_faithfulness
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <ScoreBadge
+                      score={run.summary_metrics.relevancy ?? run.summary_metrics.avg_relevancy}
+                    />
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {run.summary_metrics.composite?.toFixed(3) ?? "-"}
+                    {run.summary_metrics.evaluation_mode && (
+                      <div className="text-muted-foreground">
+                        {run.summary_metrics.evaluation_mode}:{" "}
+                        {run.summary_metrics.evaluated_config_count}/
+                        {run.summary_metrics.search_config_count} evaluated
+                        {run.summary_metrics.scored_config_count != null && (
+                          <span> ({run.summary_metrics.scored_config_count} scored)</span>
+                        )}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {run.llm_evaluated ? (
+                      <Badge variant="success" className="text-xs">
+                        LLM
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs">
+                        Retrieval
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {run.duration_sec < 60
+                      ? `${run.duration_sec.toFixed(0)}s`
+                      : `${(run.duration_sec / 60).toFixed(1)}m`}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleApply(run)}>
+                        Apply
+                      </Button>
+                      {(["csv", "json"] as const).map((format) => (
+                        <Button
+                          key={format}
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const response = await apiClient.get(
+                                `/benchmark/results/${run.id}/export?format=${format}`,
+                                { responseType: "blob" },
+                              );
+                              const url = URL.createObjectURL(response.data);
+                              const anchor = document.createElement("a");
+                              anchor.href = url;
+                              anchor.download = `benchmark-${run.id}.${format}`;
+                              anchor.click();
+                              URL.revokeObjectURL(url);
+                            } catch (error) {
+                              toast.error(
+                                getErrorMessage(error, "Could not export the benchmark run."),
+                              );
+                            }
+                          }}
+                        >
+                          {format.toUpperCase()}
+                        </Button>
+                      ))}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </div>
       )}
+      {(runsData || page > 1) && (
+        <nav
+          aria-label="Run pagination"
+          className="flex flex-wrap items-center justify-between gap-3"
+        >
+          <span className="text-sm text-muted-foreground" aria-live="polite">
+            {runsData
+              ? `${runsData.runs.length === 0 ? 0 : (page - 1) * pageSize + 1}–${runsData.runs.length === 0 ? 0 : (page - 1) * pageSize + runsData.runs.length} of ${runsData.total} runs`
+              : `Loading page ${page}…`}
+          </span>
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!runsData || page >= totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </nav>
+      )}
+      <Dialog open={reviewRun !== null} onOpenChange={(open) => !open && setReviewRun(null)}>
+        {reviewRun && (
+          <DialogContent
+            className="flex max-h-[95dvh] w-[calc(100%_-_1rem)] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:w-[calc(100%_-_3rem)]"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              reviewTrigger.current?.focus();
+            }}
+          >
+            <DialogHeader className="shrink-0 border-b px-4 py-4 pr-10 text-left sm:px-6 sm:pr-12">
+              <DialogTitle className="text-xl">Review questions · Run #{reviewRun.id}</DialogTitle>
+              <DialogDescription>
+                {reviewRun.dataset || "Benchmark run"} ·{" "}
+                {reviewRun.llm_evaluated ? "Answers evaluated" : "Retrieval only"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 overflow-y-auto space-y-5 px-4 py-5 sm:px-6">
+              <RunQuestionResults key={reviewRun.id} runId={reviewRun.id} />
+              <RunReviewDiagnostics key={reviewRun.id} runId={reviewRun.id} />
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
+  );
+}
+
+function RunReviewDiagnostics({ runId }: { runId: number }) {
+  const [open, setOpen] = useState(false);
+  const query = useBenchmarkReviewSummary(open ? runId : null);
+  const metrics = query.data?.summary_metrics;
+  return (
+    <details
+      className="rounded-lg border p-4"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="cursor-pointer font-semibold">Run diagnostics and token usage</summary>
+      {open && query.isError && (
+        <QueryError query={query} fallback="Could not load the full run summary." />
+      )}
+      {open && query.isPending && <Skeleton className="mt-3 h-12 w-full" />}
+      {open && metrics && (
+        <div className="mt-3 space-y-2">
+          {metrics.judge_evaluated_count != null && (
+            <p className="text-sm text-muted-foreground">
+              Judge evaluated {metrics.judge_evaluated_count} of {metrics.total_questions}, errors{" "}
+              {metrics.judge_error_count ?? 0}
+            </p>
+          )}
+          {metrics.total_judge_input_tokens != null && (
+            <p className="text-sm text-muted-foreground">
+              This configuration: generation{" "}
+              {Number(metrics.total_input_tokens || 0).toLocaleString()} input /{" "}
+              {Number(metrics.total_output_tokens || 0).toLocaleString()} output tokens; judge{" "}
+              {Number(metrics.total_judge_input_tokens || 0).toLocaleString()} input /{" "}
+              {Number(metrics.total_judge_output_tokens || 0).toLocaleString()} output tokens (
+              {metrics.total_judge_calls} calls). RAG auxiliary calls are excluded. Cost estimate
+              covers generation only.
+            </p>
+          )}
+          <LLMReplaySummary stats={metrics.llm_replay} />
+          {metrics.retrieval_labelled_count != null && (
+            <p className="text-sm text-muted-foreground">
+              Annotated cases: {metrics.retrieval_annotated_count}; source-only cases:{" "}
+              {metrics.retrieval_source_only_count}; unavailable retrieval evidence:{" "}
+              {metrics.retrieval_unavailable_count}.
+            </p>
+          )}
+          <div className="mb-2">
+            <DiagnosisCounts counts={metrics.diagnosis_counts} />
+          </div>
+        </div>
+      )}
+    </details>
   );
 }
 
@@ -1714,8 +1772,8 @@ export function AdminBenchmarkPage() {
             <CardHeader>
               <CardTitle>Leaderboard</CardTitle>
               <CardDescription>
-                Compare benchmark runs. Select 2-5 runs to diff configs side-by-side. Apply the best
-                config with one click.
+                Review answers and evidence from a run, compare configurations, or apply a
+                configuration.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1734,7 +1792,9 @@ export function AdminBenchmarkPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <BenchmarkTrendsTab />
+              <Suspense fallback={<Skeleton className="h-56 w-full" />}>
+                <BenchmarkTrendsTab />
+              </Suspense>
             </CardContent>
           </Card>
         </TabsContent>

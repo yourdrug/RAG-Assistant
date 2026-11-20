@@ -67,6 +67,24 @@ class BenchmarkResultDetail(BaseModel):
     per_question_results: list[dict[str, Any]] | None = None
 
 
+class BenchmarkReviewQuestionResponse(BaseModel):
+    position: int
+    key: str
+    question: str
+    diagnosis: str
+    correctness: float | None
+    faithfulness: float | None
+    hit_rate: float | None
+    evidence_metrics: dict[str, Any]
+
+
+class BenchmarkReviewPageResponse(BaseModel):
+    questions: list[BenchmarkReviewQuestionResponse]
+    total: int
+    matched: int
+    scored: int
+
+
 class BenchmarkResultsListResponse(BaseModel):
     results: list[BenchmarkResultSummary]
     total: int

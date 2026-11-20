@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { apiClient } from "@/shared/api/client";
+import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
-import { Skeleton } from "@/shared/ui/skeleton";
+import { QueryError } from "@/shared/ui/query-error";
 import { llmModelLabel, useLLMModels } from "./llm-models";
 
 interface ModelsInfo {
@@ -21,11 +22,12 @@ export function BenchmarkJudgeModel({
   onChange: (model: string) => void;
   disabled: boolean;
 }) {
-  const { data: info, isLoading } = useQuery({
+  const [showCatalog, setShowCatalog] = useState(false);
+  const { data: info } = useQuery({
     queryKey: ["admin", "models"],
     queryFn: async () => (await apiClient.get<ModelsInfo>("/admin/models/info")).data,
   });
-  const { data: catalog, isLoading: catalogLoading } = useLLMModels();
+  const catalog = useLLMModels(showCatalog && !disabled);
 
   useEffect(() => {
     if (value === null && info) {
@@ -33,40 +35,20 @@ export function BenchmarkJudgeModel({
     }
   }, [value, info, onChange]);
 
-  const models = (catalog?.models ?? []).map((model) => ({
+  const models = (catalog.data?.models ?? []).map((model) => ({
     id: model.id,
     label: llmModelLabel(model),
   }));
   const selected = value ?? "";
-  const loading = isLoading || catalogLoading;
 
   return (
     <div className="space-y-2">
       <Label htmlFor="benchmark-judge-model" className="text-xs">
         Judge model
       </Label>
-      {loading ? (
-        <Skeleton className="h-9 w-full" />
-      ) : models.length > 0 ? (
-        <select
-          id="benchmark-judge-model"
-          value={selected}
-          onChange={(event) => onChange(event.target.value)}
-          disabled={disabled}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
-        >
-          {!selected && <option value="">Select a judge model</option>}
-          {selected && !models.some((model) => model.id === selected) && (
-            <option value={selected}>{selected}</option>
-          )}
-          {models.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.label}
-            </option>
-          ))}
-        </select>
-      ) : (
+      <div className="flex flex-wrap items-center gap-2">
         <Input
+          className="min-w-40 flex-1"
           id="benchmark-judge-model"
           value={selected}
           onChange={(event) => onChange(event.target.value)}
@@ -74,6 +56,47 @@ export function BenchmarkJudgeModel({
           maxLength={255}
           placeholder="Enter a judge model ID"
         />
+        <Button
+          variant="outline"
+          type="button"
+          disabled={disabled}
+          aria-expanded={showCatalog && !disabled}
+          onClick={() => setShowCatalog(!showCatalog)}
+        >
+          {showCatalog ? "Hide model catalog" : "Browse models"}
+        </Button>
+      </div>
+      {showCatalog && !disabled && (
+        <>
+          {catalog.isPending && (
+            <p role="status" className="text-sm text-muted-foreground">
+              Loading provider models…
+            </p>
+          )}
+          {catalog.isError && (
+            <QueryError query={catalog} fallback="Could not load provider models." />
+          )}
+          {catalog.data && models.length === 0 && (
+            <p className="text-sm text-muted-foreground">The provider returned no models.</p>
+          )}
+          {models.length > 0 && (
+            <select
+              aria-label="Provider models"
+              value={models.some((model) => model.id === selected) ? selected : ""}
+              onChange={(event) => onChange(event.target.value)}
+              className="h-10 w-full rounded-md border bg-background px-2.5 text-sm"
+            >
+              <option value="" disabled>
+                Select a provider model
+              </option>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </>
       )}
       <p className="text-xs text-muted-foreground">
         {disabled

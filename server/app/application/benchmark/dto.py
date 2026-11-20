@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from domain.benchmark.llm_replay import LLMReplayMode
 from domain.benchmark.question import DEFAULT_DATASET
@@ -111,6 +111,38 @@ class BenchmarkResultDetail:
     id: int
     summary: BenchmarkResultSummary
     per_question_results: list[dict[str, Any]] | None = None
+
+
+@dataclass(frozen=True)
+class BenchmarkReviewFilter:
+    query: str = ""
+    diagnosis: str | None = None
+    metric: Literal["correctness", "faithfulness"] = "correctness"
+    comparison: Literal["eq", "lt", "gte", "unscored"] = "eq"
+    score: float | None = None
+    sort: Literal["position", "score_asc", "score_desc"] = "position"
+    offset: int = 0
+    limit: int = 25
+
+
+@dataclass(frozen=True)
+class BenchmarkReviewQuestion:
+    position: int
+    key: str
+    question: str
+    diagnosis: str
+    correctness: float | None
+    faithfulness: float | None
+    hit_rate: float | None
+    evidence_metrics: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BenchmarkReviewPage:
+    questions: list[BenchmarkReviewQuestion]
+    total: int
+    matched: int
+    scored: int
 
 
 @dataclass(frozen=True)

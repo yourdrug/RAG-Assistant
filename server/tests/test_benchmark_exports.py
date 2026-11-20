@@ -37,7 +37,12 @@ from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 from infrastructure.database.database import database
 from infrastructure.worker import runtime, tasks
 from presentation.api.auth_dependencies import get_current_user
-from presentation.api.dependencies import IdempotencyContext, JobSubmission, create_benchmark_export_service
+from presentation.api.dependencies import (
+    IdempotencyContext,
+    JobSubmission,
+    create_benchmark_export_service,
+    create_benchmark_result_service,
+)
 from presentation.api.routes import benchmark
 from presentation.api.schemas.benchmark import BenchmarkRequest
 from tests.fakes import FakeUnitOfWorkFactory, require_present
@@ -198,6 +203,19 @@ async def test_export_requires_admin_and_streams_authorized_download() -> None:
         assert response.json()["results"] == [{"id": 1}]
         assert "attachment" in response.headers["content-disposition"]
         assert (await client.get("/benchmark/results/7/export?format=html")).status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("view", ["summary", "questions", "questions/1"])
+async def test_review_reads_require_admin(view: str) -> None:
+    app = FastAPI()
+    app.include_router(benchmark.router)
+    service = Mock()
+    app.dependency_overrides[create_benchmark_result_service] = lambda: service
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1, role="user")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:  # type: ignore[arg-type]
+        with pytest.raises(PermissionDeniedError):
+            await client.get(f"/benchmark/results/7/{view}")
 
 
 @pytest.mark.asyncio

@@ -424,6 +424,33 @@ export interface BenchmarkResponse {
   status: string;
 }
 
+export interface LLMReplayStats {
+  mode: LLMReplayMode;
+  hits: number;
+  misses: number;
+  recorded: number;
+  store_errors: number;
+  saved_input_tokens: number;
+  saved_output_tokens: number;
+}
+
+export interface BenchmarkReviewMetrics extends Record<string, unknown> {
+  judge_evaluated_count?: number;
+  total_questions?: number;
+  judge_error_count?: number;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_judge_input_tokens?: number;
+  total_judge_output_tokens?: number;
+  total_judge_calls?: number;
+  llm_replay?: LLMReplayStats | null;
+  retrieval_labelled_count?: number;
+  retrieval_annotated_count?: number;
+  retrieval_source_only_count?: number;
+  retrieval_unavailable_count?: number;
+  diagnosis_counts?: Record<string, number> | null;
+}
+
 export interface BenchmarkResultSummary {
   id: number;
   config_json: Record<string, unknown>;
@@ -443,23 +470,44 @@ export interface BenchmarkResultsListResponse {
 export interface BenchmarkResultDetail {
   id: number;
   summary: BenchmarkResultSummary;
-  per_question_results: Array<{
-    id: string | number;
-    question: string;
-    answer: string;
-    expected_answer?: string | null;
-    faithfulness?: number | null;
-    relevancy?: number | null;
-    correctness?: number | null;
-    hit_rate?: number | null;
-    mrr?: number | null;
-    source_hit_rate?: number | null;
-    source_mrr?: number | null;
-    evidence_metrics?: Record<string, number | null>;
-    avg_similarity?: number;
-    latency_sec?: number;
-    llm_replayed?: boolean;
-  }> | null;
+  per_question_results: BenchmarkQuestionResult[] | null;
+}
+
+export interface BenchmarkQuestionResult {
+  question_key?: string;
+  id: string | number;
+  question: string;
+  answer: string;
+  expected_answer?: string | null;
+  faithfulness?: number | null;
+  relevancy?: number | null;
+  correctness?: number | null;
+  hit_rate?: number | null;
+  mrr?: number | null;
+  source_hit_rate?: number | null;
+  source_mrr?: number | null;
+  evidence_metrics?: Record<string, number | null>;
+  avg_similarity?: number;
+  latency_sec?: number;
+  llm_replayed?: boolean;
+}
+
+export interface BenchmarkReviewQuestion {
+  position: number;
+  key: string;
+  question: string;
+  diagnosis: string;
+  correctness: number | null;
+  faithfulness: number | null;
+  hit_rate: number | null;
+  evidence_metrics: Record<string, number | null>;
+}
+
+export interface BenchmarkReviewPage {
+  questions: BenchmarkReviewQuestion[];
+  total: number;
+  matched: number;
+  scored: number;
 }
 
 // ─── Background Jobs ───────────────────────────────────────────────────────

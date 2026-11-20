@@ -4,12 +4,16 @@ import type {
   BenchmarkHistoryResponse,
   BenchmarkQuestion,
   BenchmarkQuestionCreate,
+  BenchmarkQuestionResult,
   BenchmarkQuestionsListResponse,
   BenchmarkQuestionUpdate,
   BenchmarkRequest,
   BenchmarkResponse,
   BenchmarkResultDetail,
+  BenchmarkResultSummary,
   BenchmarkResultsListResponse,
+  BenchmarkReviewMetrics,
+  BenchmarkReviewPage,
   BenchmarkRun,
   BenchmarkRunsListResponse,
   RunCompareResponse,
@@ -43,10 +47,68 @@ export function useBenchmarkResult(
 ) {
   return useQuery({
     queryKey: ["benchmark", "result", runId],
-    queryFn: async () =>
-      (await apiClient.get<BenchmarkResultDetail>(`/benchmark/results/${runId}`)).data,
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<BenchmarkResultDetail>(`/benchmark/results/${runId}`, { signal })).data,
     enabled: runId != null,
+    staleTime: options?.refetchInterval === false ? 60_000 : undefined,
     refetchInterval: options?.refetchInterval ?? 3000,
+  });
+}
+
+export type ReviewQuestionParams = {
+  query?: string;
+  diagnosis?: string;
+  metric?: "correctness" | "faithfulness";
+  comparison?: "eq" | "lt" | "gte" | "unscored";
+  score?: number;
+  sort?: "position" | "score_asc" | "score_desc";
+  offset?: number;
+  limit?: number;
+};
+
+export function useBenchmarkReviewSummary(runId: number | null) {
+  return useQuery({
+    queryKey: ["benchmark", "review-summary", runId],
+    queryFn: async ({ signal }) =>
+      (
+        await apiClient.get<BenchmarkResultSummary & { summary_metrics: BenchmarkReviewMetrics }>(
+          `/benchmark/results/${runId}/summary`,
+          {
+            signal,
+          },
+        )
+      ).data,
+    enabled: runId != null,
+    staleTime: 60_000,
+  });
+}
+
+export function useBenchmarkReviewQuestions(runId: number | null, params: ReviewQuestionParams) {
+  return useQuery({
+    queryKey: ["benchmark", "review-questions", runId, params],
+    queryFn: async ({ signal }) =>
+      (
+        await apiClient.get<BenchmarkReviewPage>(`/benchmark/results/${runId}/questions`, {
+          params,
+          signal,
+        })
+      ).data,
+    enabled: runId != null,
+    staleTime: 60_000,
+  });
+}
+
+export function useBenchmarkReviewQuestion(runId: number, position: number, questionKey: string) {
+  return useQuery({
+    queryKey: ["benchmark", "review-question", runId, position, questionKey],
+    queryFn: async ({ signal }) =>
+      (
+        await apiClient.get<BenchmarkQuestionResult>(
+          `/benchmark/results/${runId}/questions/${position}`,
+          { signal },
+        )
+      ).data,
+    staleTime: 60_000,
   });
 }
 
@@ -55,7 +117,9 @@ export function useBenchmarkResult(
 export function useBenchmarkDatasets() {
   return useQuery({
     queryKey: ["benchmark", "datasets"],
-    queryFn: async () => (await apiClient.get<string[]>("/admin/benchmark/datasets")).data,
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<string[]>("/admin/benchmark/datasets", { signal })).data,
+    staleTime: 60_000,
   });
 }
 
@@ -75,7 +139,7 @@ export function useBenchmarkQuestions(params?: {
   if (params?.limit) query.set("limit", String(params.limit));
   if (params?.offset) query.set("offset", String(params.offset));
 
-  return useQuery({
+  return useQuery<BenchmarkQuestionsListResponse>({
     queryKey: ["benchmark", "questions", params],
     placeholderData: (previousData, previousQuery) => {
       const previousParams = previousQuery?.queryKey[2] as typeof params;
@@ -91,10 +155,11 @@ export function useBenchmarkQuestions(params?: {
       }
       return undefined;
     },
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       (
         await apiClient.get<BenchmarkQuestionsListResponse>(
           `/admin/benchmark/questions?${query.toString()}`,
+          { signal },
         )
       ).data,
   });
@@ -294,9 +359,14 @@ export function useBenchmarkRuns(params?: {
 
   return useQuery({
     queryKey: ["benchmark", "runs", params],
-    queryFn: async () =>
-      (await apiClient.get<BenchmarkRunsListResponse>(`/admin/benchmark/runs?${query.toString()}`))
-        .data,
+    queryFn: async ({ signal }) =>
+      (
+        await apiClient.get<BenchmarkRunsListResponse>(
+          `/admin/benchmark/runs?${query.toString()}`,
+          { signal },
+        )
+      ).data,
+    staleTime: params?.sweep_id ? undefined : 10_000,
     refetchInterval: params?.sweep_id ? 3000 : 10000,
   });
 }
