@@ -13,6 +13,7 @@ from pydantic import SecretStr
 import pytest
 
 from application.admin import ConfigService
+from application.benchmark.services import BenchmarkRunService
 from application.health.ports import HealthCheckResult
 from application.health.service import HealthService
 from application.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
@@ -106,10 +107,10 @@ def test_ml_endpoint_change_rejected_before_commit(
 @pytest.mark.parametrize(
     "rows",
     [
-        [row("retriever_top_k", "garbage", ConfigValueType.INT)],
-        [row("retriever_top_k", "0", ConfigValueType.INT)],
+        [row("retriever_top_k_broad", "garbage", ConfigValueType.INT)],
+        [row("retriever_top_k_broad", "0", ConfigValueType.INT)],
         [row("ocr_lang_surya", "{}", ConfigValueType.LIST)],
-        [row("retriever_top_k", "7", ConfigValueType.STR)],
+        [row("retriever_top_k_broad", "7", ConfigValueType.STR)],
     ],
 )
 def test_bad_snapshot_keeps_entire_previous_state_and_safe_error(
@@ -464,7 +465,7 @@ async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database
     ).save(row("llm_model", "cli-db-model"))
     await require_present(
         cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
-    ).save(row("retriever_top_k", "garbage" if malformed else "7", ConfigValueType.INT))
+    ).save(row("retriever_top_k_broad", "garbage" if malformed else "7", ConfigValueType.INT))
     await require_present(
         cast("FakeUnitOfWorkFactory", infra.db.uow_factory)._uow.fake_config_parameters
     ).save(row("fingerprint_min_articles", "9", ConfigValueType.INT, "legal"))
@@ -521,3 +522,33 @@ async def test_config_service_rejects_chat_quota_against_saved_snapshot(
     async with factory.create() as uow:
         saved = await uow.config_parameters.get_by_key("rate_limit_chat_per_day")
         assert require_present(saved).value == "100"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "run_config,expected",
+    [
+        # Valid together, invalid if top_k were written first against the old fetch_k=5.
+        ({"top_k": 8, "fetch_k": 20}, {"retriever_top_k_broad": "8", "retriever_fetch_k_broad": "20"}),
+        # Invalid together: nothing is applied, so the chat never gets a half-applied pair.
+        ({"top_k": 30, "fetch_k": 20}, {"retriever_top_k_broad": "2", "retriever_fetch_k_broad": "5"}),
+    ],
+)
+async def test_benchmark_limits_are_applied_as_one_validated_change(
+    configuration: SettingsProviderConfiguration, run_config: dict[str, int], expected: dict[str, str]
+) -> None:
+    factory = FakeUnitOfWorkFactory()
+    repository = factory._uow.fake_config_parameters
+
+    for key, value in (("retriever_top_k_broad", "2"), ("retriever_fetch_k_broad", "5")):
+        await repository.save(row(key, value, ConfigValueType.INT))
+
+    service = ConfigService(factory, configuration.bus, cast("ProviderConfigurationPort", configuration))
+    runs = BenchmarkRunService(factory)
+    runs.get = AsyncMock(return_value=SimpleNamespace(config_json=run_config))  # type: ignore[method-assign]
+    result = await runs.apply_config(1, 7, service)
+
+    saved = {item.key: item.value for item in await repository.get_all()}
+    assert saved == expected
+    unchanged = expected == {"retriever_top_k_broad": "2", "retriever_fetch_k_broad": "5"}
+    assert (result.applied, bool(result.failed)) == ((0, True) if unchanged else (2, False))

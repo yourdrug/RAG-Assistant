@@ -170,10 +170,15 @@ def test_shared_generation_budget_counts_actual_base_prompt(breadth: str, with_h
         breadth=Breadth(breadth),
         history_messages=history,
     )
-    prompt, fitted, num_ctx, num_predict, remaining = prepare_generation_budget(state)
-    messages = format_generation_messages(prompt, context="", history=fitted, question=state.question)
-    assert remaining == num_ctx - num_predict - estimate_message_tokens(messages)
-    assert fitted == history
+    budget = prepare_generation_budget(state)
+    messages = format_generation_messages(
+        budget.selection_prompt, context="", history=budget.history, question=state.question
+    )
+    assert budget.input_budget == budget.num_ctx - max(
+        state.rag.llm_num_predict_narrow, state.rag.llm_num_predict_broad
+    )
+    assert budget.remaining == budget.input_budget - estimate_message_tokens(messages)
+    assert budget.history == history
 
 
 def test_prompt_keeps_provision_heading_stripped_with_ingestion_prefix() -> None:

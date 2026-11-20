@@ -180,7 +180,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam(
         "retriever_fetch_k", int, DynamicParamCategory.RAG, "Retriever fetch count (narrow)", 1, 200
     ),
-    DynamicParam("retriever_top_k", int, DynamicParamCategory.RAG, "Retriever top-k (narrow)", 1, 50),
     DynamicParam(
         "retriever_fetch_k_broad", int, DynamicParamCategory.RAG, "Retriever fetch count (broad)", 1, 200
     ),

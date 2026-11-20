@@ -46,7 +46,7 @@ class BenchmarkJobService:
         self.corpus_scope = corpus_scope
         self.replay = replay
 
-    async def run(
+    async def run(  # noqa: PLR0913 - keyword-only fields of the benchmark job payload
         self,
         *,
         dataset: str,
@@ -56,6 +56,7 @@ class BenchmarkJobService:
         space_id: int | None = None,
         expected_dataset_hash: str | None = None,
         llm_replay_mode: LLMReplayMode = LLMReplayMode.OFF,
+        depth: str | None = None,
     ) -> None:
         service = self.results
         existing = await service.get_job_result(job_id)
@@ -77,6 +78,7 @@ class BenchmarkJobService:
                         top_k=top_k,
                         judge_model=judge_model,
                         space_id=space.id,
+                        depth=depth,
                     )
                 replay_metrics = (
                     {"llm_replay": replay.as_dict()} if llm_replay_mode != LLMReplayMode.OFF else {}
@@ -88,6 +90,7 @@ class BenchmarkJobService:
                             "top_k": top_k,
                             "judge_model": judge_model,
                             "evaluation_mode": "full",
+                            "depth": depth,
                             "dataset_hash": dataset_hash,
                             **metadata,
                             "space_id": space.id,

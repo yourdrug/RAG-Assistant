@@ -12,6 +12,10 @@ from pydantic import SecretStr
 import pytest
 
 from config import settings
+from domain.rag.breadth import AnswerStyle
+from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
+from infrastructure.ml.evidence_profiles.profiles import evidence_profile_scope
+from infrastructure.ml.rag.prompts import build_system_prompt
 
 
 if TYPE_CHECKING:
@@ -146,3 +150,40 @@ async def test_failed_request_resumes_without_repeating_successes(
 
     await comparison.run_comparison(snapshot, out)
     assert len(requests) == 7
+
+
+@pytest.mark.parametrize(
+    "recorded,expected",
+    [
+        ({"prompt_budget": {"effective_breadth": "broad", "enumerate_cases": False}}, "detailed"),
+        ({"prompt_budget": {"effective_breadth": "narrow", "enumerate_cases": False}}, "concise"),
+        ({"prompt_budget": {"answer_style": "adaptive", "enumerate_cases": False}}, "adaptive"),
+    ],
+)
+def test_frozen_prompt_follows_the_recorded_style(
+    comparison: ModuleType, recorded: dict[str, Any], expected: str
+) -> None:
+    # A detailed historical answer must never be replayed with the concise prompt.
+    run = {
+        "id": 10,
+        "sweep_id": 6,
+        "dataset": "fixture",
+        "per_question_results": [
+            {
+                "id": 148,
+                "question": "Какой код?",
+                "answer": "old",
+                "expected_answer": "reference",
+                "correctness": 0,
+                "breadth": "narrow",
+                "evidence_metrics": {"context_fact_coverage": 1},
+                "evidence": {"context": "005 | target", **recorded},
+            }
+        ],
+    }
+    prepared = comparison.prepare_snapshot([run], [{"id": 148}], 10, [148], [])
+    case = prepared["cases"][0]
+    assert case["answer_style"] == expected
+    with evidence_profile_scope(BelarusEvidenceProfile()):
+        expected_system = build_system_prompt(AnswerStyle(expected), question="Какой код?")
+    assert case["messages"][0]["content"] == expected_system

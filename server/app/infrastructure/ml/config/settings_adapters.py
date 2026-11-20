@@ -5,6 +5,8 @@ Consolidates all settings adapter classes into a single module.
 
 from __future__ import annotations
 
+from typing import cast
+
 from config import (
     AppSection,
     ChatSection,
@@ -16,7 +18,6 @@ from config import (
     OCRSection,
     RagFeaturesSection,
     RankingSection,
-    RetrievalSection,
     StorageSection,
     VectorStoreSection,
     get_setting,
@@ -36,23 +37,24 @@ class LivePreviewSettings:
 
 
 class LiveRagSettings:
-    """RAG settings adapter — reads from global settings at access time (hot-reload)."""
+    """RAG settings adapter — reads from global settings at access time (hot-reload).
+
+    Retrieval and ranking parameters that benchmarks and sweeps vary or freeze are read through
+    ``get_setting``, which prefers context-scoped overrides over the request snapshot;
+    otherwise an experiment would record a value the pipeline never used.
+    """
 
     @property
     def retriever_fetch_k(self) -> int:
-        return request_section(RetrievalSection).retriever_fetch_k
-
-    @property
-    def retriever_top_k(self) -> int:
-        return request_section(RetrievalSection).retriever_top_k
+        return get_setting("retriever_fetch_k")
 
     @property
     def retriever_fetch_k_broad(self) -> int:
-        return request_section(RetrievalSection).retriever_fetch_k_broad
+        return get_setting("retriever_fetch_k_broad")
 
     @property
     def retriever_top_k_broad(self) -> int:
-        return request_section(RetrievalSection).retriever_top_k_broad
+        return get_setting("retriever_top_k_broad")
 
     @property
     def hybrid_enabled(self) -> bool:
@@ -60,27 +62,27 @@ class LiveRagSettings:
 
     @property
     def bm25_fetch_k(self) -> int:
-        return request_section(HybridSearchSection).bm25_fetch_k
+        return cast("int", get_setting("bm25_fetch_k"))
 
     @property
     def rrf_k(self) -> int:
-        return request_section(HybridSearchSection).rrf_k
+        return cast("int", get_setting("rrf_k"))
 
     @property
     def dense_weight(self) -> float:
-        return request_section(HybridSearchSection).dense_weight
+        return cast("float", get_setting("dense_weight"))
 
     @property
     def sparse_weight(self) -> float:
-        return request_section(HybridSearchSection).sparse_weight
+        return cast("float", get_setting("sparse_weight"))
 
     @property
     def rerank_min_score(self) -> float | None:
-        return request_section(RankingSection).rerank_min_score
+        return cast("float | None", get_setting("rerank_min_score"))
 
     @property
     def rerank_score_gap_ratio(self) -> float | None:
-        return request_section(RankingSection).rerank_score_gap_ratio
+        return cast("float | None", get_setting("rerank_score_gap_ratio"))
 
     @property
     def citation_filter_enabled(self) -> bool:

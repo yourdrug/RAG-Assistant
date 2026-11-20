@@ -16,7 +16,7 @@ from config import (
     RetrievalSection,
     request_section,
 )
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import AnswerStyle, answer_style
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.cache.answers import compute_question_hash, compute_visibility_scope_hash
 from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
@@ -45,6 +45,7 @@ class CacheKeyBuilder:
             user_role=state.request.ctx.user_role,
             curator_scope=state.request.ctx.curator_scope,
         )
+        style = answer_style(state.request.ctx.depth)
         q_hash = compute_question_hash(
             state.query,
             context={
@@ -52,6 +53,8 @@ class CacheKeyBuilder:
                 # The space selects the searched documents; an answer never leaves its space.
                 "space_id": state.request.ctx.space.id if state.request.ctx.space is not None else None,
                 "depth": state.request.ctx.depth,
+                # Bump when the depth -> answer style/retrieval resolution changes, so stale answers miss.
+                "breadth_policy": 3,
                 "summary": state.request.ctx.summary,
                 "question": state.request.question,
                 "history": [
@@ -72,8 +75,8 @@ class CacheKeyBuilder:
                 if domain_keys is not None
                 else {},
                 "system_prompts": [
-                    build_system_prompt(Breadth.NARROW, question=state.request.question),
-                    build_system_prompt(Breadth.BROAD, enumerate_cases=True, question=state.request.question),
+                    build_system_prompt(style, question=state.request.question),
+                    build_system_prompt(style, enumerate_cases=True, question=state.request.question),
                 ],
             },
         )
@@ -124,7 +127,7 @@ def config_snapshot(
         if domain_registry is not None
         else {},
         "prompt_version": hashlib.sha256(
-            "\n".join(build_system_prompt(breadth) for breadth in Breadth).encode()
+            "\n".join(build_system_prompt(style) for style in AnswerStyle).encode()
         ).hexdigest(),
     }
 

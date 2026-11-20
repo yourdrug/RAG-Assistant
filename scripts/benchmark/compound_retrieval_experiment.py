@@ -67,7 +67,7 @@ async def compare(cases: list[dict[str, Any]], user_id: int) -> dict[str, Any]:
     registry = MLClientRegistry()
     settings = build_rag_settings()
     settings = replace(
-        settings, retriever=replace(settings.retriever, fetch_k=30, top_k=8)
+        settings, retriever=replace(settings.retriever, fetch_k=30)
     )
     user = RagContext(user=UserContext(user_id=user_id, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)).to_user_context()
     conditions = get_visibility_conditions(

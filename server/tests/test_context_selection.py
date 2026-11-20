@@ -13,6 +13,9 @@ from langchain_core.messages import HumanMessage
 import pytest
 
 from domain.benchmark.evaluation import evaluate_evidence
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
+from domain.rag.context import RagContext
 from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
@@ -143,8 +146,8 @@ def test_pipeline_keeps_high_score_from_another_section_with_full_prompt_counter
     # Derive a window that fits exactly the top two complete blocks.
     reference = state_for([docs[0], docs[2]])
     messages, _ = step_build_context(reference, None)
-    limit = estimate_message_tokens(messages) + reference.rag.llm_num_predict_narrow
-    state = state_for(docs, rag=replace(reference.rag, llm_num_ctx_narrow=limit))
+    limit = estimate_message_tokens(messages) + reference.rag.llm_num_predict_broad
+    state = state_for(docs, rag=replace(reference.rag, llm_num_ctx_broad=limit))
     evidence = BenchmarkEvidence()
     token = active_evidence.set(evidence)
     counter = MagicMock(side_effect=estimate_message_tokens)
@@ -158,7 +161,7 @@ def test_pipeline_keeps_high_score_from_another_section_with_full_prompt_counter
     assert evidence.context is not None
     assert docs[1][0].page_content not in evidence.context
     assert evidence.prompt_budget is not None
-    assert evidence.prompt_budget["input_tokens"] + state.rag.llm_num_predict_narrow == limit
+    assert evidence.prompt_budget["input_tokens"] + state.rag.llm_num_predict_broad == limit
     assert evidence is not None
     assert evidence.prompt_candidates is not None
     assert len(evidence.prompt_candidates) == 3
@@ -285,3 +288,56 @@ def test_saved_snapshot_loss_is_reproduced_and_repaired(
     assert rebuilt["context_fragment_recall"] == 1
     assert rebuilt["input_tokens"] <= question["input_budget"]
     assert rebuilt["missing_context_fragments"] == []
+
+
+@pytest.mark.generic_evidence
+def test_answer_style_never_changes_the_evidence_sent_to_the_model() -> None:
+    # Walk the context window across selection boundaries: at every size the fragments that
+    # actually reach the model must be identical for "Авто", "Кратко" and "Подробно".
+    docs = [
+        (doc(f"Condition {i} applies with exception {i}. " * 25, i), 0.95 - i * 0.01) for i in range(1, 9)
+    ]
+    reference = state_for(docs[:1])
+    messages, _ = step_build_context(reference, None)
+    floor = estimate_message_tokens(messages) + max(
+        reference.rag.llm_num_predict_narrow, reference.rag.llm_num_predict_broad
+    )
+    user = UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    sizes = set()
+
+    for extra in range(0, 3000, 37):
+        selected = {}
+
+        for depth in (None, "narrow", "broad"):
+            state = state_for(
+                docs,
+                ctx=RagContext(user=user, depth=depth),
+                rag=replace(reference.rag, llm_num_ctx_broad=floor + extra),
+            )
+            step_build_context(state, None)
+            selected[depth] = [item.metadata["document_id"] for item, _ in state._prompt_docs]
+
+        assert selected[None] == selected["narrow"] == selected["broad"], extra
+        sizes.add(len(selected[None]))
+
+    assert len(sizes) > 2  # The walk really crossed several selection boundaries.
+
+
+@pytest.mark.generic_evidence
+@pytest.mark.parametrize("depth", [None, "narrow", "broad"])
+def test_trace_budget_describes_the_prompt_actually_sent(depth: str | None) -> None:
+    user = UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER)
+    state = state_for([(doc("Короткий фрагмент.", 1), 0.9)], ctx=RagContext(user=user, depth=depth))
+    evidence = BenchmarkEvidence(benchmark_mode=False)
+    token = active_evidence.set(evidence)
+    try:
+        messages, _ = step_build_context(state, None)
+    finally:
+        active_evidence.reset(token)
+    budget = evidence.prompt_budget
+    assert budget is not None
+    assert budget["context_tokens"] > 0
+    assert budget["input_tokens"] == estimate_message_tokens(messages)
+    assert (
+        budget["base_tokens"] + budget["history_tokens"] + budget["context_tokens"] == budget["input_tokens"]
+    )

@@ -10,7 +10,7 @@ from langchain_core.documents import Document
 import pytest
 
 from config import settings
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import AnswerStyle
 from domain.rag.classification import classify_question_breadth
 from domain.rag.settings import RagSettings
 from infrastructure.ml.rag.prompt_blocks import is_not_found_answer as _is_not_found_answer
@@ -56,11 +56,6 @@ class TestBuildRagSettings:
 
         result = _build_rag_settings()
         assert isinstance(result, RagSettings)
-
-    def test_narrow_top_k_from_config(self) -> None:
-
-        result = _build_rag_settings()
-        assert result.retriever.top_k == settings.retriever_top_k
 
     def test_broad_top_k_from_config(self) -> None:
 
@@ -242,28 +237,31 @@ class TestExtractSources:
 class TestBuildSystemPrompt:
     @pytest.mark.generic_evidence
     def test_broad_rule3_mentions_subpoints(self) -> None:
-        prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=True)
+        prompt = build_system_prompt(style=AnswerStyle.DETAILED, enumerate_cases=True)
         assert "подпунктам" in prompt.lower() or "подпункт" in prompt.lower()
 
     @pytest.mark.generic_evidence
-    def test_broad_rule3_enumerates_conditions(self) -> None:
-        prompt = build_system_prompt(breadth=Breadth.BROAD)
-        assert "ВСЕ случаи" in prompt or "все случаи" in prompt.lower()
+    @pytest.mark.parametrize("style", list(AnswerStyle))
+    def test_every_style_requires_all_conditions(self, style: AnswerStyle) -> None:
+        prompt = build_system_prompt(style=style)
+        assert "<completeness_rules>" in prompt
+        assert "назови все, не сокращай перечень" in prompt
 
     @pytest.mark.generic_evidence
     def test_narrow_rule3_brief(self) -> None:
-        prompt = build_system_prompt(breadth=Breadth.NARROW)
+        prompt = build_system_prompt(style=AnswerStyle.CONCISE)
         assert "КРАТКО" in prompt or "кратко" in prompt.lower()
 
     @pytest.mark.generic_evidence
-    def test_narrow_rule3_no_subpoints(self) -> None:
-        prompt = build_system_prompt(breadth=Breadth.NARROW)
-        assert "подпунктам" not in prompt.lower()
+    def test_concise_prompt_has_no_detailed_presentation(self) -> None:
+        prompt = build_system_prompt(style=AnswerStyle.CONCISE)
+        assert "ПОДРОБНО" not in prompt
+        assert "1-3" not in prompt.split("<formatting_rules>")[1].split("</formatting_rules>")[0]
 
     @pytest.mark.generic_evidence
     def test_domain_addendum_appears(self) -> None:
         prompt = build_system_prompt(
-            breadth=Breadth.NARROW,
+            style=AnswerStyle.CONCISE,
             domain_addendum="Обязательно указывай номер статьи/пункта.",
         )
         assert "статьи/пункта" in prompt
@@ -271,7 +269,7 @@ class TestBuildSystemPrompt:
     @pytest.mark.generic_evidence
     def test_domain_addendum_overrides_generic(self) -> None:
         prompt = build_system_prompt(
-            breadth=Breadth.NARROW,
+            style=AnswerStyle.CONCISE,
             domain_addendum="Custom domain rule.",
         )
         assert "Custom domain rule." in prompt
@@ -284,7 +282,7 @@ class TestBuildSystemPrompt:
 
     @pytest.mark.generic_evidence
     def test_rule13_out_of_domain(self) -> None:
-        prompt = build_system_prompt(breadth=Breadth.NARROW)
+        prompt = build_system_prompt(style=AnswerStyle.CONCISE)
         assert "программирования" in prompt.lower()
 
 

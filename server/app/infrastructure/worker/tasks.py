@@ -158,6 +158,7 @@ async def run_benchmark(  # noqa: PLR0913 - keyword-only payload fields of the A
     space_id: int | None = None,
     dataset_hash: str | None = None,
     llm_replay_mode: str = LLMReplayMode.OFF.value,
+    depth: str | None = None,
 ) -> None:
     del out_dir  # Retained for jobs serialized before report export moved to the service.
     await ctx["benchmark_job"].run(
@@ -168,4 +169,5 @@ async def run_benchmark(  # noqa: PLR0913 - keyword-only payload fields of the A
         space_id=space_id,
         expected_dataset_hash=dataset_hash,
         llm_replay_mode=LLMReplayMode(llm_replay_mode),
+        depth=depth,
     )

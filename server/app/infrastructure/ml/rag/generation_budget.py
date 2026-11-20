@@ -1,51 +1,101 @@
-"""Shared base prompt and history budget for retrieval and generation."""
+"""Shared base prompt and history budget for retrieval and generation.
 
-from collections.abc import Callable
+The answer style must never decide which evidence reaches the model. Evidence selection,
+history trimming and neighbour expansion therefore use one style-independent budget: the
+common context window minus the largest output reserve of any style, measured against the
+largest style prompt. The chosen style only picks its own prompt and output ceiling, both of
+which fit inside that budget.
+"""
 
-from langchain_core.messages import BaseMessage
-from langchain_core.prompts import ChatPromptTemplate
+from __future__ import annotations
 
-from domain.rag.breadth import Breadth
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from domain.rag.breadth import AnswerStyle, answer_style
 from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.rag_prompts import build_prompt, domain_prompt_addendum
-from infrastructure.ml.rag.retrieval_work import RetrievalWork
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from langchain_core.messages import BaseMessage
+    from langchain_core.prompts import ChatPromptTemplate
+
+    from domain.rag.settings import RagSettings
+    from infrastructure.ml.rag.retrieval_work import RetrievalWork
+
+
+@dataclass(frozen=True)
+class GenerationBudget:
+    # Prompt of the requested style: the one actually sent to the model.
+    prompt: ChatPromptTemplate
+    # The style prompt with the most tokens; selection counts against it so every style fits.
+    selection_prompt: ChatPromptTemplate
+    history: list[BaseMessage]
+    num_ctx: int
+    # Output ceiling of the requested style.
+    num_predict: int
+    # Input tokens available to prompt, history and evidence for every style.
+    input_budget: int
+    # Evidence tokens left after the selection prompt and history.
+    remaining: int
+
+
+def output_ceiling(rag: RagSettings, style: AnswerStyle) -> int:
+    return rag.llm_num_predict_narrow if style == AnswerStyle.CONCISE else rag.llm_num_predict_broad
+
+
+def selection_reserve(rag: RagSettings) -> int:
+    """Output tokens reserved during evidence selection: the largest ceiling of any style."""
+    return max(output_ceiling(rag, style) for style in AnswerStyle)
 
 
 def prepare_generation_budget(
     state: RetrievalWork,
     count_tokens: Callable[[list[BaseMessage]], int] = estimate_message_tokens,
-) -> tuple[ChatPromptTemplate, list[BaseMessage], int, int, int]:
-    breadth = Breadth.BROAD if state.enumerate_cases else state.breadth
-
-    if breadth is None:
-        message = "Breadth is required"
-        raise ValueError(message)
-
+) -> GenerationBudget:
     registry = state.domain_registry
     keys = state.domain_keys
-    prompt = build_prompt(
-        breadth,
-        summary=state.ctx.summary,
-        domain_addendum=domain_prompt_addendum(state.query_domain, state.ctx, keys, registry),
-        enumerate_cases=state.enumerate_cases,
-        question=state.question,
-    )
-    num_ctx = state.rag.llm_num_ctx_broad if breadth == Breadth.BROAD else state.rag.llm_num_ctx_narrow
-    num_predict = (
-        state.rag.llm_num_predict_broad if breadth == Breadth.BROAD else state.rag.llm_num_predict_narrow
-    )
+    addendum = domain_prompt_addendum(state.query_domain, state.ctx, keys, registry)
+    prompts = {
+        style: build_prompt(
+            style,
+            summary=state.ctx.summary,
+            domain_addendum=addendum,
+            enumerate_cases=state.enumerate_cases,
+            question=state.question,
+        )
+        for style in AnswerStyle
+    }
+    style = answer_style(state.ctx.depth)
+    num_ctx = state.rag.llm_num_ctx_broad
+    input_budget = num_ctx - selection_reserve(state.rag)
     history = list(state.history_messages)
 
     while True:
-        base = count_tokens(
-            format_generation_messages(prompt, context="", history=history, question=state.question)
-        )
-        remaining = num_ctx - num_predict - base
+        bases = {
+            candidate: count_tokens(
+                format_generation_messages(prompt, context="", history=history, question=state.question)
+            )
+            for candidate, prompt in prompts.items()
+        }
+        widest = max(bases, key=lambda candidate: bases[candidate])
+        remaining = input_budget - bases[widest]
 
         if remaining > 0:
-            return prompt, history, num_ctx, num_predict, remaining
+            return GenerationBudget(
+                prompt=prompts[style],
+                selection_prompt=prompts[widest],
+                history=history,
+                num_ctx=num_ctx,
+                num_predict=output_ceiling(state.rag, style),
+                input_budget=input_budget,
+                remaining=remaining,
+            )
 
         if not history:
             raise ContextBudgetExceededError

@@ -13,10 +13,13 @@ from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.rag.context import RagContext
 from domain.rag.outcome import AnswerOutcome
+from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.judging.token_usage import judge_usage, record_judge_usage
+from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 from infrastructure.ml.clients.managed_llm import ManagedLLM
+from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.usage_capture import active_llm_usage, record_model_response, summarize_usage
 
 
@@ -73,6 +76,8 @@ async def test_rag_elapsed_includes_retrieval_and_usage_without_judge() -> None:
             generation_sec=None,
             ttft_sec=None,
             breadth=None,
+            answer_style="adaptive",
+            finish_reason="stop",
             domain=None,
         )
 
@@ -241,3 +246,51 @@ async def test_failed_judge_preserves_paid_responses_for_checkpoint(monkeypatch:
         assert records[0]["cost_usd"] == 0.002
     finally:
         judge_usage.reset(token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fetch_k", [10, 30])
+async def test_benchmark_fetch_k_reaches_the_chat_candidate_limit(fetch_k: int) -> None:
+    # Chat retrieval reads only the broad candidate limit; the experimental value must be what
+    # the pipeline actually searches with, not a setting it ignores.
+    seen: list[int] = []
+
+    async def invoke(**kwargs: Any) -> SimpleNamespace:
+        seen.append(compute_retrieval_params(build_rag_settings(), "простой вопрос")["fetch_k"])
+        return SimpleNamespace(
+            answer="answer",
+            outcome=AnswerOutcome.GENERATED,
+            sources=[],
+            input_tokens=None,
+            output_tokens=None,
+            generation_sec=None,
+            ttft_sec=None,
+            breadth=None,
+            answer_style="adaptive",
+            finish_reason="stop",
+            domain=None,
+        )
+
+    ctx = RagContext(user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN))
+    await RagBenchmarkGenerator(SimpleNamespace(invoke=invoke), 8, fetch_k).generate({"question": "q"}, ctx)
+    assert seen == [fetch_k]
+
+
+def test_sweep_overrides_reach_the_chat_pipeline_settings() -> None:
+    # The full sweep stage runs the real pipeline: every varied parameter must be the one it uses.
+    config = {
+        "fetch_k": 12,
+        "dense_weight": 0.7,
+        "sparse_weight": 0.3,
+        "rrf_k": 42,
+        "rerank_min_score": 0.21,
+        "rerank_score_gap_ratio": 0.33,
+    }
+    with LiveSweepSettings().override(config):
+        rag = build_rag_settings()
+        params = compute_retrieval_params(rag, "простой вопрос")
+    assert params["fetch_k"] == 12
+    assert (rag.hybrid_search.dense_weight, rag.hybrid_search.sparse_weight) == (0.7, 0.3)
+    assert rag.hybrid_search.rrf_k == 42
+    assert (rag.rerank.min_score, rag.rerank.score_gap_ratio) == (0.21, 0.33)
+    assert compute_retrieval_params(build_rag_settings(), "простой вопрос")["fetch_k"] != 12

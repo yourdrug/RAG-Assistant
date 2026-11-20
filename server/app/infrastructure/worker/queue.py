@@ -181,7 +181,7 @@ async def enqueue_ingest_file(  # noqa: PLR0913 - keyword-only ingestion scope o
         raise DuplicateJobError(msg)
 
 
-async def enqueue_benchmark(
+async def enqueue_benchmark(  # noqa: PLR0913 - keyword-only fields of the benchmark job payload
     *,
     dataset: str,
     top_k: int,
@@ -190,6 +190,7 @@ async def enqueue_benchmark(
     space_id: int | None = None,
     dataset_hash: str | None = None,
     llm_replay_mode: str = LLMReplayMode.OFF.value,
+    depth: str | None = None,
 ) -> None:
     """Enqueue benchmark run via Arq (deduplicated per parameters)."""
     pinned = {} if dataset_hash is None else {"dataset_hash": dataset_hash}
@@ -204,6 +205,7 @@ async def enqueue_benchmark(
         job_id=job_id,
         **pinned,
         llm_replay_mode=llm_replay_mode,
+        depth=depth,
     )
 
 

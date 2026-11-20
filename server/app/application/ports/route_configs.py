@@ -21,7 +21,8 @@ class BenchmarkConfig:
     """Config for benchmark execution routes."""
 
     data_dir: str
-    retriever_top_k: int
+    # Default benchmark top-k: the chat rerank limit.
+    retriever_top_k_broad: int
     llm_model: str
 
 

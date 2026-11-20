@@ -27,7 +27,7 @@ from application.rag.stream_events import SourcesEvent, TextChunk, UsageReport
 from config import LLMSection, config_version, request_section
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
-from domain.rag.breadth import BREADTH_ALIASES, Breadth
+from domain.rag.breadth import Breadth, answer_style, output_breadth, requested_breadth
 from domain.rag.classification import (
     classify_question_breadth,
     is_out_of_domain,
@@ -404,14 +404,11 @@ class RagOperations:
         work = self.retrieval_work(query, previous)
 
         if previous is None:
-            raw = (
-                work.ctx.depth
-                if work.ctx.depth in BREADTH_ALIASES
-                else classify_question_breadth(query.query)
+            work.breadth = requested_breadth(work.ctx.depth) or Breadth(
+                classify_question_breadth(query.query)
             )
-            work.breadth = BREADTH_ALIASES.get(raw) or Breadth(raw)
             RAG_BREADTH_TOTAL.labels(breadth=work.breadth).inc()
-            params = compute_retrieval_params(work.breadth, work.rag, query.query)
+            params = compute_retrieval_params(work.rag, query.query)
             work.fetch_k = params["fetch_k"]
             work.rerank_top_n = params["rerank_top_n"]
             work.effective_dense_weight = params["effective_dense_weight"]
@@ -469,7 +466,6 @@ class RagOperations:
         relevant, refinement = await handle_relevance_gate(
             result.prepared.query,
             lc_documents(result.documents),
-            result.breadth,
             result.prepared.request.settings,
             self.ml,
             context=context.evidence_context if context is not None else None,
@@ -554,20 +550,29 @@ class RagOperations:
             message = "state.breadth must be set before building context"
             raise ValueError(message)
 
-        effective_breadth = Breadth.BROAD if state.enumerate_cases else state.breadth
+        style = answer_style(state.ctx.depth)
 
         count_tokens = token_counter or estimate_message_tokens
-        prompt, history, num_ctx, num_predict, _ = prepare_generation_budget(state, count_tokens)
-
-        input_budget = num_ctx - num_predict
+        generation = prepare_generation_budget(state, count_tokens)
+        prompt, history = generation.prompt, generation.history
+        num_ctx, num_predict, input_budget = (
+            generation.num_ctx,
+            generation.num_predict,
+            generation.input_budget,
+        )
 
         while True:
             exclusions: list[dict[str, Any]] = []
 
+            # Evidence is selected against the widest style prompt and the largest output reserve,
+            # so switching the answer style can never add or drop a source.
             def count_context(context: str, current_history: list[BaseMessage] = history) -> int:
                 return count_tokens(
                     format_generation_messages(
-                        prompt, context=context, history=current_history, question=state.question
+                        generation.selection_prompt,
+                        context=context,
+                        history=current_history,
+                        question=state.question,
                     )
                 )
 
@@ -600,7 +605,15 @@ class RagOperations:
             grounded_answer, evidence_assessment = profile.scoped_response(selected, context, state.question)
             break
 
-        base_tokens = count_context("")
+        # Diagnostics describe the prompt actually sent; the widest prompt is only for selection.
+        def count_sent(context: str, current_history: list[BaseMessage] = history) -> int:
+            return count_tokens(
+                format_generation_messages(
+                    prompt, context=context, history=current_history, question=state.question
+                )
+            )
+
+        base_tokens = count_sent("")
         budget = ContextBudget(num_ctx, num_predict, input_tokens, base_tokens)
         prepared = PreparedContext(
             result,
@@ -612,7 +625,7 @@ class RagOperations:
             evidence_assessment,
             context,
         )
-        trace_budget = production_prompt_budget(base_tokens, input_tokens, exclusions, count_context)
+        trace_budget = production_prompt_budget(base_tokens, input_tokens, exclusions, count_sent)
         return ContextAssembly(
             result=result,
             token_counter=token_counter,
@@ -628,7 +641,8 @@ class RagOperations:
                 "num_predict": num_predict,
                 "input_tokens": input_tokens,
                 "base_tokens": base_tokens,
-                "effective_breadth": effective_breadth.value,
+                "answer_style": style.value,
+                "input_budget": input_budget,
                 "enumerate_cases": state.enumerate_cases,
                 "query_parts": state.sub_queries or [state.question],
                 **trace_budget,
@@ -676,7 +690,7 @@ class RagOperations:
     async def released_text(self, context: PreparedContext, run: GenerationRun) -> AsyncGenerator[str]:
         result = context.retrieval
         settings = result.prepared.request.settings
-        breadth = Breadth.BROAD if result.enumerate_cases else result.breadth
+        breadth = output_breadth(answer_style(result.prepared.request.ctx.depth))
         run.guard = GuardedAnswerStream(lambda text: self.stream_check(text, settings))
 
         async with aclosing(self.generation_chunks(lc_messages(context.messages), breadth)) as chunks:
@@ -746,6 +760,7 @@ class RagOperations:
             round(run.first_token_at - run.started, 4) if run.first_token_at is not None else None,
             outcome,
             truncated=truncated,
+            finish_reason=finish_reason,
         )
 
     def stream_check(self, text: str, rag: RagSettings) -> tuple[str, bool]:

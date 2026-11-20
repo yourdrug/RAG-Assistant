@@ -35,6 +35,8 @@ class BenchmarkAnswer:
     generation_sec: float | None = None
     ttft_sec: float | None = None
     breadth: str | None = None
+    answer_style: str | None = None
+    finish_reason: str | None = None
     domain: str | None = None
     evidence: BenchmarkEvidence | None = None
     rag_latency_sec: float | None = None
@@ -59,11 +61,13 @@ class RagBenchmarkGenerator:
         overrides = {
             **(settings_overrides.get() or {}),
             "cache_enabled": False,
-            "retriever_top_k": self._top_k,
+            # The chat reranker reads only the broad top-k; override what actually limits the evidence.
+            "retriever_top_k_broad": self._top_k,
         }
 
         if self._fetch_k is not None:
-            overrides["retriever_fetch_k"] = self._fetch_k
+            # Chat retrieval reads only the broad candidate limit; override what is actually searched.
+            overrides["retriever_fetch_k_broad"] = self._fetch_k
 
         if question.get("as_of_date"):
             ctx = replace(ctx, as_of_date=date.fromisoformat(question["as_of_date"]))
@@ -121,6 +125,8 @@ class RagBenchmarkGenerator:
             generation_sec=result.generation_sec,
             ttft_sec=result.ttft_sec,
             breadth=result.breadth,
+            answer_style=result.answer_style,
+            finish_reason=result.finish_reason,
             domain=result.domain,
             evidence=evidence,
             rag_latency_sec=elapsed,

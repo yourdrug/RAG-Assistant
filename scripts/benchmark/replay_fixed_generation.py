@@ -15,7 +15,7 @@ from pathlib import Path
 from langchain_openai import ChatOpenAI
 
 from config import settings
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import Breadth, stored_answer_style
 from infrastructure.ml.evidence_profiles.profiles import evidence_profile_scope
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.rag_prompts import build_prompt
@@ -37,8 +37,9 @@ async def replay(snapshot: dict) -> dict:
     for case in snapshot["cases"]:
         # Frozen cases come from the legal benchmark, so the legal evidence rules are selected explicitly.
         with evidence_profile_scope(BelarusEvidenceProfile()):
+            # Snapshots from compare_frozen_generation store answer_style; older ones the breadth.
             prompt = build_prompt(
-                case.get("breadth", Breadth.NARROW.value),
+                stored_answer_style(case.get("answer_style") or case.get("breadth", Breadth.NARROW.value)),
                 enumerate_cases=case.get("enumerate_cases", True),
                 domain_addendum=case.get("domain_addendum"),
                 question=case["question"],

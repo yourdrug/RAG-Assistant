@@ -77,7 +77,8 @@ def test_prompt_fragment_metrics_normalize_legacy_angles_and_cell_breaks() -> No
 def test_boundary_question_gets_conditions_in_narrow_prompt(boundary: str) -> None:
     prompt = build_system_prompt(question=f"Какой код при сроке {boundary} 120 дней?")
     assert "<conditional_rules_expansion>" in prompt
-    assert "Краткость не отменяет эти условия" in prompt
+    assert "смежный случай по другую сторону границы" in prompt
+    assert "стиль меняет только подачу, но не полноту" in prompt
 
 
 @pytest.mark.parametrize(

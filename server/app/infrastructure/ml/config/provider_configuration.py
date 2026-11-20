@@ -245,17 +245,23 @@ class SettingsProviderConfiguration:
         candidate = self.settings.model_copy(update={key: decoded})
         self.validate_provider(candidate)
 
-    async def validate_snapshot_change(
-        self, rows: list[ConfigParameter], key: str, value: str, domain_key: str | None
+    async def validate_snapshot_changes(
+        self, rows: list[ConfigParameter], changes: dict[tuple[str, str | None], str]
     ) -> None:
+        """Validate all changes together: linked limits are checked against each other's new values."""
         active = [row for row in rows if (row.key, row.domain_key) in self.definitions]
-        target = next((row for row in active if (row.key, row.domain_key) == (key, domain_key)), None)
+        present = {(row.key, row.domain_key) for row in active}
 
-        if target is None:
+        if not changes or not set(changes) <= present:
             message = "Configuration parameter is not initialized"
             raise ValidationError(message)
 
-        candidate_rows = [replace(row, value=value) if row is target else row for row in active]
+        candidate_rows = [
+            replace(row, value=changes[(row.key, row.domain_key)])
+            if (row.key, row.domain_key) in changes
+            else row
+            for row in active
+        ]
         updates, _, events = self.prepare_snapshot(candidate_rows, require_complete=False)
 
         if self.ml_clients is not None:
@@ -468,7 +474,7 @@ class SettingsProviderConfiguration:
 
 
 def validate_retrieval_budgets(candidate: Settings) -> None:
-    """Reject snapshots with top_k > fetch_k or num_predict >= num_ctx (per breadth)."""
+    """Reject snapshots with top_k > fetch_k or an output ceiling that leaves no prompt budget."""
     errors = [*candidate.check_retrieval(), *candidate.check_generation_budget()]
 
     if errors:

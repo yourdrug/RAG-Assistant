@@ -298,7 +298,7 @@ async def test_pipeline_top_k_neighbor_recovery_acl_and_prompt_parity(
 
     async def run(capture: bool) -> tuple[Any, Any, Any]:
         state = stage_fixture(
-            rag=make_rag(retriever=RetrieverConfig(fetch_k=10, top_k=2, fetch_k_broad=10, top_k_broad=4)),
+            rag=make_rag(retriever=RetrieverConfig(fetch_k=10, fetch_k_broad=10, top_k_broad=4)),
             question="Q",
             ctx=CTX,
             user=CTX.user,

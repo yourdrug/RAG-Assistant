@@ -205,7 +205,7 @@ async def test_legacy_out_dir_is_noop_only_for_previous_default() -> None:
 
     request = SimpleNamespace(method="POST", url=SimpleNamespace(path="/benchmark"))
     user = SimpleNamespace(kind="internal", role="admin", id=1)
-    cfg = BenchmarkConfig(data_dir="/proc/readonly", retriever_top_k=4, llm_model="judge")
+    cfg = BenchmarkConfig(data_dir="/proc/readonly", retriever_top_k_broad=4, llm_model="judge")
     jobs = SimpleNamespace(create_job=AsyncMock(return_value=8))
     enqueuer = SimpleNamespace(enqueue_benchmark=AsyncMock())
     # Empty idempotency headers bypass the reservation store.

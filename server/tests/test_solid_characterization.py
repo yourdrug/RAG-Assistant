@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 from langchain.schema import Document
 import pytest
 
+from application.benchmark.orchestrator import compute_summary_from_results
 from application.benchmark.sweep_ports import SweepCancelled
 from composition.service_providers import build_sweep_engine
 from config import get_setting, settings, settings_overrides
@@ -73,6 +74,8 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(
             generation_sec=0.5,
             ttft_sec=0.1,
             breadth="narrow",
+            answer_style="adaptive",
+            finish_reason="stop",
             domain="general",
             sources=[{"source": "report.pdf", "max_score": 0.9, "content": "context"}],
         )
@@ -90,6 +93,71 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(
     assert results[0]["input_tokens"] == 20
     assert all(c.user_role == "admin" and c.user_kind == "internal" for c in contexts)
     assert score.call_args.kwargs["context"] == "context"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("depth", [None, "narrow", "broad"])
+async def test_benchmark_asks_with_the_selected_answer_depth(
+    benchmark_io: tuple[list[dict[str, Any]], AsyncMock], depth: str | None
+) -> None:
+    questions, _ = benchmark_io
+    contexts = []
+
+    async def invoke(question: object, history: object, ctx: Any) -> SimpleNamespace:
+        contexts.append(ctx)
+        return SimpleNamespace(
+            answer="answer text",
+            outcome=AnswerOutcome.GENERATED,
+            input_tokens=20,
+            output_tokens=10,
+            generation_sec=0.5,
+            ttft_sec=0.1,
+            breadth="narrow",
+            answer_style="concise",
+            finish_reason="length",
+            domain="general",
+            sources=[{"source": "report.pdf", "max_score": 0.9, "content": "context"}],
+        )
+
+    results = await run_benchmark_async(
+        questions, 4, "judge", depth=depth, rag_service=SimpleNamespace(invoke=invoke)
+    )
+    assert [ctx.depth for ctx in contexts] == [depth]
+    assert results[0]["answer_style"] == "concise"
+    assert results[0]["finish_reason"] == "length"
+    summary = compute_summary_from_results(results)
+    assert summary["answer_length"] == {"mean_chars": 11.0, "median_chars": 11, "max_chars": 11}
+    assert summary["truncated_rate"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_answer_length_median_averages_the_two_middle_answers(
+    benchmark_io: tuple[list[dict[str, Any]], AsyncMock],
+) -> None:
+    questions, _ = benchmark_io
+    answers = iter(["a" * 100, "b" * 300])
+
+    async def invoke(question: object, history: object, ctx: Any) -> SimpleNamespace:
+        return SimpleNamespace(
+            answer=next(answers),
+            outcome=AnswerOutcome.GENERATED,
+            input_tokens=20,
+            output_tokens=10,
+            generation_sec=0.5,
+            ttft_sec=0.1,
+            breadth="narrow",
+            answer_style="adaptive",
+            finish_reason="stop",
+            domain="general",
+            sources=[{"source": "report.pdf", "max_score": 0.9, "content": "context"}],
+        )
+
+    results = await run_benchmark_async(
+        questions, 4, "judge", n_runs=2, max_concurrent=1, rag_service=SimpleNamespace(invoke=invoke)
+    )
+    summary = compute_summary_from_results(results)
+    assert summary["answer_length"] == {"mean_chars": 200.0, "median_chars": 200, "max_chars": 300}
+    assert summary["truncated_rate"] == 0
 
 
 @pytest.mark.asyncio
@@ -142,7 +210,7 @@ async def test_sweep_cancels_before_scoring(grid_engine: Any, monkeypatch: pytes
 async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(
     grid_engine: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token = settings_overrides.set({"cache_enabled": True, "retriever_top_k": 99})
+    token = settings_overrides.set({"cache_enabled": True, "retriever_top_k_broad": 99})
     monkeypatch.setattr(
         grid_engine, "run_full_benchmark", AsyncMock(side_effect=RuntimeError("judge failed"))
     )
@@ -150,7 +218,7 @@ async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(
         sweep = BenchmarkSweep(search_space={"top_k": {"values": [2]}}, top_n_llm=1)
         with pytest.raises(RuntimeError, match="judge failed"):
             await grid_engine.run_sweep(sweep, judge_model="judge")
-        assert settings_overrides.get() == {"cache_enabled": True, "retriever_top_k": 99}
+        assert settings_overrides.get() == {"cache_enabled": True, "retriever_top_k_broad": 99}
     finally:
         settings_overrides.reset(token)
 

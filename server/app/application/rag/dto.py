@@ -112,6 +112,8 @@ class SanitizedAnswer:
     outcome: AnswerOutcome = AnswerOutcome.GENERATED
     # The provider stopped at the output token limit; the text is incomplete and is not cached.
     truncated: bool = False
+    # Provider stop reason ("stop", "length", ...); None when no LLM was called.
+    finish_reason: str | None = None
 
 
 class SourceMetadata(TypedDict, total=False):

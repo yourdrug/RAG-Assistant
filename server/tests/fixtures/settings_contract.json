@@ -511,7 +511,7 @@
   },
   "llm_num_predict_narrow": {
     "annotation": "<class 'int'>",
-    "default": "400",
+    "default": "1024",
     "metadata": "[]",
     "required": false
   },
@@ -866,12 +866,6 @@
   "retriever_fetch_k_broad": {
     "annotation": "<class 'int'>",
     "default": "40",
-    "metadata": "[]",
-    "required": false
-  },
-  "retriever_top_k": {
-    "annotation": "<class 'int'>",
-    "default": "4",
     "metadata": "[]",
     "required": false
   },

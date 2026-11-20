@@ -412,8 +412,12 @@ async def rerank_and_enrich(
     state.rerank_ms = int((time.monotonic() - t0) * 1000)
     capture_stage("retained", docs, score_kind="reranker")
     capture_retrieval(docs)
+    # Conditional rules are judged on the evidence that survived reranking, not on the raw
+    # candidate pool, where two loosely related chunks with "%" or "в случае" are almost certain.
+    # The flag widens neighbour expansion and adds the completeness rules; it never changes the style.
+    state.enumerate_cases = should_enumerate_cases([doc.page_content for doc, _ in docs])
 
-    _, _, _, _, max_context_tokens = prepare_generation_budget(state)
+    max_context_tokens = prepare_generation_budget(state).remaining
     docs = await enrich_retained_docs(
         docs, state, query, chunk_search, document_access, max_context_tokens=max_context_tokens
     )
@@ -497,7 +501,6 @@ class RetrievalPipeline:
             state.user,
         )
         state.candidates = merge_evidence_candidates(pooled)
-        state.enumerate_cases = should_enumerate_cases([doc.page_content for doc in state.candidates])
         state.retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
         state.docs, _, state.avg_sim = await rerank_and_enrich(
             state.evidence_query or query,

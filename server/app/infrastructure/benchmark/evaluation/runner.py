@@ -50,6 +50,7 @@ async def run_benchmark_async(
     resume = options.get("resume", False)
     checkpoints = options.get("checkpoints")
     checkpoint_prefix = options.get("checkpoint_prefix")
+    depth = options.get("depth")
 
     if options.get("space_id") is not None and space_resolver is None:
         message = "An explicit benchmark space requires a space resolver"
@@ -71,6 +72,7 @@ async def run_benchmark_async(
                 "pack_key": space.pack_key if space is not None else None,
                 "top_k": top_k,
                 "fetch_k": fetch_k,
+                "depth": depth,
                 "n_runs": n_runs,
                 "seed_requested": seed,
             }
@@ -102,6 +104,7 @@ async def run_benchmark_async(
         resume=resume,
         checkpoints=checkpoints,
         checkpoint_prefix=checkpoint_prefix,
+        depth=depth,
         scope=scope,
         reporter=progress,
         settings_identity=fingerprint({"settings": settings_fingerprint(), "evidence_schema": 2}),

@@ -14,7 +14,7 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.par
 
 from application.runtime.config import ConfigParameter, ConfigValueType
 from domain.knowledge.enums import DocDomain
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import AnswerStyle
 from domain.rag.classification import (
     has_exact_reference,
 )
@@ -313,13 +313,18 @@ class TestConfigParameterValidate:
 class TestBuildSystemPrompt:
     @pytest.mark.generic_evidence
     def test_narrow_prompt(self) -> None:
-        prompt = build_system_prompt(Breadth.NARROW)
+        prompt = build_system_prompt(AnswerStyle.CONCISE)
         assert "КРАТКО" in prompt
 
     @pytest.mark.generic_evidence
     def test_broad_prompt(self) -> None:
-        prompt = build_system_prompt(Breadth.BROAD)
-        assert "РАЗВЁРНУТО" in prompt
+        prompt = build_system_prompt(AnswerStyle.DETAILED)
+        assert "ПОДРОБНО" in prompt
+
+    @pytest.mark.generic_evidence
+    def test_adaptive_prompt(self) -> None:
+        prompt = build_system_prompt(AnswerStyle.ADAPTIVE)
+        assert "подбери глубину" in prompt
 
     @pytest.mark.generic_evidence
     def test_default_is_narrow(self) -> None:
@@ -329,7 +334,7 @@ class TestBuildSystemPrompt:
     @pytest.mark.generic_evidence
     def test_domain_addendum_appears(self) -> None:
         prompt = build_system_prompt(
-            Breadth.NARROW,
+            AnswerStyle.CONCISE,
             domain_addendum="Обязательно указывай номер статьи/пункта.",
         )
         assert "domain_specific_rules" in prompt
@@ -337,7 +342,7 @@ class TestBuildSystemPrompt:
 
     @pytest.mark.generic_evidence
     def test_no_domain_addendum(self) -> None:
-        prompt = build_system_prompt(Breadth.NARROW)
+        prompt = build_system_prompt(AnswerStyle.CONCISE)
         assert "domain_specific_rules" not in prompt
 
 

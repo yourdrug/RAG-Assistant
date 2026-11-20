@@ -63,7 +63,7 @@ async def run_benchmark(
             status_code=422, detail="out_dir is no longer supported; use /benchmark/results/{run_id}/export"
         )
 
-    k = req.top_k or bench_cfg.retriever_top_k
+    k = req.top_k or bench_cfg.retriever_top_k_broad
     judge = req.judge_model or bench_cfg.llm_model
 
     cached, reservation = await reserve_idempotency(
@@ -87,6 +87,7 @@ async def run_benchmark(
             "top_k": k,
             "judge_model": judge,
             "llm_replay_mode": req.llm_replay_mode.value,
+            "depth": req.depth,
         },
     )
     try:
@@ -97,6 +98,7 @@ async def run_benchmark(
             job_id=job_id,
             space_id=space.id,
             llm_replay_mode=req.llm_replay_mode.value,
+            depth=req.depth,
         )
     except Exception:  # noqa: BLE001 — committed work remains available to the relay
         logger.warning("Benchmark delivery deferred: job_id=%d", job_id)

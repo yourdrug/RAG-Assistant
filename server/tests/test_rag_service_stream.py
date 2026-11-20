@@ -15,18 +15,22 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from langchain_core.documents import Document as LCDocument
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 import pytest
 
 from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, TextChunk
 from composition.service_providers import create_rag_service
 from domain.identity.user_context import UserContext
-from domain.rag.breadth import Breadth
+from domain.rag.breadth import AnswerStyle, Breadth, output_breadth
 from domain.rag.classification import classify_question_breadth
 from domain.rag.context import RagContext
 from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
+from infrastructure.benchmark.sweep.settings import LiveSweepSettings
+from infrastructure.ml.rag.generation_budget import prepare_generation_budget
 from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER
+from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_postprocess import apply_citation_filter
 from infrastructure.ml.rag.rag_steps import RagOperations
 from tests.test_chat_contracts import chat_fixture
@@ -41,6 +45,7 @@ if TYPE_CHECKING:
     from application.rag.service import RagService
     from application.rag.stream_events import StreamEvent
     from domain.rag.settings import RagSettings
+    from infrastructure.ml.rag.generation_budget import GenerationBudget
 
 
 pytestmark = pytest.mark.slow
@@ -510,28 +515,26 @@ class TestStreamHelperMethods:
         result = classify_question_breadth("обычный вопрос")
         assert isinstance(result, str)
 
-    def test_compute_retrieval_params_narrow(self) -> None:
+    def test_compute_retrieval_params_ignores_breadth_limits(self) -> None:
 
         rag = MagicMock()
         rag.retriever.fetch_k = 25
-        rag.retriever.top_k = 4
         rag.retriever.fetch_k_broad = 40
         rag.retriever.top_k_broad = 10
         rag.hybrid_search.dense_weight = 1.5
         rag.hybrid_search.sparse_weight = 0.5
-        params = compute_retrieval_params(Breadth.NARROW, rag, "general question")
-        assert params["fetch_k"] == 25
+        params = compute_retrieval_params(rag, "general question")
+        assert params["fetch_k"] == 40
 
     def test_compute_retrieval_params_broad(self) -> None:
 
         rag = MagicMock()
         rag.retriever.fetch_k = 25
-        rag.retriever.top_k = 4
         rag.retriever.fetch_k_broad = 40
         rag.retriever.top_k_broad = 10
         rag.hybrid_search.dense_weight = 1.5
         rag.hybrid_search.sparse_weight = 0.5
-        params = compute_retrieval_params(Breadth.BROAD, rag, "general question")
+        params = compute_retrieval_params(rag, "general question")
         assert params["fetch_k"] == 40
 
     def test_compute_effective_weights_no_exact_ref(self) -> None:
@@ -539,7 +542,7 @@ class TestStreamHelperMethods:
         rag = MagicMock()
         rag.hybrid_search.dense_weight = 1.5
         rag.hybrid_search.sparse_weight = 0.5
-        params = compute_retrieval_params(Breadth.NARROW, rag, "general question")
+        params = compute_retrieval_params(rag, "general question")
         assert params["effective_dense_weight"] == 1.5
         assert params["effective_sparse_weight"] == 0.5
         assert params["use_exact_ref_boost"] is False
@@ -700,3 +703,141 @@ async def test_chat_log_records_real_pipeline_metadata_in_stream_and_sync(outcom
         records.append({name: getattr(entry, name) for name in CHAT_LOG_FIELDS})
 
     assert records[0] == records[1]
+
+
+class TestAnswerStyleSelection:
+    """The chat "Авто / Кратко / Подробно" selector sends depth=None/"narrow"/"broad".
+
+    It changes only the presentation: the classifier and conditional evidence never override
+    it, and retrieval, the context window and the completeness rules are the same for all.
+    """
+
+    @staticmethod
+    async def run(depth: str | None, *, auto: Breadth, enumerate_cases: bool) -> SimpleNamespace:
+        # Every style prompt is built for the shared selection budget; tag each one so the test can
+        # tell which prompt actually reached generation.
+        template = _STREAM_PATCHES["infrastructure.ml.rag.generation_budget.build_prompt"]
+        prompts: dict[int, AnswerStyle] = {}
+
+        def tagged_prompt(style: AnswerStyle, **_kwargs: Any) -> MagicMock:
+            prompt = MagicMock(messages=template.return_value.messages)
+            prompt.format_messages = template.return_value.format_messages
+            prompts[id(prompt)] = style
+            return prompt
+
+        build_prompt = MagicMock(side_effect=tagged_prompt)
+        budgets: list[GenerationBudget] = []
+
+        def recorded_budget(*args: Any, **kwargs: Any) -> GenerationBudget:
+            budgets.append(prepare_generation_budget(*args, **kwargs))
+            return budgets[-1]
+
+        search = AsyncMock(return_value=[])
+        client_breadth = MagicMock(wraps=output_breadth)
+        with (
+            patch("infrastructure.ml.rag.rag_steps.build_rag_settings", return_value=make_rag_settings()),
+            patch("infrastructure.ml.rag.rag_steps.classify_question_breadth", return_value=auto),
+            patch(
+                "infrastructure.ml.rag.retrieval_pipeline.should_enumerate_cases",
+                return_value=enumerate_cases,
+            ),
+            patch("infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search", search),
+            patch("infrastructure.ml.rag.generation_budget.build_prompt", build_prompt),
+            patch("infrastructure.ml.rag.rag_steps.prepare_generation_budget", side_effect=recorded_budget),
+            patch("infrastructure.ml.rag.rag_steps.output_breadth", client_breadth),
+        ):
+            await collect_events(make_stream_service(), "question", ctx=_make_context(depth=depth))
+        return SimpleNamespace(
+            style=prompts[id(budgets[-1].prompt)],
+            enumerate_cases=build_prompt.call_args.kwargs["enumerate_cases"],
+            fetch_k=search.call_args.args[1],
+            client_calls=[call.args[0] for call in client_breadth.call_args_list],
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "depth,auto,expected",
+        [
+            ("broad", Breadth.NARROW, AnswerStyle.DETAILED),
+            ("narrow", Breadth.BROAD, AnswerStyle.CONCISE),
+            (None, Breadth.NARROW, AnswerStyle.ADAPTIVE),
+            (None, Breadth.BROAD, AnswerStyle.ADAPTIVE),
+        ],
+    )
+    async def test_style_follows_the_selector_not_the_classifier(
+        self, depth: str | None, auto: Breadth, expected: AnswerStyle
+    ) -> None:
+        assert (await self.run(depth, auto=auto, enumerate_cases=False)).style == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("depth", [None, "narrow", "broad"])
+    async def test_conditional_evidence_keeps_style_and_adds_completeness_rules(
+        self, depth: str | None
+    ) -> None:
+        plain = await self.run(depth, auto=Breadth.NARROW, enumerate_cases=False)
+        conditional = await self.run(depth, auto=Breadth.NARROW, enumerate_cases=True)
+        assert conditional.style == plain.style
+        assert conditional.enumerate_cases is True
+
+    @pytest.mark.asyncio
+    async def test_retrieval_is_identical_for_every_style(self) -> None:
+        fetch_k = {
+            depth: (await self.run(depth, auto=Breadth.NARROW, enumerate_cases=False)).fetch_k
+            for depth in (None, "narrow", "broad")
+        }
+        assert set(fetch_k.values()) == {make_rag_settings().retriever.fetch_k_broad}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "depth,expected",
+        [("narrow", AnswerStyle.CONCISE), (None, AnswerStyle.ADAPTIVE), ("broad", AnswerStyle.DETAILED)],
+    )
+    async def test_generation_client_follows_the_style(
+        self, depth: str | None, expected: AnswerStyle
+    ) -> None:
+        assert (await self.run(depth, auto=Breadth.NARROW, enumerate_cases=False)).client_calls == [expected]
+
+
+class TestAnswerStyleObservability:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "depth,finish_reason,expected_style",
+        [("narrow", "length", "concise"), (None, "stop", "adaptive"), ("broad", "stop", "detailed")],
+    )
+    async def test_final_metadata_records_style_and_finish_reason(
+        self, depth: str | None, finish_reason: str, expected_style: str
+    ) -> None:
+        service = make_stream_service()
+        chunk = MagicMock(content="Ответ из документов.", response_metadata={"finish_reason": finish_reason})
+        cast("Any", service).generation.ml.llm_for_breadth.return_value.astream = MagicMock(
+            return_value=_async_iter([chunk])
+        )
+        with patch("infrastructure.ml.rag.rag_steps.build_rag_settings", return_value=make_rag_settings()):
+            events = await collect_events(service, "question", ctx=_make_context(depth=depth))
+        final = [event for event in events if isinstance(event, PipelineMetaEvent)][-1]
+        assert final.answer_style == expected_style
+        assert final.finish_reason == finish_reason
+
+
+class TestExperimentOverridesReachRetrieval:
+    """Sweep and benchmark overrides must drive the real retriever and reranker inputs."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("top_k", [2, 8])
+    async def test_sweep_top_k_and_fetch_k_reach_the_reranker_and_retriever(self, top_k: int) -> None:
+        features = make_rag_settings().features
+        candidate = LCDocument(page_content="Ответ.", metadata={"source": "a.pdf", "document_id": 1})
+        search = AsyncMock(return_value=[candidate])
+        rerank = AsyncMock(return_value=[(candidate, 0.9)])
+        with (
+            LiveSweepSettings().override({"top_k": top_k, "fetch_k": 12}),
+            patch(
+                "infrastructure.ml.rag.rag_steps.build_rag_settings",
+                side_effect=lambda *_args: replace(build_rag_settings(), features=features),
+            ),
+            patch("infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search", search),
+            patch("infrastructure.ml.rag.retrieval_pipeline.rerank_documents", rerank),
+        ):
+            await collect_events(make_stream_service(), "question")
+        assert search.call_args_list[0].args[1] == 12
+        assert rerank.call_args_list[0].kwargs["top_n"] == top_k

@@ -110,6 +110,7 @@ class JobEnqueuerAdapter:
         job_id: int,
         space_id: int | None = None,
         llm_replay_mode: str = LLMReplayMode.OFF.value,
+        depth: str | None = None,
     ) -> None:
         await _enqueue_benchmark(
             dataset=dataset,
@@ -118,6 +119,7 @@ class JobEnqueuerAdapter:
             job_id=job_id,
             space_id=space_id,
             llm_replay_mode=llm_replay_mode,
+            depth=depth,
         )
 
     async def enqueue_sweep(

@@ -347,6 +347,8 @@ class BenchmarkCaseEvaluator:
             "generation_sec": generated.generation_sec,
             "ttft_sec": generated.ttft_sec,
             "breadth": generated.breadth,
+            "answer_style": generated.answer_style,
+            "finish_reason": generated.finish_reason,
             "domain": generated.domain,
             "run": run.run_idx,
         }

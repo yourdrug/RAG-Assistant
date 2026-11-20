@@ -18,6 +18,7 @@ from tenacity import (
 
 from config import LLMSection, request_section
 from domain.chat.message import MessageRole
+from domain.rag.breadth import AnswerStyle
 from domain.rag.exceptions import ContextBudgetExceededError
 from infrastructure.domain_profile.answer_policy import policy_for
 from infrastructure.ml.clients.client_lease import client_operation
@@ -264,7 +265,7 @@ async def update_rolling_summary(
 
 
 def build_prompt(
-    breadth: str = "narrow",
+    style: str = AnswerStyle.CONCISE,
     summary: str | None = None,
     domain_addendum: str | None = None,
     *,
@@ -272,7 +273,7 @@ def build_prompt(
     question: str = "",
 ) -> ChatPromptTemplate:
     system_text = build_system_prompt(
-        breadth,
+        style,
         domain_addendum=domain_addendum,
         enumerate_cases=enumerate_cases,
         question=question,

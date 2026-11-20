@@ -41,7 +41,7 @@ def save_json(path: Path, value):
 
 
 def prepare_snapshot(runs, dataset, run_id, ids, diagnostic_ids, git_commit=None):
-    from domain.rag.breadth import Breadth
+    from domain.rag.breadth import AnswerStyle, stored_answer_style
     from infrastructure.ml.evidence_profiles.profiles import evidence_profile_scope
     from infrastructure.ml.rag.evidence_focus import format_generation_messages
     from infrastructure.ml.rag.rag_prompts import build_prompt
@@ -61,11 +61,17 @@ def prepare_snapshot(runs, dataset, run_id, ids, diagnostic_ids, git_commit=None
         if not context:
             raise ValueError(f"Question {question_id} has no saved context")
         budget = case["evidence"].get("prompt_budget") or {}
-        breadth = budget.get("effective_breadth", case["breadth"])
-        enumerate_cases = budget.get("enumerate_cases", breadth == Breadth.BROAD.value)
+        # New results store the applied answer style; older ones only the generation breadth.
+        style = stored_answer_style(
+            budget.get("answer_style")
+            or case.get("answer_style")
+            or budget.get("effective_breadth")
+            or case["breadth"]
+        )
+        enumerate_cases = budget.get("enumerate_cases", style == AnswerStyle.DETAILED)
         # Runs come from the legal benchmark, so the legal evidence rules are selected explicitly.
         with evidence_profile_scope(BelarusEvidenceProfile()):
-            prompt = build_prompt(breadth, enumerate_cases=enumerate_cases, question=case["question"])
+            prompt = build_prompt(style, enumerate_cases=enumerate_cases, question=case["question"])
             messages = format_generation_messages(
                 prompt, context=context, history=[], question=case["question"]
             )
@@ -85,7 +91,7 @@ def prepare_snapshot(runs, dataset, run_id, ids, diagnostic_ids, git_commit=None
                 "historical_answer": case["answer"],
                 "historical_correctness": case["correctness"],
                 "historical_context_fact_coverage": case["evidence_metrics"]["context_fact_coverage"],
-                "effective_breadth": breadth,
+                "answer_style": style.value,
                 "enumerate_cases": enumerate_cases,
             }
         )

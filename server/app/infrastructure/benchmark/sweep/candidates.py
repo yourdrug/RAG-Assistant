@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from langchain.schema import Document as LCDocument
 
-from config import VectorStoreSection, process_section
+from config import VectorStoreSection, get_setting, process_section
 from domain.benchmark.evaluation import (
     has_retrieval_labels,
 )
@@ -88,8 +88,13 @@ async def cache_candidates(
 
         dense_cache[qtext] = dense_results
 
+        # Chat searches BM25 with bm25_fetch_k, not the dense limit: cache the same sample.
         sparse_points = await asyncio.to_thread(
-            search_sparse_points, cast("QdrantClient", client), qtext, max_fetch_k, access_filter
+            search_sparse_points,
+            cast("QdrantClient", client),
+            qtext,
+            cast("int", get_setting("bm25_fetch_k")),
+            access_filter,
         )
         sparse_results = []
 

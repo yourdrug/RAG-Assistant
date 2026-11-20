@@ -70,6 +70,7 @@ class JobEnqueuerPort(Protocol):
         job_id: int,
         space_id: int | None = None,
         llm_replay_mode: str = LLMReplayMode.OFF.value,
+        depth: str | None = None,
     ) -> None: ...
 
     async def enqueue_sweep(

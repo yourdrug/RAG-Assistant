@@ -108,6 +108,7 @@ async def execute_benchmark(  # noqa: C901, PLR0913, PLR0915, PLR0917 — preser
     resume: bool = False,
     checkpoints: BenchmarkCheckpoints | None = None,
     checkpoint_prefix: str | None = None,
+    depth: str | None = None,
 ) -> list[dict[str, Any]]:
     """Schedule benchmark cases, aggregate each run and persist the results."""
     if resume and checkpoints is None:
@@ -137,6 +138,7 @@ async def execute_benchmark(  # noqa: C901, PLR0913, PLR0915, PLR0917 — preser
         ctx = RagContext(
             user=UserContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN),
             space=execution.space,
+            depth=depth,
         )
         # Store only a hash of settings: credentials must never enter report files.
         identity = fingerprint(
@@ -148,6 +150,7 @@ async def execute_benchmark(  # noqa: C901, PLR0913, PLR0915, PLR0917 — preser
                 "questions": questions,
                 "top_k": top_k,
                 "fetch_k": fetch_k,
+                "depth": depth,
                 "judge": judge_model,
                 "seed": seed,
                 "runs": n_runs,

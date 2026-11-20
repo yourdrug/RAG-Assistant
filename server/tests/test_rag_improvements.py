@@ -232,9 +232,7 @@ def test_complete_prompt_budget_trims_old_history_and_keeps_summary() -> None:
         history_messages=[HumanMessage(content="old " * 10000), AIMessage(content="old answer")],
     )
     messages, _ = step_build_context(state, None)
-    assert (
-        estimate_message_tokens(messages) + state.rag.llm_num_predict_narrow <= state.rag.llm_num_ctx_narrow
-    )
+    assert estimate_message_tokens(messages) + state.rag.llm_num_predict_broad <= state.rag.llm_num_ctx_broad
     assert state._prompt_docs
     assert "Заказчик — организация." in "\n".join(message.content for message in messages)
     assert not state.history_messages
@@ -242,7 +240,7 @@ def test_complete_prompt_budget_trims_old_history_and_keeps_summary() -> None:
 
 @pytest.mark.generic_evidence
 def test_prompt_does_not_force_context_into_an_exhausted_window() -> None:
-    state = state_for([(doc("Evidence", 1), 0.9)], rag=make_rag(llm_num_ctx_narrow=512))
+    state = state_for([(doc("Evidence", 1), 0.9)], rag=make_rag(llm_num_ctx_broad=512))
     with pytest.raises(ContextBudgetExceededError):
         step_build_context(state, None)
 
@@ -250,7 +248,7 @@ def test_prompt_does_not_force_context_into_an_exhausted_window() -> None:
 @pytest.mark.generic_evidence
 def test_exact_token_counter_is_applied_to_the_complete_formatted_prompt() -> None:
     state = state_for([(doc("Evidence", 1), 0.9)])
-    counter = MagicMock(return_value=state.rag.llm_num_ctx_narrow)
+    counter = MagicMock(return_value=state.rag.llm_num_ctx_broad)
     with pytest.raises(ContextBudgetExceededError):
         step_build_context(state, None, token_counter=counter)
     messages = counter.call_args.args[0]

@@ -60,8 +60,11 @@ SUMMARY_KEYS = (
     "avg_correctness",
     "avg_faithfulness",
     "total_time_sec",
+    "answer_length",
+    "truncated_rate",
     "llm_replay",
 )
+BENCHMARK_DEPTHS = ("narrow", "broad")
 
 
 async def run_space(infra: InfrastructureContainer, dataset: str, space_id: int | None) -> SpaceRef:
@@ -86,7 +89,7 @@ async def require_ready_corpus(infra: InfrastructureContainer, space_ids: set[in
             raise ValueError(message)
 
 
-async def enqueue_runs(
+async def enqueue_runs(  # noqa: PLR0913 - CLI options forwarded to the benchmark job
     infra: InfrastructureContainer,
     datasets: list[str],
     top_k: int | None,
@@ -95,18 +98,23 @@ async def enqueue_runs(
     *,
     require_ready: bool = True,
     llm_replay_mode: LLMReplayMode = LLMReplayMode.OFF,
+    depth: str | None = None,
 ) -> dict[str, int]:
     """Create one durable benchmark job per dataset and hand it to the worker, like POST /benchmark.
 
     Each job carries the hash of the questions seen here; the worker refuses to run another set.
     """
+    if depth is not None and depth not in BENCHMARK_DEPTHS:
+        msg = f"--depth must be one of {', '.join(BENCHMARK_DEPTHS)} (omit it for Авто)"
+        raise ValueError(msg)
+
     selected = datasets or await BenchmarkQuestionService(infra.db.uow).list_datasets()
 
     if not selected:
         msg = "No benchmark datasets in the database; import questions in Admin -> Benchmark first"
         raise ValueError(msg)
 
-    k = top_k or process_section(RetrievalSection).retriever_top_k
+    k = top_k or process_section(RetrievalSection).retriever_top_k_broad
     judge = judge_model or process_section(LLMSection).llm_model
     jobs = JobService(infra.db.uow)
     job_ids: dict[str, int] = {}
@@ -131,6 +139,7 @@ async def enqueue_runs(
                 "space_id": space.id,
                 "dataset_hash": hashes[dataset],
                 "llm_replay_mode": llm_replay_mode.value,
+                "depth": depth,
             }
             job_id = await jobs.create_job(
                 JobType.BENCHMARK, cost_principal=job_principal.get(), dispatch_payload=payload
@@ -144,13 +153,14 @@ async def enqueue_runs(
                     space_id=space.id,
                     dataset_hash=hashes[dataset],
                     llm_replay_mode=llm_replay_mode.value,
+                    depth=depth,
                 )
             except Exception:  # noqa: BLE001 — committed work remains available to the relay
                 logger.warning("Benchmark delivery deferred: job_id=%d", job_id)
             job_ids[dataset] = job_id
             typer.echo(
                 f"queued dataset={dataset} job_id={job_id} top_k={k} judge={judge} "
-                f"llm_replay={llm_replay_mode.value}"
+                f"llm_replay={llm_replay_mode.value} depth={depth or 'auto'}"
             )
     finally:
         await close_arq_pool()
@@ -217,7 +227,9 @@ def benchmark_run(  # noqa: PLR0913 - one parameter per CLI option
     datasets: Annotated[
         list[str] | None, typer.Option("--dataset", "-d", help="Dataset to run (repeatable); default: all")
     ] = None,
-    top_k: Annotated[int | None, typer.Option("--top-k", help="Retriever top-k; default: settings")] = None,
+    top_k: Annotated[
+        int | None, typer.Option("--top-k", help="Chat rerank top-k; default: retriever_top_k_broad")
+    ] = None,
     judge_model: Annotated[
         str | None, typer.Option("--judge-model", help="Judge model; default: active LLM model")
     ] = None,
@@ -245,6 +257,13 @@ def benchmark_run(  # noqa: PLR0913 - one parameter per CLI option
             ),
         ),
     ] = LLMReplayMode.OFF,
+    depth: Annotated[
+        str | None,
+        typer.Option(
+            "--depth",
+            help="Answer-length selector to benchmark: narrow (Кратко) or broad (Подробно); omit for Авто.",
+        ),
+    ] = None,
 ) -> None:
     """Queue benchmark runs for the worker (same path as Admin -> Benchmark)."""
 
@@ -262,6 +281,7 @@ def benchmark_run(  # noqa: PLR0913 - one parameter per CLI option
             space_id,
             require_ready=not allow_unready,
             llm_replay_mode=llm_replay,
+            depth=depth,
         )
         return await wait_for_runs(infra, job_ids) if wait else True
 

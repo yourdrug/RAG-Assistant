@@ -48,15 +48,12 @@ PARENT_CHARS_PER_TOKEN = 1.5
 async def handle_relevance_gate(
     query_for_search: str,
     docs: list[tuple[Document, float]],
-    breadth: Breadth,
     rag: RagSettings,
     ml_clients: MLClientPort,
     *,
     context: str | None = None,
 ) -> tuple[bool, str]:
     """Check relevance gate: (relevant, refined query for a retry when rejected, else "")."""
-    del breadth
-
     if not rag.features.relevance_gate_enabled:
         return True, ""
 

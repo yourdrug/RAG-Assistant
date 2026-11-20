@@ -249,7 +249,7 @@ def test_retrieval_only_score_uses_available_weights() -> None:
 
 @pytest.mark.asyncio
 async def test_full_evaluation_runs_shortlist_and_restores_settings() -> None:
-    previous_top_k = get_setting("retriever_top_k")
+    previous_top_k = get_setting("retriever_top_k_broad")
     results = [
         {"config": {"top_k": k}, "avg_hit_rate": 1, "avg_mrr": 1, "composite_score": 1} for k in (5, 2)
     ]
@@ -264,7 +264,7 @@ async def test_full_evaluation_runs_shortlist_and_restores_settings() -> None:
     assert run.await_count == 2
     assert all(r["llm_evaluated"] for r in evaluated)
     assert [r["config"]["top_k"] for r in evaluated] == [5, 2]
-    assert get_setting("retriever_top_k") == previous_top_k
+    assert get_setting("retriever_top_k_broad") == previous_top_k
 
 
 def test_normalization_makes_weights_proportional_to_influence() -> None:
@@ -357,3 +357,40 @@ async def test_no_complete_finalist_returns_diagnostics_without_retrieval_winner
     )
     assert results[0]["composite_score"] is None
     assert results[0]["evaluation_complete"] is False
+
+
+@pytest.mark.generic_evidence
+@pytest.mark.parametrize("bm25_rank, expected_hit", [(34, 0), (5, 1)])
+def test_cheap_phase_uses_the_chat_bm25_sample(bm25_rank: int, expected_hit: int) -> None:
+    # Chat asks BM25 for bm25_fetch_k candidates, not the dense fetch_k: a fragment found only by
+    # BM25 beyond that limit never reaches the reranker, so the cheap phase must not see it either.
+    assert settings_snapshot()["bm25_fetch_k"] == 30
+    filler = [Document(page_content=f"other {i}", metadata={"source": "other.pdf"}) for i in range(40)]
+    target = Document(page_content="article 17", metadata={"source": "law.pdf"})
+    sparse_order = [str(i) for i in range(40)]
+    sparse_order.insert(bm25_rank, "target")
+    candidates = {**{str(i): doc for i, doc in enumerate(filler)}, "target": target}
+    metrics = score_config_cheap(
+        {
+            "top_k": 5,
+            "fetch_k": 40,
+            "dense_weight": 1,
+            "sparse_weight": 1,
+            "rerank_min_score": None,
+            "rerank_score_gap_ratio": None,
+        },
+        [
+            {
+                "question": "article 17?",
+                "source_hint": "law.pdf",
+                "annotations": {"expected_fragments": [{"source": "law.pdf", "text": "article 17"}]},
+            }
+        ],
+        {"article 17?": []},
+        {"article 17?": [(key, 1.0) for key in sparse_order]},
+        candidates,
+        weights={"hit_rate": 0.5, "mrr": 0.5},
+        rerank_scores={"article 17?": {**{str(i): 0.1 for i in range(40)}, "target": 0.9}},
+        defaults=settings_snapshot(),
+    )
+    assert metrics["avg_hit_rate"] == expected_hit
