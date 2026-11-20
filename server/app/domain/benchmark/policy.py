@@ -34,6 +34,18 @@ DEFAULT_ALLOWED_DROPS = {
     "avg_context_precision": -1.0,
     "avg_context_recall": -1.0,
 }
+# Per-question score range of each compared metric, the summary field counting its scored cases
+# and the rounding step of the stored summary value.
+QUESTION_SCALES = {
+    "hit_rate": ("hit_rate_evaluated_count", 1.0, 0.0001),
+    "avg_fragment_recall_at_k": ("fragment_recall_at_k_evaluated_count", 1.0, 0.0001),
+    "avg_context_fragment_recall": ("context_fragment_recall_evaluated_count", 1.0, 0.0001),
+    "faithfulness": ("faithfulness_evaluated_count", 10.0, 0.1),
+    "relevancy": ("relevancy_evaluated_count", 10.0, 0.1),
+    "correctness": ("correctness_evaluated_count", 10.0, 0.1),
+    "avg_context_precision": ("context_precision_evaluated_count", 10.0, 0.1),
+    "avg_context_recall": ("context_recall_evaluated_count", 10.0, 0.1),
+}
 # Acceptance floor or ceiling → the summary metric it applies to.
 ACCEPTANCE_METRICS = {
     "min_fragment_recall_at_k": "avg_fragment_recall_at_k",
@@ -217,8 +229,31 @@ def metric_noise(summaries: list[dict[str, Any]]) -> dict[str, float]:
     return noise
 
 
-def allowed_drops(noise: NoiseEstimate | None, judge: JudgeIdentity) -> tuple[dict[str, float], list[str]]:
-    """Per-metric allowed drop: 2 sigma of a noise estimate made with the same judge, else the defaults."""
+def question_weights(summary: dict[str, Any]) -> dict[str, float]:
+    """Shift of each compared metric when a single scored question moves across its whole range.
+
+    One rounding step of the stored summary is added: rounded averages can differ by more than the
+    exact shift, and a delta of exactly one question must not fail on float error.
+    """
+    weights = {}
+
+    for name, (count_key, scale, step) in QUESTION_SCALES.items():
+        count = summary.get(count_key)
+
+        if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+            weights[name] = round(scale / count + step, 4)
+
+    return weights
+
+
+def allowed_drops(
+    noise: NoiseEstimate | None, judge: JudgeIdentity, weights: dict[str, float] | None = None
+) -> tuple[dict[str, float], list[str]]:
+    """Per-metric allowed drop: 2 sigma of a noise estimate made with the same judge, else the defaults.
+
+    A drop never goes below one question's weight: a few repeated runs can measure sigma as zero,
+    and a single changed answer must not fail the gate by itself.
+    """
     drops = dict(DEFAULT_ALLOWED_DROPS)
     warnings = []
 
@@ -233,6 +268,10 @@ def allowed_drops(noise: NoiseEstimate | None, judge: JudgeIdentity) -> tuple[di
         drops.update(
             {name: -round(NOISE_SIGMAS * sigma, 4) for name, sigma in noise.sigma.items() if name in drops}
         )
+
+    for name, weight in (weights or {}).items():
+        if name in drops:
+            drops[name] = min(drops[name], -weight)
 
     return drops, warnings
 

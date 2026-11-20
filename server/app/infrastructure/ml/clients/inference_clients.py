@@ -17,7 +17,7 @@ import httpx
 
 from application.runtime.enums import RerankApiFormat
 from domain.shared.exceptions import BusinessRuleViolationError
-from infrastructure.ml.clients.managed_http import ManagedHTTPPool
+from infrastructure.ml.clients.managed_http import ManagedHTTPPool, retrying_sync_transport
 from infrastructure.ml.usage_capture import record_inference_response
 from infrastructure.telemetry.tracing import paid_call
 
@@ -107,7 +107,12 @@ class EmbeddingsClient(ManagedHTTPPool):
             return self.vectors(await self.post(**self.request(texts)), len(texts))
 
     def embed_query_sync(self, text: str) -> list[float]:
-        with self.traced(1), httpx.Client(timeout=INFERENCE_TIMEOUT, follow_redirects=False) as client:
+        with (
+            self.traced(1),
+            httpx.Client(
+                timeout=INFERENCE_TIMEOUT, transport=retrying_sync_transport(), follow_redirects=False
+            ) as client,
+        ):
             return self.vectors(client.post(**self.request(text)), 1)[0]
 
 
@@ -218,6 +223,8 @@ class RerankerClient(ManagedHTTPPool):
 
         with (
             self.traced(len(pairs)),
-            httpx.Client(timeout=INFERENCE_TIMEOUT, follow_redirects=False) as client,
+            httpx.Client(
+                timeout=INFERENCE_TIMEOUT, transport=retrying_sync_transport(), follow_redirects=False
+            ) as client,
         ):
             return self.scores(client.post(**self.request(pairs)), len(pairs))

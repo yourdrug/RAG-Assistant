@@ -21,6 +21,7 @@ from domain.benchmark.policy import (
     NoiseEstimate,
     allowed_drops,
     metric_noise,
+    question_weights,
 )
 from domain.benchmark.run import BenchmarkRun
 from domain.shared.exceptions import EntityNotFoundError, ValidationError
@@ -214,6 +215,26 @@ def test_noise_widens_allowed_drop_only_for_the_same_judge() -> None:
     assert not warnings
     assert other["correctness"] == -1.0
     assert "judge-a" in other_warnings[0]
+
+
+def test_zero_noise_still_allows_one_question_to_change() -> None:
+    judge = JudgeIdentity(model="judge-a", rubric_version="r1")
+    noise = NoiseEstimate(sigma={"correctness": 0.0, "hit_rate": 0.0}, judge=judge, run_ids=[1, 2, 3])
+    weights = question_weights({"correctness_evaluated_count": 40, "hit_rate_evaluated_count": 20})
+
+    drops, _ = allowed_drops(noise, judge, weights)
+
+    # One whole question plus one rounding step of the stored summary.
+    assert weights == {"correctness": 0.35, "hit_rate": 0.0501}
+    assert drops["correctness"] == -0.35
+    assert drops["hit_rate"] == -0.0501
+    # Measured noise wider than one question is kept.
+    wide = NoiseEstimate(sigma={"correctness": 0.5}, judge=judge, run_ids=[1, 2, 3])
+    assert allowed_drops(wide, judge, weights)[0]["correctness"] == -1.0
+    # A drop of exactly one question passes despite float error in the delta.
+    assert question_weights({"hit_rate_evaluated_count": 33})["hit_rate"] > 0.9091 - 0.8788
+    # Without counts (old summaries) no floor is invented.
+    assert question_weights({"correctness_evaluated_count": 0}) == {}
 
 
 def test_metric_noise_is_sample_standard_deviation() -> None:

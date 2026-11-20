@@ -80,7 +80,10 @@ def test_roles_preserve_options(
 @pytest.mark.parametrize(
     "base_url,body",
     [
-        ("https://openrouter.ai/api/v1", {"reasoning": {"enabled": False}}),
+        (
+            "https://openrouter.ai/api/v1",
+            {"reasoning": {"enabled": False}, "provider": {"ignore": ["novita"]}},
+        ),
         ("http://vllm:8000/v1", {"chat_template_kwargs": {"enable_thinking": False}}),
     ],
 )

@@ -10,7 +10,6 @@ from enum import StrEnum
 from functools import partial
 import logging
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack
-from urllib.parse import urlsplit
 
 import httpx
 from langchain_openai import ChatOpenAI
@@ -25,6 +24,7 @@ from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.database.database import database
 from infrastructure.ml.clients.inference_clients import EmbeddingsClient, RerankerClient
 from infrastructure.ml.clients.instructor_client import NO_API_KEY, llm_auth_headers
+from infrastructure.ml.clients.llm_schemas import reasoning_off_body
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 from infrastructure.ml.replay import llm_async_http_client, llm_sync_http_client
 
@@ -127,21 +127,6 @@ class OpenAIParameters(TypedDict, total=False):
 
 
 GENERATION_ROLES = frozenset({ChatModelRole.DEFAULT, ChatModelRole.NARROW, ChatModelRole.BROAD})
-OPENROUTER_HOST = "openrouter.ai"
-
-
-def reasoning_off_body(base_url: str) -> dict[str, Any]:
-    """Request fields that switch off the thinking phase of hybrid reasoning models.
-
-    OpenRouter normalizes reasoning control across providers; self-hosted servers
-    (vLLM, SGLang) take the chat-template switch that Qwen3-style templates read.
-    """
-    host = (urlsplit(base_url).hostname or "").lower()
-
-    if host == OPENROUTER_HOST or host.endswith(f".{OPENROUTER_HOST}"):
-        return {"reasoning": {"enabled": False}}
-
-    return {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 def build_chat_model(role: ChatModelRole, **options: Unpack[ChatModelOptions]) -> ChatOpenAI:

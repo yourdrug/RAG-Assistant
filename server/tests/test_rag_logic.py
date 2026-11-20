@@ -20,7 +20,7 @@ import pytest
 from config import LLMSection, request_section
 from domain.rag.breadth import Breadth
 from domain.rag.classification import classify_question_breadth, needs_decomposition, should_enumerate_cases
-from infrastructure.ml.clients.llm_schemas import RelevanceCheck
+from infrastructure.ml.clients.llm_schemas import RelevanceCheck, auxiliary_request_body, reasoning_off_body
 from infrastructure.ml.ingestion import docx_table_to_markdown, pymupdf_table_to_markdown
 from infrastructure.ml.rag.prompt_blocks import CRITICAL_RULES_BLOCK, NOT_FOUND_PATTERNS
 import infrastructure.ml.rag.rag_formatting as rag_fmt
@@ -556,6 +556,7 @@ class TestCheckRelevance:
                 active_auxiliary_model="test-model",
                 llm_auxiliary_timeout=30,
                 llm_num_predict_narrow=400,
+                llm_disable_reasoning=False,
             ),
         )
 
@@ -595,6 +596,34 @@ class TestCheckRelevance:
         assert create.call_args.kwargs["model"] == request_section(LLMSection).active_auxiliary_model
         assert "suggested_refinement" in create.call_args.kwargs["messages"][0]["content"]
 
+    @pytest.mark.asyncio
+    async def test_gate_switches_reasoning_off_at_the_provider(self) -> None:
+        # A hybrid reasoning model spends the small output budget on thinking and
+        # returns no content, which failed whole benchmark runs.
+        client = MagicMock()
+        client.chat.completions.create = AsyncMock(return_value=RelevanceCheck(is_relevant=True))
+
+        ml_clients = SimpleNamespace(instructor_client=client)
+        await rag_rel.check_relevance(ml_clients, "question", [_doc("context")])
+
+        llm = request_section(LLMSection)
+        assert llm.llm_disable_reasoning
+        assert client.chat.completions.create.call_args.kwargs["extra_body"] == reasoning_off_body(
+            llm.llm_base_url
+        )
+
+    def test_auxiliary_body_follows_the_reasoning_switch(self) -> None:
+        llm = request_section(LLMSection)
+        openrouter = llm.model_copy(update={"llm_base_url": "https://openrouter.ai/api/v1"})
+        self_hosted = llm.model_copy(update={"llm_base_url": "http://vllm:8000/v1"})
+
+        assert auxiliary_request_body(openrouter) == {
+            "reasoning": {"enabled": False},
+            "provider": {"ignore": ["novita"]},
+        }
+        assert auxiliary_request_body(self_hosted) == {"chat_template_kwargs": {"enable_thinking": False}}
+        assert auxiliary_request_body(openrouter.model_copy(update={"llm_disable_reasoning": False})) is None
+
     def test_relevant_answer_detected(self) -> None:
 
         mock_result = MagicMock()
@@ -613,6 +642,7 @@ class TestCheckRelevance:
         ):
             mock_settings.llm_model = "test-model"
             mock_settings.llm_auxiliary_timeout = 30
+            mock_settings.llm_disable_reasoning = False
             result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
             assert result.is_relevant is True
 
@@ -634,6 +664,7 @@ class TestCheckRelevance:
         ):
             mock_settings.llm_model = "test-model"
             mock_settings.llm_auxiliary_timeout = 30
+            mock_settings.llm_disable_reasoning = False
             result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
             assert result.is_relevant is False
 

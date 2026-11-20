@@ -29,7 +29,7 @@ from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.health import system_health_probe
 from infrastructure.initialization import build_defaults, load_config_from_db
-from infrastructure.ml.clients import factories
+from infrastructure.ml.clients import factories, managed_http
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.config.provider_configuration import (
     SettingsProviderConfiguration,
@@ -97,13 +97,13 @@ def test_factories_use_independent_effective_pool_limits(
     model: Settings, prefix: str, connections: int, keepalive: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured = []
-    real = httpx.AsyncClient
+    real = managed_http.retrying_transport
 
-    def client(**kwargs: Any) -> httpx.AsyncClient:
-        captured.append(kwargs["limits"])
-        return real(**kwargs)
+    def transport(limits: httpx.Limits) -> httpx.AsyncHTTPTransport:
+        captured.append(limits)
+        return real(limits)
 
-    monkeypatch.setattr(httpx, "AsyncClient", client)
+    monkeypatch.setattr(managed_http, "retrying_transport", transport)
     adapter = (
         factories.create_embeddings(model) if prefix == "embedding" else factories.create_reranker(model)
     )
