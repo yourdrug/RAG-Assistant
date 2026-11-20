@@ -668,6 +668,20 @@ class TestCheckRelevance:
             result = asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
             assert result.is_relevant is False
 
+    def test_gate_prompt_accepts_negative_answers_but_not_missing_values(self) -> None:
+        """Absence questions reach generation; a missing requested value is still a refusal."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=MagicMock(is_relevant=True, reason=""))
+        mock_ml_clients = MagicMock(instructor_client=mock_client)
+
+        with patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"):
+            asyncio.run(rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
+
+        system = mock_client.chat.completions.create.await_args.kwargs["messages"][0]["content"]
+        assert "Ответ «нет» тоже ответ" in system
+        assert "Неверная предпосылка вопроса" in system
+        assert "требует конкретного значения" in system
+
 
 # ---------------------------------------------------------------------------
 # handle_relevance_gate (mocked LLM)
