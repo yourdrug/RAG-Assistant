@@ -8,6 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from presentation.api.exception_handlers import handle_unexpected_exception
 from shared import request_id_ctx
 
 
@@ -17,6 +18,8 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         token = request_id_ctx.set(rid)
         try:
             response = await call_next(request)
+        except Exception as exc:  # noqa: BLE001 — public error boundary before response headers
+            response = await handle_unexpected_exception(request, exc)
         finally:
             request_id_ctx.reset(token)
         response.headers["X-Request-ID"] = rid

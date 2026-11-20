@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import { QueryError } from "@/shared/ui/query-error";
 import { FEEDBACK_REASON_LABELS, OUTCOME_LABELS } from "./chat-log-labels";
 
 const share = (part: number, total: number) =>
@@ -254,7 +255,8 @@ function ConfigurationDetails({ hash, onClose }: { hash: string | null; onClose:
 /** Aggregates over the same filters and curator scope as the journal below. */
 export function ChatLogStatsPanel({ params }: { params: ChatLogsParams }) {
   const { limit: _limit, offset: _offset, ...filters } = params;
-  const { data, isLoading, isError } = useChatLogStats(filters);
+  const stats = useChatLogStats(filters);
+  const { data, isLoading, isError } = stats;
   const { data: spaces } = useSpaces();
   const [selectedConfig, setSelectedConfig] = useState<string | null>(null);
   const [group, setGroup] = useState<"space" | "model" | "config">("space");
@@ -264,7 +266,8 @@ export function ChatLogStatsPanel({ params }: { params: ChatLogsParams }) {
         Loading overview…
       </div>
     );
-  if (isError || !data) return <p role="alert">Could not load the overview.</p>;
+  if (isError) return <QueryError query={stats} fallback="Could not load the answer overview." />;
+  if (!data) return null;
   const reasons = Object.fromEntries(
     Object.entries(data.reasons).map(([key, value]) => [
       FEEDBACK_REASON_LABELS[key as keyof typeof FEEDBACK_REASON_LABELS] ?? key,

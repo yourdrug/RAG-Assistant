@@ -8,7 +8,7 @@ import { defaultSpaceId, useConversations, useSpaces } from "@/shared/api/hooks"
 import { queryKeys } from "@/shared/api/query-keys";
 import type { ConversationHistoryResponse, MessageFeedback, Source } from "@/shared/api/types";
 import { formatDate } from "@/shared/lib/date-time";
-import { getErrorMessage } from "@/shared/lib/errors";
+import { canRetryRequest, getErrorMessage } from "@/shared/lib/errors";
 import type { PipelineStage } from "@/shared/lib/sse";
 import { streamChat } from "@/shared/lib/sse";
 import { readTemporalDate, validIsoDate, writeTemporalDate } from "@/shared/lib/temporal-date";
@@ -42,7 +42,9 @@ export function ChatPage() {
   const [historyAttempt, setHistoryAttempt] = useState(0);
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
-  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<{ message: string; retryable: boolean } | null>(
+    null,
+  );
   const historyRequestRef = useRef<AbortController | null>(null);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
   const [depth, setDepth] = useState<DepthOption>(null);
@@ -157,7 +159,10 @@ export function ChatPage() {
       })
       .catch((err) => {
         if (!controller.signal.aborted) {
-          setHistoryError(getErrorMessage(err, "Could not load the conversation."));
+          setHistoryError({
+            message: getErrorMessage(err, "Could not load the conversation."),
+            retryable: canRetryRequest(err),
+          });
         }
       })
       .finally(() => {
@@ -190,7 +195,10 @@ export function ChatPage() {
       setHistoryCursor(res.data.next_cursor);
     } catch (err) {
       if (!controller.signal.aborted) {
-        setHistoryError(getErrorMessage(err, "Could not load earlier messages."));
+        setHistoryError({
+          message: getErrorMessage(err, "Could not load earlier messages."),
+          retryable: canRetryRequest(err),
+        });
       }
     } finally {
       if (!controller.signal.aborted) setIsLoadingHistory(false);
@@ -259,7 +267,13 @@ export function ChatPage() {
       },
       onError: (err, status) => {
         if (status === 401) expireSession(token);
-        setMessages((current) => current.slice(0, -1));
+        if (conversationOutdated) {
+          setMessages(messages);
+          setHistoryCursor(historyCursor);
+          setSelectedSources(selectedSources);
+        } else {
+          setMessages((current) => current.slice(0, -1));
+        }
         setDraft(question);
         setSendError(err);
         setStreamingMsg(null);
@@ -360,12 +374,16 @@ export function ChatPage() {
           )}
           {historyError && (
             <RequestError
-              message={historyError}
+              message={historyError.message}
               retrying={isLoadingHistory || isStreaming}
-              onRetry={() => {
-                if (historyCursor !== null) void loadOlderMessages();
-                else setHistoryAttempt((attempt) => attempt + 1);
-              }}
+              onRetry={
+                historyError.retryable
+                  ? () => {
+                      if (historyCursor !== null) void loadOlderMessages();
+                      else setHistoryAttempt((attempt) => attempt + 1);
+                    }
+                  : undefined
+              }
             />
           )}
           {messages.length === 0 && !streamingMsg && !isLoadingHistory && !historyError && (

@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 const sourceBadgeVariant = (source: string) => {
@@ -40,7 +41,8 @@ const formatConfidence = (v: number | null) => (v != null ? `${Math.round(v * 10
 
 export function AdminActVersionsPage() {
   const [offset, setOffset] = useState(0);
-  const { data } = useActVersions(offset);
+  const versions = useActVersions(offset);
+  const { data } = versions;
   const updateMut = useUpdateActVersion();
   const [editing, setEditing] = useState<ActVersionReviewItem | null>(null);
   const [form, setForm] = useState({ effective_from: "", effective_to: "", act_id: "" });
@@ -156,20 +158,36 @@ export function AdminActVersionsPage() {
       </div>
       <Card>
         <CardContent className="pt-6">
-          <DataTable
-            columns={columns}
-            data={data?.versions || []}
-            serverPagination={{
-              canPreviousPage: offset > 0,
-              canNextPage: data?.next_offset != null,
-              onPreviousPage: () => setOffset((value) => Math.max(0, value - 100)),
-              onNextPage: () => {
-                if (data?.next_offset != null) setOffset(data.next_offset);
-              },
-            }}
-            searchKey="date_source"
-            searchPlaceholder="Search by source..."
-          />
+          {versions.isError && (
+            <QueryError query={versions} fallback="Could not load act versions." />
+          )}
+          {versions.isPending && <p role="status">Loading act versions…</p>}
+          {data ? (
+            <DataTable
+              columns={columns}
+              data={data?.versions || []}
+              serverPagination={{
+                canPreviousPage: offset > 0,
+                canNextPage: data?.next_offset != null,
+                onPreviousPage: () => setOffset((value) => Math.max(0, value - 100)),
+                onNextPage: () => {
+                  if (data?.next_offset != null) setOffset(data.next_offset);
+                },
+              }}
+              searchKey="date_source"
+              searchPlaceholder="Search by source..."
+            />
+          ) : (
+            offset > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOffset((value) => Math.max(0, value - 100))}
+              >
+                Previous page
+              </Button>
+            )
+          )}
         </CardContent>
       </Card>
 

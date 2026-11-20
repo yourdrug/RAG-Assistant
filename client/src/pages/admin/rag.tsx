@@ -9,6 +9,7 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
+import { QueryError } from "@/shared/ui/query-error";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 
@@ -26,11 +27,12 @@ export function AdminRAGPage() {
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Record<string, string>>({});
 
-  const { data: params, isLoading } = useQuery({
+  const parameters = useQuery({
     queryKey: ["admin", "config"],
     queryFn: async () => (await apiClient.get<ConfigParam[]>("/admin/config")).data,
   });
 
+  const { data: params, isLoading } = parameters;
   const updateMutation = useMutation({
     mutationFn: async ({ key, value }: { key: string; value: string }) => {
       return (await apiClient.put(`/admin/config/${key}`, { value })).data;
@@ -133,6 +135,9 @@ export function AdminRAGPage() {
       </div>
     );
   };
+
+  if (parameters.isError)
+    return <QueryError query={parameters} fallback="Could not load RAG settings." />;
 
   if (isLoading) {
     return (

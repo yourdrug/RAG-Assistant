@@ -66,8 +66,10 @@ export function DocumentsPage() {
   const [clientId, setClientId] = useState<number | null>(null);
   const [docDomain, setDocDomain] = useState<DocumentDomain | "auto">("auto");
   const [progress, setProgress] = useState(0);
-  const { data: groups } = useGroups();
-  const { data: uploadableClients } = useUploadableClients();
+  const groupsQuery = useGroups();
+  const clientsQuery = useUploadableClients();
+  const { data: groups } = groupsQuery;
+  const { data: uploadableClients } = clientsQuery;
   const spacesQuery = useSpaces();
   const spaces = spacesQuery.data;
   // Only admitted groups may fill a space; ADMIN fills any.
@@ -76,7 +78,8 @@ export function DocumentsPage() {
   const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
   // An explicit choice, or the only space the user may fill.
   const spaceId = spaceChoice ?? defaultSpaceId(fillableSpaces);
-  const { data: documentDomains } = useDocumentDomains(spaceId, spaceId != null);
+  const domainsQuery = useDocumentDomains(spaceId, spaceId != null);
+  const { data: documentDomains } = domainsQuery;
 
   useEffect(() => {
     if (user) {
@@ -423,7 +426,10 @@ export function DocumentsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              {fillableSpaces.length === 0 && (
+              {spacesQuery.isError && !spaces && (
+                <QueryError query={spacesQuery} fallback="Could not load knowledge spaces." />
+              )}
+              {spaces && fillableSpaces.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   You are not admitted to fill any space. Ask an administrator.
                 </p>
@@ -472,6 +478,9 @@ export function DocumentsPage() {
             {vis === "internal_group" && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Group</label>
+                {groupsQuery.isError && (
+                  <QueryError query={groupsQuery} fallback="Could not load groups." />
+                )}
                 <Select
                   value={groupId != null ? String(groupId) : ""}
                   onValueChange={(v) => setGroupId(Number(v))}
@@ -507,13 +516,19 @@ export function DocumentsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {(!uploadableClients || uploadableClients.length === 0) && (
+                {clientsQuery.isError && (
+                  <QueryError query={clientsQuery} fallback="Could not load clients." />
+                )}
+                {uploadableClients?.length === 0 && (
                   <p className="text-xs text-muted-foreground">No clients assigned to you</p>
                 )}
               </div>
             )}
             <div className="space-y-2">
               <label className="text-sm font-medium">Document Domain</label>
+              {domainsQuery.isError && (
+                <QueryError query={domainsQuery} fallback="Could not load document types." />
+              )}
               <Select
                 value={docDomain}
                 onValueChange={(v) => setDocDomain(v as DocumentDomain | "auto")}

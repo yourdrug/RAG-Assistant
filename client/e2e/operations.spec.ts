@@ -197,3 +197,31 @@ test("settings keep the reasoning toggle below the main controls and adapt to th
     .poll(async () => (await toggle.boundingBox())!.x - (await key.boundingBox())!.x)
     .toBeGreaterThan(keyBox.width);
 });
+
+test("models explains an outage and reloads the real configuration on retry", async ({
+  adminPage: page,
+}) => {
+  await page.route(
+    "**/api/admin/models/info",
+    (route) =>
+      route.fulfill({
+        status: 503,
+        headers: { "Retry-After": "12" },
+        json: { message: "Temporary service outage" },
+      }),
+    { times: 1 },
+  );
+  await page.goto("/admin/models");
+  const alert = page.getByRole("alert");
+  await expect(alert).toHaveText(
+    "The service is temporarily unavailable. Try again in 12 seconds.",
+  );
+  await expect(page.getByText("OCR Enabled", { exact: true })).toHaveCount(0);
+  const recovered = page.waitForResponse((response) =>
+    response.url().endsWith("/api/admin/models/info"),
+  );
+  await page.getByRole("button", { name: "Try again" }).click();
+  expect((await recovered).ok()).toBeTruthy();
+  await expect(alert).toHaveCount(0);
+  await expect(page.getByText("OCR Enabled", { exact: true })).toBeVisible();
+});

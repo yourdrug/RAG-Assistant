@@ -9,6 +9,7 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
+import { QueryError } from "@/shared/ui/query-error";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { ConfigurationDiagnostics, type EffectiveParameter } from "./configuration-diagnostics";
@@ -290,12 +291,14 @@ export function AdminSettingsPage() {
     refetchInterval: 3000,
   });
 
-  const { data: params, isLoading } = useQuery({
+  const parameters = useQuery({
     queryKey: ["admin", "config"],
     queryFn: async () => (await apiClient.get<ConfigParam[]>("/admin/config")).data,
   });
 
-  const { data: llmModels, isLoading: isLoadingModels } = useLLMModels();
+  const { data: params, isLoading } = parameters;
+  const modelCatalog = useLLMModels();
+  const { data: llmModels, isLoading: isLoadingModels } = modelCatalog;
 
   const setEdit = (p: ConfigParam, value: string) =>
     setEdits((prev) => ({ ...prev, [editKey(p)]: value }));
@@ -594,6 +597,15 @@ export function AdminSettingsPage() {
         </div>
       </div>
 
+      {parameters.isError && (
+        <QueryError query={parameters} fallback="Could not load editable settings." />
+      )}
+      {modelCatalog.isError && (
+        <QueryError
+          query={modelCatalog}
+          fallback="Could not load the model list. You can enter a model name manually."
+        />
+      )}
       <Tabs
         defaultValue={availableSections[0]?.id ?? "corpus"}
         orientation="vertical"

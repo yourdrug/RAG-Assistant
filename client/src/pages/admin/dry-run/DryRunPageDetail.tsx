@@ -1,8 +1,10 @@
 import { Loader2, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { usePageImage } from "@/shared/api/hooks";
 import type { DryRunPageResult } from "@/shared/api/types";
+import { canRetryRequest, getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
+import { RequestError } from "@/shared/ui/request-error";
 
 interface DryRunPageDetailProps {
   page: DryRunPageResult | null;
@@ -11,24 +13,14 @@ interface DryRunPageDetailProps {
 
 export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
   const pageImage = usePageImage();
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const { mutate } = pageImage;
+  const pageNumber = page?.page;
+  const imageAvailable = page?.image_available;
 
   useEffect(() => {
-    setImageSrc(null);
-    if (!page || !previewId || !page.image_available) return;
-
-    pageImage.mutate(
-      { previewId, page: page.page },
-      {
-        onSuccess: (data) => {
-          setImageSrc(`data:image/png;base64,${data.image_base64}`);
-        },
-        onError: () => {
-          setImageSrc(null);
-        },
-      },
-    );
-  }, [page?.page, previewId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (pageNumber == null || !previewId || !imageAvailable) return;
+    mutate({ previewId, page: pageNumber });
+  }, [imageAvailable, mutate, pageNumber, previewId]);
 
   if (!page) {
     return (
@@ -38,6 +30,8 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
     );
   }
 
+  const currentImage =
+    pageImage.variables?.previewId === previewId && pageImage.variables?.page === pageNumber;
   const displayLabel = page.label || `Unit ${page.page}`;
 
   return (
@@ -84,12 +78,25 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
       {/* Page image — only for PDF pages */}
       {page.unit_kind === "page" && page.image_available && (
         <div className="rounded-md border bg-muted/30">
-          {pageImage.isPending ? (
+          {previewId && (!currentImage || pageImage.isPending) ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : imageSrc ? (
-            <img src={imageSrc} alt={displayLabel} className="w-2/3 h-auto mx-auto" />
+          ) : previewId && currentImage && pageImage.isError ? (
+            <RequestError
+              message={getErrorMessage(pageImage.error, "Could not load the page image.")}
+              onRetry={
+                canRetryRequest(pageImage.error)
+                  ? () => mutate({ previewId, page: page.page })
+                  : undefined
+              }
+            />
+          ) : currentImage && pageImage.data ? (
+            <img
+              src={`data:image/png;base64,${pageImage.data.image_base64}`}
+              alt={displayLabel}
+              className="w-2/3 h-auto mx-auto"
+            />
           ) : (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
               Image not available

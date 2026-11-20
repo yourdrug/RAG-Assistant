@@ -7,10 +7,12 @@ import {
   useTransferToBenchmark,
 } from "@/shared/api/hooks/use-chat-logs";
 import type { BenchmarkDraft } from "@/shared/api/types";
+import { getErrorStatus } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/button";
 import { DateInput } from "@/shared/ui/date-input";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Textarea } from "@/shared/ui/textarea";
 import { SourceHintPicker } from "./benchmark-source-hint-picker";
 import { ChatLogContext } from "./chat-log-context";
@@ -53,8 +55,10 @@ export function ChatLogBenchmarkPage() {
         <p role="status">Loading…</p>
       ) : !canTransfer ? (
         <p role="alert">Only administrators can create benchmark questions.</p>
-      ) : !valid || log.isError ? (
+      ) : !valid || getErrorStatus(log.error) === 404 ? (
         <p role="alert">Could not load this answer. Check the link and your access rights.</p>
+      ) : log.isError ? (
+        <QueryError query={log} fallback="Could not load this answer." />
       ) : log.isPending ? (
         <p role="status">Loading answer…</p>
       ) : (
@@ -67,7 +71,7 @@ export function ChatLogBenchmarkPage() {
               Save this entry as a benchmark candidate before creating the question.
             </p>
           ) : draft.isError ? (
-            <p role="alert">{chatLogReviewError(draft.error)}</p>
+            <QueryError query={draft} fallback="Could not load the benchmark draft." />
           ) : draft.isPending ? (
             <p role="status">Loading question…</p>
           ) : (

@@ -40,19 +40,23 @@ export function AdminIngestPage() {
   const registry = registryQuery.data;
   const allMut = useIngestAll();
   const fileMut = useIngestFile();
-  const { data: groups } = useGroups();
-  const { data: uploadableClients } = useUploadableClients();
+  const groupsQuery = useGroups();
+  const clientsQuery = useUploadableClients();
+  const { data: groups } = groupsQuery;
+  const { data: uploadableClients } = clientsQuery;
   const [docsDir, setDocsDir] = useState("docs/");
   const [filePath, setFilePath] = useState("");
   const [domain, setDomain] = useState("auto");
   const [visibility, setVisibility] = useState("internal_public");
   const [groupId, setGroupId] = useState<number | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
-  const { data: spaces } = useSpaces();
+  const spacesQuery = useSpaces();
+  const { data: spaces } = spacesQuery;
   const [spaceChoice, setSpaceChoice] = useState<number | null>(null);
   // New documents go to one knowledge space; profiles come from its domain pack.
   const spaceId = spaceChoice ?? defaultSpaceId(spaces);
-  const { data: documentDomains } = useDocumentDomains(spaceId, spaceId != null);
+  const domainsQuery = useDocumentDomains(spaceId, spaceId != null);
+  const { data: documentDomains } = domainsQuery;
 
   const [resetAll, setResetAll] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -153,6 +157,18 @@ export function AdminIngestPage() {
         </Button>
       </div>
 
+      {spacesQuery.isError && (
+        <QueryError query={spacesQuery} fallback="Could not load knowledge spaces." />
+      )}
+      {domainsQuery.isError && (
+        <QueryError query={domainsQuery} fallback="Could not load document types." />
+      )}
+      {visibility === "internal_group" && groupsQuery.isError && (
+        <QueryError query={groupsQuery} fallback="Could not load groups." />
+      )}
+      {visibility === "client_private" && clientsQuery.isError && (
+        <QueryError query={clientsQuery} fallback="Could not load clients." />
+      )}
       <Card>
         <CardHeader>
           <CardTitle>Ingest Directory</CardTitle>
@@ -274,7 +290,7 @@ export function AdminIngestPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {(!uploadableClients || uploadableClients.length === 0) && (
+                {uploadableClients?.length === 0 && (
                   <p className="text-xs text-muted-foreground">No clients assigned</p>
                 )}
               </div>
@@ -392,7 +408,7 @@ export function AdminIngestPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {(!uploadableClients || uploadableClients.length === 0) && (
+                {uploadableClients?.length === 0 && (
                   <p className="text-xs text-muted-foreground">No clients assigned</p>
                 )}
               </div>

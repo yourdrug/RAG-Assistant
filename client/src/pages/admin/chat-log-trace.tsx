@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
 import type { ChatLogEntry } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
+import { QueryError } from "@/shared/ui/query-error";
 
 interface TraceDocument {
   metadata: { chunk_id?: number; document_id?: number; citation_id?: number };
@@ -97,7 +98,7 @@ export function ChatLogTrace({ entry }: { entry: ChatLogEntry }) {
   });
   if (trace.isPending) return <p>Loading trace…</p>;
   if (trace.isError)
-    return <p role="alert">Trace unavailable: tracing is disabled, expired or missing.</p>;
+    return <QueryError query={trace} fallback="Could not load the answer trace." />;
   return (
     <div className="space-y-4">
       <ol className="flex flex-wrap gap-4 text-sm">

@@ -209,14 +209,15 @@ class Application:
         self.app.add_exception_handler(Exception, handle_unexpected_exception)
 
     def add_middlewares(self) -> None:
+        self.app.add_middleware(RequestIDMiddleware)
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=settings.allowed_origins_list,
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+            expose_headers=["Retry-After", "X-Request-ID", "X-RateLimit-Limit"],
         )
-        self.app.add_middleware(RequestIDMiddleware)
         self.app.add_middleware(MetricsMiddleware)
 
         if settings.otel_enabled:

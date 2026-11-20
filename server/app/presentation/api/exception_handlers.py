@@ -31,6 +31,7 @@ from domain.shared.exceptions import (
     SemaphoreTimeoutError,
     ValidationError,
 )
+from shared import request_id_ctx
 
 
 logger: Logger = getLogger("default")
@@ -226,5 +227,5 @@ async def handle_validation_exception(request: Request, exc: Exception) -> JSONR
 
 async def handle_unexpected_exception(_request: Request, exc: Exception) -> JSONResponse:
     """Fallback for unhandled exceptions."""
-    logger.error("Unhandled exception: %s", exc, exc_info=exc)
-    return json_response(error_envelope("Internal Server Error"), status.HTTP_500_INTERNAL_SERVER_ERROR)
+    logger.error("Unhandled request error (request_id=%s)", request_id_ctx.get(), exc_info=exc)
+    return json_response(error_envelope("Внутренняя ошибка сервера"), status.HTTP_500_INTERNAL_SERVER_ERROR)

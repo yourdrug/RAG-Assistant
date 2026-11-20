@@ -63,3 +63,10 @@ test("regular user cannot open admin UI or list accounts", async ({ page, makeUs
   });
   expect(status).toBe(403);
 });
+
+test("signed-in users can recover from an unknown page", async ({ adminPage: page }) => {
+  await page.goto("/not-a-page");
+  await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+  await page.getByRole("link", { name: "Go to workspace" }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+});

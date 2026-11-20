@@ -63,6 +63,7 @@ import {
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Progress } from "@/shared/ui/progress";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
@@ -91,7 +92,8 @@ function BenchmarkDatasetSelect({
   onChange: (value: string) => void;
   allowAll?: boolean;
 }) {
-  const { data: datasets, isLoading, isError } = useBenchmarkDatasets();
+  const datasetsQuery = useBenchmarkDatasets();
+  const { data: datasets, isLoading } = datasetsQuery;
   const options = [...new Set([...(datasets ?? []), ...(value ? [value] : [])])].sort();
   return (
     <div className="space-y-1 min-w-40">
@@ -111,7 +113,9 @@ function BenchmarkDatasetSelect({
           ))}
         </SelectContent>
       </Select>
-      {isError && <p className="text-xs text-destructive">Could not load datasets</p>}
+      {datasetsQuery.isError && (
+        <QueryError query={datasetsQuery} fallback="Could not load datasets." />
+      )}
     </div>
   );
 }
@@ -150,12 +154,13 @@ function QuestionsTab() {
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [loadedPage, setLoadedPage] = useState(1);
-  const { data, isLoading, isFetching, isPlaceholderData, refetch } = useBenchmarkQuestions({
+  const questions = useBenchmarkQuestions({
     search: search || undefined,
     dataset: datasetFilter || undefined,
     limit: pageSize,
     offset: (page - 1) * pageSize,
   });
+  const { data, isLoading, isFetching, isPlaceholderData, refetch } = questions;
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : page;
   const displayedPage = isPlaceholderData ? loadedPage : page;
 
@@ -390,7 +395,9 @@ function QuestionsTab() {
       </div>
 
       {pagination}
-      {/* Questions */}
+      {questions.isError && (
+        <QueryError query={questions} fallback="Could not load benchmark questions." />
+      )}
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -1093,7 +1100,8 @@ function SweepProgressTab({
   activeSweepId: number | null;
   onSweepSelect: (id: number) => void;
 }) {
-  const { data: sweepsData, isLoading, refetch } = useSweeps();
+  const sweeps = useSweeps();
+  const { data: sweepsData, isLoading, refetch } = sweeps;
   const cancelSweep = useCancelSweep();
   const resumeSweep = useResumeSweep();
   const restartSweep = useCreateSweep();
@@ -1118,6 +1126,7 @@ function SweepProgressTab({
         </Button>
       </div>
 
+      {sweeps.isError && <QueryError query={sweeps} fallback="Could not load sweeps." />}
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -1306,10 +1315,13 @@ function SweepProgressTab({
 function LeaderboardTab() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [expandedRunId, setExpandedRunId] = useState<number | null>(null);
-  const { data: runsData, isLoading } = useBenchmarkRuns({ limit: 50 });
+  const runs = useBenchmarkRuns({ limit: 50 });
+  const { data: runsData, isLoading } = runs;
   const applyConfig = useApplyRunConfig();
-  const { data: compareData } = useCompareRuns(selectedIds);
-  const { data: runDetail } = useBenchmarkResult(expandedRunId);
+  const comparison = useCompareRuns(selectedIds);
+  const runQuery = useBenchmarkResult(expandedRunId);
+  const { data: compareData } = comparison;
+  const { data: runDetail } = runQuery;
 
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) =>
@@ -1376,6 +1388,8 @@ function LeaderboardTab() {
         </Card>
       )}
 
+      {runs.isError && <QueryError query={runs} fallback="Could not load benchmark runs." />}
+      {comparison.isError && <QueryError query={comparison} fallback="Could not compare runs." />}
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -1570,7 +1584,11 @@ function LeaderboardTab() {
                             <div className="mb-2">
                               <DiagnosisCounts counts={run.summary_metrics.diagnosis_counts} />
                             </div>
-                            {runDetail?.per_question_results ? (
+                            {runQuery.isError ? (
+                              <QueryError query={runQuery} fallback="Could not load run details." />
+                            ) : runQuery.isPending ? (
+                              <p role="status">Loading run details…</p>
+                            ) : runDetail?.per_question_results ? (
                               <RunQuestionResults
                                 runId={run.id}
                                 rows={runDetail.per_question_results}

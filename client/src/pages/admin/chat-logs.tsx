@@ -19,6 +19,7 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { FEEDBACK_REASON_LABELS, OUTCOME_LABELS } from "./chat-log-labels";
 import { REVIEW_STATUS_LABELS, ReviewAction, ReviewForm } from "./chat-log-review";
 import { ChatLogStatsPanel } from "./chat-log-stats";
@@ -39,7 +40,8 @@ const outcomes: AnswerOutcome[] = [
 function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boolean }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"answer" | "trace">("answer");
-  const { data, isLoading, isError } = useChatLog(entry.id, open);
+  const answerQuery = useChatLog(entry.id, open);
+  const { data, isLoading } = answerQuery;
   const log = data?.entry ?? entry;
   const rating = entry.feedback?.rating;
   return (
@@ -80,7 +82,9 @@ function LogCard({ entry, canTransfer }: { entry: ChatLogEntry; canTransfer: boo
       {open && (
         <div className="mt-5 space-y-6 border-t pt-5">
           {isLoading && <p>Loading answer…</p>}
-          {isError && <p role="alert">Could not load this answer.</p>}
+          {answerQuery.isError && (
+            <QueryError query={answerQuery} fallback="Could not load this answer." />
+          )}
           <div className="flex gap-2" role="tablist" aria-label="Answer details">
             <Button
               role="tab"
@@ -306,7 +310,8 @@ function ChatLogsPage() {
     limit: pageSize,
     offset: page * pageSize,
   };
-  const { data, isFetching, isError } = useChatLogs(params);
+  const logsQuery = useChatLogs(params);
+  const { data, isFetching, isError } = logsQuery;
   const update = (key: keyof typeof filters, value: string) => {
     setFilters((previous) => ({ ...previous, [key]: value }));
     setPage(0);
@@ -570,7 +575,7 @@ function ChatLogsPage() {
         </div>
         <span className="text-sm text-muted-foreground">Page {page + 1}</span>
       </div>
-      {isError && <p role="alert">Could not load logs. Check your filters and try again.</p>}
+      {isError && <QueryError query={logsQuery} fallback="Could not load answer logs." />}
       <div className="space-y-3" aria-busy={isFetching}>
         {isFetching && !data && (
           <p role="status" className="py-8 text-center text-sm text-muted-foreground">

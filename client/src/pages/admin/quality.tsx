@@ -17,11 +17,13 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { DataTable } from "@/shared/ui/data-table";
+import { QueryError } from "@/shared/ui/query-error";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { DryRunDialog } from "./dry-run/DryRunDialog";
 
 export function AdminQualityPage() {
-  const { data: documents } = useDocuments();
+  const documentsQuery = useDocuments();
+  const { data: documents } = documentsQuery;
   const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
   const [showDryRun, setShowDryRun] = useState(false);
 
@@ -109,17 +111,23 @@ export function AdminQualityPage() {
           <CardTitle>
             <div className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
-              Documents with Warnings ({qualityDocs.length})
+              Documents with Warnings{documents && ` (${qualityDocs.length})`}
             </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <DataTable
-            columns={columns}
-            data={qualityDocs as DocumentQualityItem[]}
-            searchKey="filename"
-            searchPlaceholder="Search documents..."
-          />
+          {documentsQuery.isError && (
+            <QueryError query={documentsQuery} fallback="Could not load documents." />
+          )}
+          {documentsQuery.isPending && <p role="status">Loading documents…</p>}
+          {documents && (
+            <DataTable
+              columns={columns}
+              data={qualityDocs as DocumentQualityItem[]}
+              searchKey="filename"
+              searchPlaceholder="Search documents..."
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -131,9 +139,10 @@ export function AdminQualityPage() {
 }
 
 function DiagnosisPanel({ documentId }: { documentId: number }) {
-  const { data, isLoading } = useDocumentDiagnosis(documentId);
+  const diagnosis = useDocumentDiagnosis(documentId);
+  const { data, isPending } = diagnosis;
 
-  if (isLoading) {
+  if (isPending) {
     return (
       <Card>
         <CardContent className="flex items-center justify-center py-8">
@@ -143,6 +152,9 @@ function DiagnosisPanel({ documentId }: { documentId: number }) {
     );
   }
 
+  if (diagnosis.isError) {
+    return <QueryError query={diagnosis} fallback="Could not load the document diagnosis." />;
+  }
   if (!data) return null;
 
   return (

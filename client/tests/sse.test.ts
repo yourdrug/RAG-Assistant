@@ -139,3 +139,34 @@ test("SSE delivers one application error and ignores an intentionally cancelled 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("SSE preserves session expiry and the server's retry delay", async () => {
+  const originalFetch = globalThis.fetch;
+  const errors: Array<[string, number | undefined]> = [];
+  const options = {
+    question: "Q",
+    token: "token",
+    onChunk: () => assert.fail("unexpected text"),
+    onDone: () => assert.fail("unexpected done"),
+    onError: (error: string, status?: number) => errors.push([error, status]),
+  };
+
+  try {
+    for (const payload of [
+      { code: "unauthorized", error: "Unauthorized" },
+      { code: "rate_limit_exceeded", retry_after: 12 },
+      { code: "llm_unavailable", retry_after: 30 },
+    ]) {
+      globalThis.fetch = async () =>
+        new Response(`event: error\ndata: ${JSON.stringify(payload)}\n\n`);
+      await streamChat(options);
+    }
+    assert.deepEqual(errors, [
+      ["Your session has expired. Please sign in again.", 401],
+      ["Too many requests. Try again in 12 seconds.", undefined],
+      ["The service is temporarily unavailable. Try again in 30 seconds.", undefined],
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

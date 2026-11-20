@@ -4,6 +4,7 @@ import { Brain, Cloud, Cpu, FileText, ScanText } from "lucide-react";
 import { apiClient } from "@/shared/api/client";
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { QueryError } from "@/shared/ui/query-error";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 interface ModelsInfo {
@@ -23,12 +24,14 @@ interface ModelsInfo {
 }
 
 export function AdminModelsPage() {
-  const { data, isLoading } = useQuery({
+  const modelsQuery = useQuery({
     queryKey: ["admin", "models"],
     queryFn: async () => (await apiClient.get<ModelsInfo>("/admin/models/info")).data,
   });
 
-  if (isLoading) {
+  const { data, isPending } = modelsQuery;
+
+  if (isPending) {
     return (
       <div className="p-6 space-y-6">
         <div>
@@ -47,6 +50,15 @@ export function AdminModelsPage() {
             </Card>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (modelsQuery.isError && !data) {
+    return (
+      <div className="p-6 space-y-6">
+        <h1 className="text-2xl font-bold">Models</h1>
+        <QueryError query={modelsQuery} fallback="Could not load model configuration." />
       </div>
     );
   }
@@ -91,6 +103,9 @@ export function AdminModelsPage() {
         <p className="text-muted-foreground">Current ML model configuration (read-only)</p>
       </div>
 
+      {modelsQuery.isError && (
+        <QueryError query={modelsQuery} fallback="Could not load model configuration." />
+      )}
       <div className="grid gap-4 md:grid-cols-2">
         {models.map((m) => {
           const Icon = m.icon;

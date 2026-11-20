@@ -107,7 +107,9 @@ export async function streamChat({
             if (
               Number.isSafeInteger(parsed.conversation_id) &&
               (parsed.message_id == null || Number.isSafeInteger(parsed.message_id)) &&
-              (parsed.sources == null || Array.isArray(parsed.sources))
+              (parsed.sources == null || Array.isArray(parsed.sources)) &&
+              (parsed.answer == null || typeof parsed.answer === "string") &&
+              (parsed.as_of_date == null || typeof parsed.as_of_date === "string")
             ) {
               onDone(parsed as SSEDone);
             } else {
@@ -117,15 +119,33 @@ export async function streamChat({
           }
           if (event === "error") {
             const message = typeof parsed.error === "string" && parsed.error.trim();
-            onError(
-              parsed.code === "internal_error"
-                ? describeHttpError(500, null)
-                : message || interrupted,
-            );
+            switch (parsed.code) {
+              case "unauthorized":
+                onError(describeHttpError(401, null), 401);
+                break;
+              case "server_busy":
+                onError(describeHttpError(429, { errors: { code: "semaphore_timeout" } }));
+                break;
+              case "rate_limit_exceeded":
+                onError(describeHttpError(429, null, parsed.retry_after));
+                break;
+              case "llm_unavailable":
+                onError(describeHttpError(503, null, parsed.retry_after));
+                break;
+              case "internal_error":
+                onError(describeHttpError(500, null));
+                break;
+              default:
+                onError(message || interrupted);
+            }
             return;
           }
-          if (event === "status") onStatus?.(parsed.stage as PipelineStage);
-          else if (typeof parsed.text === "string") onChunk(parsed.text);
+          if (event === "status") {
+            const { stage } = parsed;
+            if (stage === "searching" || stage === "reranking" || stage === "generating") {
+              onStatus?.(stage);
+            }
+          } else if (typeof parsed.text === "string") onChunk(parsed.text);
         }
       }
     }

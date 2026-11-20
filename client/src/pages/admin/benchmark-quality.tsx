@@ -28,6 +28,7 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryError } from "@/shared/ui/query-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 
@@ -579,7 +580,11 @@ function ThresholdsForm({
 }
 
 function CalibrationHistory({ dataset }: { dataset: string }) {
-  const { data: calibrations } = useJudgeCalibrations(dataset);
+  const history = useJudgeCalibrations(dataset);
+  const { data: calibrations } = history;
+  if (history.isError)
+    return <QueryError query={history} fallback="Could not load calibrations." />;
+  if (history.isPending) return <p role="status">Loading calibrations…</p>;
 
   if (!calibrations?.length) return <p className="text-muted-foreground">Not calibrated yet.</p>;
 
@@ -609,15 +614,23 @@ function CalibrationHistory({ dataset }: { dataset: string }) {
 }
 
 function NoisePanel({ dataset }: { dataset: string }) {
-  const { data: policy } = useDatasetPolicy(dataset);
-  const { data: runs } = useBenchmarkRuns({ dataset, limit: 20 });
+  const policyQuery = useDatasetPolicy(dataset);
+  const runsQuery = useBenchmarkRuns({ dataset, limit: 20 });
+  const { data: runs } = runsQuery;
   const measure = useMeasureNoise(dataset);
   const [selected, setSelected] = useState<number[]>([]);
-  const noise = policy?.noise;
+  const noise = policyQuery.data?.noise;
 
   return (
     <div className="space-y-3 text-sm">
-      {noise ? (
+      {runsQuery.isError && (
+        <QueryError query={runsQuery} fallback="Could not load finished runs." />
+      )}
+      {policyQuery.isError ? (
+        <QueryError query={policyQuery} fallback="Could not load the noise measurement." />
+      ) : policyQuery.isPending ? (
+        <p role="status">Loading noise measurement…</p>
+      ) : noise ? (
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">
             Measured {new Date(noise.measured_at).toLocaleString()} on runs{" "}
@@ -679,11 +692,14 @@ function NoisePanel({ dataset }: { dataset: string }) {
 }
 
 export function AcceptanceTab() {
-  const { data: datasets } = useBenchmarkDatasets();
+  const datasetsQuery = useBenchmarkDatasets();
+  const { data: datasets } = datasetsQuery;
   const [dataset, setDataset] = useState("");
   const active = dataset || datasets?.find((name) => name.endsWith("-main")) || datasets?.[0] || "";
-  const { data: policy } = useDatasetPolicy(active);
-  const { data: composition } = useDatasetComposition(active);
+  const policyQuery = useDatasetPolicy(active);
+  const compositionQuery = useDatasetComposition(active);
+  const { data: policy } = policyQuery;
+  const { data: composition } = compositionQuery;
 
   return (
     <div className="space-y-4">
@@ -691,7 +707,9 @@ export function AcceptanceTab() {
         <Label className="text-sm">Dataset</Label>
         <Select value={active} onValueChange={setDataset}>
           <SelectTrigger className="w-64" aria-label="Dataset">
-            <SelectValue placeholder="No datasets" />
+            <SelectValue
+              placeholder={datasetsQuery.isPending ? "Loading datasets…" : "Select dataset"}
+            />
           </SelectTrigger>
           <SelectContent>
             {(datasets ?? []).map((name) => (
@@ -702,6 +720,10 @@ export function AcceptanceTab() {
           </SelectContent>
         </Select>
       </div>
+      {datasetsQuery.isError && (
+        <QueryError query={datasetsQuery} fallback="Could not load datasets." />
+      )}
+      {datasets?.length === 0 && <p className="text-muted-foreground">No datasets.</p>}
       {active && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>
@@ -712,6 +734,9 @@ export function AcceptanceTab() {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {policyQuery.isError && (
+                <QueryError query={policyQuery} fallback="Could not load acceptance thresholds." />
+              )}
               {policy && <ThresholdsForm dataset={active} thresholds={policy.thresholds} />}
             </CardContent>
           </Card>
@@ -730,6 +755,12 @@ export function AcceptanceTab() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-1 text-sm">
+              {compositionQuery.isError && (
+                <QueryError
+                  query={compositionQuery}
+                  fallback="Could not load dataset composition."
+                />
+              )}
               {composition && (
                 <>
                   <p>Active questions: {composition.total}</p>
