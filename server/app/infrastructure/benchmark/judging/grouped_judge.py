@@ -10,7 +10,7 @@ from infrastructure.benchmark.judging.clients import create_async_judge_client
 from infrastructure.benchmark.judging.judge_diagnostics import (
     log_judge_event,
 )
-from infrastructure.benchmark.judging.judge_rubric import ANSWER_TYPE_RUBRICS
+from infrastructure.benchmark.judging.judge_rubric import ANSWER_TYPE_RUBRICS, refusal_faithfulness
 from infrastructure.benchmark.judging.requests import judge_group
 
 
@@ -33,6 +33,10 @@ async def judge_case_grouped(
     async def persist(value: dict[str, Any]) -> None:
         if callback is not None:
             await callback(value)
+
+    if (refusal := refusal_faithfulness(answer)) is not None:
+        # A saved score is never re-requested, so the judge is not asked for this metric.
+        scores["faithfulness"] = {"score": refusal[0], "reason": refusal[1]}
 
     groups = judge_groups(question, answer, context, evidence_context)
 

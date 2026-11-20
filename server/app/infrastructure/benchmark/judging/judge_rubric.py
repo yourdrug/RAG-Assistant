@@ -1,6 +1,26 @@
 """Shared semantic criteria for grouped and individual benchmark judges."""
 
-JUDGE_RUBRIC_VERSION = "2026-11-18-xml-prompts-v3"
+from infrastructure.ml.rag.prompt_blocks import is_not_found_answer
+
+
+JUDGE_RUBRIC_VERSION = "2026-11-20-refusal-faithfulness-v4"
+
+REFUSAL_FAITHFULNESS_SCORE = 10.0
+REFUSAL_FAITHFULNESS_REASON = "Отказ без фактических утверждений (правило рубрики, судья не вызывался)"
+
+
+def refusal_faithfulness(answer: str) -> tuple[float, str] | None:
+    """Faithfulness of a whole-answer refusal, fixed by the rubric instead of the judge.
+
+    A refusal makes no factual claims, so nothing can be unsupported. Asked anyway, the
+    judge sees the expected answer type and required facts and penalises the refusal here,
+    which belongs to correctness.
+    """
+    if not is_not_found_answer(answer):
+        return None
+
+    return REFUSAL_FAITHFULNESS_SCORE, REFUSAL_FAITHFULNESS_REASON
+
 
 CORRECTNESS_CRITERIA = (
     "CORRECTNESS: оцени совпадение по смыслу с эталоном, включая полноту, ограничения "
