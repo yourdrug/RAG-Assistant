@@ -95,6 +95,8 @@ class LegalDomainProfile(SettingsBackedProfile):
         "в\\s+соответствии\\s+с",
         "согласно\\s+(закону|договору|статье)",
         "нарушени[ея]\\s+(условий|закона)",
+        # A named law, not "законодательство": keeps a law in the search scope beside a decree.
+        "закон(?:ом|ами|ах|ам|ы|ов|а|е|у)?\\b",
     )
     query_priority = 1
     key = "legal"

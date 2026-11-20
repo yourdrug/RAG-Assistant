@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 from langchain_core.documents import Document
 import pytest
 
-from application.rag.dto import PreparedQuery, RagRequest, Sufficiency
+from application.rag.dto import PreparedQuery, PromptMessage, RagRequest, Sufficiency
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.chunk import ChunkRecord
@@ -150,6 +150,21 @@ async def test_text_neighbors_complete_only_same_provision_without_enumeration()
     assert search.get_neighbors.call_args.kwargs["user"] is CTX.user
 
 
+def assert_gate_inputs(prompt: str, gated: dict[str, Any], evidence_context: str) -> None:
+    """The gate judged the user's question with its history over the generation context."""
+    assert prompt.endswith(f"<context>\n{evidence_context}\n</context>")
+    assert prompt.startswith(
+        "<dialogue_history>\nПользователь: Какие есть правила?\nАссистент: Правила есть.\n"
+        "</dialogue_history>\n<question>\nrule conditions\n</question>\n"
+    )
+    assert "invented requirement" not in prompt
+
+    # The rejected context is recorded as the attempt's unsent prompt.
+    assert gated["status"] == "gated"
+    assert gated["context"] == evidence_context
+    assert len(gated["documents"]) == 3
+
+
 @pytest.mark.asyncio
 async def test_relevance_judge_receives_generation_context_and_proposes_retry(
     monkeypatch: pytest.MonkeyPatch,
@@ -171,7 +186,15 @@ async def test_relevance_judge_receives_generation_context_and_proposes_retry(
     ops = RagOperations(ml, document_access=access)
     rag = make_rag(llm_num_ctx_narrow=24000, llm_num_predict_narrow=1000)
     rag = replace(rag, features=replace(rag.features, relevance_gate_enabled=True))
-    request = RagRequest("rule conditions", (), CTX, rag, 0, "test", "model")
+    request = RagRequest(
+        "rule conditions",
+        (PromptMessage("human", "Какие есть правила?"), PromptMessage("ai", "Правила есть.")),
+        CTX,
+        rag,
+        0,
+        "test",
+        "model",
+    )
     calls = []
 
     async def structured(client: Any, **kwargs: Any) -> Any:
@@ -185,9 +208,12 @@ async def test_relevance_judge_receives_generation_context_and_proposes_retry(
     token = active_evidence.set(evidence)
     try:
         with evidence_profile_scope(GenericEvidenceProfile()):
-            result = await ops.retrieve(PreparedQuery(request, "rule conditions"))
+            # The condensed search query may invent requirements; the gate never sees it.
+            result = await ops.retrieve(PreparedQuery(request, "rule conditions invented requirement"))
             assert await ops.gate(result) == Sufficiency(False, "rule details")
-            assert "prompt" not in evidence.attempts[-1]["stages"]
+            gated = dict(evidence.attempts[-1]["stages"]["prompt"])
+            # No prompt was sent: the request-level selection stays empty.
+            assert not evidence.selected
             context = ops.build(result)
     finally:
         active_evidence.reset(token)
@@ -195,7 +221,7 @@ async def test_relevance_judge_receives_generation_context_and_proposes_retry(
 
     # One judgment: no separate sufficiency call after the rejection.
     assert len(calls) == 1
-    assert calls[0]["messages"][1]["content"].endswith(context.evidence_context)
+    assert_gate_inputs(calls[0]["messages"][1]["content"], gated, context.evidence_context)
 
     checks = evidence.attempts[-1]["checks"]
     assert [(check["stage"], check["context"]) for check in checks] == [

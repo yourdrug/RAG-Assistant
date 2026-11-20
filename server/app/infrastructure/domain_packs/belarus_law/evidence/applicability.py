@@ -60,6 +60,68 @@ def timing_question(question: str) -> bool:
     return bool(re.search(r"в каком режиме|как часто|периодичност", question, re.IGNORECASE))
 
 
+CHANGE_QUESTION_RE = re.compile(r"\bизмен(?:ил|ит|яет|яют|ял)\w*\s+ли\b", re.IGNORECASE)
+AMENDMENT_INSTRUCTION_RE = re.compile(
+    r"в\s+таблиц|заменить|изложить|дополнить|исключить|после\s+позици|позици[юи]", re.IGNORECASE
+)
+MIN_SUBJECT_QUOTE_CHARS = 20
+MAX_SUBJECT_QUOTE_CHARS = 300
+
+
+def timing_change_question(question: str) -> bool:
+    """Whether the question asks if a named act changed how often information is transmitted.
+
+    Such a question compares the amending act with the norm that sets the timing;
+    the timing applicability check of a single act does not answer it.
+    """
+    return (
+        timing_question(question)
+        and bool(act_numbers(question))
+        and bool(CHANGE_QUESTION_RE.search(question))
+    )
+
+
+def timing_requested(question: str) -> bool:
+    """Broader than ``timing_question``: retrieval may look for timing, answers stay generated."""
+    return bool(re.search(r"режим|периодич|как часто|частот", question, re.IGNORECASE))
+
+
+CLASSIFIER_RE = re.compile(
+    r"\bклассификатор\w*\s+(.+?)(?=,|[?]|\s+согласно\b|\s+на\s+котор|$)", re.IGNORECASE
+)
+APPROVER_QUESTION_RE = re.compile(r"утвержда|утверд|какой\s+орган|кем", re.IGNORECASE)
+ACT_REFERENCE_RE = re.compile(r"(?:согласно|в\s+соответствии\s+с)\s+приложени\w*\s+\S+", re.IGNORECASE)
+
+
+def approved_classifier(question: str) -> str | None:
+    """The classifier whose approving body is asked for («какой орган утверждает классификатор X»)."""
+    match = CLASSIFIER_RE.search(question)
+    return match[1].strip() if match and APPROVER_QUESTION_RE.search(question) else None
+
+
+def classifier_reference(classifier: str, text: str) -> bool:
+    """A line naming the classifier and the appendix of the act that establishes it.
+
+    The referring structures and the defining act both state it this way; they
+    rank below provisions that only share the referring structure's vocabulary.
+    """
+    stems = {word[:5] for word in re.findall(r"[а-яё]{4,}", classifier.casefold())}
+    return bool(stems) and any(
+        "классификат" in line.casefold()
+        and ACT_REFERENCE_RE.search(line)
+        and stems <= {word[:5] for word in re.findall(r"[а-яё]{4,}", line.casefold())}
+        for line in text.splitlines()
+    )
+
+
+def timing_provision(text: str) -> bool:
+    """A sentence that sets how often information is transmitted."""
+    return any(
+        re.search(r"переда[её]т|передаются", line, re.IGNORECASE) and TIMING_RE.search(line)
+        for line in text.splitlines()
+    )
+
+
 def procedure_stage(line: str) -> str | None:
     if re.match(r"При реализации\b", line, re.IGNORECASE):
         return "реализация"
@@ -206,3 +268,52 @@ def timing_assessment(question: str, fragments: list[EvidenceFragment]) -> Evide
         )
 
     return EvidenceAssessment(EvidenceStatus.COMPLETE, tuple(claims.values()))
+
+
+def amendment_subject_quote(fragment: EvidenceFragment) -> str:
+    """The first informative line of an amending act that says what it changes, else its whole text."""
+    lines = [line.strip() for line in fragment.text.splitlines() if line.strip()]
+    quote = next(
+        (
+            line
+            for line in lines
+            if AMENDMENT_INSTRUCTION_RE.search(line) and len(line) >= MIN_SUBJECT_QUOTE_CHARS
+        ),
+        " ".join(lines),
+    )
+    return quote if len(quote) <= MAX_SUBJECT_QUOTE_CHARS else quote[:MAX_SUBJECT_QUOTE_CHARS].rstrip() + "…"
+
+
+def timing_change_assessment(question: str, fragments: list[EvidenceFragment]) -> EvidenceAssessment:
+    """Pair the subject of the named amending act with the norm that sets transmission timing.
+
+    The named act's own fragments show what it changes; a timing sentence of any
+    act is the norm to compare with. Both are needed for a conclusion; with one
+    of them the confirmed part is quoted and the other is named as missing.
+    """
+    amending = sorted(scoped_fragments(question, fragments), key=lambda f: f.chunk_index)
+    claims = [EvidenceClaim("предмет изменения", amendment_subject_quote(f), f.source) for f in amending[:1]]
+    norms: dict[str, EvidenceClaim] = {}
+
+    for fragment in fragments:
+        lines = fragment.text.splitlines()
+
+        for index, line in enumerate(lines):
+            if timing_line_matches(question, line, lines[index - 1] if index else "", fragment):
+                norms.setdefault(
+                    line.strip(), EvidenceClaim("норма о периодичности", line.strip(), fragment.source)
+                )
+
+    claims.extend(norms.values())
+    missing = (
+        *(() if amending else ("текст изменений, внесённых названным актом",)),
+        *(() if norms else ("норма, устанавливающая периодичность передачи сведений",)),
+    )
+    status = (
+        EvidenceStatus.COMPLETE
+        if not missing
+        else EvidenceStatus.PARTIAL
+        if claims
+        else EvidenceStatus.INSUFFICIENT
+    )
+    return EvidenceAssessment(status, tuple(claims), missing)

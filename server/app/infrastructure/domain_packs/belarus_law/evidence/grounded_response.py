@@ -12,12 +12,14 @@ from infrastructure.domain_packs.belarus_law.evidence.applicability import (
     procedure_assessment,
     procedure_question,
     timing_assessment,
+    timing_change_assessment,
+    timing_change_question,
     timing_question,
 )
 from infrastructure.domain_packs.belarus_law.evidence.editions import edition_of
 from infrastructure.domain_packs.belarus_law.evidence.focus import (
+    confirmed_field_rows,
     evidence_reading_map,
-    matching_field_rows,
     requested_fields,
 )
 from infrastructure.domain_packs.belarus_law.evidence.predicates import table_scope_confirmed
@@ -34,7 +36,7 @@ def missing_field_response(context: str, question: str) -> str | None:
 
 def extractive_timing_response(docs: Sequence[tuple[RetrievalDocument, float]], question: str) -> str | None:
     """Return a single explicit timing norm from the act named in the question."""
-    if not timing_question(question):
+    if not timing_question(question) or timing_change_question(question):
         return None
 
     assessment = timing_assessment(question, evidence_fragments(docs))
@@ -105,13 +107,25 @@ def scoped_evidence_response(
         return render_evidence_assessment(assessment), assessment
 
     if timing_question(question):
-        assessment = timing_assessment(question, evidence_fragments(docs))
-        return render_evidence_assessment(assessment), assessment
+        return scoped_timing_response(docs, question)
 
     if requested_fields(question):
         return scoped_field_response(docs, context, question)
 
     return None, None
+
+
+def scoped_timing_response(
+    docs: Sequence[tuple[RetrievalDocument, float]], question: str
+) -> tuple[str | None, EvidenceAssessment]:
+    if not timing_change_question(question):
+        assessment = timing_assessment(question, evidence_fragments(docs))
+        return render_evidence_assessment(assessment), assessment
+
+    # With both the amendment and the timing norm the model compares them in the answer.
+    assessment = timing_change_assessment(question, evidence_fragments(docs))
+    text = None if assessment.status == EvidenceStatus.COMPLETE else render_evidence_assessment(assessment)
+    return text, assessment
 
 
 def amendment_field_response(context: str, question: str) -> tuple[str, EvidenceAssessment]:
@@ -165,8 +179,7 @@ def field_rows_response(context: str, question: str) -> tuple[str, EvidenceAsses
         rows = {
             row: source
             for source, block in sourced_context_blocks(context)
-            if table_scope_confirmed(question, block)
-            for row in matching_field_rows(block, number, name)
+            for row in confirmed_field_rows(block, question, number, name)
         }
 
         if len(rows) != 1:
@@ -233,14 +246,14 @@ def field_format_evidence(
     changes = []
 
     for source, block in sourced_context_blocks(context):
-        if not table_scope_confirmed(question, block):
-            continue
-
-        for row in matching_field_rows(block, number, name):
+        for row in confirmed_field_rows(block, question, number, name):
             formats = re.findall(r"\b(?:an|n|a)\.\.\d+", row.split("|")[2])
 
             if len(formats) == 1:
                 values.setdefault(formats[0], source)
+
+        if not table_scope_confirmed(question, block):
+            continue
 
         for projection in evidence_reading_map(block, question):
             if not projection.startswith(f"Поле {number} «") or "ПОСЛЕ изменения" not in projection:

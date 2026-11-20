@@ -174,16 +174,18 @@ def should_enumerate_cases(
     return chunks_with_conditions >= MIN_CONDITIONAL_CHUNKS
 
 
+def matching_query_domains(question: str, patterns: Mapping[str, tuple[str, ...]]) -> tuple[str, ...]:
+    """Return every registered profile the question matches, in priority order."""
+    return tuple(
+        key
+        for key, rules in patterns.items()
+        if any(re.search(r"\b(?:" + rule + ")", question, re.IGNORECASE) for rule in rules)
+    )
+
+
 def classify_query_domain(question: str, patterns: Mapping[str, tuple[str, ...]]) -> str:
     """Select the first matching registered profile; fall back to general."""
-    return next(
-        (
-            key
-            for key, rules in patterns.items()
-            if any(re.search(r"\b(?:" + rule + ")", question, re.IGNORECASE) for rule in rules)
-        ),
-        DocDomain.GENERAL,
-    )
+    return next(iter(matching_query_domains(question, patterns)), DocDomain.GENERAL)
 
 
 def has_exact_reference(question: str) -> bool:
@@ -222,6 +224,11 @@ def extract_structural_references(question: str) -> list[ExactReference]:
                 references.append(reference)
 
     return references
+
+
+def cited_points(question: str) -> set[str]:
+    """Point numbers the question cites explicitly («п. 5»)."""
+    return {ref.value for ref in extract_structural_references(question) if ref.kind == "point"}
 
 
 def extract_exact_references(question: str) -> list[str]:

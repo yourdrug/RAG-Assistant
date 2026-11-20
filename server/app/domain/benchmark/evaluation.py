@@ -353,6 +353,10 @@ def summarize_evidence(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 STAGE_NAMES = ("candidates", "reranked", "retained", "enriched", "prompt")
+EXECUTED_STAGE_STATUS = "executed"
+# The prompt context a rejecting evidence gate judged; the generator was not called.
+GATED_STAGE_STATUS = "gated"
+SCORED_STAGE_STATUSES = frozenset({EXECUTED_STAGE_STATUS, GATED_STAGE_STATUS})
 
 
 def stage_fragment_present(
@@ -471,7 +475,7 @@ def evaluate_attempt(
     for name in STAGE_NAMES:
         stage = attempt.get("stages", {}).get(name)
 
-        if stage is None or stage.get("status") != "executed":
+        if stage is None or stage.get("status") not in SCORED_STAGE_STATUSES:
             evaluated["stages"][name] = {
                 "status": stage["status"] if stage else "not_executed",
                 "coverage": None,

@@ -58,6 +58,7 @@ from domain.knowledge.repositories.chunk import (
 from domain.knowledge.repositories.document import DocumentTotals
 from domain.knowledge.space import KnowledgeSpace
 from domain.rag.breadth import Breadth
+from domain.rag.document_outline import DocumentOutline
 from domain.rag.result import RagResult
 from domain.runtime.jobs import IndexingQueueSnapshot, JobConcurrencyLimitReachedError
 from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError, ValidationError
@@ -632,6 +633,10 @@ class FakeChunkRepository:
     ) -> list[ChunkRecord]:
         msg = "Parent retrieval requires a dedicated ACL-aware test repository"
         raise NotImplementedError(msg)
+
+    async def get_document_outline(self, document_id: int, *, user: UserContext) -> DocumentOutline:
+        del document_id, user
+        return DocumentOutline(articles=(), tables=())
 
 
 class FakeDocumentRepository:

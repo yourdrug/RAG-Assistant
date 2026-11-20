@@ -177,3 +177,22 @@ async def test_neighbors_share_rendered_token_budget_and_skip_oversized_neighbor
 )
 def test_act_requisites_keep_descriptive_title(title: str | None, expected: str) -> None:
     assert act_title_with_subject("Постановление от 12 марта 2020 г. № 5", title) == expected
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        (
+            "Накладная ТН-1 не применяется [1]. В Инструкции только ТТН-1 и ТН-2 [1].\n\n"
+            "Информация не найдена в документах."
+        ),
+        "В документе отсутствует статья 40 [1]; статьи 1-33.\n\nОтвет: Информация не найдена в документах.",
+    ],
+)
+def test_refusal_appended_to_negative_verdict_is_dropped(answer: str) -> None:
+    """Case 106: «not applicable» followed by «partial answer» read as a contradiction."""
+    marked = mark_partial_answer(answer)
+
+    assert "не найдена" not in marked
+    assert "Ответ частичный" not in marked
+    assert marked.endswith(("[1].", "33."))

@@ -11,7 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 ACT_NUMBER_PATTERN = r"(?P<mark>\bN|№)\s*(?P<num>\d+(?:/\d+)*(?:-[ЗзZz])?)(?![\w/-])"
@@ -90,6 +94,68 @@ def referenced_act(metadata: dict[str, Any], numbers: tuple[str, ...]) -> str | 
     """The first question act number this document is titled with, if any."""
     titled = document_act_numbers(metadata)
     return next((number for number in numbers if number in titled), None)
+
+
+def cites_referenced_point(metadata: dict[str, Any], points: set[str], acts: tuple[str, ...]) -> bool:
+    """Whether a chunk holds a point the question cites, in the act it names (if it names one).
+
+    A chunk can hold several points while its section names only the first, so
+    the packed ``point_numbers`` are compared rather than the section heading.
+    """
+    held = {str(number) for number in metadata.get("point_numbers") or ()}
+
+    if not points & held:
+        return False
+
+    return not acts or referenced_act(metadata, acts) is not None
+
+
+# A multi-word proper term inside a sentence («... центром Государственной системы управления ...»).
+PROPER_TERM_RE = re.compile(r"(?<=[а-яё,;]\s)[А-ЯЁ][а-яё]+(?:\s+[а-яё]+){3,}")
+BRIDGE_TERM_WORDS = 4
+
+
+def content_stems(text: str) -> list[str]:
+    return [word[:5] for word in re.findall(r"[а-яё]{4,}", text.casefold())]
+
+
+def proper_terms(text: str) -> set[tuple[str, ...]]:
+    """Leading stems of the multi-word proper terms a text uses, inflection-insensitive."""
+    terms = (content_stems(match[0]) for match in PROPER_TERM_RE.finditer(text))
+    return {tuple(stems[:BRIDGE_TERM_WORDS]) for stems in terms if len(stems) >= BRIDGE_TERM_WORDS}
+
+
+def compared_act_bridge(
+    window: list[tuple[dict[str, Any], str]], acts: tuple[str, ...]
+) -> Callable[[dict[str, Any], str], bool]:
+    """Whether a chunk of one compared act uses a proper term of another compared act's top chunks.
+
+    Relating two named acts often runs through a term one act uses and the
+    other defines; the defining provision rarely ranks high for the question.
+    """
+    terms: dict[str, set[tuple[str, ...]]] = {}
+
+    if len(acts) > 1:
+        for metadata, text in window:
+            act = referenced_act(metadata, acts)
+
+            if act is not None:
+                terms.setdefault(act, set()).update(proper_terms(text))
+
+    def bridges(metadata: dict[str, Any], text: str) -> bool:
+        act = referenced_act(metadata, acts) if terms else None
+
+        if act is None:
+            return False
+
+        foreign = {term for other, found in terms.items() if other != act for term in found}
+        stems = content_stems(text)
+        return any(
+            tuple(stems[i : i + BRIDGE_TERM_WORDS]) in foreign
+            for i in range(len(stems) - BRIDGE_TERM_WORDS + 1)
+        )
+
+    return bridges
 
 
 def act_focused_queries(question: str) -> list[str]:

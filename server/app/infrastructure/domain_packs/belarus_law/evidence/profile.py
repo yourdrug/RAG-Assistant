@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, override
 
 from domain.rag.act_references import act_focused_queries, extract_act_numbers
 from infrastructure.domain_packs.belarus_law.evidence import (
+    applicability,
     applicable_context,
     editions,
     field_evidence,
@@ -79,6 +80,14 @@ class BelarusEvidenceProfile(GenericEvidenceProfile):
     @override
     def anchors(self, context: str, question: str) -> list[str]:
         return focus.evidence_reading_map(context, question) + focus.reading_anchors(context, question)
+
+    @override
+    def requested_provision(self, question: str, text: str) -> bool:
+        if applicability.timing_requested(question) and applicability.timing_provision(text):
+            return True
+
+        classifier = applicability.approved_classifier(question)
+        return classifier is not None and applicability.classifier_reference(classifier, text)
 
     @override
     def contradicts_scope(self, question: str, text: str) -> bool:

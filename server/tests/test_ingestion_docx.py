@@ -764,6 +764,30 @@ class TestParseDocxSections:
         assert len(table_sections) >= 1
         assert "| A | B |" in table_sections[0][1]
 
+    def test_plain_table_caption_closes_previous_caption_scope(self, tmp_path: Path) -> None:
+        doc = _make_doc()
+        doc.add_paragraph().add_run("Таблица 4.1 - структура сообщения BLRWBL").bold = True
+        _add_table(doc, [["N", "Реквизит"], ["1", "Номер ЭТТН"]])
+        _add_para(doc, "Таблица 4.2 - структура сообщения BLRDLN")
+        _add_table(doc, [["N", "Реквизит"], ["1", "Номер ЭТН"]])
+        path = _save(doc, tmp_path)
+
+        tables = {s.content: s.heading for s in parse_docx_sections(path) if s.kind == PageContentType.TABLE}
+
+        headings = [heading for content, heading in tables.items() if "Номер ЭТН" in content]
+        assert headings == ["Таблица 4.2 - структура сообщения BLRDLN"]
+
+    def test_plain_table_caption_without_caption_heading_stays_text(self, tmp_path: Path) -> None:
+        doc = _make_doc()
+        _add_heading(doc, "Приложение 1", level=1)
+        _add_para(doc, "Таблица 1 - перечень")
+        _add_table(doc, [["A", "B"], ["1", "2"]])
+        path = _save(doc, tmp_path)
+
+        headings = {s.heading for s in parse_docx_sections(path) if s.kind == PageContentType.TABLE}
+
+        assert headings == {"Приложение 1"}
+
     def test_footnotes_section(self, tmp_path: Path) -> None:
         doc = _make_doc()
         _add_para(doc, "Main text")

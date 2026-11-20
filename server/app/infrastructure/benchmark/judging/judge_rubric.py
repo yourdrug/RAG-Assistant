@@ -3,7 +3,7 @@
 from infrastructure.ml.rag.prompt_blocks import is_not_found_answer
 
 
-JUDGE_RUBRIC_VERSION = "2026-11-20-refusal-faithfulness-v4"
+JUDGE_RUBRIC_VERSION = "2026-11-20-refusal-correctness-absence-claims-v5"
 
 REFUSAL_FAITHFULNESS_SCORE = 10.0
 REFUSAL_FAITHFULNESS_REASON = "Отказ без фактических утверждений (правило рубрики, судья не вызывался)"
@@ -22,12 +22,42 @@ def refusal_faithfulness(answer: str) -> tuple[float, str] | None:
     return REFUSAL_FAITHFULNESS_SCORE, REFUSAL_FAITHFULNESS_REASON
 
 
+# A whole-answer refusal either is the expected behaviour or cannot match the expected answer;
+# the judge added only noise here (the same refusal of case 550 scored 10, 10, 10 and 0).
+REFUSAL_BEHAVIOR_SCORES = {
+    "not_in_corpus": 10.0,
+    "out_of_scope": 10.0,
+    "factual": 0.0,
+    "negative": 0.0,
+    "false_premise": 0.0,
+}
+REFUSAL_BEHAVIOR_REASONS = {
+    10.0: "Ожидаемый отказ (правило рубрики, судья не вызывался)",
+    0.0: "Отказ вместо ожидаемого ответа (правило рубрики, судья не вызывался)",
+}
+
+
+def refusal_behavior(answer: str, kind: str) -> tuple[float, str] | None:
+    """Correctness and answer behaviour of a whole-answer refusal, fixed by the answer type.
+
+    An ambiguous question keeps the judge: explaining the ambiguity is not a refusal.
+    """
+    score = REFUSAL_BEHAVIOR_SCORES.get(kind)
+
+    if score is None or not is_not_found_answer(answer):
+        return None
+
+    return score, REFUSAL_BEHAVIOR_REASONS[score]
+
+
 CORRECTNESS_CRITERIA = (
     "CORRECTNESS: оцени совпадение по смыслу с эталоном, включая полноту, ограничения "
     "и исключения. Полное совпадение = 10, противоречие = 0. "
     "Это отдельная метрика: совпадение с эталоном не доказывает FAITHFULNESS. "
     "Ответ может иметь correctness=10 и faithfulness=0. "
-    "При наличии answer_type применяй answer_rubric; оцени смысл, а не совпадение фраз."
+    "При наличии answer_type применяй answer_rubric; оцени смысл, а не совпадение фраз. "
+    "Если ответ, как и эталон, отрицает предпосылку вопроса (объекта нет, норма не применяется), "
+    "это совпадение, а не противоречие, даже при другой формулировке."
 )
 
 FAITHFULNESS_CRITERIA = (
@@ -45,6 +75,10 @@ FAITHFULNESS_CRITERIA = (
     "Если подтверждений нет или контекст пуст при содержательном ответе, поставь 0, "
     "даже при полном совпадении с эталоном. "
     "Отказ без фактических утверждений = 10 по faithfulness; полезность отказа оценивается отдельно. "
+    "Утверждение об отсутствии («в документе нет статьи 40», «формы ТН-1 в инструкции нет», «лимит "
+    "не указан») подтверждено, если контекст содержит этот документ, его перечень или соответствующую "
+    "норму и названного объекта в них нет; не снижай оценку за то, что отсутствующий объект "
+    "не упомянут в контексте. "
     "В reason назови неподтверждённое утверждение, если оно есть."
 )
 

@@ -12,7 +12,7 @@ from domain.shared.hashing import content_hash
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 
 class RetrievalDocument(Protocol):
@@ -151,6 +151,26 @@ def prioritize_referenced_acts[ItemT: RetrievalDocument | tuple[RetrievalDocumen
     named = [i for i in window if acts[i] is not None]
     other = [i for i in window if acts[i] is None]
     return [items[i] for i in (*named, *other, *outside)]
+
+
+MAX_RETAINED_REQUESTED_PROVISIONS = 2
+# Chunk metadata flag: kept past the top_n window as a requested provision; packed first.
+RETAINED_AS_REQUESTED = "retained_as_requested"
+
+
+def retain_requested_provisions[ItemT](
+    items: list[ItemT], top_n: int, requested: Callable[[ItemT], bool]
+) -> tuple[list[ItemT], list[ItemT]]:
+    """Split ranked items into (retained, excluded) at the top_n window.
+
+    Up to ``MAX_RETAINED_REQUESTED_PROVISIONS`` items past the window that state
+    the requested kind of provision follow it in their ranked order. Window
+    items are never displaced, and only already eligible items are kept.
+    """
+    window, rest = items[:top_n], items[top_n:]
+    kept = [item for item in rest if requested(item)][:MAX_RETAINED_REQUESTED_PROVISIONS]
+    kept_ids = {id(item) for item in kept}
+    return [*window, *kept], [item for item in rest if id(item) not in kept_ids]
 
 
 def provision_identity(doc: RetrievalDocument) -> tuple[object, ...] | None:

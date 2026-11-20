@@ -198,9 +198,40 @@ class DocxSectionState:
     current_hints: list[dict[str, Any]] = field(default_factory=list)
     current_length: int = 0
     numberer: ListNumberer = field(default_factory=lambda: ListNumberer({}))
+    # Level of the last table caption that opened a heading; later captions close its scope.
+    caption_level: int | None = None
 
 
 MAX_MANUAL_HEADING_CHARS = 120
+MAX_TABLE_CAPTION_CHARS = 200
+TABLE_CAPTION_RE = re.compile(r"^Таблица\s+\d+(?:\.\d+)*(?:\s*[-\u2013\u2014.]\s*\S|\s*$)", re.IGNORECASE)
+
+
+def table_caption(text: str) -> bool:
+    return len(text) <= MAX_TABLE_CAPTION_CHARS and bool(TABLE_CAPTION_RE.match(text))
+
+
+def caption_heading(state: DocxSectionState, level: int | None, text: str, *, styled: bool) -> int | None:
+    """Heading level after table-caption scoping; updates the caption scope.
+
+    A caption the author did not emphasise like the first one would leave its
+    table under the previous caption's heading («Таблица 4.1» over table 4.7).
+    """
+    if level is None and state.caption_level is not None and table_caption(text):
+        level = state.caption_level
+
+    if level is not None:
+        state.caption_level = caption_scope(state.caption_level, level, text, styled=styled)
+
+    return level
+
+
+def caption_scope(current: int | None, level: int, text: str, *, styled: bool) -> int | None:
+    """Caption level after a heading: a caption sets it; a styled or enclosing heading ends it."""
+    if not styled and table_caption(text):
+        return level
+
+    return None if styled or (current is not None and level <= current) else current
 
 
 def paragraph_is_bold(p: Paragraph) -> bool:
@@ -300,6 +331,8 @@ def process_section_paragraph(state: DocxSectionState, paragraph: Paragraph, tex
 
     if heading_level is not None and not styled:
         heading_level += state.styled_level
+
+    heading_level = caption_heading(state, heading_level, text, styled=styled)
 
     if heading_level is not None:
         apply_heading(state, heading_level, text, styled=styled)

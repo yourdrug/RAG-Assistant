@@ -341,3 +341,50 @@ def test_trace_budget_describes_the_prompt_actually_sent(depth: str | None) -> N
     assert (
         budget["base_tokens"] + budget["history_tokens"] + budget["context_tokens"] == budget["input_tokens"]
     )
+
+
+def crowded_candidates() -> tuple[list[tuple[Any, float]], tuple[Any, float]]:
+    def chunk(text: str, document_id: int, section: str) -> Any:
+        item = doc(text, document_id, source=f"act-{document_id}.pdf")
+        item.metadata["section"] = section
+        return item
+
+    dominant = [
+        (chunk(f"Пункт {i}: правило обмена сообщениями. " * 12, 1, f"п. {i}"), 0.99 - i / 100)
+        for i in range(6)
+    ]
+    other = (chunk("Сведения передаются в режиме реального времени. " * 12, 2, "п. 2.2"), 0.5)
+    return dominant, other
+
+
+def test_one_document_cannot_crowd_out_the_only_fragment_of_another() -> None:
+    dominant, other = crowded_candidates()
+    budget, _ = render_selected_docs(dominant[:5])
+
+    _, selected = format_docs_with_selection([*dominant, other], estimate_text_tokens(budget))
+
+    assert "п. 2.2" in [d.metadata["section"] for d, _ in selected]
+    # The dominant document still fills the rest of the room after it.
+    assert sum(d.metadata["document_id"] == 1 for d, _ in selected) >= 3
+
+
+def test_a_named_document_may_fill_the_context() -> None:
+    dominant, other = crowded_candidates()
+    budget, _ = render_selected_docs(dominant[:5])
+
+    _, selected = format_docs_with_selection(
+        [*dominant, other],
+        estimate_text_tokens(budget),
+        named=lambda item: item[0].metadata["document_id"] == 1,
+    )
+
+    assert [d.metadata["section"] for d, _ in selected] == [f"п. {i}" for i in range(5)]
+
+
+def test_share_limit_keeps_score_order_when_one_document_remains() -> None:
+    dominant, _ = crowded_candidates()
+    budget, _ = render_selected_docs(dominant[:4])
+
+    _, selected = format_docs_with_selection(dominant, estimate_text_tokens(budget))
+
+    assert [d.metadata["section"] for d, _ in selected] == [f"п. {i}" for i in range(4)]

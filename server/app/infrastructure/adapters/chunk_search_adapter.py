@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from domain.identity.user_context import UserContext
     from domain.knowledge.chunk import ChunkRecord
     from domain.knowledge.pack_metadata import MetadataCondition
+    from domain.rag.document_outline import DocumentOutline
     from domain.rag.ports import ChunkRetrievalRepository
 
 
@@ -104,3 +105,7 @@ class ChunkSearchAdapter:
     ) -> list[ChunkRecord]:
         async with self._uow_factory.create() as uow:
             return await uow.chunks.get_parent_context(document_id, node_id, user=user, max_chars=max_chars)
+
+    async def get_document_outline(self, document_id: int, *, user: UserContext) -> DocumentOutline:
+        async with self._uow_factory.create() as uow:
+            return await uow.chunks.get_document_outline(document_id, user=user)

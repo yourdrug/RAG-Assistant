@@ -8,7 +8,12 @@ import random
 from statistics import mean
 from typing import Any
 
-from domain.benchmark.evaluation import STAGE_NAMES, evaluate_stage_evidence
+from domain.benchmark.evaluation import (
+    EXECUTED_STAGE_STATUS,
+    GATED_STAGE_STATUS,
+    STAGE_NAMES,
+    evaluate_stage_evidence,
+)
 from domain.benchmark.stats import percentile
 
 
@@ -17,7 +22,12 @@ def case_values(case: dict[str, Any]) -> dict[str, float | None]:
         case.get("annotations"), case.get("evidence"), case.get("answer") or ""
     )
     attempts = evaluation["attempts"]
-    stages = attempts[-1]["stages"] if attempts else {}
+    # Aggregates describe prompts actually built for generation; a gated prompt stays per case.
+    stages = {
+        name: stage
+        for name, stage in (attempts[-1]["stages"] if attempts else {}).items()
+        if stage.get("status") != GATED_STAGE_STATUS
+    }
     values = {f"{name}_evidence_coverage": stages.get(name, {}).get("coverage") for name in STAGE_NAMES}
     values.update(
         {
@@ -199,9 +209,13 @@ def diagnostic_card(case: dict[str, Any]) -> str:
                 f"{len(stage['found'])}/{stage['required_count']}"
                 if stage.get("found") is not None
                 else "нет разметки"
-                if stage["status"] == "executed"
+                if stage["status"] == EXECUTED_STAGE_STATUS
                 else stage["status"]
             )
+
+            if stage["status"] == GATED_STAGE_STATUS:
+                coverage = f"{coverage} (не отправлен: отказ гейта)"
+
             lines.append(f"  {name}: {coverage}")
 
     for kind, metric in evaluation.get("answer_requirements", {}).items():

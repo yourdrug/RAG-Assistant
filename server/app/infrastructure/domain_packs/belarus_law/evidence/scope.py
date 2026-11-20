@@ -84,28 +84,61 @@ def timing_definitions(
     ]
 
 
+def appendix_title(chunk: ChunkRecord) -> bool:
+    return bool(re.search(r"Приложение\s+к постановлению", chunk.content, re.IGNORECASE))
+
+
+def composition_title(chunk: ChunkRecord) -> bool:
+    return "СОСТАВ" in chunk.content.upper() and "СВЕДЕНИЙ" in chunk.content.upper()
+
+
 def timing_appendices(chunks: list[ChunkRecord], metadata: dict[str, Any]) -> list[ChunkRecord]:
-    return [
-        c
-        for c in chunks
-        if same_version(c, metadata)
-        and re.search(r"Приложение\s+к постановлению", c.content, re.IGNORECASE)
-        and "СОСТАВ" in c.content.upper()
-        and "СВЕДЕНИЙ" in c.content.upper()
-    ]
+    return [c for c in chunks if same_version(c, metadata) and appendix_title(c) and composition_title(c)]
+
+
+def timing_appendix_titles(chunks: list[ChunkRecord], metadata: dict[str, Any]) -> list[ChunkRecord]:
+    return [c for c in chunks if same_version(c, metadata) and appendix_title(c) and not composition_title(c)]
+
+
+def split_timing_appendix(
+    title: ChunkRecord, neighbors: list[ChunkRecord], metadata: dict[str, Any]
+) -> ChunkRecord | None:
+    """Return the chunk that continues an appendix heading split by chunking.
+
+    Only the immediately following chunk of the same document version counts,
+    and it must open with the composition heading rather than mention it later.
+    """
+    following = [c for c in neighbors if same_version(c, metadata) and c.chunk_index == title.chunk_index + 1]
+
+    if len(following) != 1:
+        return None
+
+    heading = re.split(r"^\d+\.\s", following[0].content, maxsplit=1, flags=re.MULTILINE)[0]
+    return following[0] if re.search(r"\bСОСТАВ\s+СВЕДЕНИЙ\b", heading) else None
 
 
 def timing_clauses(
     chunks: list[ChunkRecord], metadata: dict[str, Any], category: set[bool], appendix_index: int
 ) -> list[ChunkRecord]:
-    return [
-        c
-        for c in chunks
-        if same_version(c, metadata)
-        and c.chunk_index > appendix_index
-        and listed_goods_polarities(c.content) == category
-        and re.search(r"При передаче", c.content, re.IGNORECASE)
-    ]
+    """Return appendix clauses of the requested goods category, in source order.
+
+    Several clauses may share the category; any appendix clause naming another
+    category makes the appendix scope ambiguous, so nothing is returned.
+    """
+    local = [c for c in chunks if same_version(c, metadata) and c.chunk_index > appendix_index]
+
+    if any(listed_goods_polarities(c.content) - category for c in local):
+        return []
+
+    return sorted(
+        (
+            c
+            for c in local
+            if listed_goods_polarities(c.content) == category
+            and re.search(r"При передаче", c.content, re.IGNORECASE)
+        ),
+        key=lambda c: c.chunk_index,
+    )
 
 
 def needs_timing_scope(question: str, doc: RetrievalDocument) -> bool:

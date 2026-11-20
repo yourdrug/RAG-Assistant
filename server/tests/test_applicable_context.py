@@ -123,3 +123,75 @@ async def test_amendment_target_link_is_explicit_and_same_version(version: int) 
     result = await enrich_applicable_context([(doc, 0.9)], question, search, USER)
     assert result[0][0].metadata.get("verified_amended_acts") == (["58"] if version == 1 else None)
     assert "verified_amended_acts" not in doc.metadata
+
+
+TIMING_QUESTION = "В каком режиме EDI-провайдер передаёт сведения о товарах, включённых в перечни, по N 71?"
+
+
+def timing_doc() -> Document:
+    return Document(
+        page_content="2.2. сведения, указанные в пункте 1 настоящего постановления:\n"
+        "передаются EDI-провайдером в режиме реального времени;",
+        metadata={
+            "source": "Постановление N 71.docx",
+            "document_id": 1,
+            "pack_metadata": {"act_version_id": 1},
+            "chunk_index": 1,
+            "citation_id": 1,
+        },
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mutation, answered",
+    [("", True), ("gap", False), ("late_heading", False), ("other_category", False)],
+)
+async def test_timing_reference_follows_split_appendix_heading(mutation: str, *, answered: bool) -> None:
+    definition = source_chunk(0, "1. Определить состав сведений согласно приложению.")
+    title = source_chunk(5, "СОГЛАСОВАНО\nПриложение\nк постановлению N 71")
+    heading = "09.04.2021 N 71\nСОСТАВ\nСВЕДЕНИЙ\n1. Для проверки сведений о товарах, включенных в перечни:"
+    continuation = source_chunk(6, heading)
+    clauses = [
+        source_chunk(8, "3. При передаче накладных при обороте товаров, включенных в перечни:"),
+        source_chunk(10, "6. О товарах, включенных в перечни:\n7. При передаче сведений об отмене:"),
+    ]
+
+    if mutation == "gap":
+        continuation = source_chunk(7, heading)
+    elif mutation == "late_heading":
+        continuation = source_chunk(6, "1. Сведения о товарах, включенных в перечни.\nСОСТАВ СВЕДЕНИЙ")
+    elif mutation == "other_category":
+        clauses.append(source_chunk(12, "8. При передаче сведений о товарах, не включенных в перечни:"))
+
+    search = SimpleNamespace(
+        search_substring=AsyncMock(side_effect=[[definition], [title], clauses]),
+        get_neighbors=AsyncMock(return_value=[title, continuation]),
+    )
+    result = await enrich_applicable_context([(timing_doc(), 0.9)], TIMING_QUESTION, search, USER)
+    answer = extractive_timing_response(result, TIMING_QUESTION)
+    assert bool(answer) == answered
+
+    if answered:
+        assert answer is not None
+        assert "в режиме реального времени" in answer
+
+
+FIELD_QUESTION = (
+    "Изменился ли формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2, BLRDLN) "
+    "постановлением N 71 так же, как формат поля «УНП грузополучателя» (позиция 23)?"
+)
+
+
+@pytest.mark.parametrize(
+    "body_table, found", [("4.2 - структура BLRDLN (ЭТН)", True), ("4.1 - BLRWBL", False)]
+)
+def test_field_row_is_bound_to_preceding_table_heading(body_table: str, *, found: bool) -> None:
+    # Chunk metadata in the citation header names an earlier table of the same chunk.
+    context = (
+        "[2] Постановление N 71 | Таблица 4.1 - структура и формат сообщения BLRWBL (ЭТТН) | (таблица)\n"
+        f"Таблица {body_table}\n"
+        "| 18 | УНП грузоотправителя <br> an..15 | 2:М | <VATRegistrationNumber> | УНП |"
+    )
+    missing = missing_field_response(context, FIELD_QUESTION) or ""
+    assert ("Целевая строка 18" in missing) != found

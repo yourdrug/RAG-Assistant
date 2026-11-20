@@ -14,9 +14,13 @@ from domain.rag.act_references import (
     extract_act_numbers,
     referenced_act,
 )
-from domain.rag.ranking import prioritize_referenced_acts
+from domain.rag.ranking import RETAINED_AS_REQUESTED, prioritize_referenced_acts
+from infrastructure.domain_packs.belarus_law.evidence.profile import BelarusEvidenceProfile
 from infrastructure.ml.evidence_profiles.profiles import GenericEvidenceProfile, evidence_profile_scope
+from infrastructure.ml.rag.prompt_budget import estimate_text_tokens
+from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_reranking import rerank_documents
+from infrastructure.ml.rag.rag_steps import packing_preference
 from infrastructure.ml.rag.retrieval_pipeline import retrieve_with_decomposition
 
 
@@ -187,6 +191,94 @@ async def test_sibling_sentences_of_one_provision_cannot_crowd_out_another_provi
     scores[answer.page_content] = 0.97
     ranked = await rerank_documents("В каком режиме?", [*siblings, answer], 4, scored_reranker(scores))
     assert answer in [doc for doc, _ in ranked]
+
+
+ORDER = "Постановление НАН Беларуси, Минфина РБ, МНС РБ от 18.12.2023 N 9753526.docx"
+POINT_5_QUESTION = (
+    "Какие сведения передаются в ПК СПТ при автоматической отмене ЭТТН или ЭТН "
+    "согласно приложению к постановлению МНС N 11 (п. 5)?"
+)
+
+
+def point_chunk(text: str, source: str, document_id: int, points: list[str]) -> Document:
+    doc = chunk(text, source, document_id, f"point {points[0]}")
+    doc.metadata["point_numbers"] = points
+    return doc
+
+
+@pytest.mark.belarus
+@pytest.mark.asyncio
+async def test_cited_point_of_named_act_is_retained_past_a_crowded_window() -> None:
+    """Benchmark case 31: points 4-5 of MNS N 11 ranked 13th behind other provisions."""
+    order = [point_chunk(f"Порядок {i}.", ORDER, 29, [str(40 + i)]) for i in range(4)]
+    named = [point_chunk(f"Сведения пункта {n}.", MNS_11, 11, [n]) for n in ("2", "6")]
+    cited = point_chunk("5. При передаче сведений об автоматической отмене.", MNS_11, 11, ["4", "5"])
+    other_act = point_chunk("5. Сведения другого акта.", MNS_13, 13, ["5"])
+    scores = {doc.page_content: 0.999 - i / 1000 for i, doc in enumerate(order)}
+    scores |= {named[0].page_content: 0.993, named[1].page_content: 0.992}
+    scores |= {cited.page_content: 0.9915, other_act.page_content: 0.991}
+
+    ranked = await rerank_documents(
+        POINT_5_QUESTION, [*order, *named, cited, other_act], 4, scored_reranker(scores)
+    )
+    kept = [doc for doc, _ in ranked]
+
+    assert kept[:4] == [*named, *order[:2]]  # The window itself is unchanged.
+    assert [doc.page_content for doc in kept[4:]] == [cited.page_content]
+    assert kept[4].metadata[RETAINED_AS_REQUESTED] is True
+    assert RETAINED_AS_REQUESTED not in cited.metadata  # The candidate itself stays unmarked.
+
+
+TERM_USE = (
+    "сведения подписываются ЭЦП, сертификаты открытых ключей которых изданы республиканским удостоверяющим "
+    "центром Государственной системы управления открытыми ключами проверки электронной цифровой подписи."
+)
+TERM_DEFINITION = (
+    "Государственная система управления открытыми ключами строится как иерархическая инфраструктура "
+    "открытых ключей и состоит из корневого и республиканского удостоверяющих центров."
+)
+
+
+@pytest.mark.belarus
+@pytest.mark.asyncio
+async def test_compared_act_provision_on_the_other_acts_term_is_packed() -> None:
+    """Benchmark case 86: the law's definition of the term MNS N 11 uses ranked 62nd of 70."""
+    use = chunk(TERM_USE, MNS_11, 11, "point 2")
+    law = [chunk(f"ЭЦП применяется для цели {i}.", LAW, 113, f"Статья {20 + i}") for i in range(3)]
+    order = [chunk(f"Порядок {i} обмена.", ORDER, 29, f"point {i}") for i in range(2)]
+    definition = chunk(TERM_DEFINITION, LAW, 113, "Статья 29")
+    unnamed = chunk(TERM_DEFINITION + " Копия.", ORDER, 29, "point 9")
+    scores = {doc.page_content: 0.999 - i / 1000 for i, doc in enumerate([use, *law, *order])}
+    scores |= {unnamed.page_content: 0.9, definition.page_content: 0.84}
+
+    ranked = await rerank_documents(
+        COMPARISON, [use, *law, *order, unnamed, definition], 4, scored_reranker(scores)
+    )
+    kept = [doc for doc, _ in ranked]
+
+    # The unnamed act uses the same term but is not compared, so it stays cut.
+    assert [doc.page_content for doc in kept[4:]] == [definition.page_content]
+
+    budget = estimate_text_tokens("\n\n".join(doc.page_content for doc in kept[:3])) + 80
+    context, _ = format_docs_with_selection(
+        ranked, budget, preferred=packing_preference(COMPARISON, BelarusEvidenceProfile())
+    )
+    assert "строится как иерархическая" in context
+
+
+@pytest.mark.belarus
+@pytest.mark.asyncio
+async def test_single_named_act_does_not_bridge_terms() -> None:
+    question = "Какие требования к ЭЦП установлены постановлением МНС N 11?"
+    use = chunk(TERM_USE, MNS_11, 11, "point 2")
+    window = [chunk(f"Сведения пункта {i}.", MNS_11, 11, f"point {i + 3}") for i in range(3)]
+    definition = chunk(TERM_DEFINITION, LAW, 113, "Статья 29")
+    scores = {doc.page_content: 0.999 - i / 1000 for i, doc in enumerate([use, *window])}
+    scores[definition.page_content] = 0.84
+
+    ranked = await rerank_documents(question, [use, *window, definition], 4, scored_reranker(scores))
+
+    assert definition.page_content not in [doc.page_content for doc, _ in ranked]
 
 
 @pytest.mark.belarus

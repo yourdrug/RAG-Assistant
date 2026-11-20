@@ -18,6 +18,8 @@ from infrastructure.repositories.vector.pack_selection import pack_selection_con
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from qdrant_client.models import Condition
 
     from domain.knowledge.pack_metadata import MetadataCondition
@@ -78,15 +80,16 @@ def build_qdrant_filter(
     return Filter(should=should)
 
 
-def with_domain_filter(access_filter: Filter | None, doc_domain: str) -> Filter:
+def with_domain_filter(access_filter: Filter | None, doc_domain: str | Sequence[str]) -> Filter:
     """Add a doc_domain condition to an existing ACL filter.
 
     Returns a new Filter that requires both the original ACL conditions AND
-    the domain match.
+    the domain match (any of several domains when a sequence is given).
     """
+    domains = [doc_domain] if isinstance(doc_domain, str) else list(doc_domain)
     domain_condition = FieldCondition(
         key="metadata.doc_domain",
-        match=MatchValue(value=doc_domain),
+        match=MatchValue(value=domains[0]) if len(domains) == 1 else MatchAny(any=domains),
     )
 
     if access_filter is not None:

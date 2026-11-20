@@ -8,12 +8,16 @@ from typing import Protocol
 from langchain_core.documents import Document
 
 from application.search import HybridRetriever
+from domain.rag.act_references import cites_referenced_point, compared_act_bridge
+from domain.rag.classification import cited_points
 from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.ranking import (
+    RETAINED_AS_REQUESTED,
     RetrievalDocument,
     evidence_identity,
     prioritize_distinct_provisions,
     prioritize_referenced_acts,
+    retain_requested_provisions,
 )
 from infrastructure.ml.evidence_profiles.profiles import current_evidence_profile
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions, capture_stage
@@ -89,19 +93,38 @@ async def rerank_documents(
     scored = sorted(zip(docs, scores, strict=True), key=lambda x: x[1], reverse=True)
     retriever = HybridRetriever()
     eligible = retriever.apply_rerank_filters(scored, min_score=min_score, score_gap_ratio=score_gap_ratio)
+    profile = current_evidence_profile()
     ranked = prioritize_referenced_acts(
-        prioritize_distinct_provisions(eligible), current_evidence_profile().named_acts(question), top_n
+        prioritize_distinct_provisions(eligible), profile.named_acts(question), top_n
     )
+    points = cited_points(question)
+    acts = profile.named_acts(question)
+    bridges = compared_act_bridge([(doc.metadata, doc.page_content) for doc, _ in ranked[:top_n]], acts)
 
-    if active_evidence.get() is not None:
-        capture_exclusions(
-            [exclusion_record(item, ExclusionReason.RERANK_TOP_N, "reranker") for item in ranked[top_n:]]
+    def requested(item: tuple[Document, float]) -> bool:
+        # A point the question cites by number, in the act it names, survives a crowded window,
+        # as does a compared act's provision on a term the other compared act uses.
+        doc = item[0]
+        return (
+            bool(points and cites_referenced_point(doc.metadata, points, acts))
+            or bridges(doc.metadata, doc.page_content)
+            or profile.requested_provision(question, content_with_parent_scope(doc))
         )
 
-    capture_stage("reranked", ranked, score_kind="reranker")
-    ranked = ranked[:top_n]
+    selected, cut = retain_requested_provisions(ranked, top_n, requested)
+    # Copies: the same candidate documents are reranked again on a retry.
+    selected[top_n:] = [
+        (
+            Document(page_content=doc.page_content, metadata={**doc.metadata, RETAINED_AS_REQUESTED: True}),
+            score,
+        )
+        for doc, score in selected[top_n:]
+    ]
 
-    selected = ranked
+    if active_evidence.get() is not None:
+        capture_exclusions([exclusion_record(item, ExclusionReason.RERANK_TOP_N, "reranker") for item in cut])
+
+    capture_stage("reranked", ranked, score_kind="reranker")
 
     if active_evidence.get() is not None:
         eligible_ids = {id(doc) for doc, _ in eligible}

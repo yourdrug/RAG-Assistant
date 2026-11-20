@@ -8,7 +8,7 @@ from domain.knowledge.repositories.chunk import (
     ChunkPackMetadataRepository,
     DocumentNodeRepository,
 )
-from domain.rag.ports import ChunkRetrievalRepository, ChunkSearchPageRepository
+from domain.rag.ports import ChunkRetrievalRepository, ChunkSearchPageRepository, DocumentOutlineRepository
 
 
 @runtime_checkable
@@ -17,6 +17,7 @@ class ChunkRepository(
     ChunkCorpusRepository,
     ChunkRetrievalRepository,
     ChunkSearchPageRepository,
+    DocumentOutlineRepository,
     ChunkPackMetadataRepository,
     DocumentNodeRepository,
     Protocol,

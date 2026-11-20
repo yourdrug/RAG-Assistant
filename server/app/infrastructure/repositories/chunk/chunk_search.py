@@ -13,6 +13,7 @@ from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.enums import SearchMode
 from domain.rag.classification import extract_structural_references
+from domain.rag.document_outline import DocumentOutline, caption_table_number
 from infrastructure.database.models import ChunkModel
 from infrastructure.repositories.chunk.pack_selection import pack_selection_clause
 from infrastructure.repositories.sql_acl import render_visibility_conditions
@@ -318,3 +319,25 @@ class SQLAlchemyChunkSearchRepository:
         result = await self._session.execute(stmt)
         rows = result.all()
         return [row_to_search_result(row) for row in rows if row[0] is not None], rows[0][-1]
+
+    async def get_document_outline(self, document_id: int, *, user: UserContext) -> DocumentOutline:
+        """Distinct article numbers and table captions of a document under the search ACL."""
+        acl_clauses = build_acl_clauses(
+            user,
+            user.group_ids,
+            user.managed_client_ids,
+            user.managed_internal_ids,
+            user.managed_group_ids,
+        )
+        article = ChunkModel.context_metadata["article_number"].as_string()
+        stmt = (
+            select(article, ChunkModel.heading)
+            .distinct()
+            .where(ChunkModel.document_id == document_id)
+            .where(or_(*acl_clauses) if acl_clauses else text("true"))
+            .where(or_(article.is_not(None), ChunkModel.heading.regexp_match(r"^\s*Таблица\s+\d", flags="i")))
+        )
+        rows = (await self._session.execute(stmt)).all()
+        articles = {str(row[0]) for row in rows if row[0]}
+        tables = {number for row in rows if (number := caption_table_number(row[1]))}
+        return DocumentOutline(articles=tuple(sorted(articles)), tables=tuple(sorted(tables)))

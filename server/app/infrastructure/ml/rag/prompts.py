@@ -32,9 +32,13 @@ STYLE_FORMATTING: dict[AnswerStyle, str] = {
 
 
 DECOMPOSITION_ASSESSMENT_SYSTEM = (
+    "<task>\n"
     "Оцени, является ли вопрос составным (содержит 2+ независимых подтемы).\n"
+    "</task>\n"
+    "<output_format>\n"
     "Если да — разбей его на 2-4 независимых подвопроса.\n"
-    "Если нет — верни needs_decomposition=false."
+    "Если нет — верни needs_decomposition=false.\n"
+    "</output_format>"
 )
 
 

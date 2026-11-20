@@ -10,7 +10,7 @@ from infrastructure.domain_packs.belarus_law.evidence.reading import (
 
 
 MAX_FOCUS_CHARS = 3000
-EVIDENCE_POLICY_VERSION = "2026-10-09-applicability-v6"
+EVIDENCE_POLICY_VERSION = "2026-11-20-document-bounds-v8"
 
 
 def normalize_reading_text(text: str) -> str:
@@ -48,6 +48,31 @@ def matching_field_rows(text: str, number: str, name: str) -> list[str]:
     return rows
 
 
+def row_table_scope(block: str, row: str) -> str:
+    """Return the text that identifies the table a row belongs to.
+
+    A table heading inside the source text that precedes the row binds it more
+    tightly than chunk metadata, which can name an earlier table of the same
+    chunk. Without such a heading the whole block remains the scope.
+    """
+    lines = block.splitlines()
+
+    if row not in lines:
+        return block
+
+    index = lines.index(row)
+    headings = [i for i, line in enumerate(lines[:index]) if re.match(r"Таблица\s+\d", line)]
+    return "\n".join(lines[headings[-1] : index + 1]) if headings else block
+
+
+def confirmed_field_rows(block: str, question: str, number: str, name: str) -> list[str]:
+    return [
+        row
+        for row in matching_field_rows(block, number, name)
+        if table_scope_confirmed(question, row_table_scope(block, row))
+    ]
+
+
 def evidence_reading_map(context: str, question: str) -> list[str]:
     """Label only explicit source links; absent rows remain absent evidence."""
     fields = requested_fields(question)
@@ -55,7 +80,7 @@ def evidence_reading_map(context: str, question: str) -> list[str]:
 
     for number, name in fields:
         if not any(
-            matching_field_rows(block, number, name) and table_scope_confirmed(question, block)
+            confirmed_field_rows(block, question, number, name)
             for block in re.split(r"\n\s*---\s*\n", context)
         ):
             maps.append(
@@ -206,9 +231,67 @@ def enumeration_anchors(context: str, question: str) -> list[str]:
     return list(dict.fromkeys(categories + anchors))
 
 
+WORDING_QUESTION_RE = re.compile(r"формулировк|дословн|текст\w*\s+(?:норм|пункт|пояснени)", re.IGNORECASE)
+PRESENCE_RE = re.compile(r"\bпри\s+наличии\s+(.+)", re.IGNORECASE)
+ABSENCE_RE = re.compile(r"^(?:При|В\s+случае)\s+отсутстви\w*\s", re.IGNORECASE)
+MIN_SHARED_CONDITION_TERMS = 3
+
+
+def condition_terms(text: str) -> set[str]:
+    return {word[:6] for word in re.findall(r"[а-яё]{5,}", text.casefold())}
+
+
+def context_sentences(context: str) -> list[str]:
+    text = re.sub(r"\u2039br\u203a|<br\s*/?>", " ", context)
+    return [
+        sentence.strip(' "')
+        for line in text.splitlines()
+        for cell in line.split("|")
+        for sentence in re.split(r"(?<=[.;])\s+(?=[А-ЯЁ\d])", cell)
+        if sentence.strip(' "')
+    ]
+
+
+def conditional_branch_anchors(context: str, question: str) -> list[str]:
+    """Pair a «при наличии X» clause with the «При отсутствии X» sentence of the same X.
+
+    Both are verbatim sentences of the context; chunking can separate them, and
+    a wording question needs both branches. The longest absence sentence wins,
+    because a chunk may cut the same sentence short.
+    """
+    if not WORDING_QUESTION_RE.search(question):
+        return []
+
+    sentences = list(dict.fromkeys(context_sentences(context)))
+    absences = [sentence for sentence in sentences if ABSENCE_RE.match(sentence)]
+    anchors = []
+
+    for sentence in sentences:
+        presence = PRESENCE_RE.search(sentence)
+
+        if presence is None or ABSENCE_RE.match(sentence):
+            continue
+
+        terms = condition_terms(presence[1])
+        branches = [
+            absence
+            for absence in absences
+            if len(terms & condition_terms(absence)) >= MIN_SHARED_CONDITION_TERMS
+        ]
+
+        if branches:
+            anchors.append(sentence + "\n" + max(branches, key=len))
+
+    return list(dict.fromkeys(anchors))
+
+
 def reading_anchors(context: str, question: str) -> list[str]:
     lines = context.splitlines()
-    anchors = amendment_anchors(context, question) + table_lookup_anchors(context, question)
+    anchors = (
+        amendment_anchors(context, question)
+        + table_lookup_anchors(context, question)
+        + conditional_branch_anchors(context, question)
+    )
     dates = re.findall(r"\d{2}\.\d{2}\.\d{4}", question)
 
     anchors.extend(introduced_paragraph_anchors(lines, question, dates))

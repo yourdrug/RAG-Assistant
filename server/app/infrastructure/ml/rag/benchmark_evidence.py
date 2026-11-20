@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
+from domain.benchmark.evaluation import GATED_STAGE_STATUS
 from domain.knowledge.chunk import extract_chunk_context
 from domain.knowledge.pack_metadata import PACK_METADATA_KEY
 from domain.rag.evidence.context import content_with_parent_scope
@@ -292,6 +293,31 @@ def capture_completion(reason: AnswerOutcome) -> None:
 
     if evidence is not None:
         evidence.completion = reason
+
+
+def capture_gated_prompt(
+    selected: Sequence[RetrievalDocument | tuple[RetrievalDocument, float]],
+    context: str,
+    exclusions: list[dict[str, Any]],
+) -> None:
+    """Record the packed context a rejecting evidence gate judged as the attempt's unsent prompt.
+
+    Only the attempt is written: the request-level selection stays empty because
+    no prompt was sent.
+    """
+    evidence = active_evidence.get()
+
+    if evidence is None or not evidence.attempts:
+        return
+
+    attempt = evidence.attempts[-1]
+    attempt["exclusions"].extend(
+        deepcopy([item for item in exclusions if evidence_identity(item) in evidence.authorized])
+    )
+    capture_stage("prompt", selected, ordered=False, score_kind="reranker")
+    stage = attempt["stages"]["prompt"]
+    stage["status"] = GATED_STAGE_STATUS
+    stage["context"] = context if evidence.benchmark_mode else None
 
 
 def capture_prompt_delivery(*, sent: bool, finish_reason: str | None = None) -> None:

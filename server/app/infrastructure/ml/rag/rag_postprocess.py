@@ -4,7 +4,7 @@ Extracted from RagService to isolate post-processing logic from pipeline orchest
 """
 
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 import logging
 import re
@@ -14,6 +14,7 @@ from typing import Any
 from langchain_core.documents import Document, Document as LCDocument
 
 from application.ports.ml_clients import MLClientPort
+from application.rag.dto import PromptMessage
 from application.rag.stream_events import SourcesEvent, StreamEvent, TextChunk
 from domain.identity.user_context import UserContext
 from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS, ChunkRecord
@@ -36,6 +37,7 @@ from infrastructure.ml.rag.prompt_blocks import NOT_FOUND_ANSWER, is_not_found_a
 from infrastructure.ml.rag.prompt_budget import estimate_text_tokens
 from infrastructure.ml.rag.rag_relevance import check_relevance, filter_cited_sources
 from infrastructure.ml.rag.table_context import focus_table_rows
+from infrastructure.ml.rag.topic_document import complete_topic_context
 from infrastructure.resilience import circuit_breaker
 
 
@@ -46,15 +48,27 @@ PARENT_CHARS_PER_TOKEN = 1.5
 
 
 async def handle_relevance_gate(
-    query_for_search: str,
+    question: str,
     docs: list[tuple[Document, float]],
     rag: RagSettings,
     ml_clients: MLClientPort,
     *,
     context: str | None = None,
+    history: Sequence[PromptMessage] = (),
 ) -> tuple[bool, str]:
-    """Check relevance gate: (relevant, refined query for a retry when rejected, else "")."""
+    """Check relevance gate: (relevant, refined query for a retry when rejected, else "").
+
+    ``question`` is the user's own question with its ``history``, not the rewritten
+    search query: a rewrite may add requirements the user never asked for.
+    """
     if not rag.features.relevance_gate_enabled:
+        return True, ""
+
+    if complete_topic_context(docs):
+        # The fallback already matched the document to the question's subject and read it whole;
+        # whether it sets the asked value is for the answer, not a reason to refuse.
+        RAG_RELEVANCE_GATE_TOTAL.labels(result="passed").inc()
+        log.info("Relevance gate: complete topic document, passed without the gate model")
         return True, ""
 
     t0 = time.monotonic()
@@ -64,7 +78,7 @@ async def handle_relevance_gate(
 
     async with ml_clients.auxiliary_semaphore:
         try:
-            verdict = await check_relevance(ml_clients, query_for_search, docs, context=context)
+            verdict = await check_relevance(ml_clients, question, docs, context=context, history=history)
         except Exception:
             await breaker.report_failure()
             raise
@@ -352,17 +366,32 @@ def strip_reasoning(text: str) -> str:
     return text.lstrip()
 
 
+APPENDED_REFUSAL_RE = re.compile(
+    r"(?:^|(?<=[.!?])\s+|\n+)(?:ответ:\s*)?информация не найдена в документах(?:\.(?=\s|$)|$)", re.IGNORECASE
+)
+# A direct «no» answers the question in full: the object is absent or the norm does not apply.
+NEGATIVE_VERDICT_RE = re.compile(
+    r"\bне\s+(?:применя|предусмотрен|содерж|установлен|упоминается)|\bотсутству|\bнет\b", re.IGNORECASE
+)
+
+
 def mark_partial_answer(answer: str) -> str:
-    """Replace a standalone refusal appended to a substantive answer."""
+    """Replace a standalone refusal appended to a substantive answer.
+
+    After a negative verdict (a corrected premise, a norm that does not apply) the
+    appended refusal contradicts the answer instead of marking a gap, so it is dropped.
+    """
     if is_not_found_answer(answer):
         return answer
 
-    return re.sub(
-        r"(?:^|(?<=[.!?])\s+|\n+)информация не найдена в документах(?:\.(?=\s|$)|$)",
-        "\n\nОтвет частичный: остальная информация не подтверждена документами.",
-        answer,
-        flags=re.IGNORECASE,
+    first_sentence = re.split(r"(?<=[.!?])\s", answer.strip(), maxsplit=1)[0]
+    replacement = (
+        ""
+        if NEGATIVE_VERDICT_RE.search(first_sentence)
+        else "\n\nОтвет частичный: остальная информация не подтверждена документами."
     )
+    marked = APPENDED_REFUSAL_RE.sub(replacement, answer)
+    return marked if replacement else marked.rstrip()
 
 
 async def fetch_table_context(

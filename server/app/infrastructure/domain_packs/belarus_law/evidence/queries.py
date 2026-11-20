@@ -2,19 +2,19 @@
 
 import re
 
+from infrastructure.domain_packs.belarus_law.evidence.applicability import (
+    approved_classifier,
+    timing_requested,
+)
+
 
 def evidence_search_queries(question: str) -> list[str]:
     queries = [question]
-    classifier = re.search(
-        r"\bклассификатор\w*\s+(.+?)(?=,|[?]|\s+согласно\b|\s+на\s+котор|$)",
-        question,
-        re.IGNORECASE,
-    )
 
-    if classifier and re.search(r"утвержда|утверд|какой\s+орган|кем", question, re.IGNORECASE):
+    if classifier := approved_classifier(question):
         # Search the referenced object without the referring EDI/waybill
         # structure dominating both lexical and dense candidate generation.
-        queries.append(f"Утверждение: классификатор {classifier[1].strip()}")
+        queries.append(f"Утверждение: классификатор {classifier}")
 
     table = re.search(r"таблиц\w*\s+(\d+(?:\.\d+)*)", question, re.IGNORECASE)
 
@@ -40,4 +40,14 @@ def evidence_search_queries(question: str) -> list[str]:
         if probe != question:
             queries.append(" ".join(probe.split()))
 
+    if timing_requested(question):
+        # Acts state timing in fixed wording, not in the question's words
+        # ("частота отправки"); this probe carries only that wording.
+        queries.append(TIMING_WORDING_PROBE)
+
     return list(dict.fromkeys(queries))[:4]
+
+
+TIMING_WORDING_PROBE = (
+    "Периодичность передачи сведений: в режиме реального времени, не реже одного раза в сутки"
+)

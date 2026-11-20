@@ -714,6 +714,19 @@ class TestHandleRelevanceGate:
             )
             assert result == (True, "")
 
+    def test_complete_topic_document_passes_without_the_gate_model(self) -> None:
+        """Case 550: the gate model refused a whole travel procedure as «another aspect» of the topic."""
+        rag = MagicMock()
+        rag.features.relevance_gate_enabled = True
+        note = Document(page_content="Документ приведён полностью", metadata={"complete_document_note": True})
+
+        target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
+        with patch(target, new_callable=AsyncMock) as mock_check:
+            result = asyncio.run(handle_relevance_gate("q", [(note, 0.0)], rag, MagicMock()))
+
+        assert result == (True, "")
+        mock_check.assert_not_called()
+
     def test_gate_enabled_not_relevant_returns_false(self) -> None:
 
         rag = MagicMock()

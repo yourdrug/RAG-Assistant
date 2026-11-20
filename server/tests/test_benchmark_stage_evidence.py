@@ -11,7 +11,12 @@ import pytest
 
 from domain.benchmark.evaluation import evaluate_stage_evidence
 from domain.benchmark.question import validate_annotations
-from domain.benchmark.stage_reporting import compare_stage_runs, summarize_stage_tags
+from domain.benchmark.stage_reporting import (
+    case_values,
+    compare_stage_runs,
+    diagnostic_card,
+    summarize_stage_tags,
+)
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.rag.context import RagContext
@@ -27,6 +32,7 @@ from infrastructure.ml.rag.benchmark_evidence import (
     authorize_capture,
     begin_attempt,
     capture_exclusions,
+    capture_gated_prompt,
     capture_prompt,
     capture_stage,
     snapshot_documents,
@@ -133,6 +139,35 @@ def test_retry_preserves_attempts_and_missing_prompt_is_unexecuted() -> None:
     assert result["attempts"][1]["stages"]["candidates"]["recovered_evidence"] == [1, 2, 3]
     assert result["attempts"][1]["stages"]["prompt"] == {"status": "not_executed", "coverage": None}
     assert evidence.attempts[0]["query"] == "first query"
+
+
+def test_gate_rejected_context_is_scored_per_case_but_not_aggregated() -> None:
+    docs = documents()
+    evidence = BenchmarkEvidence()
+    token = active_evidence.set(evidence)
+    try:
+        begin_attempt("Q", "Q")
+        authorize_capture(docs)
+        capture_stage("enriched", docs, ordered=False)
+        capture_gated_prompt(
+            docs[:1], "Fact A", [exclusion_record(docs[1], ExclusionReason.BUDGET, "context")]
+        )
+    finally:
+        active_evidence.reset(token)
+    assert not evidence.selected
+    assert evidence.exclusions == []
+
+    result = evaluate_stage_evidence(ANNOTATIONS, asdict(evidence), "")
+    prompt = result["attempts"][0]["stages"]["prompt"]
+    assert (prompt["status"], prompt["coverage"], prompt["lost_evidence"]) == ("gated", 0.25, [1, 2, 3])
+    loss = next(issue for issue in result["issues"] if issue["fragment"] == 1)
+    assert [item["reason"] for item in loss["decisions"]] == ["budget"]
+
+    case = {"id": 1, "question": "Q", "stage_evaluation": result}
+    assert "  prompt: 1/4 (не отправлен: отказ гейта)" in diagnostic_card(case).splitlines()
+    values = case_values(case)
+    assert values["prompt_evidence_coverage"] is None
+    assert values["enriched_evidence_coverage"] == 1
 
 
 def test_empty_missing_legacy_and_invalid_are_distinct() -> None:

@@ -66,6 +66,13 @@ class EvidenceProfile(Protocol):
 
     def contradicts_scope(self, question: str, text: str) -> bool: ...
 
+    def requested_provision(self, question: str, text: str) -> bool:
+        """Whether the text states the kind of provision the question asks for.
+
+        Such reranked evidence is kept beyond the top_n window, never added.
+        """
+        ...
+
     def scoped_response(
         self, docs: list[tuple[Document, float]], context: str, question: str
     ) -> tuple[str | None, EvidenceAssessment | None]: ...
@@ -102,7 +109,8 @@ class GenericEvidenceProfile(EvidenceProfile):
 
     @property
     def version(self) -> str:
-        return "1"
+        # Bumped when retrieval changes what answers are built from (topic document, outline notes).
+        return "2"
 
     @property
     def max_focus_chars(self) -> int:
@@ -143,6 +151,10 @@ class GenericEvidenceProfile(EvidenceProfile):
     @override
     def anchors(self, context: str, question: str) -> list[str]:
         return []
+
+    @override
+    def requested_provision(self, question: str, text: str) -> bool:
+        return False
 
     @override
     def contradicts_scope(self, question: str, text: str) -> bool:

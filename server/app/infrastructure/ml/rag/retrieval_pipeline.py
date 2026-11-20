@@ -12,7 +12,7 @@ from langchain.schema import Document as LCDocument
 from domain.knowledge.enums import SearchMode
 from domain.rag.classification import extract_exact_references, should_enumerate_cases
 from domain.rag.ranking import evidence_identity
-from infrastructure.domain_profile.answer_policy import policy_for
+from infrastructure.domain_profile.answer_policy import policy_for, search_domains
 from infrastructure.metrics.metrics import (
     RAG_DECOMPOSED_TOTAL,
     RAG_STAGE_DURATION,
@@ -31,11 +31,13 @@ from infrastructure.ml.rag.benchmark_evidence import (
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 from infrastructure.ml.rag.document_access import filter_documents, filter_scored_documents
+from infrastructure.ml.rag.document_bounds import add_missing_unit_notes
 from infrastructure.ml.rag.generation_budget import prepare_generation_budget
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors
 from infrastructure.ml.rag.rag_prompts import decompose_question
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, filter_scope_candidates, rerank_documents
 from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+from infrastructure.ml.rag.topic_document import topic_document_fallback
 from infrastructure.repositories.vector.acl import with_domain_filter
 
 
@@ -63,8 +65,11 @@ async def run_retrieval(
     retrieval_filter = cast("Filter | None", state.retrieval_filter)
     filters = [retrieval_filter]
 
-    if policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus:
-        filters.insert(0, with_domain_filter(retrieval_filter, state.query_domain))
+    registry = getattr(state, "domain_registry", None)
+    domains = search_domains(getattr(state, "question", query_for_search), state.query_domain, registry)
+
+    if policy_for(state.query_domain, registry).fallback_to_full_corpus:
+        filters.insert(0, with_domain_filter(retrieval_filter, domains))
 
     evidence = active_evidence.get()
 
@@ -78,7 +83,7 @@ async def run_retrieval(
                 "sparse_weight": state.effective_sparse_weight,
                 "exact_ref_boost": state.use_exact_ref_boost,
                 "domain": state.query_domain,
-                "domain_filter": state.query_domain if len(filters) > 1 else None,
+                "domain_filter": ",".join(domains) if len(filters) > 1 else None,
                 "corpus_fallback": False,
             },
         )
@@ -377,34 +382,10 @@ async def rerank_and_enrich(
 
     docs = retained_temporal_candidates(docs)
 
-    # Skip only when this exact full-corpus search already ran (same text, filter and
-    # parameters); decomposed sub-queries do not cover the original question.
-    fallback_search = (
-        query,
-        state.rag.retriever.fetch_k,
-        state.rag.hybrid_search.dense_weight,
-        state.rag.hybrid_search.sparse_weight,
-    )
-
-    if (
-        not docs
-        and fallback_search not in state.full_corpus_searches
-        and policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus
-    ):
-        fallback_docs = await apply_legal_rerank_fallback(
-            query,
-            cast("Filter | None", state.retrieval_filter),
-            state.rag,
-            state.rerank_top_n,
-            docs,
-            ml_clients=ml_clients,
-            visibility_conditions=state.visibility_conditions,
-            user_id=state.user.user_id,
-            user_group_ids=list(state.ctx.user_group_ids),
-            document_access=document_access,
-            user=state.ctx.to_user_context(),
+    if not docs:
+        docs = await rejected_rerank_fallback(
+            query, candidates, state, ml_clients, chunk_search, document_access=document_access
         )
-        docs = retained_temporal_candidates(fallback_docs)
 
     # The reranker already applies min_score/score_gap_ratio. Keep its eligible
     # tail for context packing instead of discarding evidence at narrow top_k.
@@ -424,6 +405,56 @@ async def rerank_and_enrich(
     avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
     docs_only: list[LCDocument] = [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else []
     return docs, docs_only, avg_sim
+
+
+async def rejected_rerank_fallback(
+    query: str,
+    candidates: list[LCDocument],
+    state: RetrievalWork,
+    ml_clients: MLClientPort,
+    chunk_search: ChunkRetrievalRepository | None,
+    *,
+    document_access: DocumentAccessPort | None,
+) -> list[tuple[LCDocument, float]]:
+    """Evidence after the reranker rejected every candidate: full-corpus search, then a topic document."""
+    docs: list[tuple[LCDocument, float]] = []
+    # Skip only when this exact full-corpus search already ran (same text, filter and
+    # parameters); decomposed sub-queries do not cover the original question.
+    fallback_search = (
+        query,
+        state.rag.retriever.fetch_k,
+        state.rag.hybrid_search.dense_weight,
+        state.rag.hybrid_search.sparse_weight,
+    )
+
+    if (
+        fallback_search not in state.full_corpus_searches
+        and policy_for(state.query_domain, getattr(state, "domain_registry", None)).fallback_to_full_corpus
+    ):
+        fallback_docs = await apply_legal_rerank_fallback(
+            query,
+            cast("Filter | None", state.retrieval_filter),
+            state.rag,
+            state.rerank_top_n,
+            docs,
+            ml_clients=ml_clients,
+            visibility_conditions=state.visibility_conditions,
+            user_id=state.user.user_id,
+            user_group_ids=list(state.ctx.user_group_ids),
+            document_access=document_access,
+            user=state.ctx.to_user_context(),
+        )
+        docs = retained_temporal_candidates(fallback_docs)
+
+    if not docs:
+        # Nothing passed the reranker: a short document on the question's subject, read whole,
+        # can still show what the source sets and that the asked value is not among it.
+        docs = await topic_document_fallback(
+            state.question, candidates, chunk_search, state.ctx.to_user_context()
+        )
+        record_origins(docs, "topic_document")
+
+    return docs
 
 
 async def enrich_retained_docs(
@@ -461,6 +492,11 @@ async def enrich_retained_docs(
         docs, query, chunk_search, state.ctx.to_user_context()
     )
     record_origins([item for item in docs if id(item[0]) not in before_scope], "scope_context")
+    before_outline = {id(doc) for doc, _ in docs}
+    docs = await add_missing_unit_notes(
+        docs, state.candidates, state.question, chunk_search, state.ctx.to_user_context()
+    )
+    record_origins([item for item in docs if id(item[0]) not in before_outline], "document_outline")
     # Link/scope enrichers enforce access internally; capture only their authorized output.
     authorize_capture(docs)
     capture_stage("enriched", docs, ordered=False, score_kind="reranker")

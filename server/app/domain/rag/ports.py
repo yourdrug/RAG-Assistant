@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from domain.identity.user_context import UserContext
     from domain.knowledge.chunk import ChunkRecord
     from domain.knowledge.pack_metadata import MetadataCondition
+    from domain.rag.document_outline import DocumentOutline
 
 
 @runtime_checkable
@@ -88,6 +89,13 @@ class ChunkContextRepository(Protocol):
     ) -> list[ChunkRecord]:
         """Chunks of the largest ancestor of ``node_id`` within ``max_chars``, under search ACL."""
         ...
+
+
+@runtime_checkable
+class DocumentOutlineRepository(Protocol):
+    """Article and table numbers of one document, read from all chunks the reader may see."""
+
+    async def get_document_outline(self, document_id: int, *, user: UserContext) -> DocumentOutline: ...
 
 
 @runtime_checkable

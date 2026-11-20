@@ -24,13 +24,23 @@ def format_docs_with_selection[ItemT: Document | tuple[Document, float]](
     context_counter: Callable[[str], int] = estimate_text_tokens,
     query_parts: list[str] | None = None,
     exclusions: list[dict[str, Any]] | None = None,
+    preferred: Callable[[ItemT], bool] | None = None,
+    named: Callable[[ItemT], bool] | None = None,
 ) -> tuple[str, list[ItemT]]:
     """Select complete scoped chunks before grouping them for presentation.
 
     ``context_counter`` may count a complete prompt containing the trial context.
     The caller then supplies the full input budget, including message framing.
     """
-    return select_context(docs, max_context_tokens, context_counter, query_parts or [], exclusions)
+    return select_context(
+        docs,
+        max_context_tokens,
+        context_counter,
+        query_parts or [],
+        exclusions,
+        preferred=preferred,
+        named=named,
+    )
 
 
 def format_docs(docs: Sequence[Document | tuple[Document, float]], max_context_tokens: int = 6000) -> str:

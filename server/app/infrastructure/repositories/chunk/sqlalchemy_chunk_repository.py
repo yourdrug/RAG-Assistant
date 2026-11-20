@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from domain.knowledge.document_nodes import DocumentNode
     from domain.knowledge.pack_metadata import MetadataCondition
     from domain.knowledge.repositories.chunk import ChunkInsertOptions, ManualChunkInsertOptions
+    from domain.rag.document_outline import DocumentOutline
     from domain.shared.pagination import CursorPage
 
 
@@ -53,6 +54,9 @@ class SQLAlchemyChunkRepository:
         max_chars: int,
     ) -> list[ChunkRecord]:
         return await self._context.get_parent_context(document_id, node_id, user=user, max_chars=max_chars)
+
+    async def get_document_outline(self, document_id: int, *, user: UserContext) -> DocumentOutline:
+        return await self._search.get_document_outline(document_id, user=user)
 
     async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
         return await self._crud.get_ids_by_document_id(document_id, for_update=for_update)

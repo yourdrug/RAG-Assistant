@@ -739,3 +739,55 @@ async def test_whole_refusal_gets_rubric_faithfulness_without_the_judge(
     assert ("faithfulness" in asked) is judge_asked
     # Correctness still judges the refusal against the reference.
     assert result["correctness"]["score"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer_type,expected",
+    [("not_in_corpus", 10.0), ("factual", 0.0), ("false_premise", 0.0)],
+)
+async def test_whole_refusal_correctness_is_fixed_by_answer_type(
+    monkeypatch: pytest.MonkeyPatch, answer_type: str, expected: float
+) -> None:
+    """Case 550: the same refusal scored 10, 10, 10 and 0; the rubric decides instead of the judge."""
+    asked: list[str] = []
+
+    async def create(**kwargs: Any) -> Any:
+        keys = requested_metrics(kwargs)
+        asked.extend(keys)
+        return response({key: {"score": 5, "reason": "noise"} for key in keys})
+
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **_kwargs: JudgeClient(create))
+    question = {**case(), "annotations": {"answer_type": answer_type}}
+    result = await grouped_judge.judge_case_grouped(
+        question, "Информация не найдена в документах.", "", evidence_context=None, model="judge"
+    )
+
+    assert result["correctness"]["score"] == expected
+    assert result["refusal_score"]["score"] == expected
+    assert "correctness" not in asked
+    assert "refusal_score" not in asked
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_refusal_and_substantive_answer_stay_with_the_judge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asked: list[str] = []
+
+    async def create(**kwargs: Any) -> Any:
+        keys = requested_metrics(kwargs)
+        asked.extend(keys)
+        return response({key: {"score": 5, "reason": "judged"} for key in keys})
+
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **_kwargs: JudgeClient(create))
+    ambiguous = {**case(), "annotations": {"answer_type": "ambiguous"}}
+    await grouped_judge.judge_case_grouped(
+        ambiguous, "Информация не найдена в документах.", "", evidence_context=None, model="judge"
+    )
+    absent = {**case(), "annotations": {"answer_type": "not_in_corpus"}}
+    await grouped_judge.judge_case_grouped(
+        absent, "Лимит равен 100 [1].", "ctx", evidence_context=None, model="judge"
+    )
+
+    assert asked.count("correctness") == 2

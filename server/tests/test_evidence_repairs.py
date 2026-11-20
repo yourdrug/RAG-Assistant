@@ -27,10 +27,14 @@ from infrastructure.domain_packs.belarus_law.evidence.grounded_response import (
     extractive_table_comparison_response,
     extractive_timing_response,
     missing_field_response,
+    scoped_evidence_response,
 )
 from infrastructure.domain_packs.belarus_law.evidence.linked_context import enrich_linked_context
 from infrastructure.domain_packs.belarus_law.evidence.predicates import contradicts_requested_scope
-from infrastructure.domain_packs.belarus_law.evidence.queries import evidence_search_queries
+from infrastructure.domain_packs.belarus_law.evidence.queries import (
+    TIMING_WORDING_PROBE,
+    evidence_search_queries,
+)
 from infrastructure.domain_packs.belarus_law.evidence.reading import evidence_reading_rules
 from infrastructure.ml.rag import rag_steps
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
@@ -180,6 +184,44 @@ def test_missing_target_row_is_explicit_even_with_matching_name_or_number_elsewh
     assert not any("строка 18" in item for item in evidence_reading_map(with_row, case["question"]))
 
 
+FIELD_18_QUESTION = (
+    "Изменился ли формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2, BLRDLN) постановлением "
+    "от 24.09.2024 N 11/49/30/26, так же как формат поля «УНП грузополучателя» (позиция 23)?"
+)
+FIELD_18_FORMAT_QUESTION = "Какой формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2, BLRDLN)?"
+FIELD_18_ROW = "| 18 | УНП грузоотправителя \u2039br\u203a an..15 | 2:М |"
+
+
+def test_row_belongs_to_the_table_heading_preceding_it_not_to_chunk_metadata() -> None:
+    # Chunk metadata names an earlier table of the same chunk; the row sits under table 4.2.
+    block = (
+        "[2] Постановление № 9/75/35/26 | Таблица 4.1 - структура и формат сообщения BLRWBL (ЭТТН)\n"
+        "Таблица 4.2 - структура и формат сообщения BLRDLN (ЭТН)\n" + FIELD_18_ROW
+    )
+    assert not any("строка 18" in item for item in evidence_reading_map(block, FIELD_18_QUESTION))
+
+    answer, _ = scoped_evidence_response([], block, FIELD_18_FORMAT_QUESTION)
+    assert answer is not None
+    assert "Поле 18 «УНП грузоотправителя»: в целевой строке указан формат an..15. [2]" in answer
+
+
+def test_row_under_another_table_heading_is_not_attributed_to_the_requested_table() -> None:
+    block = (
+        "[2] Постановление № 9/75/35/26 | Таблица 4.2 - структура и формат сообщения BLRDLN (ЭТН)\n"
+        "Таблица 4.1 - структура и формат сообщения BLRWBL (ЭТТН)\n"
+        + FIELD_18_ROW
+        + "\n| 19 | Адрес грузоотправителя \u2039br\u203a an..140 | 6:М |"
+    )
+    mapped = "\n".join(evidence_reading_map(block, FIELD_18_QUESTION))
+    assert "строка 18 «УНП грузоотправителя»" in mapped
+    assert "значение не подтверждено" in mapped
+
+    answer, _ = scoped_evidence_response([], block, FIELD_18_FORMAT_QUESTION)
+    assert answer is not None
+    assert "an..15" not in answer
+    assert "an..140" not in answer
+
+
 @pytest.mark.asyncio
 async def test_supplemental_retrieval_preserves_acl_temporal_filter_and_original_scope(
     monkeypatch: pytest.MonkeyPatch,
@@ -188,11 +230,14 @@ async def test_supplemental_retrieval_preserves_acl_temporal_filter_and_original
         "В каком режиме передают сведения о товарах, включённых в перечни, согласно постановлению N 11?"
     )
     probes = evidence_search_queries(question)
-    assert len(probes) == 2
+    assert len(probes) == 3
     assert probes[0] == question
     assert "режиме" in probes[1]
     assert "N 11" in probes[1]
-    search = AsyncMock(side_effect=[[Document(page_content="не включенных")], [Document(page_content="2.2")]])
+    assert probes[2] == TIMING_WORDING_PROBE
+    search = AsyncMock(
+        side_effect=[[Document(page_content="не включенных")], [Document(page_content="2.2")], []]
+    )
     monkeypatch.setattr("infrastructure.ml.rag.retrieval_pipeline.run_retrieval", search)
     acl = object()
     conditions = [VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)]

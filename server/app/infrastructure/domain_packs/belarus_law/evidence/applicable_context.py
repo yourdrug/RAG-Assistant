@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import copy
 import logging
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import PageContentType, SearchMode
@@ -24,8 +24,10 @@ from infrastructure.domain_packs.belarus_law.evidence.scope import (
     amendment_requested,
     amendment_targets,
     needs_timing_scope,
+    split_timing_appendix,
     table_heading_scope,
     timing_appendices,
+    timing_appendix_titles,
     timing_clauses,
     timing_definitions,
     timing_reference,
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
     from langchain_core.documents import Document
 
     from domain.identity.user_context import UserContext
+    from domain.knowledge.chunk import ChunkRecord
     from domain.rag.ports import ChunkRetrievalRepository
 
 
@@ -76,25 +79,41 @@ async def timing_reference_scope(
     if len(definitions) != 1:
         return None
 
-    appendices = timing_appendices(
-        await chunk_search.search_substring(query=TIMING_APPENDICES_QUERY, **options), metadata
-    )
+    appendix = await timing_appendix(metadata, chunk_search, options)
 
-    if len(appendices) != 1:
+    if not appendix:
         return None
 
     clauses = timing_clauses(
         await chunk_search.search_substring(query=TIMING_CLAUSES_QUERY, **options),
         metadata,
         category,
-        appendices[0].chunk_index,
+        appendix[-1].chunk_index,
     )
 
-    return (
-        "\n".join(c.content for c in (definitions[0], appendices[0], clauses[0]))
-        if len(clauses) == 1
-        else None
+    return "\n".join(c.content for c in (definitions[0], *appendix, clauses[0])) if clauses else None
+
+
+async def timing_appendix(
+    metadata: dict[str, Any], chunk_search: ChunkRetrievalRepository, options: SubstringSearchOptions
+) -> list[ChunkRecord]:
+    """Return the chunks of the single appendix heading, also when chunking split it in two."""
+    hits = await chunk_search.search_substring(query=TIMING_APPENDICES_QUERY, **options)
+    appendices = timing_appendices(hits, metadata)
+
+    if appendices:
+        return appendices if len(appendices) == 1 else []
+
+    titles = timing_appendix_titles(hits, metadata)
+
+    if len(titles) != 1:
+        return []
+
+    neighbors = await chunk_search.get_neighbors(
+        metadata["document_id"], titles[0].chunk_index, window=1, user=options["user"]
     )
+    continuation = split_timing_appendix(titles[0], neighbors, metadata)
+    return [titles[0], continuation] if continuation is not None else []
 
 
 async def enrich_applicable_context(
@@ -139,8 +158,9 @@ async def enrich_applicable_context(
                         user=user,
                     )
                     scope = table_heading_scope(neighbors, metadata)
-                elif needs_timing_scope(question, doc) and lookups + 3 <= MAX_SCOPE_LOOKUPS:
-                    lookups += 3
+                elif needs_timing_scope(question, doc) and lookups + 4 <= MAX_SCOPE_LOOKUPS:
+                    # Definition, appendix, optional split-heading neighbor and category clauses.
+                    lookups += 4
                     timing_scope = await timing_reference_scope(doc, question, chunk_search, user)
                     scope = timing_scope
             except Exception:

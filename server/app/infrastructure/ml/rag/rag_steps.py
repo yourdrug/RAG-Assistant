@@ -27,13 +27,12 @@ from application.rag.stream_events import SourcesEvent, TextChunk, UsageReport
 from config import LLMSection, config_version, request_section
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
+from domain.rag.act_references import cites_referenced_point, referenced_act
 from domain.rag.breadth import Breadth, answer_style, output_breadth, requested_breadth
-from domain.rag.classification import (
-    classify_question_breadth,
-    is_out_of_domain,
-)
+from domain.rag.classification import cited_points, classify_question_breadth, is_out_of_domain
 from domain.rag.exceptions import ContextBudgetExceededError
 from domain.rag.outcome import AnswerOutcome
+from domain.rag.ranking import RETAINED_AS_REQUESTED
 from domain.rag.retrieval import compute_retrieval_params
 from infrastructure.domain_profile.answer_policy import classify_query_domain
 from infrastructure.metrics.metrics import (
@@ -63,6 +62,7 @@ from infrastructure.ml.rag.benchmark_evidence import (
     active_evidence,
     benchmark_mode,
     capture_completion,
+    capture_gated_prompt,
     capture_prepared_query,
     capture_prompt,
     capture_prompt_delivery,
@@ -458,18 +458,24 @@ class RagOperations:
 
     @traced_step("rag.evidence_gate")
     async def gate(self, result: RetrievalResult) -> Sufficiency:
-        context = (
-            self.build(result, capture=False)
-            if result.prepared.request.settings.features.relevance_gate_enabled
+        request = result.prepared.request
+        assembly = (
+            self.assemble(result, None, capture=False)
+            if request.settings.features.relevance_gate_enabled
             else None
         )
         relevant, refinement = await handle_relevance_gate(
-            result.prepared.query,
+            request.question,
             lc_documents(result.documents),
-            result.prepared.request.settings,
+            request.settings,
             self.ml,
-            context=context.evidence_context if context is not None else None,
+            context=assembly.prepared.evidence_context if assembly is not None else None,
+            history=request.history,
         )
+
+        if not relevant and assembly is not None:
+            capture_gated_prompt(assembly.selected, assembly.context, list(assembly.exclusions))
+
         return Sufficiency(relevant, refinement or None)
 
     def retry(self, refinement: str) -> None:
@@ -582,6 +588,8 @@ class RagOperations:
                 context_counter=count_context,
                 query_parts=state.sub_queries or [state.question],
                 exclusions=exclusions,
+                preferred=packing_preference(state.question, profile),
+                named=named_act_documents(state.question, profile),
             )
 
             if state.docs and not selected:
@@ -908,3 +916,36 @@ def production_prompt_budget(
         "context_tokens": input_tokens - base_tokens,
         "documents_not_fitted": sum(item["reason"] in {"budget", "oversized_block"} for item in exclusions),
     }
+
+
+def cited_point_preference(
+    question: str, profile: EvidenceProfile
+) -> Callable[[tuple[LCDocument, float]], bool] | None:
+    """Context packing tries first the chunks holding a point the question cites by number."""
+    points = cited_points(question)
+
+    if not points:
+        return None
+
+    acts = profile.named_acts(question)
+    return lambda item: cites_referenced_point(item[0].metadata, points, acts)
+
+
+def packing_preference(question: str, profile: EvidenceProfile) -> Callable[[tuple[LCDocument, float]], bool]:
+    """Packing tries first a cited point and the provisions reranking kept past its window as requested."""
+    cited = cited_point_preference(question, profile)
+    return lambda item: (
+        bool(item[0].metadata.get(RETAINED_AS_REQUESTED)) or (cited is not None and cited(item))
+    )
+
+
+def named_act_documents(
+    question: str, profile: EvidenceProfile
+) -> Callable[[tuple[LCDocument, float]], bool] | None:
+    """Chunks of an act the question names may fill the context beyond one document's share."""
+    acts = profile.named_acts(question)
+
+    if not acts:
+        return None
+
+    return lambda item: referenced_act(item[0].metadata, acts) is not None
