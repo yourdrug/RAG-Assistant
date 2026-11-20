@@ -710,3 +710,32 @@ async def test_service_passes_runtime_concurrency_through_instead_of_hardcoding_
         max_concurrent=explicit,
     )
     assert require_present(run.await_args).kwargs["max_concurrent"] is explicit
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer,expected_faithfulness,judge_asked",
+    [
+        ("Информация не найдена в документах.", 10.0, False),
+        ("Информация не найдена в документах [1].", 10.0, False),
+        ("fact [1]. Информация о сроке не найдена в документах.", 0.0, True),
+    ],
+)
+async def test_whole_refusal_gets_rubric_faithfulness_without_the_judge(
+    monkeypatch: pytest.MonkeyPatch, answer: str, expected_faithfulness: float, *, judge_asked: bool
+) -> None:
+    """The judge penalised refusals of answerable questions via faithfulness; the rubric fixes 10."""
+    asked: list[str] = []
+
+    async def create(**kwargs: Any) -> Any:
+        keys = requested_metrics(kwargs)
+        asked.extend(keys)
+        return response({key: {"score": 0, "reason": "expected an answer"} for key in keys})
+
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **_kwargs: JudgeClient(create))
+    result = await grouped_judge.judge_case_grouped(case(), answer, "", evidence_context=None, model="judge")
+
+    assert result["faithfulness"]["score"] == expected_faithfulness
+    assert ("faithfulness" in asked) is judge_asked
+    # Correctness still judges the refusal against the reference.
+    assert result["correctness"]["score"] == 0

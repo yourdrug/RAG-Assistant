@@ -231,3 +231,20 @@ async def test_judge_timeout_cancels_the_provider_request() -> None:
 
     assert started.is_set()
     assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_single_judge_scores_whole_refusal_faithfulness_by_rubric() -> None:
+    client = _mock_instructor_client(return_score=0.0, return_reason="expected an answer")
+    with (
+        patch("infrastructure.benchmark.judging.judge.get_judge_model", return_value="m"),
+        patch("infrastructure.benchmark.judging.judge.get_judge_client", return_value=client),
+    ):
+        result = await judge_answer_async(
+            "q", "Информация не найдена в документах.", "", expected_answer="expected"
+        )
+
+    assert result["faithfulness"] == 10.0
+    assert result["correctness"] == 0.0
+    # Only relevancy and correctness reach the judge.
+    assert client.chat.completions.create.call_count == 2

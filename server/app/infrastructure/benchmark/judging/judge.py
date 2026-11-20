@@ -13,7 +13,11 @@ from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt,
 from config import BenchmarkSection, LLMSection, process_section
 from infrastructure.benchmark.judging.callbacks import AsyncMetricOptions
 from infrastructure.benchmark.judging.clients import get_judge_client, get_judge_model
-from infrastructure.benchmark.judging.judge_rubric import CORRECTNESS_CRITERIA, FAITHFULNESS_CRITERIA
+from infrastructure.benchmark.judging.judge_rubric import (
+    CORRECTNESS_CRITERIA,
+    FAITHFULNESS_CRITERIA,
+    refusal_faithfulness,
+)
 from infrastructure.benchmark.judging.prompts import RELEVANCY_CRITERIA, metric_prompt
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import JudgeScore
@@ -131,6 +135,10 @@ async def judge_answer_async(
 
     scores = dict(options.get("saved_metrics") or {})
     metric_callback = options.get("metric_callback")
+
+    if (refusal := refusal_faithfulness(answer)) is not None:
+        scores["faithfulness"], scores["faithfulness_reason"] = refusal
+        scores.pop("faithfulness_error", None)
 
     for key, prompt in prompts.items():
         if scores.get(key) is not None:
