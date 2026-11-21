@@ -94,7 +94,7 @@ if TYPE_CHECKING:
     from domain.knowledge.chunk import (
         ChunkInsert,
     )
-    from domain.knowledge.document import Document
+    from domain.knowledge.document import Document, SyncBinding
     from domain.knowledge.document_nodes import DocumentNode
     from domain.knowledge.index_sync import VectorOutboxEntry
     from domain.knowledge.pack_metadata import MetadataCondition
@@ -105,6 +105,8 @@ if TYPE_CHECKING:
     from domain.knowledge.repositories.document import DocumentFilter, DocumentStatusUpdate
     from domain.rag.context import RagContext
     from domain.runtime.jobs import BackgroundJob, ConcurrencyLimit
+    from domain.sync.channel import SyncChannel
+    from domain.sync.run import SyncRun
 
 
 # ---------------------------------------------------------------------------
@@ -852,6 +854,7 @@ class FakeDocumentRepository:
             d
             for d in self._documents.values()
             if getattr(d, "filename", None) in filenames
+            and getattr(d, "sync", None) is None
             and getattr(d, "owner_id", None) == owner_id
             and getattr(d, "group_id", None) == group_id
             and space_id in (None, d.space_id)
@@ -871,6 +874,7 @@ class FakeDocumentRepository:
         for d in self._documents.values():
             if (
                 getattr(d, "filename", None) == filename
+                and getattr(d, "sync", None) is None
                 and getattr(d, "owner_id", None) == owner_id
                 and getattr(d, "group_id", None) == group_id
                 and space_id in (None, d.space_id)
@@ -977,8 +981,27 @@ class FakeDocumentRepository:
         document = self._documents[document_id]
         document.chunks, document.chars = chunks, chars
 
+    async def set_sync_binding(self, document_id: int, binding: SyncBinding | None) -> None:
+        if document_id in self._documents:
+            self._documents[document_id].sync = binding
+
+    async def list_channel_documents(self, channel_id: int) -> list[Document]:
+        return [d for d in self._documents.values() if d.sync is not None and d.sync.channel_id == channel_id]
+
+    async def unlink_channel_documents(self, channel_id: int) -> int:
+        documents = await self.list_channel_documents(channel_id)
+
+        for document in documents:
+            document.sync = None
+
+        return len(documents)
+
     async def delete_internal_documents(self) -> int:
-        ids = [key for key, d in self._documents.items() if d.visibility != DocumentVisibility.CLIENT_PRIVATE]
+        ids = [
+            key
+            for key, d in self._documents.items()
+            if d.visibility != DocumentVisibility.CLIENT_PRIVATE and d.sync is None
+        ]
 
         for key in ids:
             del self._documents[key]
@@ -1846,6 +1869,59 @@ def admit_all_users(uow: FakeUnitOfWork, space_id: int = DEFAULT_SPACE_ID) -> No
     uow.fake_knowledge_spaces._spaces[space_id].admit_groups({UPLOADERS_GROUP_ID})
 
 
+class FakeSyncChannelRepository:
+    def __init__(self) -> None:
+        self.channels: dict[int, SyncChannel] = {}
+        self._next_id = 1
+
+    async def get_by_id(self, channel_id: int, *, for_update: bool = False) -> SyncChannel | None:
+        del for_update
+        channel = self.channels.get(channel_id)
+        return deepcopy(channel) if channel is not None else None
+
+    async def list_by_space(self, space_id: int) -> list[SyncChannel]:
+        return [deepcopy(c) for c in self.channels.values() if c.space_id == space_id]
+
+    async def add(self, channel: SyncChannel) -> SyncChannel:
+        channel.id = self._next_id
+        self._next_id += 1
+        self.channels[channel.id] = deepcopy(channel)
+        return channel
+
+    async def update(self, channel: SyncChannel) -> None:
+        if channel.id in self.channels:
+            self.channels[channel.id] = deepcopy(channel)
+
+    async def delete(self, channel_id: int) -> None:
+        self.channels.pop(channel_id, None)
+
+
+class FakeSyncRunRepository:
+    def __init__(self) -> None:
+        self.runs: dict[int, SyncRun] = {}
+        self._next_id = 1
+
+    async def add(self, run: SyncRun) -> SyncRun:
+        run.id = self._next_id
+        self._next_id += 1
+        self.runs[run.id] = deepcopy(run)
+        return run
+
+    async def update(self, run: SyncRun) -> None:
+        if run.id in self.runs:
+            self.runs[run.id] = deepcopy(run)
+
+    async def get_by_id(self, run_id: int) -> SyncRun | None:
+        run = self.runs.get(run_id)
+        return deepcopy(run) if run is not None else None
+
+    async def list_for_channel(self, channel_id: int, limit: int = 20) -> list[SyncRun]:
+        runs = sorted(
+            (r for r in self.runs.values() if r.channel_id == channel_id), key=lambda r: -(r.id or 0)
+        )
+        return [deepcopy(run) for run in runs[:limit]]
+
+
 class FakeUnitOfWork(UnitOfWork):
     """In-memory UnitOfWork for unit tests."""
 
@@ -1870,6 +1946,8 @@ class FakeUnitOfWork(UnitOfWork):
         self.fake_ingestion_registry = self.ingestion_registry = FakeIngestionRegistryRepository()
         self.fake_knowledge_spaces = self.knowledge_spaces = FakeKnowledgeSpaceRepository()
         self.fake_knowledge_spaces.documents = self.fake_documents
+        self.fake_sync_channels = self.sync_channels = FakeSyncChannelRepository()
+        self.fake_sync_runs = self.sync_runs = FakeSyncRunRepository()
         # Domain pack repositories; kept off the instance dict so rollback restores their
         # repositories (registered as attributes by pack test fakes) in place.
         self._pack_repositories: tuple[object, ...] = ()

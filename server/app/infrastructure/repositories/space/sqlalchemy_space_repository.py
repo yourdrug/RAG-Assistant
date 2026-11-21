@@ -84,6 +84,10 @@ class SQLAlchemyKnowledgeSpaceRepository:
                 message = "A knowledge space referenced by benchmark sweeps cannot be deleted"
                 raise BusinessRuleViolationError(message) from exc
 
+            if constraint == "sync_channels_space_id_fkey":
+                message = "A knowledge space with sync channels cannot be deleted; delete its channels first"
+                raise BusinessRuleViolationError(message) from exc
+
             raise
 
     async def has_documents(self, space_id: int) -> bool:

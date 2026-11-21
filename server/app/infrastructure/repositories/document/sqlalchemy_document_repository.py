@@ -5,13 +5,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Unpack
 
-from sqlalchemy import and_, distinct, false, func, or_, select
+from sqlalchemy import and_, distinct, false, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from config import JobsSection, process_section
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
-from domain.knowledge.document import Document, DocumentProcessingUpdate
+from domain.knowledge.document import Document, DocumentProcessingUpdate, SyncBinding
 from domain.knowledge.enums import (
     DOCUMENT_SLOT_STATUSES,
     DocumentStatus,
@@ -31,6 +31,15 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from domain.knowledge.repositories.document import DocumentFilter, DocumentStatusUpdate
+
+
+def sync_columns(binding: SyncBinding | None) -> dict[str, object]:
+    return {
+        "sync_channel_id": binding.channel_id if binding else None,
+        "sync_path": binding.path if binding else None,
+        "storage_version": binding.storage_version if binding else None,
+        "storage_revision": binding.storage_revision if binding else None,
+    }
 
 
 class SQLAlchemyDocumentRepository:
@@ -55,6 +64,7 @@ class SQLAlchemyDocumentRepository:
             has_manual_edits=document.has_manual_edits,
             chunks=document.chunks,
             chars=document.chars,
+            **sync_columns(document.sync),
         )
         self._db.add(orm)
         try:
@@ -221,6 +231,7 @@ class SQLAlchemyDocumentRepository:
         conditions = [
             DocumentModel.filename == filename,
             DocumentModel.ingestion_key.is_(None),
+            DocumentModel.sync_channel_id.is_(None),
             DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
         ]
 
@@ -269,6 +280,7 @@ class SQLAlchemyDocumentRepository:
             .where(
                 DocumentModel.filename.in_(filenames),
                 DocumentModel.ingestion_key.is_(None),
+                DocumentModel.sync_channel_id.is_(None),
                 DocumentModel.owner_id == owner_id,
                 DocumentModel.group_id == group_id,
                 DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
@@ -424,6 +436,8 @@ class SQLAlchemyDocumentRepository:
             select(DocumentModel).where(
                 DocumentModel.owner_id.is_(None),
                 DocumentModel.source_type != SourceType.MANUAL.value,
+                # Channel documents belong to their channel, not to CLI ingestion.
+                DocumentModel.sync_channel_id.is_(None),
             )
         )
         orms = result.scalars().all()
@@ -433,6 +447,30 @@ class SQLAlchemyDocumentRepository:
 
         await self._db.flush()
         return len(orms)
+
+    async def set_sync_binding(self, document_id: int, binding: SyncBinding | None) -> None:
+        await self._db.execute(
+            update(DocumentModel).where(DocumentModel.id == document_id).values(**sync_columns(binding))
+        )
+        await self._db.flush()
+
+    async def list_channel_documents(self, channel_id: int) -> list[Document]:
+        result = await self._db.execute(
+            select(DocumentModel)
+            .where(DocumentModel.sync_channel_id == channel_id)
+            .order_by(DocumentModel.id)
+        )
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
+    async def unlink_channel_documents(self, channel_id: int) -> int:
+        result = await self._db.execute(
+            update(DocumentModel)
+            .where(DocumentModel.sync_channel_id == channel_id)
+            .values(**sync_columns(None))
+            .execution_options(synchronize_session=False)
+        )
+        await self._db.flush()
+        return result.rowcount or 0
 
     async def mark_done_if_indexing(self, document_id: int) -> bool:
         """Mark document as DONE if it is currently INDEXING. Returns True if updated."""
@@ -549,4 +587,9 @@ class SQLAlchemyDocumentRepository:
             chars=orm.chars,
             creation_date=orm.creation_date,
             indexed_at=orm.indexed_at,
+            sync=SyncBinding(
+                orm.sync_channel_id, orm.sync_path or "", orm.storage_version, orm.storage_revision
+            )
+            if orm.sync_channel_id is not None
+            else None,
         )

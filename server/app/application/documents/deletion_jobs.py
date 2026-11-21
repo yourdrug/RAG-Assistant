@@ -30,6 +30,7 @@ class DocumentDeletionJobs:
 
         ctx = await self._contexts.build(uow, user_id, user_kind, user_role)
         check_ownership(doc, ctx, "delete")
+        doc.ensure_manually_managed("delete")
 
     async def enqueue(self, document_id: int, user_id: int, user_kind: str, user_role: str) -> int:
         async with self._uow_factory.create(master=True) as uow:

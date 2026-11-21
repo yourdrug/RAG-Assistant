@@ -31,6 +31,21 @@ class DocumentProcessingUpdate:
     quality_score: float | None = None
 
 
+@dataclass(frozen=True)
+class SyncBinding:
+    """The storage file a channel document mirrors and the version it last published.
+
+    The channel's storage is the source of truth: such a document is never edited,
+    replaced, renamed or deleted by hand while the binding exists.
+    """
+
+    channel_id: int
+    path: str
+    # Version of the file content (a blob sha) and the storage revision it was read at.
+    storage_version: str | None = None
+    storage_revision: str | None = None
+
+
 @dataclass
 class Document:
     id: int | None = None
@@ -54,6 +69,7 @@ class Document:
     chars: int | None = None
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     indexed_at: datetime | None = None
+    sync: SyncBinding | None = None
 
     def __post_init__(self) -> None:
         self.doc_domain = DomainKey(self.doc_domain)
@@ -138,6 +154,15 @@ class Document:
             and self.group_id is not None
             and self.group_id in all_group_ids
         )
+
+    def ensure_manually_managed(self, action: str) -> None:
+        """Reject a manual ``action`` on a document that a sync channel manages."""
+        if self.sync is not None:
+            msg = (
+                f"Document is managed by sync channel {self.sync.channel_id}: "
+                f"cannot {action} it by hand; change its file in the storage"
+            )
+            raise BusinessRuleViolationError(msg)
 
     def can_be_deleted_by(
         self,

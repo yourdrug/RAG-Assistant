@@ -64,6 +64,7 @@ class DocumentDeleteCommand:
 
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             check_ownership(doc, ctx, "delete")
+            doc.ensure_manually_managed("delete")
             # Ingestion owns shared source objects, rather than individual assignments.
             source_path = doc.source_path if doc.ingestion_key is None else None
             hooks = await self._pack_hooks.for_document(uow, doc) if self._pack_hooks is not None else None

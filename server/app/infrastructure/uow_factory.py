@@ -60,6 +60,10 @@ from infrastructure.repositories.misc.sqlalchemy_background_job_repository impor
 from infrastructure.repositories.space.sqlalchemy_space_repository import (
     SQLAlchemyKnowledgeSpaceRepository,
 )
+from infrastructure.repositories.sync.sqlalchemy_sync_repository import (
+    SQLAlchemySyncChannelRepository,
+    SQLAlchemySyncRunRepository,
+)
 from infrastructure.repositories.user.sqlalchemy_api_key_repository import (
     SQLAlchemyApiKeyRepository,
 )
@@ -148,6 +152,8 @@ class UnitOfWorkFactory:
                 assignments=SQLAlchemyAssignmentRepository(session),
                 ingestion_registry=SQLAlchemyIngestionRegistryRepository(session),
                 knowledge_spaces=SQLAlchemyKnowledgeSpaceRepository(session),
+                sync_channels=SQLAlchemySyncChannelRepository(session),
+                sync_runs=SQLAlchemySyncRunRepository(session),
                 pack_repositories=tuple(factory(session) for factory in self._pack_repositories),
             ),
         )

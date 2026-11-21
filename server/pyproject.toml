@@ -38,6 +38,7 @@ dependencies = [
     "tokenizers==0.22.2",
     "qdrant-client==1.11.3",
     "pymorphy3==2.0.6", # Russian lemmas for BM25 sparse vectors
+    "pathspec==1.1.1", # .gitignore-style exclusions of sync channels and .ragignore
     # --- OCR ---
     "pillow==10.4.0",
     # --- Document parsers ---
@@ -409,6 +410,7 @@ name = "Domain shared kernel is independent of contexts"
 type = "forbidden"
 source_modules = ["domain.shared"]
 forbidden_modules = [
+    "domain.sync",
     "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.identity", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
 ]
 
@@ -418,6 +420,7 @@ name = "Domain identity depends only on shared"
 type = "forbidden"
 source_modules = ["domain.identity"]
 forbidden_modules = [
+    "domain.sync",
     "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
 ]
 
@@ -427,6 +430,7 @@ name = "Domain knowledge depends only on identity and shared"
 type = "forbidden"
 source_modules = ["domain.knowledge"]
 forbidden_modules = [
+    "domain.sync",
     "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.ingestion", "domain.rag", "domain.runtime",
 ]
 
@@ -437,6 +441,7 @@ type = "forbidden"
 source_modules = ["domain.ingestion"]
 allow_indirect_imports = true
 forbidden_modules = [
+    "domain.sync",
     "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.identity", "domain.rag", "domain.runtime",
 ]
 
@@ -446,6 +451,7 @@ name = "Domain RAG depends only on knowledge identity and shared"
 type = "forbidden"
 source_modules = ["domain.rag"]
 forbidden_modules = [
+    "domain.sync",
     "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.ingestion", "domain.runtime",
 ]
 
@@ -456,6 +462,7 @@ type = "forbidden"
 source_modules = ["domain.chat"]
 allow_indirect_imports = true
 forbidden_modules = [
+    "domain.sync",
     "domain.domain_packs", "domain.benchmark", "domain.ingestion", "domain.knowledge", "domain.runtime",
 ]
 
@@ -465,6 +472,7 @@ name = "Domain benchmark depends only on shared"
 type = "forbidden"
 source_modules = ["domain.benchmark"]
 forbidden_modules = [
+    "domain.sync",
     "domain.domain_packs", "domain.chat", "domain.identity", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
 ]
 # The answer outcome is one vocabulary for the chat journal and benchmark diagnosis.
@@ -477,7 +485,17 @@ type = "forbidden"
 source_modules = ["domain.runtime"]
 allow_indirect_imports = true
 forbidden_modules = [
+    "domain.sync",
     "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.identity", "domain.ingestion", "domain.rag",
+]
+
+
+[[tool.importlinter.contracts]]
+name = "Domain sync depends only on knowledge and shared"
+type = "forbidden"
+source_modules = ["domain.sync"]
+forbidden_modules = [
+    "domain.domain_packs", "domain.benchmark", "domain.chat", "domain.identity", "domain.ingestion", "domain.rag", "domain.runtime",
 ]
 
 
@@ -500,6 +518,7 @@ source_modules = ["application.uow"]
 allow_indirect_imports = true
 # Allowed features: runtime.
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.identity", "application.chat",
@@ -516,6 +535,7 @@ source_modules = ["application.admin"]
 allow_indirect_imports = true
 # Allowed features: uow, runtime.
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search",
@@ -536,6 +556,7 @@ source_modules = ["application.benchmark"]
 allow_indirect_imports = true
 # Allowed features: admin, chat, uow.
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.domain_packs", "application.identity",
     "application.search", "application.indexing", "application.documents",
@@ -559,6 +580,7 @@ source_modules = ["application.domain_packs"]
 allow_indirect_imports = true
 # Allowed features: uow, indexing (the document pack hooks it implements).
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.admin", "application.benchmark",
     "application.identity", "application.chat", "application.search",
@@ -580,6 +602,7 @@ source_modules = ["application.identity"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.chat", "application.search",
@@ -596,6 +619,7 @@ source_modules = ["application.chat"]
 allow_indirect_imports = true
 # Allowed features: spaces, identity, uow, rag.
 forbidden_modules = [
+    "application.sync",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
@@ -610,6 +634,7 @@ source_modules = ["application.search"]
 allow_indirect_imports = true
 # Allowed features: spaces, identity, uow.
 forbidden_modules = [
+    "application.sync",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.chat", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion",
@@ -624,6 +649,7 @@ source_modules = ["application.indexing"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.identity", "application.chat",
@@ -634,12 +660,28 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "Sync: declared application dependencies"
+type = "forbidden"
+source_modules = ["application.sync"]
+allow_indirect_imports = true
+# Allowed features: documents (deleting channel documents), identity, indexing, uow.
+forbidden_modules = [
+    "application.spaces",
+    "application.admin", "application.benchmark",
+    "application.domain_packs", "application.chat", "application.search",
+    "application.chunks", "application.ingestion", "application.health",
+    "application.jobs", "application.ports",
+    "application.rag", "application.runtime",
+]
+
+[[tool.importlinter.contracts]]
 name = "Documents: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.documents"]
 allow_indirect_imports = true
 # Allowed features: spaces, identity, indexing, ingestion, uow.
 forbidden_modules = [
+    "application.sync",
     "application.admin", "application.benchmark", "application.domain_packs",
     "application.chat", "application.search", "application.chunks",
     "application.health", "application.jobs", "application.ports",
@@ -664,6 +706,7 @@ source_modules = ["application.chunks"]
 allow_indirect_imports = true
 # Allowed features: documents, identity, indexing, uow.
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.chat", "application.search",
@@ -683,6 +726,7 @@ source_modules = ["application.ingestion"]
 allow_indirect_imports = true
 # Allowed features: spaces, indexing, uow.
 forbidden_modules = [
+    "application.sync",
     "application.admin", "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search",
     "application.documents", "application.chunks", "application.health",
@@ -705,6 +749,7 @@ source_modules = ["application.health"]
 allow_indirect_imports = true
 # Allowed features: admin, uow, runtime.
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search",
@@ -720,6 +765,7 @@ source_modules = ["application.jobs"]
 allow_indirect_imports = true
 # Allowed features: uow.
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.identity", "application.chat",
@@ -736,6 +782,7 @@ source_modules = ["application.spaces"]
 allow_indirect_imports = true
 # Allowed features: identity, indexing (the pack hooks a space chooses), uow.
 forbidden_modules = [
+    "application.sync",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.chat", "application.search",
     "application.documents", "application.chunks", "application.ingestion",
@@ -750,6 +797,7 @@ source_modules = ["application.ports"]
 allow_indirect_imports = true
 # Allowed features: none.
 forbidden_modules = [
+    "application.sync",
     "application.spaces",
     "application.uow", "application.admin",
     "application.benchmark", "application.domain_packs", "application.identity",
@@ -844,6 +892,7 @@ source_modules = ["application.rag"]
 allow_indirect_imports = true
 # Runtime configuration contracts remain available to RAG; spaces choose a pack's RAG service.
 forbidden_modules = [
+    "application.sync",
     "application.admin", "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion", "application.health",
@@ -858,6 +907,7 @@ type = "forbidden"
 source_modules = ["application.runtime"]
 allow_indirect_imports = true
 forbidden_modules = [
+    "application.sync",
     "application.admin", "application.benchmark", "application.domain_packs",
     "application.identity", "application.chat", "application.search", "application.indexing",
     "application.documents", "application.chunks", "application.ingestion", "application.health",

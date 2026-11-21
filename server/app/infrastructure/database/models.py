@@ -235,6 +235,8 @@ class DocumentModel(BaseModel):
         # COALESCE so public/group (NULL owner) rows collide too — NULLs are
         # distinct in plain unique indexes, which let duplicate public uploads
         # through.
+        # Channel documents are named by their storage path and identified by the channel;
+        # they take no filename slot, so a manual upload never collides with or replaces them.
         Index(
             "ux_documents_active_slot",
             "space_id",
@@ -242,7 +244,7 @@ class DocumentModel(BaseModel):
             text("COALESCE(group_id, 0)"),
             "filename",
             unique=True,
-            postgresql_where="ingestion_key IS NULL AND status IN ("
+            postgresql_where="ingestion_key IS NULL AND sync_channel_id IS NULL AND status IN ("
             + ", ".join(f"'{status.value}'" for status in DOCUMENT_SLOT_STATUSES)
             + ")",
         ),
@@ -256,6 +258,16 @@ class DocumentModel(BaseModel):
             postgresql_where="ingestion_key IS NOT NULL AND status IN ("
             + ", ".join(f"'{status.value}'" for status in DOCUMENT_SLOT_STATUSES)
             + ")",
+        ),
+        Index(
+            "ux_documents_sync_file",
+            "sync_channel_id",
+            "sync_path",
+            unique=True,
+            postgresql_where="sync_channel_id IS NOT NULL",
+        ),
+        CheckConstraint(
+            "(sync_channel_id IS NULL) = (sync_path IS NULL)", name="documents_sync_binding_check"
         ),
     )
 
@@ -283,6 +295,74 @@ class DocumentModel(BaseModel):
     chunks: Mapped[int | None] = mapped_column(Integer)
     chars: Mapped[int | None] = mapped_column(Integer)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A channel cannot be deleted while documents are bound to it: delete or unlink them first.
+    sync_channel_id: Mapped[int | None] = mapped_column(ForeignKey("sync_channels.id"), nullable=True)
+    sync_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    storage_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class SyncChannelModel(BaseModel):
+    """Storage location kept in line with documents of one space; see ``domain.sync.channel``."""
+
+    __tablename__ = "sync_channels"
+    __table_args__ = (
+        CheckConstraint("storage_kind IN ('github')", name="sync_channels_storage_kind_check"),
+        CheckConstraint(
+            "visibility IN ('internal_public', 'internal_group', 'internal_private', "
+            "'client_private', 'client_public')",
+            name="sync_channels_visibility_check",
+        ),
+        CheckConstraint("jsonb_typeof(location) = 'object'", name="sync_channels_location_object"),
+        CheckConstraint("jsonb_typeof(exclusions) = 'array'", name="sync_channels_exclusions_array"),
+        CheckConstraint("generation > 0", name="sync_channels_generation_positive"),
+        Index("idx_sync_channels_space", "space_id"),
+    )
+
+    space_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_spaces.id", ondelete="RESTRICT"), nullable=False
+    )
+    storage_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    location: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    folder: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    exclusions: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Same lifetime as the channel's documents, whose owner and group cascade as well.
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
+    responsible_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    generation: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+
+
+class SyncRunModel(BaseModel):
+    """One reconciliation of a channel; see ``domain.sync.run``."""
+
+    __tablename__ = "sync_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled', 'rejected')",
+            name="sync_runs_status_check",
+        ),
+        CheckConstraint("trigger IN ('manual', 'webhook', 'schedule')", name="sync_runs_trigger_check"),
+        CheckConstraint("jsonb_typeof(outcomes) = 'array'", name="sync_runs_outcomes_array"),
+        Index("idx_sync_runs_channel", "channel_id", "id"),
+    )
+
+    channel_id: Mapped[int] = mapped_column(
+        ForeignKey("sync_channels.id", ondelete="CASCADE"), nullable=False
+    )
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    storage_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    outcomes: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ConfigParameterModel(BaseModel):

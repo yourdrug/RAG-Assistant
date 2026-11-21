@@ -62,7 +62,7 @@ def test_baseline_round_trip_matches_metadata(migration_connection: Connection) 
 
     inspector = inspect(migration_connection)
     tables = set(inspector.get_table_names()) - {"alembic_version"}
-    assert len(tables) == 37
+    assert len(tables) == 39
 
     # Only the starting knowledge space exists in a new installation.
     assert [

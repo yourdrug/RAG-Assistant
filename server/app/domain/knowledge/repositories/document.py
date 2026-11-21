@@ -15,7 +15,7 @@ from domain.shared.pagination import Pagination
 
 if TYPE_CHECKING:
     from domain.identity.user_context import UserContext
-    from domain.knowledge.document import Document
+    from domain.knowledge.document import Document, SyncBinding
     from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 
 
@@ -106,6 +106,11 @@ class DocumentCrudRepository(Protocol):
     async def list_distinct_filenames(self, search: str | None = None, limit: int = 100) -> list[str]: ...
     async def update_filename(self, document_id: int, new_filename: str, new_source_path: str) -> None: ...
     async def mark_done_if_indexing(self, document_id: int) -> bool: ...
+    async def set_sync_binding(self, document_id: int, binding: SyncBinding | None) -> None: ...
+    async def list_channel_documents(self, channel_id: int) -> list[Document]: ...
+    async def unlink_channel_documents(self, channel_id: int) -> int:
+        """Make the channel's documents manual, keeping their ids and access; returns the count."""
+        ...
 
 
 @runtime_checkable

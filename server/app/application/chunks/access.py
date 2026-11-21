@@ -56,6 +56,7 @@ async def load_doc_for_edit(
         msg = "No permission to edit chunks for this document"
         raise BusinessRuleViolationError(msg)
 
+    doc.ensure_manually_managed("edit chunks of")
     await ensure_no_staged_revision(uow, document_id)
     return doc, ctx
 
@@ -97,5 +98,6 @@ async def load_doc_for_add(
         msg = "No permission to add chunks for this document"
         raise BusinessRuleViolationError(msg)
 
+    doc.ensure_manually_managed("add chunks to")
     await ensure_no_staged_revision(uow, document_id)
     return doc, ctx

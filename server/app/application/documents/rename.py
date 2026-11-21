@@ -105,6 +105,7 @@ class DocumentRenameCommand:
 
         ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
         check_ownership(doc, ctx, "rename")
+        doc.ensure_manually_managed("rename")
         owner_id, effective_group_id = doc.owner_id, doc.group_id
         existing = await uow.documents.find_active_slot(
             owner_id, new_filename, effective_group_id, space_id=doc.space_id, for_update=True

@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from domain.knowledge.repositories.document import DocumentRepository
     from domain.knowledge.repositories.space import KnowledgeSpaceRepository
     from domain.runtime.repositories import BackgroundJobRepository
+    from domain.sync.repositories import SyncChannelRepository, SyncRunRepository
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,8 @@ class UnitOfWorkRepositories:
     assignments: AssignmentRepository
     ingestion_registry: IngestionRegistryRepository
     knowledge_spaces: KnowledgeSpaceRepository
+    sync_channels: SyncChannelRepository
+    sync_runs: SyncRunRepository
     # Repositories of the loaded domain packs over the same session; the core never reads them.
     pack_repositories: tuple[object, ...] = ()
 
@@ -90,6 +93,8 @@ class UnitOfWork(BaseUnitOfWork):
         self.assignments = repositories.assignments
         self.ingestion_registry = repositories.ingestion_registry
         self.knowledge_spaces = repositories.knowledge_spaces
+        self.sync_channels = repositories.sync_channels
+        self.sync_runs = repositories.sync_runs
         self.pack_repositories = repositories.pack_repositories
         self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
 

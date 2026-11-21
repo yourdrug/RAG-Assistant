@@ -169,6 +169,8 @@ class DocumentSyncService:
             existing_docs = await uow.documents.find_ingestion_documents(list(registry))
 
             for doc in existing_docs:
+                doc.ensure_manually_managed("ingest")
+
                 if doc.space_id != space.id:
                     msg = (
                         f"{doc.ingestion_key} is already ingested into knowledge space {doc.space_id}; "
@@ -301,6 +303,8 @@ class DocumentSyncService:
                     document.space_id != space.id
                     or document.ingestion_key in current_keys
                     or document.id is None
+                    # A channel owns its documents; prefix cleanup never removes them.
+                    or document.sync is not None
                 ):
                     continue
 
@@ -310,6 +314,7 @@ class DocumentSyncService:
                     locked is not None
                     and locked.space_id == space.id
                     and locked.ingestion_key == document.ingestion_key
+                    and locked.sync is None
                 ):
                     await delete_document_in_uow(uow, document.id, self._pack_hooks)
 

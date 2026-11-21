@@ -93,8 +93,11 @@ def skip_reason(document: Document) -> tuple[str, str] | None:
     if document.status not in REINDEXABLE_STATUSES:
         return ReindexOutcome.SKIPPED_STATUS, f"status {document.status.value}"
 
-    if document.source_type != SourceType.FILE.value or not document.source_path:
-        return ReindexOutcome.SKIPPED_SOURCE, "no stored source file"
+    # A channel document's storage is the source of truth; its channel re-reads it.
+    if document.sync is not None or document.source_type != SourceType.FILE.value or not document.source_path:
+        return ReindexOutcome.SKIPPED_SOURCE, (
+            "managed by a sync channel" if document.sync is not None else "no stored source file"
+        )
 
     return None
 
