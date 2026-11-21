@@ -17,16 +17,24 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.sync import SyncChannelService, SyncRunRequests
-from config import SyncSection, request_section
+from config import StorageSection, SyncSection, request_section
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.sync.channel import ChannelAudience, ChannelDeletionMode, ChannelSettings, GitHubLocation
+from domain.sync.channel import (
+    ChannelAudience,
+    ChannelDeletionMode,
+    ChannelSettings,
+    GitHubLocation,
+    S3Location,
+    StorageKind,
+)
 from domain.sync.run import FileOutcomeKind, SyncTrigger
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_sync_channel_service, create_sync_run_requests
 from presentation.api.rate_limit import rate_limit
 from presentation.api.schemas import CurrentUser
 from presentation.api.schemas.sync import (
+    AdoptionResponse,
     ChannelSettingsRequest,
     CreateChannelRequest,
     DeleteChannelResponse,
@@ -39,7 +47,7 @@ from presentation.api.schemas.sync import (
 
 if TYPE_CHECKING:
     from application.sync.channels import ChannelView
-    from domain.sync.channel import SyncChannel
+    from domain.sync.channel import StorageLocation, SyncChannel
     from domain.sync.run import SyncRun
 
 
@@ -57,14 +65,21 @@ def actor(user: CurrentUser) -> UserContext:
     return UserContext(user_id=user.id, user_kind=UserKind(user.kind), user_role=UserRole(user.role))
 
 
+def to_location(request: ChannelSettingsRequest) -> StorageLocation:
+    if request.storage_kind == StorageKind.S3:
+        return S3Location(request_section(StorageSection).s3_bucket)
+
+    return GitHubLocation(
+        request_section(SyncSection).github_instance,
+        request.repository_id or 0,
+        request.repository or "",
+        request.branch or "",
+    )
+
+
 def to_settings(request: ChannelSettingsRequest) -> ChannelSettings:
     return ChannelSettings(
-        location=GitHubLocation(
-            request_section(SyncSection).github_instance,
-            request.repository_id,
-            request.repository,
-            request.branch,
-        ),
+        location=to_location(request),
         audience=ChannelAudience(request.visibility, request.owner_id, request.group_id),
         responsible_user_id=request.responsible_user_id,
         folder=request.folder,
@@ -93,14 +108,16 @@ def run_response(run: SyncRun) -> SyncRunResponse:
 
 def channel_response(channel: SyncChannel, last_run: SyncRun | None = None) -> SyncChannelResponse:
     settings = channel.settings
+    github = settings.location if isinstance(settings.location, GitHubLocation) else None
     return SyncChannelResponse(
         id=channel.id or 0,
         space_id=channel.space_id,
-        storage_kind=channel.storage_kind.value,
-        instance=settings.location.instance,
-        repository_id=settings.location.repository_id,
-        repository=settings.location.repository,
-        branch=settings.location.branch,
+        storage_kind=channel.storage_kind,
+        instance=github.instance if github else None,
+        repository_id=github.repository_id if github else None,
+        repository=github.repository if github else None,
+        branch=github.branch if github else None,
+        bucket=settings.location.bucket if isinstance(settings.location, S3Location) else None,
         folder=settings.folder,
         exclusions=list(settings.exclusions),
         visibility=settings.audience.visibility,
@@ -176,6 +193,24 @@ async def delete_channel(
     """Delete the channel with its documents, or keep them as manual documents."""
     affected = await service.delete(channel_id, mode, actor(current_user))
     return DeleteChannelResponse(mode=mode, documents=affected)
+
+
+@router.post(
+    "/channels/{channel_id}/adopt",
+    response_model=AdoptionResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
+async def adopt_ingested(
+    *,
+    channel_id: int,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[SyncChannelService, Depends(create_sync_channel_service)],
+) -> AdoptionResponse:
+    """Move documents ingested from an S3 channel's prefix into the channel (administrators only)."""
+    report = await service.adopt_ingested(channel_id, actor(current_user))
+    return AdoptionResponse(
+        adopted=report.adopted, different_access=report.different_access, skipped=report.skipped
+    )
 
 
 @router.post(

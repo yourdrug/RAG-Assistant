@@ -1,0 +1,314 @@
+"""S3 prefixes as sync channels: the snapshot port contract, runs, adoption of ingested documents."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from botocore.exceptions import ClientError
+import pytest
+
+from application.ingestion import DocumentSyncService
+from application.ingestion.registry import s3_file_hash
+from application.ports.file_storage import FileItem
+from application.sync import SyncChannelService, SyncRunRequests
+from application.sync.ports import (
+    SnapshotIncompleteError,
+    StorageAccessLostError,
+    StorageSources,
+)
+from application.sync.runs import SyncRunService
+from domain.ingestion.repositories import IngestionRegistryEntry
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
+from domain.shared.exceptions import BusinessRuleViolationError
+from domain.sync.channel import ChannelAudience, ChannelSettings, S3Location, StorageKind, SyncChannel
+from domain.sync.run import FileOutcomeKind, SyncRunStatus, SyncTrigger
+from infrastructure.storage.s3_snapshot_source import S3SnapshotSource
+from tests.fakes import DEFAULT_SPACE_ID, FakeUnitOfWorkFactory, admit_all_users
+from tests.test_sync_runs import ADMIN, RESPONSIBLE, FakeStorage, TextProcessor
+
+
+if TYPE_CHECKING:
+    from application.ingestion.dto import RegistryRecord
+    from application.sync.ports import StorageReadError, StorageSnapshotSource
+    from tests.fakes import FakeUnitOfWork
+
+
+class Bucket:
+    """In-memory objects of a bucket; a modification bumps LastModified."""
+
+    def __init__(self, files: dict[str, str]) -> None:
+        self.objects: dict[str, tuple[bytes, str]] = {}
+        self.clock = 0
+        self.error: Exception | None = None
+
+        for key, text in files.items():
+            self.put(key, text)
+
+    def put(self, key: str, text: str) -> None:
+        self.clock += 1
+        self.objects[key] = (text.encode(), f"2026-11-21T10:00:{self.clock:02d}+00:00")
+
+    def item(self, key: str) -> FileItem:
+        content, modified = self.objects[key]
+        return FileItem(key, key.rsplit("/", 1)[-1], len(content), modified, "")
+
+    async def list_all_files(self, prefix: str) -> list[FileItem]:
+        if self.error is not None:
+            raise self.error
+
+        return [self.item(key) for key in sorted(self.objects) if key.startswith(prefix)]
+
+    async def read_file(self, key: str, max_bytes: int) -> bytes:
+        content = self.objects[key][0]
+
+        if len(content) > max_bytes:
+            message = "too large"
+            raise ValueError(message)
+
+        return content
+
+
+def s3_settings(folder: str = "docs", **changes: object) -> ChannelSettings:
+    values: dict[str, object] = {
+        "location": S3Location("rag-documents"),
+        "audience": ChannelAudience(DocumentVisibility.INTERNAL_PUBLIC),
+        "responsible_user_id": RESPONSIBLE.user_id,
+        "folder": folder,
+        **changes,
+    }
+    return ChannelSettings(**values)  # type: ignore[arg-type]
+
+
+def s3_source(bucket: Bucket) -> S3SnapshotSource:
+    return S3SnapshotSource(bucket, (".md", ".txt"), max_file_bytes=1000)
+
+
+# --- port contract ----------------------------------------------------------------------------
+
+
+async def check_snapshot_contract(
+    source: StorageSnapshotSource, channel: SyncChannel, write: dict[str, str], change: tuple[str, str]
+) -> None:
+    """Every handler: files under the folder only, stable versions, readable content."""
+    snapshot = await source.list_entries(channel, await source.resolve_revision(channel))
+    paths = {entry.path for entry in snapshot.entries}
+    assert paths == set(write)
+    entry = next(e for e in snapshot.entries if e.path == change[0])
+    assert await source.read(channel, snapshot.revision, entry) == write[change[0]].encode()
+    again = await source.list_entries(channel, await source.resolve_revision(channel))
+    assert again == snapshot
+
+
+@pytest.mark.asyncio
+async def test_github_fake_and_s3_handler_satisfy_the_snapshot_contract() -> None:
+    files = {"docs/a.md": "Альфа", "docs/sub/b.md": "Бета"}
+    github_channel = SyncChannel(DEFAULT_SPACE_ID, s3_settings(), id=1)
+    await check_snapshot_contract(FakeStorage(files), github_channel, files, ("docs/a.md", "x"))
+
+    bucket = Bucket({**files, "other/c.md": "Гамма"})
+    await check_snapshot_contract(s3_source(bucket), github_channel, files, ("docs/a.md", "x"))
+
+
+@pytest.mark.asyncio
+async def test_s3_versions_and_revision_follow_object_changes() -> None:
+    bucket = Bucket({"docs/a.md": "Альфа", "docs/.ragignore": "drafts/\n", "docs/img.png": "png"})
+    source = s3_source(bucket)
+    channel = SyncChannel(DEFAULT_SPACE_ID, s3_settings(), id=1)
+    first = await source.list_entries(channel, "latest")
+    # .ragignore and non-document files are listed: the run decides what they mean.
+    assert {e.path for e in first.entries} == {"docs/a.md", "docs/.ragignore", "docs/img.png"}
+    assert next(e for e in first.entries if e.path == "docs/a.md").version == s3_file_hash(
+        bucket.item("docs/a.md")
+    )
+    assert (
+        source.is_document("docs/a.md"),
+        source.is_document("docs/img.png"),
+        source.is_document("docs/.ragignore"),
+    ) == (
+        True,
+        False,
+        False,
+    )
+
+    bucket.put("docs/a.md", "Альфа v2")
+    second = await source.list_entries(channel, "latest")
+    assert second.revision != first.revision
+    assert source.source_link(channel, second.revision, "docs/a.md") is None
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (ClientError({"Error": {"Code": "AccessDenied"}}, "ListObjectsV2"), StorageAccessLostError),
+        (ClientError({"Error": {"Code": "InternalError"}}, "ListObjectsV2"), SnapshotIncompleteError),
+        (OSError("connection reset"), SnapshotIncompleteError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_failed_listing_is_an_error_not_an_empty_prefix(
+    error: Exception, expected: type[StorageReadError]
+) -> None:
+    bucket = Bucket({"docs/a.md": "Альфа"})
+    bucket.error = error
+
+    with pytest.raises(expected):
+        await s3_source(bucket).list_entries(SyncChannel(DEFAULT_SPACE_ID, s3_settings(), id=1), "latest")
+
+
+# --- runs and adoption --------------------------------------------------------------------
+
+
+class S3World:
+    def __init__(self, files: dict[str, str]) -> None:
+        self.factory = FakeUnitOfWorkFactory()
+        self.uow: FakeUnitOfWork = self.factory._uow
+        admit_all_users(self.uow)
+
+        for user in (ADMIN, RESPONSIBLE):
+            self.uow.fake_users.add_user(user.user_id)
+
+        self.bucket = Bucket(files)
+        self.channels = SyncChannelService(self.factory)
+        self.requests = SyncRunRequests(self.factory)
+        self.runs = SyncRunService(
+            self.factory,
+            StorageSources({StorageKind.S3: s3_source(self.bucket)}),
+            lambda _key: TextProcessor(self.factory),
+        )
+        self.channel_id = 0
+
+    async def create(self, **changes: Any) -> None:
+        channel = await self.channels.create(DEFAULT_SPACE_ID, s3_settings(**changes), ADMIN)
+        self.channel_id = channel.id or 0
+
+    async def sync(self) -> SyncRunStatus | None:
+        run = await self.requests.request(self.channel_id, SyncTrigger.MANUAL, ADMIN)
+        assert run is not None
+        return await self.runs.execute(run.id or 0)
+
+    async def documents(self) -> dict[str, Document]:
+        documents = await self.uow.documents.list_channel_documents(self.channel_id)
+        return {doc.sync.path: doc for doc in documents if doc.sync is not None}
+
+    async def last_outcomes(self) -> dict[str, FileOutcomeKind]:
+        [run, *_] = await self.uow.sync_runs.list_for_channel(self.channel_id)
+        return {outcome.path: outcome.kind for outcome in run.outcomes}
+
+    async def ingested(
+        self,
+        key: str,
+        *,
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+        owner_id: int | None = None,
+    ) -> Document:
+        document = await self.uow.documents.save(
+            Document(
+                filename=key.rsplit("/", 1)[-1],
+                ingestion_key=key,
+                visibility=visibility,
+                owner_id=owner_id,
+                status=DocumentStatus.DONE,
+            )
+        )
+
+        if key in self.bucket.objects:
+            await self.uow.ingestion_registry.upsert(
+                IngestionRegistryEntry(
+                    filename=key,
+                    file_hash=s3_file_hash(self.bucket.item(key)),
+                    source=f"s3://b/{key}",
+                    chunks=1,
+                    chars=1,
+                    ingestion_key=key,
+                )
+            )
+
+        return document
+
+
+@pytest.mark.asyncio
+async def test_s3_channel_publishes_updates_and_deletes_after_a_full_listing() -> None:
+    world = S3World(
+        {"docs/a.md": "Альфа", "docs/b.txt": "Бета", "docs/img.png": "png", "other/c.md": "Гамма"}
+    )
+    await world.create()
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    assert sorted(await world.documents()) == ["docs/a.md", "docs/b.txt"]
+
+    world.bucket.put("docs/a.md", "Альфа v2")
+    del world.bucket.objects["docs/b.txt"]
+    world.bucket.error = OSError("connection reset")
+    assert await world.sync() == SyncRunStatus.FAILED
+    assert sorted(await world.documents()) == ["docs/a.md", "docs/b.txt"]
+
+    world.bucket.error = None
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    assert await world.last_outcomes() == {
+        "docs/a.md": FileOutcomeKind.UPDATED,
+        "docs/b.txt": FileOutcomeKind.DELETED,
+    }
+
+
+@pytest.mark.asyncio
+async def test_adoption_keeps_ids_access_and_indexing_and_is_idempotent() -> None:
+    world = S3World({"docs/a.md": "Альфа", "docs/b.md": "Бета", "docs/stale.md": "Старое"})
+    adopted = await world.ingested("docs/a.md")
+    private = await world.ingested(
+        "docs/b.md", visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_id=RESPONSIBLE.user_id
+    )
+    stale = await world.ingested("docs/stale.md")
+    outside = await world.ingested("other/c.md")
+    world.bucket.put("docs/stale.md", "Изменено после загрузки")
+    await world.create()
+
+    with pytest.raises(BusinessRuleViolationError):
+        await world.channels.adopt_ingested(world.channel_id, RESPONSIBLE)
+
+    report = await world.channels.adopt_ingested(world.channel_id, ADMIN)
+    assert (report.adopted, report.different_access) == (["docs/a.md", "docs/stale.md"], ["docs/b.md"])
+    documents = await world.documents()
+    assert (documents["docs/a.md"].id, documents["docs/a.md"].visibility) == (adopted.id, adopted.visibility)
+    assert (await world.uow.documents.get_by_id(private.id or 0)).sync is None  # type: ignore[union-attr]
+    assert (await world.uow.documents.get_by_id(outside.id or 0)).sync is None  # type: ignore[union-attr]
+
+    again = await world.channels.adopt_ingested(world.channel_id, ADMIN)
+    assert again.adopted == []
+
+    # The private assignment stays manual, so the channel publishes its own document for b.md.
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    outcomes = await world.last_outcomes()
+    assert outcomes["docs/a.md"] == FileOutcomeKind.UNCHANGED
+    assert outcomes["docs/stale.md"] == FileOutcomeKind.UPDATED
+    assert (await world.documents())["docs/stale.md"].id == stale.id
+
+
+def record(key: str) -> RegistryRecord:
+    return {"source": f"s3://b/{key}", "hash": "h", "chunks": 0, "chars": 0}
+
+
+@pytest.mark.asyncio
+async def test_cli_ingestion_refuses_keys_of_an_s3_channel() -> None:
+    world = S3World({"docs/a.md": "Альфа"})
+    await world.create(exclusions=("drafts/",))
+    sync = DocumentSyncService(world.factory)
+
+    with pytest.raises(BusinessRuleViolationError, match="sync channel"):
+        await sync.ensure_document_rows({"docs/new.md": record("docs/new.md")})
+
+    # Keys the channel excludes or leaves outside its prefix are still ingested as before.
+    ids = await sync.ensure_document_rows(
+        {"docs/drafts/x.md": record("docs/drafts/x.md"), "other/y.md": record("other/y.md")}
+    )
+    assert sorted(ids) == ["docs/drafts/x.md", "other/y.md"]
+
+
+@pytest.mark.asyncio
+async def test_github_and_s3_channels_never_overlap_each_other() -> None:
+    world = S3World({})
+    await world.create(folder="docs")
+
+    with pytest.raises(BusinessRuleViolationError, match="overlap"):
+        await world.channels.create(DEFAULT_SPACE_ID, s3_settings("docs/api"), ADMIN)
+
+    await world.channels.create(DEFAULT_SPACE_ID, s3_settings("guides"), ADMIN)

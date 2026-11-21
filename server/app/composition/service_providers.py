@@ -40,7 +40,8 @@ from application.sync.ports import StorageSources
 from application.sync.runs import SyncRunService
 from application.sync.sources import SyncSourceLinks
 from composition.utils import require
-from config import BenchmarkSection, ChunkingSection, process_section
+from config import BenchmarkSection, ChunkingSection, StorageSection, process_section
+from domain.sync.channel import StorageKind
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.space_scope import space_corpus_metadata, sweep_space_scope
@@ -63,6 +64,7 @@ from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_steps import RagOperations
 from infrastructure.ml.replay import PostgresReplayStore, llm_replay_scope
 from infrastructure.redis.redis_client import redis_client
+from infrastructure.storage.s3_snapshot_source import ObjectListing, S3SnapshotSource
 
 
 if TYPE_CHECKING:
@@ -83,7 +85,6 @@ if TYPE_CHECKING:
     from composition.pack_catalog import LoadedPackCatalog
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.rag.ports import ChunkRetrievalRepository
-    from domain.sync.channel import StorageKind
     from infrastructure.ml.evidence_profiles.profiles import EvidenceProfile
 
 log = logging.getLogger("default")
@@ -339,8 +340,16 @@ def create_sync_run_service(infra: InfrastructureContainer) -> SyncRunService:
 
 def storage_sources(infra: InfrastructureContainer) -> dict[StorageKind, StorageSnapshotSource]:
     """Storage handlers by kind; the GitHub App handler is added by stage 4 of the plan."""
-    del infra
-    return {}
+    sources: dict[StorageKind, StorageSnapshotSource] = {}
+    storage = infra.ml.file_storage
+
+    if isinstance(storage, ObjectListing):
+        settings = process_section(StorageSection)
+        sources[StorageKind.S3] = S3SnapshotSource(
+            storage, settings.supported_extensions, settings.max_upload_size_mb * 1024 * 1024
+        )
+
+    return sources
 
 
 def create_reindex_service(infra: InfrastructureContainer) -> DocumentReindexService:

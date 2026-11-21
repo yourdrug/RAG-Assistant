@@ -22,10 +22,11 @@ from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.document import Document as DocEntity
 from domain.knowledge.enums import DocDomain, DocumentVisibility
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
+from domain.sync.channel import StorageKind
 
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Iterable
 
     from application.indexing.contextualization import ChunkContextualization
     from application.indexing.pack_hooks import DocumentPackHooks, PreparedPackDocument
@@ -34,8 +35,21 @@ if TYPE_CHECKING:
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.protocol import DocumentProfile
     from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.sync.channel import SyncChannel
 
 log = logging.getLogger("default")
+
+
+def ensure_outside_channels(keys: Iterable[str], channels: Iterable[SyncChannel]) -> None:
+    """A prefix moved to an S3 channel is synced by the channel, not by CLI ingestion."""
+    s3_channels = [channel for channel in channels if channel.storage_kind == StorageKind.S3]
+
+    for key in keys:
+        owner = next((channel for channel in s3_channels if channel.covers(key)), None)
+
+        if owner is not None:
+            msg = f"{key} is managed by sync channel {owner.id}; run the channel instead of ingesting it"
+            raise BusinessRuleViolationError(msg)
 
 
 class DocumentSyncService:
@@ -167,6 +181,8 @@ class DocumentSyncService:
         async with self._uow_factory.create(master=True) as uow:
             space = await resolve_space(uow, space_id)
             existing_docs = await uow.documents.find_ingestion_documents(list(registry))
+
+            ensure_outside_channels(registry, await uow.sync_channels.list_by_space(space.id or 0))
 
             for doc in existing_docs:
                 doc.ensure_manually_managed("ingest")

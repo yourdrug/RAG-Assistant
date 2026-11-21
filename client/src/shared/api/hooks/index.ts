@@ -100,6 +100,7 @@ export {
   useUpdateSpace,
 } from "./use-spaces";
 export {
+  useAdoptIngested,
   useCreateSyncChannel,
   useDeleteSyncChannel,
   useStartSyncRun,

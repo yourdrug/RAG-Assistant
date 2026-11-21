@@ -142,7 +142,7 @@
   [
     "sync_channels",
     "sync_channels_storage_kind_check",
-    "CHECK (((storage_kind)::text = 'github'::text))"
+    "CHECK (((storage_kind)::text = ANY ((ARRAY['github'::character varying, 's3'::character varying])::text[])))"
   ],
   [
     "sync_channels",

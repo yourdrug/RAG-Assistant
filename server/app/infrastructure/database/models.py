@@ -307,7 +307,7 @@ class SyncChannelModel(BaseModel):
 
     __tablename__ = "sync_channels"
     __table_args__ = (
-        CheckConstraint("storage_kind IN ('github')", name="sync_channels_storage_kind_check"),
+        CheckConstraint("storage_kind IN ('github', 's3')", name="sync_channels_storage_kind_check"),
         CheckConstraint(
             "visibility IN ('internal_public', 'internal_group', 'internal_private', "
             "'client_private', 'client_public')",

@@ -3,6 +3,7 @@ import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
 import type {
   CreateSyncChannelRequest,
+  SyncAdoptionReport,
   SyncChannel,
   SyncChannelSettings,
   SyncDeletionMode,
@@ -49,6 +50,16 @@ export function useDeleteSyncChannel() {
   return useMutation({
     mutationFn: async ({ id, mode }: { id: number; mode: SyncDeletionMode }) =>
       (await apiClient.delete(`/sync/channels/${id}`, { params: { mode } })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.syncChannels.all }),
+  });
+}
+
+/** Move documents ingested from an S3 channel's prefix into the channel, keeping their ids. */
+export function useAdoptIngested() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (channelId: number) =>
+      (await apiClient.post<SyncAdoptionReport>(`/sync/channels/${channelId}/adopt`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.syncChannels.all }),
   });
 }

@@ -1048,10 +1048,14 @@ export interface SyncRun {
   finished_at: string | null;
 }
 
+export type SyncStorageKind = "github" | "s3";
+
 export interface SyncChannelSettings {
-  repository_id: number;
-  repository: string;
-  branch: string;
+  storage_kind: SyncStorageKind;
+  // GitHub only; an S3 channel uses the deployment's bucket and its folder as the key prefix
+  repository_id: number | null;
+  repository: string | null;
+  branch: string | null;
   folder: string;
   exclusions: string[];
   visibility: DocumentVisibility;
@@ -1067,9 +1071,15 @@ export interface CreateSyncChannelRequest extends SyncChannelSettings {
 export interface SyncChannel extends Omit<SyncChannelSettings, "responsible_user_id"> {
   id: number;
   space_id: number;
-  storage_kind: string;
-  instance: string;
+  instance: string | null;
+  bucket: string | null;
   responsible_user_id: number | null;
   generation: number;
   last_run: SyncRun | null;
+}
+
+export interface SyncAdoptionReport {
+  adopted: string[];
+  different_access: string[];
+  skipped: string[];
 }

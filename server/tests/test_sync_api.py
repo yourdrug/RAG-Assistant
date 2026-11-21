@@ -14,7 +14,7 @@ import pytest
 import pytest_asyncio
 
 from application.sync import SyncChannelService, SyncRunRequests
-from config import SyncSection
+from config import StorageSection, SyncSection
 from domain.sync.run import SyncRunStatus, SyncTrigger
 from main import app
 from presentation.api import dependencies as deps
@@ -72,6 +72,13 @@ def mock_dependency() -> MagicMock:
     return MagicMock()
 
 
+def sections(section: type[object]) -> object:
+    if section is SyncSection:
+        return SyncSection(github_instance="github.com", github_webhook_secret=SecretStr(SECRET))
+
+    return StorageSection(s3_bucket="rag-documents")
+
+
 @pytest_asyncio.fixture
 async def api(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Api]:
     factory = FakeUnitOfWorkFactory()
@@ -95,11 +102,7 @@ async def api(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Api]:
 
     app.dependency_overrides[deps.create_sync_channel_service] = lambda: channels
     app.dependency_overrides[deps.create_sync_run_requests] = lambda: requests
-    monkeypatch.setattr(
-        sync_routes,
-        "request_section",
-        lambda _section: SyncSection(github_instance="github.com", github_webhook_secret=SecretStr(SECRET)),
-    )
+    monkeypatch.setattr(sync_routes, "request_section", sections)
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)  # type: ignore[arg-type]  # Starlette and HTTPX disagree on the ASGI send annotation.
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -210,5 +213,43 @@ async def test_irrelevant_pushes_are_ignored(api: Api, payload: object) -> None:
 
 @pytest.mark.asyncio
 async def test_webhook_is_disabled_without_a_secret(api: Api, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sync_routes, "request_section", lambda _section: SyncSection())
+    monkeypatch.setattr(
+        sync_routes,
+        "request_section",
+        lambda section: SyncSection() if section is SyncSection else sections(section),
+    )
     assert (await deliver(api, PUSH)).status_code == 404
+
+
+S3_CHANNEL = {
+    "space_id": DEFAULT_SPACE_ID,
+    "storage_kind": "s3",
+    "folder": "docs",
+    "visibility": "internal_public",
+    "responsible_user_id": RESPONSIBLE_ID,
+}
+
+
+@pytest.mark.asyncio
+async def test_s3_channel_uses_the_deployment_bucket_and_takes_no_repository_fields(api: Api) -> None:
+    api.sign_in(ADMIN_ID, "admin")
+    created = await api.client.post("/sync/channels", json=S3_CHANNEL)
+    assert created.status_code == 201, created.text
+    assert (created.json()["storage_kind"], created.json()["bucket"], created.json()["repository"]) == (
+        "s3",
+        "rag-documents",
+        None,
+    )
+    mixed = await api.client.post("/sync/channels", json={**S3_CHANNEL, "folder": "guides", "branch": "main"})
+    assert mixed.status_code == 422
+    github_without_repository = await api.client.post(
+        "/sync/channels", json={**S3_CHANNEL, "storage_kind": "github", "folder": "guides"}
+    )
+    assert github_without_repository.status_code == 422
+
+    channel_id = created.json()["id"]
+    api.sign_in(RESPONSIBLE_ID)
+    assert (await api.client.post(f"/sync/channels/{channel_id}/adopt")).status_code == 409
+    api.sign_in(ADMIN_ID, "admin")
+    adopted = await api.client.post(f"/sync/channels/{channel_id}/adopt")
+    assert adopted.json() == {"adopted": [], "different_access": [], "skipped": []}

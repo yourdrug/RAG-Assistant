@@ -21,6 +21,7 @@ from domain.sync.ignore import IgnoreRules, normalize_folder, relative_to
 
 class StorageKind(StrEnum):
     GITHUB = "github"
+    S3 = "s3"
 
 
 class ChannelDeletionMode(StrEnum):
@@ -59,6 +60,30 @@ class GitHubLocation:
 
 
 @dataclass(frozen=True)
+class S3Location:
+    """The deployment's bucket; the channel folder is the key prefix inside it."""
+
+    bucket: str
+
+    def __post_init__(self) -> None:
+        if not self.bucket.strip():
+            msg = "S3 location needs a bucket"
+            raise ValidationError(msg)
+
+    def file_url(self, revision: str, path: str) -> str | None:
+        """Objects have no public link: answers cite them by path only."""
+        del revision, path
+        return None
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (StorageKind.S3.value, self.bucket)
+
+
+type StorageLocation = GitHubLocation | S3Location
+
+
+@dataclass(frozen=True)
 class ChannelAudience:
     """Who may read the channel's documents; the same rules as an uploaded document."""
 
@@ -86,7 +111,7 @@ class ChannelAudience:
 class ChannelSettings:
     """Everything that decides which files a channel publishes and to whom."""
 
-    location: GitHubLocation
+    location: StorageLocation
     audience: ChannelAudience
     # ``None`` once the user is deleted: runs are rejected until an administrator assigns one.
     responsible_user_id: int | None
@@ -140,7 +165,7 @@ class SyncChannel:
 
     @property
     def storage_kind(self) -> StorageKind:
-        return StorageKind.GITHUB
+        return StorageKind.S3 if isinstance(self.settings.location, S3Location) else StorageKind.GITHUB
 
     def can_manage(self, user_id: int, *, is_admin: bool) -> bool:
         return is_admin or (

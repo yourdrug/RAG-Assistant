@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from application.rag.dto import StorageSource
+from domain.sync.channel import GitHubLocation
 
 
 if TYPE_CHECKING:
@@ -41,11 +42,17 @@ class SyncSourceLinks:
                 continue
 
             location = channel.settings.location
+            url = location.file_url(doc.sync.storage_revision, doc.sync.path)
+
+            # Storage without links (an S3 bucket) leaves the source as it is.
+            if url is None or not isinstance(location, GitHubLocation):
+                continue
+
             sources[doc.id] = StorageSource(
                 branch=location.branch,
                 path=doc.sync.path,
                 revision=doc.sync.storage_revision,
-                url=location.file_url(doc.sync.storage_revision, doc.sync.path),
+                url=url,
             )
 
         return sources

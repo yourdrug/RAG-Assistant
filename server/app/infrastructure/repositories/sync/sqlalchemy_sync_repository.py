@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import delete, func, select
 
 from domain.knowledge.enums import DocumentVisibility
-from domain.sync.channel import ChannelAudience, ChannelSettings, GitHubLocation, SyncChannel
+from domain.sync.channel import (
+    ChannelAudience,
+    ChannelSettings,
+    GitHubLocation,
+    S3Location,
+    StorageKind,
+    SyncChannel,
+)
 from domain.sync.run import (
     TERMINAL_RUN_STATUSES,
     FileOutcome,
@@ -22,14 +29,26 @@ from infrastructure.database.models import SyncChannelModel, SyncRunModel
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from domain.sync.channel import StorageLocation
 
-def location_payload(location: GitHubLocation) -> dict[str, Any]:
+
+def location_payload(location: StorageLocation) -> dict[str, Any]:
+    if isinstance(location, S3Location):
+        return {"bucket": location.bucket}
+
     return {
         "instance": location.instance,
         "repository_id": location.repository_id,
         "repository": location.repository,
         "branch": location.branch,
     }
+
+
+def to_location(storage_kind: str, payload: dict[str, Any]) -> StorageLocation:
+    if storage_kind == StorageKind.S3.value:
+        return S3Location(**payload)
+
+    return GitHubLocation(**payload)
 
 
 def to_channel(orm: SyncChannelModel) -> SyncChannel:
@@ -39,7 +58,7 @@ def to_channel(orm: SyncChannelModel) -> SyncChannel:
         generation=orm.generation,
         creation_date=orm.creation_date,
         settings=ChannelSettings(
-            location=GitHubLocation(**orm.location),
+            location=to_location(orm.storage_kind, orm.location),
             audience=ChannelAudience(DocumentVisibility(orm.visibility), orm.owner_id, orm.group_id),
             responsible_user_id=orm.responsible_user_id,
             folder=orm.folder,

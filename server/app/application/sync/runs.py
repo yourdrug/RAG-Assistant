@@ -182,9 +182,10 @@ class SyncRunService:
     async def reconcile_channel(self, state: RunState) -> None:
         channel = state.channel
         source = self._sources.for_channel(channel)
-        revision = await source.resolve_revision(channel)
+        snapshot = await source.list_entries(channel, await source.resolve_revision(channel))
+        # The revision actually read (for S3, a hash of the listing rather than the request).
+        revision = snapshot.revision
         state.run.storage_revision = revision
-        snapshot = await source.list_entries(channel, revision)
         rules = IgnoreRules(
             channel.settings.exclusions,
             await self.read_ragignore(source, channel, revision, snapshot.entries),

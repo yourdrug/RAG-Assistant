@@ -1,9 +1,10 @@
 "use client";
 import { type ColumnDef } from "@tanstack/react-table";
-import { History, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { FolderInput, History, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import {
+  useAdoptIngested,
   useCreateSyncChannel,
   useCurrentUser,
   useDeleteSyncChannel,
@@ -19,6 +20,7 @@ import type {
   SyncChannelSettings,
   SyncDeletionMode,
   SyncRun,
+  SyncStorageKind,
 } from "@/shared/api/types";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { Badge } from "@/shared/ui/badge";
@@ -57,14 +59,25 @@ const RUN_STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"
   rejected: "destructive",
 };
 
-interface ChannelForm extends SyncChannelSettings {
+interface ChannelForm {
   id: number | null;
   spaceId: number | null;
+  storage_kind: SyncStorageKind;
+  repository_id: number;
+  repository: string;
+  branch: string;
+  folder: string;
+  exclusions: string[];
+  visibility: DocumentVisibility;
+  owner_id: number | null;
+  group_id: number | null;
+  responsible_user_id: number;
 }
 
 const EMPTY_FORM: ChannelForm = {
   id: null,
   spaceId: null,
+  storage_kind: "github",
   repository_id: 0,
   repository: "",
   branch: "main",
@@ -80,9 +93,10 @@ function formFor(channel: SyncChannel): ChannelForm {
   return {
     id: channel.id,
     spaceId: channel.space_id,
-    repository_id: channel.repository_id,
-    repository: channel.repository,
-    branch: channel.branch,
+    storage_kind: channel.storage_kind,
+    repository_id: channel.repository_id ?? 0,
+    repository: channel.repository ?? "",
+    branch: channel.branch ?? "main",
     folder: channel.folder,
     exclusions: channel.exclusions,
     visibility: channel.visibility,
@@ -93,10 +107,12 @@ function formFor(channel: SyncChannel): ChannelForm {
 }
 
 function settingsOf(form: ChannelForm): SyncChannelSettings {
+  const github = form.storage_kind === "github";
   return {
-    repository_id: form.repository_id,
-    repository: form.repository.trim(),
-    branch: form.branch.trim(),
+    storage_kind: form.storage_kind,
+    repository_id: github ? form.repository_id : null,
+    repository: github ? form.repository.trim() : null,
+    branch: github ? form.branch.trim() : null,
     folder: form.folder.trim(),
     exclusions: form.exclusions.map((line) => line.trim()).filter(Boolean),
     visibility: form.visibility,
@@ -184,6 +200,7 @@ export function AdminSyncChannelsPage() {
   const updateMut = useUpdateSyncChannel();
   const deleteMut = useDeleteSyncChannel();
   const runMut = useStartSyncRun();
+  const adoptMut = useAdoptIngested();
   const [form, setForm] = useState<ChannelForm | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SyncChannel | null>(null);
   const [historyId, setHistoryId] = useState<number | null>(null);
@@ -203,6 +220,19 @@ export function AdminSyncChannelsPage() {
       setForm(null);
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to save the channel"));
+    }
+  };
+
+  const handleAdopt = async (channel: SyncChannel) => {
+    try {
+      const report = await adoptMut.mutateAsync(channel.id);
+      const kept = report.different_access.length;
+      toast.success(
+        `${report.adopted.length} document(s) moved into the channel` +
+          (kept ? `; ${kept} with different access stay manual` : ""),
+      );
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to move ingested documents"));
     }
   };
 
@@ -233,9 +263,14 @@ export function AdminSyncChannelsPage() {
       header: "Repository",
       cell: ({ row }) => (
         <div>
-          <div className="font-medium">{row.original.repository}</div>
+          <div className="font-medium">
+            {row.original.storage_kind === "s3"
+              ? `s3://${row.original.bucket}`
+              : row.original.repository}
+          </div>
           <div className="font-mono text-xs text-muted-foreground">
-            {row.original.branch}:{row.original.folder || "/"}
+            {row.original.storage_kind === "s3" ? "prefix" : row.original.branch}:
+            {row.original.folder || "/"}
           </div>
         </div>
       ),
@@ -279,6 +314,17 @@ export function AdminSyncChannelsPage() {
           >
             <History className="h-3.5 w-3.5" />
           </Button>
+          {isAdmin && row.original.storage_kind === "s3" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="Move documents ingested from this prefix into the channel"
+              onClick={() => handleAdopt(row.original)}
+            >
+              <FolderInput className="h-3.5 w-3.5" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -388,33 +434,54 @@ export function AdminSyncChannelsPage() {
                   </Select>
                 </div>
               )}
-              <div className="space-y-1">
-                <Label>Repository (owner/name)</Label>
-                <Input
-                  value={form.repository}
-                  disabled={locked}
-                  onChange={(e) => setForm({ ...form, repository: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Repository ID</Label>
-                <Input
-                  inputMode="numeric"
-                  value={form.repository_id || ""}
-                  disabled={locked}
-                  onChange={(e) =>
-                    setForm({ ...form, repository_id: numberOrNull(e.target.value) ?? 0 })
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Branch</Label>
-                <Input
-                  value={form.branch}
-                  disabled={locked}
-                  onChange={(e) => setForm({ ...form, branch: e.target.value })}
-                />
-              </div>
+              {!isEdit && (
+                <div className="col-span-2 space-y-1">
+                  <Label>Storage</Label>
+                  <Select
+                    value={form.storage_kind}
+                    onValueChange={(v) => setForm({ ...form, storage_kind: v as SyncStorageKind })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="github">GitHub repository</SelectItem>
+                      <SelectItem value="s3">S3 prefix of the deployment bucket</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {form.storage_kind === "github" && (
+                <>
+                  <div className="space-y-1">
+                    <Label>Repository (owner/name)</Label>
+                    <Input
+                      value={form.repository}
+                      disabled={locked}
+                      onChange={(e) => setForm({ ...form, repository: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Repository ID</Label>
+                    <Input
+                      inputMode="numeric"
+                      value={form.repository_id || ""}
+                      disabled={locked}
+                      onChange={(e) =>
+                        setForm({ ...form, repository_id: numberOrNull(e.target.value) ?? 0 })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Branch</Label>
+                    <Input
+                      value={form.branch}
+                      disabled={locked}
+                      onChange={(e) => setForm({ ...form, branch: e.target.value })}
+                    />
+                  </div>
+                </>
+              )}
               <div className="space-y-1">
                 <Label>Folder</Label>
                 <Input
@@ -488,8 +555,8 @@ export function AdminSyncChannelsPage() {
             <Button
               onClick={handleSave}
               disabled={
-                !form?.repository.trim() ||
-                !form?.repository_id ||
+                (form?.storage_kind === "github" &&
+                  (!form?.repository.trim() || !form?.repository_id)) ||
                 !form?.responsible_user_id ||
                 (!isEdit && form?.spaceId == null) ||
                 createMut.isPending ||

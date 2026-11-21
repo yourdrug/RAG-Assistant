@@ -7,15 +7,16 @@ two concurrent changes can never create overlapping channels.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import logging
 from typing import TYPE_CHECKING
 
 from application.documents.delete import delete_document_in_uow
-from application.sync.audience import apply_audience
+from application.sync.audience import apply_audience, audience_matches
 from application.sync.rights import channel_rights_problem
+from domain.knowledge.document import SyncBinding
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
-from domain.sync.channel import ChannelDeletionMode, SyncChannel
+from domain.sync.channel import ChannelDeletionMode, S3Location, SyncChannel
 from domain.sync.ownership import ensure_no_overlap
 
 
@@ -30,6 +31,15 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger("default")
+
+
+@dataclass
+class AdoptionReport:
+    adopted: list[str] = field(default_factory=list)
+    # Access differs from the channel's: the document stays manual.
+    different_access: list[str] = field(default_factory=list)
+    # Excluded by the channel or another document already holds the path.
+    skipped: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -158,6 +168,53 @@ class SyncChannelService:
                 views.append(ChannelView(channel, runs[0] if runs else None))
 
         return views
+
+    async def adopt_ingested(self, channel_id: int, actor: UserContext) -> AdoptionReport:
+        """Bind documents CLI ingestion made from an S3 channel's prefix to the channel.
+
+        Ids, access and vectors are kept: a document's recorded source version becomes
+        its published version, so the next run re-indexes only files changed since
+        ingestion. A document whose access differs from the channel's stays manual.
+        Repeating the call changes nothing.
+        """
+        if not actor.is_admin:
+            msg = "Only an administrator can move documents into a sync channel"
+            raise BusinessRuleViolationError(msg)
+
+        report = AdoptionReport()
+        async with self._uow_factory.create(master=True) as uow:
+            channel = await existing_channel(uow, channel_id)
+            await lock_space(uow, channel.space_id)
+            channel = await existing_channel(uow, channel_id, for_update=True)
+
+            if not isinstance(channel.settings.location, S3Location):
+                msg = "Only an S3 channel can adopt ingested documents"
+                raise BusinessRuleViolationError(msg)
+
+            bound = {
+                doc.sync.path for doc in await uow.documents.list_channel_documents(channel_id) if doc.sync
+            }
+            folder = channel.settings.folder
+
+            for document in await uow.documents.list_ingestion_documents(f"{folder}/" if folder else ""):
+                path = document.ingestion_key or ""
+
+                if document.space_id != channel.space_id or document.sync is not None or document.id is None:
+                    continue
+
+                if not channel.covers(path) or path in bound:
+                    report.skipped.append(path)
+                elif not audience_matches(channel, document):
+                    report.different_access.append(path)
+                else:
+                    entry = await uow.ingestion_registry.get(path)
+                    binding = SyncBinding(channel_id, path, entry.file_hash if entry else None)
+                    await uow.documents.set_sync_binding(document.id, binding)
+                    bound.add(path)
+                    report.adopted.append(path)
+
+        log.info("Sync channel %d adopted %d ingested documents", channel_id, len(report.adopted))
+        return report
 
     async def runs(self, channel_id: int, actor: UserContext, limit: int = 20) -> list[SyncRun]:
         async with self._uow_factory.create() as uow:

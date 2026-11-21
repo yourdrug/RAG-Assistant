@@ -228,6 +228,46 @@ class S3Storage:
                         )
         return sorted(items, key=lambda item: item.key)
 
+    async def list_all_files(self, prefix: str) -> list[FileItem]:
+        """Every object under ``prefix`` (any extension); a failed page raises instead of truncating."""
+        items: list[FileItem] = []
+        async with self.operation() as client:
+            paginator = client.get_paginator("list_objects_v2")
+
+            async for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+
+                    if not key.endswith("/"):  # Folder placeholder objects hold no file.
+                        items.append(
+                            FileItem(
+                                key,
+                                Path(key).name,
+                                obj["Size"],
+                                obj["LastModified"].isoformat(),
+                                Path(key).suffix.lower(),
+                            )
+                        )
+        return sorted(items, key=lambda item: item.key)
+
+    async def read_file(self, key: str, max_bytes: int) -> bytes:
+        """The whole object in memory; larger objects are refused, not truncated."""
+        async with self.operation() as client:
+            response = await client.get_object(Bucket=self.bucket, Key=key)
+            blocks: list[bytes] = []
+            size = 0
+            async with response["Body"] as body:
+                while block := await body.read(S3_DOWNLOAD_CHUNK_BYTES):
+                    size += len(block)
+
+                    if size > max_bytes:
+                        msg = f"Object {key} is larger than {max_bytes} bytes"
+                        raise ValueError(msg)
+
+                    blocks.append(block)
+
+        return b"".join(blocks)
+
     async def get_file_info(self, key: str) -> FileItem | None:
         async with self.operation() as client:
             try:
@@ -398,6 +438,12 @@ class LazyStorage:
 
     async def get_file_info(self, key: str) -> FileItem | None:
         return await self.ensure().get_file_info(key)
+
+    async def list_all_files(self, prefix: str) -> list[FileItem]:
+        return await self.ensure().list_all_files(prefix)
+
+    async def read_file(self, key: str, max_bytes: int) -> bytes:
+        return await self.ensure().read_file(key, max_bytes)
 
     async def download_to_temp(self, key: str) -> Path:
         return await self.ensure().download_to_temp(key)
