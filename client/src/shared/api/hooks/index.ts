@@ -103,8 +103,10 @@ export {
   useAdoptIngested,
   useCreateSyncChannel,
   useDeleteSyncChannel,
+  useHasSyncChannels,
   useStartSyncRun,
   useSyncChannels,
   useSyncRuns,
+  useSyncStorageKinds,
   useUpdateSyncChannel,
 } from "./use-sync-channels";

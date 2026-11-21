@@ -15,6 +15,7 @@ export const queryKeys = {
     all: ["sync-channels"] as const,
     list: () => [...queryKeys.syncChannels.all, "list"] as const,
     runs: (channelId: number) => [...queryKeys.syncChannels.all, "runs", channelId] as const,
+    storageKinds: () => [...queryKeys.syncChannels.all, "storage-kinds"] as const,
   },
   spaces: {
     all: ["spaces"] as const,

@@ -1078,8 +1078,19 @@ export interface SyncChannel extends Omit<SyncChannelSettings, "responsible_user
   last_run: SyncRun | null;
 }
 
+export interface SyncSkippedPath {
+  path: string;
+  reason: string;
+}
+
 export interface SyncAdoptionReport {
   adopted: string[];
   different_access: string[];
-  skipped: string[];
+  // Documents left manual, with the reason
+  skipped: SyncSkippedPath[];
+}
+
+export interface SyncStorageKinds {
+  // Kinds with a configured storage handler; channels of other kinds are refused
+  kinds: SyncStorageKind[];
 }

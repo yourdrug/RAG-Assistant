@@ -1,10 +1,20 @@
 "use client";
-import { History, LogOut, Menu, MessageSquare, Plus, Shield, User, X } from "lucide-react";
+import {
+  GitBranch,
+  History,
+  LogOut,
+  Menu,
+  MessageSquare,
+  Plus,
+  Shield,
+  User,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ThemeToggle } from "@/features/auth/theme-toggle";
 import { useLogout } from "@/features/auth/use-logout";
-import { useConversations, useCurrentUser } from "@/shared/api/hooks";
+import { useConversations, useCurrentUser, useHasSyncChannels } from "@/shared/api/hooks";
 import { adminNavItems, userNavItems } from "@/shared/config/nav";
 import { formatDate } from "@/shared/lib/date-time";
 import { cn } from "@/shared/lib/utils";
@@ -85,6 +95,10 @@ export function DashboardLayout() {
   const isAdmin = displayUser?.role === "admin";
   const isCurator = displayUser?.role === "curator";
   const canAccessAdmin = isAdmin || isCurator;
+  // A responsible internal user without the admin panel reaches their channels here.
+  const { data: hasSyncChannels } = useHasSyncChannels(
+    displayUser?.kind === "internal" && !canAccessAdmin,
+  );
   const activeConversationId = searchParams.get("id");
 
   const handleNewChat = () => {
@@ -199,6 +213,21 @@ export function DashboardLayout() {
                 </Link>
               );
             })}
+            {hasSyncChannels && (
+              <Link
+                to="/sync-channels"
+                onClick={() => setSidebarOpen(false)}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  location.pathname === "/sync-channels"
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground",
+                )}
+              >
+                <GitBranch className="h-4 w-4" />
+                My Sync Channels
+              </Link>
+            )}
           </nav>
 
           {canAccessAdmin && (

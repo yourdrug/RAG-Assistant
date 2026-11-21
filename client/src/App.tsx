@@ -117,6 +117,15 @@ export default function App() {
                   <Route path="/documents/:documentId" element={<DocumentReaderPage />} />
                   <Route path="/search" element={<SearchPage />} />
                   <Route path="/profile" element={<ProfilePage />} />
+                  {/* Responsible users manage their channels here with the same server checks. */}
+                  <Route
+                    path="/sync-channels"
+                    element={
+                      <Suspense fallback={<AdminFallback />}>
+                        <AdminSyncChannelsPage />
+                      </Suspense>
+                    }
+                  />
                 </Route>
 
                 <Route path="/admin" element={<AdminLayout />}>

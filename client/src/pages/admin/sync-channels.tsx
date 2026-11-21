@@ -12,10 +12,12 @@ import {
   useStartSyncRun,
   useSyncChannels,
   useSyncRuns,
+  useSyncStorageKinds,
   useUpdateSyncChannel,
 } from "@/shared/api/hooks";
 import type {
   DocumentVisibility,
+  SyncAdoptionReport,
   SyncChannel,
   SyncChannelSettings,
   SyncDeletionMode,
@@ -74,10 +76,15 @@ interface ChannelForm {
   responsible_user_id: number;
 }
 
+const STORAGE_LABELS: Record<SyncStorageKind, string> = {
+  github: "GitHub repository",
+  s3: "S3 prefix of the deployment bucket",
+};
+
 const EMPTY_FORM: ChannelForm = {
   id: null,
   spaceId: null,
-  storage_kind: "github",
+  storage_kind: "s3",
   repository_id: 0,
   repository: "",
   branch: "main",
@@ -122,6 +129,15 @@ function settingsOf(form: ChannelForm): SyncChannelSettings {
   };
 }
 
+/** The location as the table shows it; the search matches this text. */
+function locationLabel(channel: SyncChannel): string {
+  const where =
+    channel.storage_kind === "s3"
+      ? `s3://${channel.bucket ?? ""}`
+      : `${channel.repository ?? ""} ${channel.branch ?? ""}`;
+  return `${where} ${channel.folder || "/"}`;
+}
+
 function numberOrNull(value: string): number | null {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -150,6 +166,57 @@ function RunSummary({ run }: { run: SyncRun | null }) {
         </div>
       )}
     </div>
+  );
+}
+
+function AdoptionResult({
+  report,
+  onClose,
+}: {
+  report: SyncAdoptionReport | null;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={report !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Ingested documents moved</DialogTitle>
+          <DialogDescription>
+            {report?.adopted.length ?? 0} document(s) are now managed by the channel. The others
+            stay manual documents.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] space-y-3 overflow-y-auto text-sm">
+          {(report?.different_access.length ?? 0) > 0 && (
+            <div>
+              <div className="font-medium">Different access than the channel</div>
+              <ul className="mt-1 space-y-1 text-xs">
+                {report?.different_access.map((path) => (
+                  <li key={path} className="font-mono">
+                    {path}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(report?.skipped.length ?? 0) > 0 && (
+            <div>
+              <div className="font-medium">Skipped</div>
+              <ul className="mt-1 space-y-1 text-xs">
+                {report?.skipped.map((item) => (
+                  <li key={item.path}>
+                    <span className="font-mono">{item.path}</span> — {item.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -201,7 +268,9 @@ export function AdminSyncChannelsPage() {
   const deleteMut = useDeleteSyncChannel();
   const runMut = useStartSyncRun();
   const adoptMut = useAdoptIngested();
+  const { data: storageKinds } = useSyncStorageKinds();
   const [form, setForm] = useState<ChannelForm | null>(null);
+  const [adoption, setAdoption] = useState<SyncAdoptionReport | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SyncChannel | null>(null);
   const [historyId, setHistoryId] = useState<number | null>(null);
   const isAdmin = user?.role === "admin";
@@ -226,11 +295,13 @@ export function AdminSyncChannelsPage() {
   const handleAdopt = async (channel: SyncChannel) => {
     try {
       const report = await adoptMut.mutateAsync(channel.id);
-      const kept = report.different_access.length;
+      const kept = report.different_access.length + report.skipped.length;
       toast.success(
         `${report.adopted.length} document(s) moved into the channel` +
-          (kept ? `; ${kept} with different access stay manual` : ""),
+          (kept ? `; ${kept} stay manual` : ""),
       );
+
+      if (kept) setAdoption(report);
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to move ingested documents"));
     }
@@ -259,8 +330,9 @@ export function AdminSyncChannelsPage() {
   const columns: ColumnDef<SyncChannel>[] = [
     { accessorKey: "id", header: "ID", size: 60 },
     {
-      accessorKey: "repository",
-      header: "Repository",
+      id: "location",
+      header: "Location",
+      accessorFn: locationLabel,
       cell: ({ row }) => (
         <div>
           <div className="font-medium">
@@ -360,15 +432,18 @@ export function AdminSyncChannelsPage() {
         <div>
           <h1 className="text-2xl font-bold">Sync Channels</h1>
           <p className="text-muted-foreground">
-            A repository folder kept in line with the documents of a space. Exclude files with
-            channel patterns or a <code>.ragignore</code> file in the repository.
+            A storage folder (an S3 prefix or a repository folder) kept in line with the documents
+            of a space. Exclude files with channel patterns or a <code>.ragignore</code> file.
           </p>
         </div>
         {isAdmin && (
           <Button
+            disabled={!storageKinds?.length}
+            title={storageKinds?.length ? undefined : "No storage is configured for sync channels"}
             onClick={() =>
               setForm({
                 ...EMPTY_FORM,
+                storage_kind: storageKinds?.[0] ?? EMPTY_FORM.storage_kind,
                 spaceId: spaces?.[0]?.id ?? null,
                 responsible_user_id: user?.id ?? 0,
               })
@@ -394,8 +469,8 @@ export function AdminSyncChannelsPage() {
             <DataTable
               columns={columns}
               data={channelsQuery.data}
-              searchKey="repository"
-              searchPlaceholder="Search repositories..."
+              searchKey="location"
+              searchPlaceholder="Search locations and folders..."
             />
           )}
           {channelsQuery.isPending && <p role="status">Loading sync channels…</p>}
@@ -445,8 +520,11 @@ export function AdminSyncChannelsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="github">GitHub repository</SelectItem>
-                      <SelectItem value="s3">S3 prefix of the deployment bucket</SelectItem>
+                      {(storageKinds ?? []).map((kind) => (
+                        <SelectItem key={kind} value={kind}>
+                          {STORAGE_LABELS[kind]}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -483,12 +561,18 @@ export function AdminSyncChannelsPage() {
                 </>
               )}
               <div className="space-y-1">
-                <Label>Folder</Label>
+                <Label>Folder{form.storage_kind === "s3" ? " (required)" : ""}</Label>
                 <Input
                   value={form.folder}
                   placeholder="docs"
                   onChange={(e) => setForm({ ...form, folder: e.target.value })}
                 />
+                {form.storage_kind === "s3" && (
+                  <p className="text-xs text-muted-foreground">
+                    The key prefix to import. The bucket also holds uploads and previews, so a
+                    channel never reads the whole bucket or the uploads/ and previews/ areas.
+                  </p>
+                )}
               </div>
               <div className="col-span-2 space-y-1">
                 <Label>Exclusions (.gitignore syntax, one per line)</Label>
@@ -557,6 +641,7 @@ export function AdminSyncChannelsPage() {
               disabled={
                 (form?.storage_kind === "github" &&
                   (!form?.repository.trim() || !form?.repository_id)) ||
+                (form?.storage_kind === "s3" && !form?.folder.trim()) ||
                 !form?.responsible_user_id ||
                 (!isEdit && form?.spaceId == null) ||
                 createMut.isPending ||
@@ -590,6 +675,7 @@ export function AdminSyncChannelsPage() {
       </Dialog>
 
       <RunHistory channelId={historyId} onClose={() => setHistoryId(null)} />
+      <AdoptionResult report={adoption} onClose={() => setAdoption(null)} />
     </div>
   );
 }

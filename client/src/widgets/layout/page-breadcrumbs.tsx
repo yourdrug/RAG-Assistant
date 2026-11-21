@@ -39,6 +39,8 @@ export function PageBreadcrumbs({ canOpenAdmin = false }: { canOpenAdmin?: boole
       { label: "Documents", href: "/documents" },
       { label: document?.filename || "Document" },
     );
+  } else if (pathname === "/sync-channels") {
+    crumbs.push({ label: "My Sync Channels" });
   } else {
     const page = userNavItems.find((item) => item.href === pathname);
     if (page) crumbs.push({ label: page.title });
