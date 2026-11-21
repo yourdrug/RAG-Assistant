@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from tests.fakes import DEFAULT_SPACE_ID
 
+from domain.knowledge.revision import SourceVersion
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document_nodes import DocumentNode
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
@@ -157,3 +158,30 @@ async def test_outbox_accepts_revision_and_rename_operations(
         )
 
     assert entry.id is not None
+
+
+async def test_source_version_and_domain_travel_with_the_staged_revision(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    document_id = await seed(sessions)
+    version = SourceVersion("etag-2", "rev-2")
+
+    async with sessions.begin() as session:
+        chunks = SQLAlchemyChunkRepository(session)
+        staged = await chunks.stage_revision(
+            document_id,
+            "law.txt",
+            PUBLIC,
+            [ChunkInsert("new")],
+            nodes=[],
+            options=ChunkInsertOptions(space_id=DEFAULT_SPACE_ID, doc_domain="legal"),
+            source_version=version,
+        )
+
+    async with sessions.begin() as session:
+        chunks = SQLAlchemyChunkRepository(session)
+        assert (await chunks.get_staged_revision(document_id)) == staged
+        assert await chunks.staged_source_versions([document_id, 999]) == {document_id: version}
+        switch = await chunks.publish_staged_revision(document_id, staged.token)
+
+    assert switch is not None
+    assert (switch.source_version, switch.doc_domain) == (version, "legal")

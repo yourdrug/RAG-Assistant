@@ -161,6 +161,11 @@
   ],
   [
     "sync_runs",
+    "sync_runs_tallies_object",
+    "CHECK ((jsonb_typeof(tallies) = 'object'::text))"
+  ],
+  [
+    "sync_runs",
     "sync_runs_trigger_check",
     "CHECK (((trigger)::text = ANY ((ARRAY['manual'::character varying, 'webhook'::character varying, 'schedule'::character varying])::text[])))"
   ],

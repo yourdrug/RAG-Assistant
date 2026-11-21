@@ -8,7 +8,9 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from tests.fakes import DEFAULT_SPACE_ID
+from tests.integration.uow import session_factory
 
+from application.sync.channels import unlink_document
 from domain.knowledge.document import Document, SyncBinding
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.shared.exceptions import BusinessRuleViolationError, UniqueConstraintError
@@ -159,3 +161,69 @@ async def test_channel_with_bound_documents_cannot_be_dropped_until_unlinked(pg_
         document = await SQLAlchemyDocumentRepository(session).get_by_id(saved.id or 0)
         assert document is not None
         assert document.sync is None
+
+
+async def test_unlink_takes_a_free_name_when_a_manual_document_holds_it(pg_engine: AsyncEngine) -> None:
+    """Without the rename the unlinked row would violate ``ux_documents_active_slot`` (23505)."""
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    channel = await seed_channel(sessions)
+    assert channel.id is not None
+
+    async with sessions.begin() as session:
+        documents = SQLAlchemyDocumentRepository(session)
+        saved = await documents.save(bound(channel.id, "docs/a.md"))
+        await documents.save(
+            Document(filename="docs/a.md", space_id=DEFAULT_SPACE_ID, status=DocumentStatus.DONE)
+        )
+
+    factory = session_factory(sessions)
+    async with factory.create(master=True) as uow:
+        document = await uow.documents.get_by_id(saved.id or 0)
+        assert document is not None
+        await unlink_document(uow, document, "uploads/public/1_a.md")
+
+    async with sessions.begin() as session:
+        unlinked = await SQLAlchemyDocumentRepository(session).get_by_id(saved.id or 0)
+        assert unlinked is not None
+        assert (unlinked.sync, unlinked.filename, unlinked.source_path, unlinked.ingestion_key) == (
+            None,
+            "docs/a(1).md",
+            "uploads/public/1_a.md",
+            None,
+        )
+
+
+async def test_storage_versions_latest_runs_and_tallies_on_postgres(pg_engine: AsyncEngine) -> None:
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    channel = await seed_channel(sessions)
+    assert channel.id is not None
+
+    async with sessions.begin() as session:
+        documents = SQLAlchemyDocumentRepository(session)
+        saved = await documents.save(bound(channel.id, "docs/a.md"))
+        manual = await documents.save(Document(filename="m.md", space_id=DEFAULT_SPACE_ID))
+        await documents.set_storage_version(saved.id or 0, "etag-2", "rev-2")
+        # A manual document never takes a storage version.
+        await documents.set_storage_version(manual.id or 0, "etag-x", "rev-x")
+        runs = SQLAlchemySyncRunRepository(session)
+
+        for _ in range(2):
+            run = await runs.add(SyncRun(channel_id=channel.id, generation=1))
+            run.start()
+            run.tallies = {"unchanged": 3}
+            run.complete(())
+            await runs.update(run)
+
+    async with sessions.begin() as session:
+        documents = SQLAlchemyDocumentRepository(session)
+        stored = await documents.get_by_id(saved.id or 0)
+        assert stored is not None
+        assert stored.sync is not None
+        assert (stored.sync.storage_version, stored.sync.storage_revision) == ("etag-2", "rev-2")
+        assert (await documents.get_by_id(manual.id or 0)).sync is None  # type: ignore[union-attr]
+        latest = await SQLAlchemySyncRunRepository(session).latest_for_channels([channel.id, 999])
+        assert list(latest) == [channel.id]
+        assert latest[channel.id].id == max(
+            run.id or 0 for run in await SQLAlchemySyncRunRepository(session).list_for_channel(channel.id)
+        )
+        assert latest[channel.id].counts() == {"unchanged": 3}
