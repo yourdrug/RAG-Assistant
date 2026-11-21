@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.ingestion.raw_document import RawDocument
     from domain.knowledge.document import Document
+    from domain.knowledge.revision import SourceVersion
 
 log = logging.getLogger("default")
 
@@ -240,7 +241,12 @@ class DocumentProcessor:
         )
 
     async def persist_prepared(
-        self, document: Document, prepared: PreparedDocument, *, guard: PersistGuard | None = None
+        self,
+        document: Document,
+        prepared: PreparedDocument,
+        *,
+        guard: PersistGuard | None = None,
+        source_version: SourceVersion | None = None,
     ) -> bool:
         """Persist content prepared outside this transaction; ``guard`` runs inside it first.
 
@@ -266,6 +272,7 @@ class DocumentProcessor:
                 storage_deletes=[],
                 pack_document=prepared.pack_document,
                 guard=guard,
+                source_version=source_version,
             ),
             domain_registry=self._domain_registry,
             pack_hooks=self._pack_hooks,

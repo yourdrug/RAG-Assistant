@@ -22,6 +22,12 @@ class PublishedFile:
     document_id: int
     # ``None`` until a version was committed (e.g. a first publication that failed).
     version: str | None
+    # A version already being indexed; it becomes ``version`` once published.
+    pending: str | None = None
+
+    def holds(self, version: str) -> bool:
+        """The document publishes ``version`` or is already indexing it."""
+        return version in {self.version, self.pending}
 
 
 @dataclass(frozen=True)
@@ -77,7 +83,7 @@ def compare_present(
 
         if current is None:
             appeared[version].append(path)
-        elif current.version == version:
+        elif current.holds(version):
             plan.unchanged.append(path)
         else:
             plan.updated[path] = current.document_id

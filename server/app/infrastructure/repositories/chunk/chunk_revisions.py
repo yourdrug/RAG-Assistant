@@ -12,7 +12,7 @@ from domain.knowledge.chunk import ChunkRecord, extract_chunk_context
 from domain.knowledge.document_nodes import DocumentNode
 from domain.knowledge.enums import DocumentVisibility, DomainKey
 from domain.knowledge.repositories.chunk import DEFAULT_CHUNK_INSERT_OPTIONS
-from domain.knowledge.revision import RevisionSwitch, StagedRevision
+from domain.knowledge.revision import RevisionSwitch, SourceVersion, StagedRevision
 from infrastructure.database.models import ChunkModel, DocumentStagedRevisionModel, StagedChunkModel
 from infrastructure.repositories.chunk.document_nodes import SQLAlchemyDocumentNodeRepository
 
@@ -77,6 +77,13 @@ def staged_record(orm: StagedChunkModel) -> ChunkRecord:
     )
 
 
+def revision_source_version(revision: DocumentStagedRevisionModel) -> SourceVersion | None:
+    if revision.source_version is None:
+        return None
+
+    return SourceVersion(revision.source_version, revision.source_revision)
+
+
 def node_payload(node: DocumentNode) -> dict[str, Any]:
     payload = asdict(node)
     payload["pages"] = list(node.pages)
@@ -101,11 +108,16 @@ class SQLAlchemyChunkRevisionRepository:
         *,
         nodes: list[DocumentNode],
         options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
+        source_version: SourceVersion | None = None,
     ) -> StagedRevision:
         token = uuid.uuid4().hex
         self._session.add(
             DocumentStagedRevisionModel(
-                document_id=document_id, token=token, nodes=[node_payload(node) for node in nodes]
+                document_id=document_id,
+                token=token,
+                source_version=source_version.version if source_version else None,
+                source_revision=source_version.revision if source_version else None,
+                nodes=[node_payload(node) for node in nodes],
             )
         )
         await self._session.flush()
@@ -136,18 +148,18 @@ class SQLAlchemyChunkRevisionRepository:
         ]
         self._session.add_all(models)
         await self._session.flush()
-        return StagedRevision(document_id, token, tuple(model.id for model in models))
+        return StagedRevision(document_id, token, tuple(model.id for model in models), source_version)
 
     async def get_staged_revision(self, document_id: int) -> StagedRevision | None:
-        token = (
+        revision = (
             await self._session.execute(
-                select(DocumentStagedRevisionModel.token).where(
+                select(DocumentStagedRevisionModel).where(
                     DocumentStagedRevisionModel.document_id == document_id
                 )
             )
         ).scalar_one_or_none()
 
-        if token is None:
+        if revision is None:
             return None
 
         ids = await self._session.execute(
@@ -155,7 +167,25 @@ class SQLAlchemyChunkRevisionRepository:
             .where(StagedChunkModel.document_id == document_id)
             .order_by(StagedChunkModel.chunk_index)
         )
-        return StagedRevision(document_id, token, tuple(ids.scalars().all()))
+        return StagedRevision(
+            document_id, revision.token, tuple(ids.scalars().all()), revision_source_version(revision)
+        )
+
+    async def staged_source_versions(self, document_ids: list[int]) -> dict[int, SourceVersion]:
+        if not document_ids:
+            return {}
+
+        result = await self._session.execute(
+            select(DocumentStagedRevisionModel).where(
+                DocumentStagedRevisionModel.document_id.in_(document_ids),
+                DocumentStagedRevisionModel.source_version.is_not(None),
+            )
+        )
+        return {
+            revision.document_id: version
+            for revision in result.scalars().all()
+            if (version := revision_source_version(revision)) is not None
+        }
 
     async def get_staged_by_ids(
         self, document_id: int, token: str, chunk_ids: list[int]
@@ -221,6 +251,9 @@ class SQLAlchemyChunkRevisionRepository:
         await self._nodes.replace_document_nodes(
             document_id, [node_from_payload(payload) for payload in revision.nodes or []]
         )
+        source_version = revision_source_version(revision)
         await self._session.delete(revision)
         await self._session.flush()
-        return RevisionSwitch(published_ids=published_ids, replaced_ids=replaced_ids)
+        return RevisionSwitch(
+            published_ids=published_ids, replaced_ids=replaced_ids, source_version=source_version
+        )

@@ -33,7 +33,8 @@ if TYPE_CHECKING:
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.ingestion.raw_document import RawDocument
     from domain.knowledge.chunk import ChunkRecord
-    from domain.knowledge.revision import StagedRevision
+    from domain.knowledge.document_nodes import DocumentNode
+    from domain.knowledge.revision import SourceVersion, StagedRevision
 
 log = logging.getLogger("default")
 
@@ -189,6 +190,7 @@ async def process_chunks(
         "group_id": options["group_id"],
         "doc_domain": options["doc_domain"],
         "set_indexing": options.get("set_indexing", True),
+        "source_version": options.get("source_version"),
     }
 
     if existing_uow is not None:
@@ -241,12 +243,12 @@ async def process_chunks_in_uow(
     A changed ACL replaces the chunks at once instead: narrowed access must
     apply to the old content immediately, in SQL search as well.
     """
+    source_version = options.get("source_version")
     published_ids = await uow.chunks.get_ids_by_document_id(document_id, for_update=True)
     document = await uow.documents.get_by_id(document_id)
     # Chunks and their vector payload carry the document's space as a search selection label.
     space_id = document.space_id if document is not None else None
     insert_options = chunk_insert_options(chunks, space_id, options)
-    nodes = build_document_nodes([(rc.page_content, rc.metadata) for rc in chunks])
     # A newer processing run supersedes an unpublished revision; its points go too.
     superseded_ids = await uow.chunks.discard_staged_revision(document_id)
 
@@ -260,19 +262,25 @@ async def process_chunks_in_uow(
     if published and not acl_changed(published, visibility, options["owner_id"], options["group_id"]):
         reuse = reusable_point_ids(published, chunks)
         staged = await uow.chunks.stage_revision(
-            document_id, filename, visibility, chunk_inserts(chunks), nodes=nodes, options=insert_options
+            document_id,
+            filename,
+            visibility,
+            chunk_inserts(chunks),
+            nodes=document_nodes(chunks),
+            options=insert_options,
+            source_version=source_version,
         )
         chunk_ids = list(staged.chunk_ids)
     else:
-        chunk_ids = await uow.chunks.bulk_insert(
-            document_id=document_id,
-            filename=filename,
-            visibility=visibility,
-            chunks=chunk_inserts(chunks),
+        chunk_ids = await write_published_chunks(
+            uow,
+            document_id,
+            filename,
+            visibility,
+            chunks,
             options=insert_options,
+            source_version=source_version,
         )
-        # Parent scopes are replaced with the chunks: their ranges are these chunk indexes.
-        await uow.chunks.replace_document_nodes(document_id, nodes)
 
         if published_ids:
             # Re-processing produced no chunks: nothing to publish, the old points go.
@@ -311,6 +319,37 @@ async def process_chunks_in_uow(
         staged is not None,
         sum(item is not None for item in reuse),
     )
+
+
+def document_nodes(chunks: list[RawDocument]) -> list[DocumentNode]:
+    return build_document_nodes([(rc.page_content, rc.metadata) for rc in chunks])
+
+
+async def write_published_chunks(
+    uow: UnitOfWork,
+    document_id: int,
+    filename: str,
+    visibility: str,
+    chunks: list[RawDocument],
+    *,
+    options: ChunkInsertOptions,
+    source_version: SourceVersion | None,
+) -> list[int]:
+    """Replace the published chunks directly; they serve SQL search at once."""
+    chunk_ids = await uow.chunks.bulk_insert(
+        document_id=document_id,
+        filename=filename,
+        visibility=visibility,
+        chunks=chunk_inserts(chunks),
+        options=options,
+    )
+    # Parent scopes are replaced with the chunks: their ranges are these chunk indexes.
+    await uow.chunks.replace_document_nodes(document_id, document_nodes(chunks))
+
+    if source_version is not None:
+        await uow.documents.set_storage_version(document_id, source_version.version, source_version.revision)
+
+    return chunk_ids
 
 
 def chunk_insert_options(

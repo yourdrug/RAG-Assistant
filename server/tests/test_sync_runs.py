@@ -15,6 +15,7 @@ from application.rag.dto import CompletedAnswer, SourceMetadata, StorageSource
 from application.rag.service import RagService
 from application.sync import SyncChannelService, SyncRunRequests
 from application.sync.ports import SnapshotIncompleteError, StorageEntry, StorageSnapshot, StorageSources
+from application.sync.requests import ORPHANED_RUN_ERROR
 from application.sync.runs import SyncRunService
 from application.sync.sources import SyncSourceLinks
 from domain.identity.roles import UserKind, UserRole
@@ -22,12 +23,13 @@ from domain.identity.user_context import UserContext
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation
-from domain.runtime.jobs import JobType
+from domain.runtime.jobs import BackgroundJobStatus, JobType
 from domain.shared.exceptions import BusinessRuleViolationError
 from domain.sync.channel import ChannelAudience, ChannelSettings, GitHubLocation, StorageKind
 from domain.sync.reconcile import PublishedFile, reconcile
 from domain.sync.run import FileOutcomeKind, SyncRunStatus, SyncTrigger
-from tests.fakes import DEFAULT_SPACE_ID, FakeUnitOfWorkFactory, admit_all_users
+from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+from tests.fakes import DEFAULT_SPACE_ID, FakeUnitOfWorkFactory, admit_all_users, publish_revision
 
 
 if TYPE_CHECKING:
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
 
     from application.documents.dto import PersistGuard
     from domain.knowledge.document import Document
+    from domain.knowledge.revision import SourceVersion
     from domain.sync.channel import SyncChannel
     from tests.fakes import FakeUnitOfWork
 
@@ -116,7 +119,12 @@ class TextProcessor:
         )
 
     async def persist_prepared(
-        self, document: Document, prepared: PreparedDocument, *, guard: PersistGuard | None = None
+        self,
+        document: Document,
+        prepared: PreparedDocument,
+        *,
+        guard: PersistGuard | None = None,
+        source_version: SourceVersion | None = None,
     ) -> bool:
         persisted = await persist_document_result(
             self.factory,
@@ -133,6 +141,7 @@ class TextProcessor:
                 quality=None,
                 storage_deletes=[],
                 guard=guard,
+                source_version=source_version,
             ),
             domain_registry=None,
             pack_hooks=None,
@@ -193,7 +202,7 @@ class World:
             staged = await self.uow.chunks.get_staged_revision(doc.id or 0)
 
             if staged is not None:
-                await self.uow.chunks.publish_staged_revision(doc.id or 0, staged.token)
+                await publish_revision(self.uow, doc.id or 0, staged.token)
                 rows, _ = await self.uow.chunks.list_for_document(doc.id or 0)
 
             result[path] = [row.content for row in rows]
@@ -305,6 +314,43 @@ async def test_failed_file_is_retried_by_the_next_run_at_the_same_commit() -> No
     assert await world.sync() == SyncRunStatus.SUCCEEDED
     assert (await world.last_outcomes())["docs/b.md"] == FileOutcomeKind.UPDATED
     assert await world.texts() == {"docs/a.md": ["Альфа"], "docs/b.md": ["Бета"]}
+
+
+@pytest.mark.asyncio
+async def test_version_is_published_only_with_its_text_and_failed_indexing_is_retried() -> None:
+    world = await synced_world({"docs/a.md": "Альфа"})
+    await world.texts()
+    [published] = (await world.documents()).values()
+    assert published.sync is not None
+    old_version = published.sync.storage_version
+    world.storage.files["docs/a.md"] = "Альфа 2".encode()
+
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    [document] = (await world.documents()).values()
+    assert document.sync is not None
+    # Indexing is still running: the binding keeps the version search serves.
+    assert document.sync.storage_version == old_version
+
+    # While the new version is being indexed a run does not re-process it.
+    world.storage.reads.clear()
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    assert world.storage.reads == []
+    assert await world.last_outcomes() == {"docs/a.md": FileOutcomeKind.UNCHANGED}
+
+    # Indexing gives up: the staged revision is abandoned, the old text stays published.
+    staged = await world.uow.chunks.get_staged_revision(document.id or 0)
+    assert staged is not None
+    dispatcher = OutboxDispatcher(world.factory, MagicMock(), cache_invalidator=AsyncMock())
+    async with world.factory.create(master=True) as uow:
+        await dispatcher.abandon_staged_revision(uow, document.id or 0, staged.token)
+
+    # The next run sees the file as changed again instead of "unchanged".
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    assert await world.last_outcomes() == {"docs/a.md": FileOutcomeKind.UPDATED}
+    assert await world.texts() == {"docs/a.md": ["Альфа 2"]}
+    [document] = (await world.documents()).values()
+    assert document.sync is not None
+    assert document.sync.storage_version != old_version
 
 
 @pytest.mark.asyncio
@@ -422,6 +468,92 @@ async def test_scheduled_reconciliation_queues_only_idle_channels() -> None:
     world = await synced_world({"docs/a.md": "Альфа"})
     assert await world.requests.request_scheduled() == 1
     assert await world.requests.request_scheduled() == 0
+
+
+@pytest.mark.asyncio
+async def test_stopped_worker_fails_the_run_instead_of_blocking_the_channel() -> None:
+    world = await synced_world({"docs/a.md": "Альфа"})
+    world.storage.files["docs/a.md"] = "Альфа 2".encode()
+
+    async def stop(entry: StorageEntry) -> None:
+        del entry
+        raise asyncio.CancelledError
+
+    world.storage.on_read = stop
+    run = await world.requests.request(world.channel_id, SyncTrigger.MANUAL, ADMIN)
+    assert run is not None
+
+    with pytest.raises(asyncio.CancelledError):
+        await world.runs.execute(run.id or 0)
+
+    stored = await world.uow.sync_runs.get_by_id(run.id or 0)
+    assert stored is not None
+    assert stored.status == SyncRunStatus.FAILED
+    world.storage.on_read = None
+    assert await world.requests.request_scheduled() == 1
+
+
+@pytest.mark.asyncio
+async def test_run_of_a_dead_worker_is_failed_and_the_schedule_resumes() -> None:
+    world = await synced_world({"docs/a.md": "Альфа"})
+    run = await world.requests.request(world.channel_id, SyncTrigger.MANUAL, ADMIN)
+    assert run is not None
+    assert await world.runs.begin(run.id or 0) is not None
+    # The process died without ``finally``; its lease expired and the job was failed.
+    job = await world.uow.background_jobs.find_latest_for(JobType.SYNC_RUN, run.id or 0)
+    assert job is not None
+    job.status = BackgroundJobStatus.FAILED
+
+    assert await world.requests.request_scheduled() == 1
+    stored = await world.uow.sync_runs.get_by_id(run.id or 0)
+    assert stored is not None
+    assert (stored.status, stored.error) == (SyncRunStatus.FAILED, ORPHANED_RUN_ERROR)
+
+
+@pytest.mark.asyncio
+async def test_schedule_never_cancels_a_run_requested_meanwhile() -> None:
+    world = await synced_world({"docs/a.md": "Альфа"})
+    manual = await world.requests.request(world.channel_id, SyncTrigger.MANUAL, ADMIN)
+    assert manual is not None
+    assert await world.requests.request_scheduled() == 0
+    stored = await world.uow.sync_runs.get_by_id(manual.id or 0)
+    assert stored is not None
+    assert stored.status == SyncRunStatus.QUEUED
+
+
+@pytest.mark.asyncio
+async def test_requests_join_a_run_still_waiting_for_a_worker() -> None:
+    world = await synced_world({"docs/a.md": "Альфа"})
+    first = await world.requests.request(world.channel_id, SyncTrigger.WEBHOOK, delivery_id="d-1")
+    second = await world.requests.request(world.channel_id, SyncTrigger.WEBHOOK, delivery_id="d-2")
+    assert first is not None
+    assert second is not None
+    assert second.id == first.id
+    jobs = [j for j in world.uow.fake_background_jobs.jobs.values() if j.job_type == JobType.SYNC_RUN]
+    assert len(jobs) == 2  # the first sync's job and the shared one
+
+    # A started run is replaced; its queued successor's job is the only pending one.
+    assert await world.runs.begin(first.id or 0) is not None
+    third = await world.requests.request(world.channel_id, SyncTrigger.MANUAL, ADMIN)
+    assert third is not None
+    assert third.id != first.id
+
+
+@pytest.mark.asyncio
+async def test_run_stops_when_the_responsible_user_loses_access_while_it_runs() -> None:
+    world = await synced_world({"docs/a.md": "Альфа"})
+    world.storage.files = {"docs/a.md": "Альфа 2".encode(), "docs/b.md": "Бета".encode()}
+
+    async def revoke(entry: StorageEntry) -> None:
+        del entry
+        world.uow.fake_users._users[RESPONSIBLE.user_id].is_active = False
+
+    world.storage.on_read = revoke
+    assert await world.sync() == SyncRunStatus.REJECTED
+    # Nothing is published after the rights were lost (a created placeholder stays empty).
+    texts = await world.texts()
+    assert texts["docs/a.md"] == ["Альфа"]
+    assert texts.get("docs/b.md", []) == []
 
 
 # --- answer sources -------------------------------------------------------------------------

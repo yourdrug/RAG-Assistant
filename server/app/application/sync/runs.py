@@ -24,6 +24,7 @@ from application.sync.rights import channel_rights_problem
 from domain.knowledge.document import Document, SyncBinding
 from domain.knowledge.enums import DocumentStatus
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
+from domain.knowledge.revision import SourceVersion
 from domain.shared.exceptions import AppError, BusinessRuleViolationError
 from domain.sync.ignore import (
     MAX_RAGIGNORE_BYTES,
@@ -53,6 +54,7 @@ log = logging.getLogger("default")
 # Document names are stored in a 255-character column.
 MAX_PATH_CHARS = 255
 MAX_DETAIL_CHARS = 300
+STOPPED_RUN_ERROR = "the worker stopped during the run"
 
 
 class RunSupersededError(BusinessRuleViolationError):
@@ -60,6 +62,14 @@ class RunSupersededError(BusinessRuleViolationError):
 
     def __init__(self) -> None:
         super().__init__("Sync run is no longer current")
+
+
+class RunRejectedError(BusinessRuleViolationError):
+    """The rights the channel depends on no longer hold; the run must stop writing."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"Sync run rejected: {reason}")
+        self.reason = reason
 
 
 class ContentProcessor(Protocol):
@@ -70,7 +80,12 @@ class ContentProcessor(Protocol):
     ) -> PreparedDocument: ...
 
     async def persist_prepared(
-        self, document: Document, prepared: PreparedDocument, *, guard: PersistGuard | None = None
+        self,
+        document: Document,
+        prepared: PreparedDocument,
+        *,
+        guard: PersistGuard | None = None,
+        source_version: SourceVersion | None = None,
     ) -> bool: ...
 
 
@@ -108,62 +123,80 @@ class SyncRunService:
         if state is None:
             return None
 
+        status: SyncRunStatus | None = None
+        error: str | None = None
+
         try:
             await self.reconcile_channel(state)
         except RunSupersededError:
             log.info("Sync run %d superseded; stopping", run_id)
-            await self.finish(state, SyncRunStatus.CANCELLED)
-            return SyncRunStatus.CANCELLED
+            status, error = SyncRunStatus.CANCELLED, None
+        except RunRejectedError as exc:
+            log.warning("Sync run %d rejected while running: %s", run_id, exc.reason)
+            status, error = SyncRunStatus.REJECTED, exc.reason
         except (StorageReadError, InvalidIgnoreRulesError, UnicodeDecodeError) as exc:
             log.warning("Sync run %d read no complete snapshot: %s", run_id, type(exc).__name__)
-            await self.finish(state, SyncRunStatus.FAILED, error=describe(exc))
-            return SyncRunStatus.FAILED
+            status, error = SyncRunStatus.FAILED, describe(exc)
+        except asyncio.CancelledError:
+            # A stopping worker: record the end, or the run would block the channel.
+            await asyncio.shield(self.finish(state, SyncRunStatus.FAILED, error=STOPPED_RUN_ERROR))
+            raise
         except Exception as exc:
             # Never leave the run "running"; the job records the error itself.
             await self.finish(state, SyncRunStatus.FAILED, error=describe(exc))
             raise
 
-        return await self.finish(state, None)
+        finished = await self.finish(state, status, error=error)
+        return status or finished
 
     async def begin(self, run_id: int) -> RunState | None:
         async with self._uow_factory.create(master=True) as uow:
+            # Channel row first: every run status change takes it, so the status read
+            # below cannot be overtaken by a request cancelling this run meanwhile.
+            queued = await uow.sync_runs.get_by_id(run_id)
+
+            if queued is None:
+                return None
+
+            channel = await uow.sync_channels.get_by_id(queued.channel_id, for_update=True)
             run = await uow.sync_runs.get_by_id(run_id)
 
             if run is None or run.status != SyncRunStatus.QUEUED:
                 return None
 
-            channel = await uow.sync_channels.get_by_id(run.channel_id, for_update=True)
+            space = (
+                await uow.knowledge_spaces.get_by_id(channel.space_id)
+                if channel is not None and channel.generation == run.generation
+                else None
+            )
 
-            if channel is None or channel.generation != run.generation:
+            if channel is None or space is None:
+                # Superseded by a settings change, or the channel or its space is gone.
                 run.cancel()
                 await uow.sync_runs.update(run)
                 return None
 
-            space = await uow.knowledge_spaces.get_by_id(channel.space_id)
-            problem = (
-                await channel_rights_problem(uow, space, channel.settings)
-                if space is not None
-                else "space is gone"
-            )
+            problem = await channel_rights_problem(uow, space, channel.settings)
 
             if problem is not None:
                 # Documents stay as they are until the rights are restored.
                 run.reject(problem)
-                await uow.sync_runs.update(run)
                 log.warning("Sync run %d rejected: %s", run_id, problem)
-                return None
+            else:
+                run.start()
 
-            run.start()
             await uow.sync_runs.update(run)
-            return RunState(run=run, channel=channel, pack_key=space.pack_key if space else "")
+            return RunState(run=run, channel=channel, pack_key=space.pack_key) if problem is None else None
 
     async def finish(
         self, state: RunState, status: SyncRunStatus | None, error: str | None = None
     ) -> SyncRunStatus:
         async with self._uow_factory.create(master=True) as uow:
+            # Under the channel lock: a cancellation committed by a newer request wins.
+            await uow.sync_channels.get_by_id(state.channel.id or 0, for_update=True)
             run = await uow.sync_runs.get_by_id(state.run.id or 0)
 
-            if run is None or run.is_finished:
+            if run is None or run.status != SyncRunStatus.RUNNING:
                 return run.status if run is not None else SyncRunStatus.CANCELLED
 
             run.storage_revision = state.run.storage_revision
@@ -171,7 +204,11 @@ class SyncRunService:
             if status == SyncRunStatus.CANCELLED:
                 run.outcomes = tuple(state.outcomes)
                 run.cancel()
+            elif status == SyncRunStatus.REJECTED:
+                run.outcomes = tuple(state.outcomes)
+                run.reject(error or "the channel's rights no longer hold")
             elif status == SyncRunStatus.FAILED:
+                run.outcomes = tuple(state.outcomes)
                 run.fail(error or "storage could not be read")
             else:
                 run.complete(tuple(state.outcomes))
@@ -191,9 +228,13 @@ class SyncRunService:
             await self.read_ragignore(source, channel, revision, snapshot.entries),
         )
         desired, keep = select_files(state, source, rules, snapshot.entries)
-        documents = await self.channel_documents(channel)
+        documents, pending = await self.channel_documents(channel)
         published = {
-            path: PublishedFile(doc.id or 0, doc.sync.storage_version if doc.sync else None)
+            path: PublishedFile(
+                doc.id or 0,
+                doc.sync.storage_version if doc.sync else None,
+                pending[doc.id].version if doc.id in pending else None,
+            )
             for path, doc in documents.items()
             if path not in keep
         }
@@ -240,16 +281,27 @@ class SyncRunService:
 
         return files
 
-    async def channel_documents(self, channel: SyncChannel) -> dict[str, Document]:
-        async with self._uow_factory.create() as uow:
-            documents = await uow.documents.list_channel_documents(channel.id or 0)
+    async def channel_documents(
+        self, channel: SyncChannel
+    ) -> tuple[dict[str, Document], dict[int, SourceVersion]]:
+        """The channel's documents by path, and the versions their staged revisions are indexing.
 
-        return {doc.sync.path: doc for doc in documents if doc.sync is not None}
+        Read from the primary: the plan's add/update/delete decisions are applied there.
+        """
+        async with self._uow_factory.create(master=True) as uow:
+            documents = await uow.documents.list_channel_documents(channel.id or 0)
+            pending = await uow.chunks.staged_source_versions([doc.id for doc in documents if doc.id])
+
+        return {doc.sync.path: doc for doc in documents if doc.sync is not None}, pending
 
     # --- fenced writes --------------------------------------------------------------------
 
     async def fence(self, uow: UnitOfWork, state: RunState) -> None:
-        """Lock the channel row; refuse to write once the run is no longer current."""
+        """Lock the channel row; refuse to write once the run is no longer current.
+
+        The rights the channel depends on are checked again: removing the responsible
+        user from the group or deactivating the owner does not change the generation.
+        """
         channel = await uow.sync_channels.get_by_id(state.channel.id or 0, for_update=True)
         run = await uow.sync_runs.get_by_id(state.run.id or 0)
 
@@ -260,6 +312,16 @@ class SyncRunService:
             or run.status != SyncRunStatus.RUNNING
         ):
             raise RunSupersededError
+
+        space = await uow.knowledge_spaces.get_by_id(channel.space_id)
+        problem = (
+            await channel_rights_problem(uow, space, channel.settings)
+            if space is not None
+            else "space is gone"
+        )
+
+        if problem is not None:
+            raise RunRejectedError(problem)
 
     async def publish_file(
         self,
@@ -280,12 +342,17 @@ class SyncRunService:
                 entry.path,
                 lambda path: processor.prepare(path, entry.path, document.id or 0, None),
             )
-            binding = SyncBinding(channel.id or 0, entry.path, entry.version, revision)
 
             async def guard(uow: UnitOfWork) -> None:
                 await self.fence(uow, state)
-                await apply_audience(uow, channel, document)
-                await uow.documents.set_sync_binding(document.id or 0, binding)
+                current = await uow.documents.get_by_id(document.id or 0)
+
+                if current is not None:
+                    await apply_audience(uow, channel, current)
+
+                # The binding keeps its published version: indexing records the new one
+                # (``source_version``) only once its text is published, so a failed
+                # indexing leaves the file changed and the next run retries it.
 
             audience = channel.settings.audience
             target = Document(
@@ -297,9 +364,11 @@ class SyncRunService:
                 space_id=channel.space_id,
             )
 
-            if not await processor.persist_prepared(target, prepared, guard=guard):
+            if not await processor.persist_prepared(
+                target, prepared, guard=guard, source_version=SourceVersion(entry.version, revision)
+            ):
                 return
-        except RunSupersededError:
+        except (RunSupersededError, RunRejectedError):
             raise
         except Exception as exc:  # noqa: BLE001 - One file's failure never cancels the others; recorded, logged.
             await self.mark_failed(state, existing, entry.path, exc)

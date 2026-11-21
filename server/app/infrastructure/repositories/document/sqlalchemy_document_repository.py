@@ -454,6 +454,15 @@ class SQLAlchemyDocumentRepository:
         )
         await self._db.flush()
 
+    async def set_storage_version(self, document_id: int, version: str | None, revision: str | None) -> None:
+        await self._db.execute(
+            update(DocumentModel)
+            .where(DocumentModel.id == document_id, DocumentModel.sync_channel_id.is_not(None))
+            .values(storage_version=version, storage_revision=revision)
+            .execution_options(synchronize_session=False)
+        )
+        await self._db.flush()
+
     async def list_channel_documents(self, channel_id: int) -> list[Document]:
         result = await self._db.execute(
             select(DocumentModel)

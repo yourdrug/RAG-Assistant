@@ -103,6 +103,7 @@ if TYPE_CHECKING:
         ManualChunkInsertOptions,
     )
     from domain.knowledge.repositories.document import DocumentFilter, DocumentStatusUpdate
+    from domain.knowledge.revision import SourceVersion
     from domain.rag.context import RagContext
     from domain.runtime.jobs import BackgroundJob, ConcurrencyLimit
     from domain.sync.channel import SyncChannel
@@ -309,6 +310,16 @@ def fake_chunk_record(c: dict[str, Any]) -> ChunkRecord:
     )
 
 
+async def publish_revision(uow: FakeUnitOfWork, document_id: int, token: str) -> None:
+    """Publish a staged revision and record its source version, as the dispatcher does."""
+    switch = await uow.chunks.publish_staged_revision(document_id, token)
+
+    if switch is not None and switch.source_version is not None:
+        await uow.documents.set_storage_version(
+            document_id, switch.source_version.version, switch.source_version.revision
+        )
+
+
 async def publish_staged_revisions(factory: FakeUnitOfWorkFactory) -> None:
     """Publish every staged revision, as the dispatcher does once its points are indexed."""
     chunks = factory._uow.fake_chunks
@@ -317,7 +328,7 @@ async def publish_staged_revisions(factory: FakeUnitOfWorkFactory) -> None:
         staged = await chunks.get_staged_revision(document_id)
 
         if staged is not None:
-            await chunks.publish_staged_revision(document_id, staged.token)
+            await publish_revision(factory._uow, document_id, staged.token)
 
 
 class FakeChunkRepository:
@@ -372,6 +383,7 @@ class FakeChunkRepository:
         *,
         nodes: list[DocumentNode],
         options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
+        source_version: SourceVersion | None = None,
     ) -> StagedRevision:
         if document_id in self._staged:
             message = "discard the staged revision first"
@@ -379,8 +391,13 @@ class FakeChunkRepository:
 
         rows = self.chunk_rows(document_id, filename, visibility, chunks, options)
         token = f"rev-{rows[0]['id'] if rows else self._next_id}"
-        self._staged[document_id] = {"token": token, "rows": rows, "nodes": list(nodes)}
-        return StagedRevision(document_id, token, tuple(row["id"] for row in rows))
+        self._staged[document_id] = {
+            "token": token,
+            "rows": rows,
+            "nodes": list(nodes),
+            "source_version": source_version,
+        }
+        return StagedRevision(document_id, token, tuple(row["id"] for row in rows), source_version)
 
     async def get_staged_revision(self, document_id: int) -> StagedRevision | None:
         staged = self._staged.get(document_id)
@@ -388,7 +405,19 @@ class FakeChunkRepository:
         if staged is None:
             return None
 
-        return StagedRevision(document_id, staged["token"], tuple(row["id"] for row in staged["rows"]))
+        return StagedRevision(
+            document_id,
+            staged["token"],
+            tuple(row["id"] for row in staged["rows"]),
+            staged.get("source_version"),
+        )
+
+    async def staged_source_versions(self, document_ids: list[int]) -> dict[int, SourceVersion]:
+        return {
+            document_id: staged["source_version"]
+            for document_id, staged in self._staged.items()
+            if document_id in document_ids and staged.get("source_version") is not None
+        }
 
     async def get_staged_by_ids(
         self, document_id: int, token: str, chunk_ids: list[int]
@@ -415,7 +444,9 @@ class FakeChunkRepository:
         replaced = tuple(c["id"] for c in self._chunks if c["document_id"] == document_id)
         self._chunks = [c for c in self._chunks if c["document_id"] != document_id] + staged["rows"]
         self.document_nodes[document_id] = staged["nodes"]
-        return RevisionSwitch(tuple(row["id"] for row in staged["rows"]), replaced)
+        return RevisionSwitch(
+            tuple(row["id"] for row in staged["rows"]), replaced, staged.get("source_version")
+        )
 
     async def replace_document_nodes(self, document_id: int, nodes: list[DocumentNode]) -> None:
         self.document_nodes[document_id] = list(nodes)
@@ -994,6 +1025,12 @@ class FakeDocumentRepository:
         if document_id in self._documents:
             self._documents[document_id].sync = binding
 
+    async def set_storage_version(self, document_id: int, version: str | None, revision: str | None) -> None:
+        document = self._documents.get(document_id)
+
+        if document is not None and document.sync is not None:
+            document.sync = replace(document.sync, storage_version=version, storage_revision=revision)
+
     async def list_channel_documents(self, channel_id: int) -> list[Document]:
         return [d for d in self._documents.values() if d.sync is not None and d.sync.channel_id == channel_id]
 
@@ -1328,6 +1365,16 @@ class FakeBackgroundJobRepository:
 
     async def save_progress(self, job_id: int, progress: dict[str, str]) -> None:
         self.jobs[job_id].progress = dict(progress)
+
+    async def find_latest_for(self, job_type: str, related_id: int) -> BackgroundJob | None:
+        return next(
+            (
+                job
+                for _, job in sorted(self.jobs.items(), reverse=True)
+                if job.job_type == job_type and job.related_id == related_id
+            ),
+            None,
+        )
 
     async def trace_context(self, job_id: int) -> dict[str, str] | None:
         del job_id

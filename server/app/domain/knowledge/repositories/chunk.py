@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
     from domain.knowledge.document_nodes import DocumentNode
-    from domain.knowledge.revision import RevisionSwitch, StagedRevision
+    from domain.knowledge.revision import RevisionSwitch, SourceVersion, StagedRevision
     from domain.shared.pagination import CursorPage
 
 
@@ -175,11 +175,19 @@ class ChunkRevisionRepository(Protocol):
         *,
         nodes: list[DocumentNode],
         options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
+        source_version: SourceVersion | None = None,
     ) -> StagedRevision:
-        """Write a new staged revision; an existing one must be discarded first."""
+        """Write a new staged revision; an existing one must be discarded first.
+
+        ``source_version`` travels with the revision and is returned on publication.
+        """
         ...
 
     async def get_staged_revision(self, document_id: int) -> StagedRevision | None: ...
+
+    async def staged_source_versions(self, document_ids: list[int]) -> dict[int, SourceVersion]:
+        """Source versions of the staged revisions of these documents, where one is recorded."""
+        ...
 
     async def get_staged_by_ids(
         self, document_id: int, token: str, chunk_ids: list[int]

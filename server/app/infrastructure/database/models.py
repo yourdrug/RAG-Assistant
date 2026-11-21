@@ -436,6 +436,7 @@ class BackgroundJobModel(BaseModel):
         ),
         Index("idx_background_jobs_status", "status"),
         Index("idx_background_jobs_job_type", "job_type"),
+        Index("idx_background_jobs_type_related", "job_type", "related_id"),
         Index("idx_background_jobs_creation_date", "creation_date"),
         Index("idx_background_jobs_heartbeat", "heartbeat_at"),
         Index(
@@ -548,6 +549,9 @@ class DocumentStagedRevisionModel(LinkedBaseModel):
 
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
     token: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Source version the revision was made from; recorded on the document when published.
+    source_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
     nodes: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )

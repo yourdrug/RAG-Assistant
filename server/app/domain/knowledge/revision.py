@@ -54,12 +54,25 @@ def match_reusable_chunks(
 
 
 @dataclass(frozen=True)
+class SourceVersion:
+    """Version of the external source a revision was made from (e.g. a storage file).
+
+    It is recorded on the document only when the revision becomes the published one,
+    so a document never claims a source version whose text search does not serve.
+    """
+
+    version: str
+    revision: str | None = None
+
+
+@dataclass(frozen=True)
 class StagedRevision:
     """A hidden revision of a document's chunks, identified by an opaque token."""
 
     document_id: int
     token: str
     chunk_ids: tuple[int, ...]
+    source_version: SourceVersion | None = None
 
 
 @dataclass(frozen=True)
@@ -68,3 +81,5 @@ class RevisionSwitch:
 
     published_ids: tuple[int, ...]
     replaced_ids: tuple[int, ...]
+    # The source version the published revision was made from, if any.
+    source_version: SourceVersion | None = None

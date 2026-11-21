@@ -32,15 +32,19 @@ class ManualChunkEditsError(BusinessRuleViolationError):
 
 
 async def lock_document_for_persist(uow: UnitOfWork, command: PersistDocumentCommand) -> Document | None:
-    """Lock the row first: chunk edits lock it too, so they cannot interleave with persist."""
+    """Lock the row first: chunk edits lock it too, so they cannot interleave with persist.
+
+    A guard runs before: it locks coarser rows (a sync channel), and every path locks
+    such a row before the documents under it, so the two orders never deadlock.
+    """
+    if command.guard is not None:
+        await command.guard(uow)
+
     existing = await uow.documents.get_by_id(command.document_id, for_update=True)
 
     if existing is not None and command.abort_on_manual_edits and existing.has_manual_edits:
         msg = f"Document {command.document_id} received manual chunk edits during re-chunking"
         raise ManualChunkEditsError(msg)
-
-    if existing is not None and command.guard is not None:
-        await command.guard(uow)
 
     return existing
 
@@ -101,6 +105,7 @@ async def persist_document_result(
             group_id=command.group_id,
             doc_domain=command.doc_domain,
             set_indexing=True,
+            source_version=command.source_version,
             _existing_uow=uow,
         )
 

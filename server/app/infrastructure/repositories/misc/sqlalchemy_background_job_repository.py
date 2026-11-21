@@ -82,7 +82,12 @@ class SQLAlchemyBackgroundJobRepository:
         return result.scalar_one_or_none()
 
     async def create(self, job: BackgroundJob) -> BackgroundJob:
-        if job.job_type in {JobType.DOCUMENT_PROCESSING, JobType.INGEST, JobType.INGEST_FILE}:
+        if job.job_type in {
+            JobType.DOCUMENT_PROCESSING,
+            JobType.INGEST,
+            JobType.INGEST_FILE,
+            JobType.SYNC_RUN,
+        }:
             await self.check_admission((job.dispatch_payload or {}).get("cost_principal"))
 
         orm = BackgroundJobModel(
@@ -273,6 +278,16 @@ class SQLAlchemyBackgroundJobRepository:
             return None
 
         return self._to_entity(orm)
+
+    async def find_latest_for(self, job_type: str, related_id: int) -> BackgroundJob | None:
+        result = await self._db.execute(
+            select(BackgroundJobModel)
+            .where(BackgroundJobModel.job_type == job_type, BackgroundJobModel.related_id == related_id)
+            .order_by(BackgroundJobModel.id.desc())
+            .limit(1)
+        )
+        orm = result.scalar_one_or_none()
+        return self._to_entity(orm) if orm is not None else None
 
     async def count_by_status(self) -> dict[str, int]:
         result = await self._db.execute(

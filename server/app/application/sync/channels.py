@@ -7,7 +7,7 @@ two concurrent changes can never create overlapping channels.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 import logging
 from typing import TYPE_CHECKING
 
@@ -15,6 +15,7 @@ from application.documents.delete import delete_document_in_uow
 from application.sync.audience import apply_audience, audience_matches
 from application.sync.rights import channel_rights_problem
 from domain.knowledge.document import SyncBinding
+from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
 from domain.sync.channel import ChannelDeletionMode, S3Location, SyncChannel
 from domain.sync.ownership import ensure_no_overlap
@@ -107,9 +108,9 @@ class SyncChannelService:
                 changed.append(document.id)
                 # Forget the published version: the next run re-indexes the file, so the
                 # vector payloads carry the new audience too (unchanged vectors are reused).
-                await uow.documents.set_sync_binding(
-                    document.id, replace(document.sync, storage_version=None)
-                )
+                await uow.documents.set_storage_version(document.id, None, None)
+                # A revision being indexed carries the previous audience in its payloads.
+                await discard_staged_revision(uow, document.id)
 
         return changed
 
@@ -235,6 +236,22 @@ class SyncChannelService:
             raise BusinessRuleViolationError(msg)
 
         ensure_no_overlap(channel, await uow.sync_channels.list_by_space(channel.space_id))
+
+
+async def discard_staged_revision(uow: UnitOfWork, document_id: int) -> None:
+    """Drop the document's unpublished revision and queue removal of its points."""
+    await uow.documents.get_by_id(document_id, for_update=True)
+    staged_ids = await uow.chunks.discard_staged_revision(document_id)
+
+    if staged_ids:
+        await uow.vector_outbox.enqueue(
+            VectorOutboxEntry(
+                operation=OutboxOperation.DELETE_CHUNKS,
+                aggregate_type="document",
+                aggregate_id=document_id,
+                payload={"chunk_ids": staged_ids},
+            )
+        )
 
 
 async def lock_space(uow: UnitOfWork, space_id: int) -> KnowledgeSpace:

@@ -418,3 +418,46 @@ async def test_vectors_of_another_model_are_not_reused(dense_collection: DenseCo
     embeddings.calls.clear()
     await qdrant_ops.upload_document_batches(upload_docs({11: "первый абзац"}, {11: 1}), embeddings, client)
     assert embeddings.calls == ["первый абзац"]
+
+
+@pytest.mark.asyncio
+async def test_redelivered_upsert_after_publication_keeps_the_published_points() -> None:
+    """A crash after the SQL publication (or a failed cache invalidation) replays the upsert.
+
+    The replay must find the revision's chunks among the published ones and keep their
+    points; deleting them as obsolete would empty the document in search.
+    """
+    vector = RecordingIndex()
+    factory, dispatcher = await indexed_document(vector)
+    await index(factory, "Статья 1. Новая.", "Статья 2. Без изменений.")
+    [upsert] = await factory._uow.vector_outbox.claim_batch("test-worker")
+    await dispatcher._dispatch(upsert)
+    assert await published_texts(factory) == ["Статья 1. Новая.", "Статья 2. Без изменений."]
+
+    # Redelivery of the same entry before the publish entry runs.
+    await dispatcher._dispatch(upsert)
+    assert {3, 4} <= set(vector.points)
+    assert vector.searchable()[3] == "Статья 1. Новая."
+
+    while await dispatch_pending(factory, dispatcher):
+        pass
+
+    assert vector.searchable() == {3: "Статья 1. Новая.", 4: "Статья 2. Без изменений."}
+
+
+@pytest.mark.asyncio
+async def test_abandoning_a_stale_token_keeps_the_newer_staged_revision() -> None:
+    vector = RecordingIndex()
+    factory, dispatcher = await indexed_document(vector)
+    await index(factory, "Версия A.")
+    first = await factory._uow.chunks.get_staged_revision(1)
+    await index(factory, "Версия B.")
+    second = await factory._uow.chunks.get_staged_revision(1)
+    assert first is not None
+    assert second is not None
+
+    async with factory.create(master=True) as uow:
+        await dispatcher.abandon_staged_revision(uow, 1, first.token)
+
+    assert await factory._uow.chunks.get_staged_revision(1) == second
+    assert (await document_state(factory)).warning_message != STAGED_UPDATE_FAILED_WARNING

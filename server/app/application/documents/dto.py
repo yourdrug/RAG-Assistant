@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from domain.ingestion.raw_document import RawDocument
     from domain.knowledge.document import Document
     from domain.knowledge.enums import DocumentVisibility
+    from domain.knowledge.revision import SourceVersion
 
 
 @dataclass(frozen=True)
@@ -156,9 +157,11 @@ class PersistDocumentCommand:
     storage_deletes: list[str]
     pack_document: PreparedPackDocument | None = None
     abort_on_manual_edits: bool = False
-    # Runs first inside the persist transaction, after the document row lock; raising
-    # aborts the commit (a sync run fences its writes by the channel generation).
+    # Runs first inside the persist transaction, before the document row lock (it locks
+    # coarser rows first); raising aborts the commit (a sync run fences its writes).
     guard: PersistGuard | None = None
+    # Source version of the content; recorded on the document when its chunks are published.
+    source_version: SourceVersion | None = None
 
 
 type PersistGuard = Callable[[UnitOfWork], Awaitable[None]]

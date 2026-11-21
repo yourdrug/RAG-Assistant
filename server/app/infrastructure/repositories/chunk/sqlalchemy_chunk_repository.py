@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from domain.knowledge.document_nodes import DocumentNode
     from domain.knowledge.pack_metadata import MetadataCondition
     from domain.knowledge.repositories.chunk import ChunkInsertOptions, ManualChunkInsertOptions
-    from domain.knowledge.revision import RevisionSwitch, StagedRevision
+    from domain.knowledge.revision import RevisionSwitch, SourceVersion, StagedRevision
     from domain.rag.document_outline import DocumentOutline
     from domain.shared.pagination import CursorPage
 
@@ -54,13 +54,23 @@ class SQLAlchemyChunkRepository:
         *,
         nodes: list[DocumentNode],
         options: ChunkInsertOptions = DEFAULT_CHUNK_INSERT_OPTIONS,
+        source_version: SourceVersion | None = None,
     ) -> StagedRevision:
         return await self._revisions.stage_revision(
-            document_id, filename, visibility, chunks, nodes=nodes, options=options
+            document_id,
+            filename,
+            visibility,
+            chunks,
+            nodes=nodes,
+            options=options,
+            source_version=source_version,
         )
 
     async def get_staged_revision(self, document_id: int) -> StagedRevision | None:
         return await self._revisions.get_staged_revision(document_id)
+
+    async def staged_source_versions(self, document_ids: list[int]) -> dict[int, SourceVersion]:
+        return await self._revisions.staged_source_versions(document_ids)
 
     async def get_staged_by_ids(
         self, document_id: int, token: str, chunk_ids: list[int]

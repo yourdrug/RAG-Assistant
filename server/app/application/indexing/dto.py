@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import NotRequired, TypedDict
 
 from application.uow import UnitOfWork
+from domain.knowledge.revision import SourceVersion
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,8 @@ class ChunkWriteOptions(TypedDict):
     group_id: int | None
     doc_domain: str
     set_indexing: NotRequired[bool]
+    # Source version the chunks were made from; the document records it once they are published.
+    source_version: NotRequired[SourceVersion | None]
 
 
 class ChunkProcessingOptions(ChunkWriteOptions):
