@@ -77,6 +77,11 @@ export interface Source {
   act_number?: string;
   effective_from?: string | null;
   effective_to?: string | null;
+  // Documents of a sync channel: the cited file in the revision that was answered from
+  storage_branch?: string;
+  storage_path?: string;
+  storage_revision?: string;
+  storage_url?: string;
 }
 
 // ─── Conversations ───────────────────────────────────────────────────────────
@@ -174,6 +179,9 @@ export interface DocumentResponse {
   doc_domain: DocumentDomain;
   source_type?: "file" | "manual";
   has_manual_edits?: boolean;
+  // Set when a sync channel manages the document: it is changed only in its storage
+  sync_channel_id?: number | null;
+  sync_path?: string | null;
   in_search_scope?: boolean;
   error_message?: string | null;
   warning_message?: string | null;
@@ -998,4 +1006,70 @@ export interface ActVersionUpdateRequest {
   effective_from?: string | null;
   effective_to?: string | null;
   act_id?: number | null;
+}
+
+// ─── Sync channels ───────────────────────────────────────────────────────────
+
+export type SyncRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "rejected";
+
+export type SyncDeletionMode = "delete_documents" | "unlink";
+
+export interface SyncFileOutcome {
+  path: string;
+  kind:
+    | "added"
+    | "updated"
+    | "renamed"
+    | "deleted"
+    | "unchanged"
+    | "excluded"
+    | "conflict"
+    | "failed";
+  detail: string | null;
+}
+
+export interface SyncRun {
+  id: number;
+  status: SyncRunStatus;
+  trigger: "manual" | "webhook" | "schedule";
+  storage_revision: string | null;
+  error: string | null;
+  counts: Record<string, number>;
+  problems: SyncFileOutcome[];
+  creation_date: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface SyncChannelSettings {
+  repository_id: number;
+  repository: string;
+  branch: string;
+  folder: string;
+  exclusions: string[];
+  visibility: DocumentVisibility;
+  owner_id: number | null;
+  group_id: number | null;
+  responsible_user_id: number;
+}
+
+export interface CreateSyncChannelRequest extends SyncChannelSettings {
+  space_id: number;
+}
+
+export interface SyncChannel extends Omit<SyncChannelSettings, "responsible_user_id"> {
+  id: number;
+  space_id: number;
+  storage_kind: string;
+  instance: string;
+  responsible_user_id: number | null;
+  generation: number;
+  last_run: SyncRun | null;
 }

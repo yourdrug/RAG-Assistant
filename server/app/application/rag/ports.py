@@ -11,6 +11,7 @@ from application.rag.dto import (
     RagRequest,
     RetrievalResult,
     SanitizedAnswer,
+    StorageSource,
     Sufficiency,
     TerminalResponse,
 )
@@ -63,3 +64,9 @@ class Generation(Protocol):
 
 class Finalization(Protocol):
     def finalize(self, answer: SanitizedAnswer) -> CompletedAnswer: ...
+
+
+class StorageSourceLinks(Protocol):
+    async def describe(self, document_ids: list[int]) -> dict[int, StorageSource]:
+        """Storage locations of channel documents; callers pass only documents the user may read."""
+        ...

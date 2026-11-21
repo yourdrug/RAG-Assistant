@@ -1,5 +1,5 @@
 "use client";
-import { CalendarClock, FileText, Hash, Pencil, X } from "lucide-react";
+import { CalendarClock, FileText, GitBranch, Hash, Pencil, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Source } from "@/shared/api/types";
 import { formatDate } from "@/shared/lib/date-time";
@@ -81,6 +81,22 @@ export function SourcePanel({ sources, onClose }: Props) {
                 <Pencil className="h-3 w-3" />
                 <span>Изменён: {formatDate(s.edited_at)}</span>
               </div>
+            )}
+            {s.storage_url && (
+              // The cited revision: the file as it was answered from, even after later changes.
+              <a
+                href={s.storage_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-primary hover:underline"
+                title={s.storage_path}
+              >
+                <GitBranch className="h-3 w-3" />
+                <span className="truncate">
+                  {s.storage_branch}: {s.storage_path}
+                  {s.storage_revision ? ` @ ${s.storage_revision.slice(0, 7)}` : ""}
+                </span>
+              </a>
             )}
           </div>
         ))}

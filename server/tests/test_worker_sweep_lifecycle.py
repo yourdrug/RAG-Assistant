@@ -385,7 +385,7 @@ def test_worker_dependencies_are_assembled_in_composition(monkeypatch: pytest.Mo
         ml=SimpleNamespace(file_storage=storage, benchmark_service=object(), ml_clients=None),
         services=SimpleNamespace(cache_invalidator=object(), action_logger=object()),
     )
-    processor, ingestion, engine = object(), object(), object()
+    processor, ingestion, engine, sync_runs = object(), object(), object(), object()
 
     constructors: dict[str, Mock] = {}
 
@@ -393,6 +393,7 @@ def test_worker_dependencies_are_assembled_in_composition(monkeypatch: pytest.Mo
         ("create_document_processor", processor),
         ("create_ingestion_service", ingestion),
         ("create_sweep_engine", engine),
+        ("create_sync_run_service", sync_runs),
     ):
         constructor = Mock(return_value=service)
         constructors[name] = constructor
@@ -406,6 +407,8 @@ def test_worker_dependencies_are_assembled_in_composition(monkeypatch: pytest.Mo
     assert dependencies["document_processor"] is processor
     assert dependencies["ingestion_service"] is ingestion
     assert dependencies["sweep_engine"] is engine
+    assert dependencies["sync_runs"] is sync_runs
+    assert dependencies["sync_requests"] is not None
     assert dependencies["sweep_jobs"].uow_factory is factory
     assert dependencies["sweep_jobs"].publish is sweep.publish_sweep_event
     assert dependencies["llm_replay_store"] is not None

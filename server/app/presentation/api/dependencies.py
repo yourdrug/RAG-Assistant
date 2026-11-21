@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from application.ports.rate_limit import RateLimiterPort
     from application.search import SearchService
     from application.spaces import KnowledgeSpaceService
+    from application.sync import SyncChannelService, SyncRunRequests
 
 log = logging.getLogger("default")
 
@@ -167,6 +168,14 @@ def create_knowledge_space_service(request: Request) -> KnowledgeSpaceService:
     return get_or_raise(
         create_container(request).application.knowledge_space_service, "KnowledgeSpaceService"
     )
+
+
+def create_sync_channel_service(request: Request) -> SyncChannelService:
+    return get_or_raise(create_container(request).application.sync_channel_service, "SyncChannelService")
+
+
+def create_sync_run_requests(request: Request) -> SyncRunRequests:
+    return get_or_raise(create_container(request).application.sync_run_requests, "SyncRunRequests")
 
 
 def create_config_service(request: Request) -> ConfigService:

@@ -99,3 +99,11 @@ export {
   useSpaces,
   useUpdateSpace,
 } from "./use-spaces";
+export {
+  useCreateSyncChannel,
+  useDeleteSyncChannel,
+  useStartSyncRun,
+  useSyncChannels,
+  useSyncRuns,
+  useUpdateSyncChannel,
+} from "./use-sync-channels";

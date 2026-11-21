@@ -40,6 +40,7 @@ from config.sections import (
     RedisSection,
     RetrievalSection,
     StorageSection,
+    SyncSection,
     VectorStoreSection,
 )
 
@@ -132,6 +133,7 @@ class Settings(
     AuthSection,
     RateLimitSection,
     BenchmarkSection,
+    SyncSection,
 ):
     @classmethod
     def settings_customise_sources(

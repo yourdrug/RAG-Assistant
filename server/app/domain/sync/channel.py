@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
+from urllib.parse import quote
 
 from domain.knowledge.enums import DocumentVisibility
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
@@ -46,6 +47,10 @@ class GitHubLocation:
         if not self.instance.strip() or not self.branch.strip() or self.repository_id <= 0:
             msg = "GitHub location needs an instance, a repository id and a branch"
             raise ValidationError(msg)
+
+    def file_url(self, revision: str, path: str) -> str:
+        """The file as it was in ``revision``; stays valid after later changes and renames."""
+        return f"https://{self.instance}/{self.repository}/blob/{quote(revision)}/{quote(path)}"
 
     @property
     def key(self) -> tuple[str, str, int, str]:

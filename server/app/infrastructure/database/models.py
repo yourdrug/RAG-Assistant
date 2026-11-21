@@ -348,6 +348,13 @@ class SyncRunModel(BaseModel):
         CheckConstraint("trigger IN ('manual', 'webhook', 'schedule')", name="sync_runs_trigger_check"),
         CheckConstraint("jsonb_typeof(outcomes) = 'array'", name="sync_runs_outcomes_array"),
         Index("idx_sync_runs_channel", "channel_id", "id"),
+        Index(
+            "ux_sync_runs_delivery",
+            "channel_id",
+            "delivery_id",
+            unique=True,
+            postgresql_where="delivery_id IS NOT NULL",
+        ),
     )
 
     channel_id: Mapped[int] = mapped_column(
@@ -355,6 +362,7 @@ class SyncRunModel(BaseModel):
     )
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)
+    delivery_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     storage_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -44,6 +44,7 @@ from application.identity import (
 from application.jobs.service import JobService
 from application.search import SearchService
 from application.spaces import KnowledgeSpaceService
+from application.sync import SyncChannelService, SyncRunRequests
 from composition.service_providers import (
     build_config_inspector,
     create_ingestion_service,
@@ -110,6 +111,8 @@ class ApplicationContainer:
     pdf_diagnostic_service: PDFDiagnosticService | None = field(default=None)
     ingestion_service: IngestionPort | None = field(default=None)
     knowledge_space_service: KnowledgeSpaceService | None = field(default=None)
+    sync_channel_service: SyncChannelService | None = field(default=None)
+    sync_run_requests: SyncRunRequests | None = field(default=None)
     search_service: SearchService | None = field(default=None)
     conversation_service: ConversationService | None = field(default=None)
     group_service: GroupService | None = field(default=None)
@@ -183,6 +186,8 @@ class ApplicationContainer:
         pack_hooks = create_space_pack_hooks(infra)
         catalog = pack_catalog(infra)
         self.knowledge_space_service = KnowledgeSpaceService(uow, catalog, user_ctx_factory)
+        self.sync_channel_service = SyncChannelService(uow, pack_hooks, infra.services.cache_invalidator)
+        self.sync_run_requests = SyncRunRequests(uow)
         password_hasher = BCryptPasswordHasher()
         self.auth_service = AuthService(
             uow_factory=uow,

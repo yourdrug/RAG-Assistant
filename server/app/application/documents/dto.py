@@ -9,6 +9,7 @@ from domain.knowledge.enums import DocDomain, SourceType
 
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from datetime import datetime
 
     from application.documents.ports.processing import (
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from application.indexing.contextualization import ChunkContextualization
     from application.indexing.pack_hooks import PreparedPackDocument
     from application.ingestion import DocumentParserPort, DocumentSplitterPort
+    from application.uow import UnitOfWork
     from domain.ingestion.preview import PDFQualityReport
     from domain.ingestion.raw_document import RawDocument
     from domain.knowledge.document import Document
@@ -53,6 +55,9 @@ class DocumentDTO:
     outbox_pending: int = 0
     outbox_failed: int = 0
     outbox_failed_details: list[dict[str, object]] | None = None
+    # The sync channel that manages the document and its storage path; manual edits are refused.
+    sync_channel_id: int | None = None
+    sync_path: str | None = None
 
     @classmethod
     def from_entity(
@@ -90,6 +95,8 @@ class DocumentDTO:
             storage_key=storage_key,
             replace_id=replace_id,
             in_search_scope=in_search_scope,
+            sync_channel_id=doc.sync.channel_id if doc.sync else None,
+            sync_path=doc.sync.path if doc.sync else None,
         )
 
 
@@ -149,6 +156,23 @@ class PersistDocumentCommand:
     storage_deletes: list[str]
     pack_document: PreparedPackDocument | None = None
     abort_on_manual_edits: bool = False
+    # Runs first inside the persist transaction, after the document row lock; raising
+    # aborts the commit (a sync run fences its writes by the channel generation).
+    guard: PersistGuard | None = None
+
+
+type PersistGuard = Callable[[UnitOfWork], Awaitable[None]]
+
+
+@dataclass(frozen=True, kw_only=True)
+class PreparedDocument:
+    """Content ready to persist: prepared without any open transaction."""
+
+    raw_chunks: list[RawDocument]
+    doc_domain: str
+    pack_document: PreparedPackDocument | None
+    warnings: tuple[str, ...]
+    quality: PDFQualityReport | None
 
 
 class UploadOptions(TypedDict):

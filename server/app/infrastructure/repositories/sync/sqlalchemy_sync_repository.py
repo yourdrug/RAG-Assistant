@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from domain.knowledge.enums import DocumentVisibility
 from domain.sync.channel import ChannelAudience, ChannelSettings, GitHubLocation, SyncChannel
-from domain.sync.run import FileOutcome, FileOutcomeKind, SyncRun, SyncRunStatus, SyncTrigger
+from domain.sync.run import (
+    TERMINAL_RUN_STATUSES,
+    FileOutcome,
+    FileOutcomeKind,
+    SyncRun,
+    SyncRunStatus,
+    SyncTrigger,
+)
 from infrastructure.database.models import SyncChannelModel, SyncRunModel
 
 
@@ -78,6 +85,22 @@ class SQLAlchemySyncChannelRepository:
         )
         return [to_channel(orm) for orm in result.scalars().all()]
 
+    async def list_all(self) -> list[SyncChannel]:
+        result = await self._db.execute(select(SyncChannelModel).order_by(SyncChannelModel.id))
+        return [to_channel(orm) for orm in result.scalars().all()]
+
+    async def find_by_location(self, instance: str, repository_id: int, branch: str) -> list[SyncChannel]:
+        result = await self._db.execute(
+            select(SyncChannelModel)
+            .where(
+                func.lower(SyncChannelModel.location["instance"].astext) == instance.lower(),
+                SyncChannelModel.location["repository_id"].astext == str(repository_id),
+                SyncChannelModel.location["branch"].astext == branch,
+            )
+            .order_by(SyncChannelModel.id)
+        )
+        return [to_channel(orm) for orm in result.scalars().all()]
+
     async def add(self, channel: SyncChannel) -> SyncChannel:
         orm = SyncChannelModel(**channel_columns(channel), creation_date=channel.creation_date)
         self._db.add(orm)
@@ -107,6 +130,7 @@ def to_run(orm: SyncRunModel) -> SyncRun:
         channel_id=orm.channel_id,
         generation=orm.generation,
         trigger=SyncTrigger(orm.trigger),
+        delivery_id=orm.delivery_id,
         status=SyncRunStatus(orm.status),
         storage_revision=orm.storage_revision,
         error=orm.error,
@@ -125,6 +149,7 @@ def run_columns(run: SyncRun) -> dict[str, Any]:
         "channel_id": run.channel_id,
         "generation": run.generation,
         "trigger": run.trigger.value,
+        "delivery_id": run.delivery_id,
         "status": run.status.value,
         "storage_revision": run.storage_revision,
         "error": run.error,
@@ -161,6 +186,26 @@ class SQLAlchemySyncRunRepository:
 
     async def get_by_id(self, run_id: int) -> SyncRun | None:
         orm = await self._db.get(SyncRunModel, run_id)
+        return to_run(orm) if orm is not None else None
+
+    async def list_unfinished(self, channel_id: int) -> list[SyncRun]:
+        result = await self._db.execute(
+            select(SyncRunModel)
+            .where(
+                SyncRunModel.channel_id == channel_id,
+                SyncRunModel.status.not_in([status.value for status in TERMINAL_RUN_STATUSES]),
+            )
+            .order_by(SyncRunModel.id)
+        )
+        return [to_run(orm) for orm in result.scalars().all()]
+
+    async def find_by_delivery(self, channel_id: int, delivery_id: str) -> SyncRun | None:
+        result = await self._db.execute(
+            select(SyncRunModel).where(
+                SyncRunModel.channel_id == channel_id, SyncRunModel.delivery_id == delivery_id
+            )
+        )
+        orm = result.scalar_one_or_none()
         return to_run(orm) if orm is not None else None
 
     async def list_for_channel(self, channel_id: int, limit: int = 20) -> list[SyncRun]:

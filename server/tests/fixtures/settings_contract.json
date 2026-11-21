@@ -353,6 +353,18 @@
     "metadata": "[]",
     "required": false
   },
+  "github_instance": {
+    "annotation": "<class 'str'>",
+    "default": "'github.com'",
+    "metadata": "[]",
+    "required": false
+  },
+  "github_webhook_secret": {
+    "annotation": "<class 'pydantic.types.SecretStr'>",
+    "default": "SecretStr('')",
+    "metadata": "[]",
+    "required": false
+  },
   "history_window": {
     "annotation": "<class 'int'>",
     "default": "8",

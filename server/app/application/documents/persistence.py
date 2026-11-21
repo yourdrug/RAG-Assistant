@@ -39,6 +39,9 @@ async def lock_document_for_persist(uow: UnitOfWork, command: PersistDocumentCom
         msg = f"Document {command.document_id} received manual chunk edits during re-chunking"
         raise ManualChunkEditsError(msg)
 
+    if existing is not None and command.guard is not None:
+        await command.guard(uow)
+
     return existing
 
 

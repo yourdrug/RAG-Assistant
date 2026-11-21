@@ -5,6 +5,7 @@ import {
   Cpu,
   Database,
   FileText,
+  GitBranch,
   Key,
   LayoutDashboard,
   Library,
@@ -52,6 +53,8 @@ export const adminNavItems: AdminNavItem[] = [
   },
   { title: "API Keys", href: "/admin/api-keys", icon: Key, adminOnly: true },
   { title: "Knowledge Spaces", href: "/admin/spaces", icon: Library, adminOnly: true },
+  // Curators see the channels they are responsible for; administrators manage all of them.
+  { title: "Sync Channels", href: "/admin/sync-channels", icon: GitBranch },
   { title: "Documents", href: "/admin/documents", icon: FileText },
   { title: "Act Versions", href: "/admin/act-versions", icon: ScrollText, adminOnly: true },
   { title: "Quality", href: "/admin/quality", icon: Activity, adminOnly: true },

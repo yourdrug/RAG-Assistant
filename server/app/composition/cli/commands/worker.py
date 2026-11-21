@@ -31,6 +31,7 @@ from infrastructure.worker.document_dispatch import cron_dispatch_documents
 from infrastructure.worker.maintenance import cron_outbox_dispatch, cron_outbox_reconcile
 from infrastructure.worker.queue import arq_redis_settings, close_arq_pool
 from infrastructure.worker.registry import BATCH_QUEUE, DOCUMENTS_QUEUE, MAINTENANCE_QUEUE, tasks_for_queue
+from infrastructure.worker.sync_run import cron_sync_channels
 from infrastructure.worker_health import health_check_key
 
 
@@ -139,6 +140,12 @@ def worker(
                     # Leases last minutes; recover lost attempts promptly.
                     minute=set(range(60)),
                     second=20,
+                    timeout=CRON_TIMEOUT,
+                ),
+                cron(
+                    cron_sync_channels,
+                    job_id="maintenance:cron_sync_channels",
+                    minute={7, 37},
                     timeout=CRON_TIMEOUT,
                 ),
                 cron(

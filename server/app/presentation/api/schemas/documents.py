@@ -49,6 +49,8 @@ class DocumentResponse(BaseModel):
     outbox_pending: int = 0
     outbox_failed: int = 0
     outbox_failed_details: list[dict[str, object]] | None = None
+    sync_channel_id: int | None = None
+    sync_path: str | None = None
 
 
 class FailedDocumentSummary(BaseModel):

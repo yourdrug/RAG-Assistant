@@ -11,6 +11,11 @@ export const queryKeys = {
     clients: () => [...queryKeys.documents.all, "clients"] as const,
     domains: (spaceId?: number | null) => [...queryKeys.documents.all, "domains", spaceId] as const,
   },
+  syncChannels: {
+    all: ["sync-channels"] as const,
+    list: () => [...queryKeys.syncChannels.all, "list"] as const,
+    runs: (channelId: number) => [...queryKeys.syncChannels.all, "runs", channelId] as const,
+  },
   spaces: {
     all: ["spaces"] as const,
     list: () => [...queryKeys.spaces.all, "list"] as const,

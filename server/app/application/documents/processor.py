@@ -13,19 +13,27 @@ from typing import TYPE_CHECKING
 
 from application.documents.classification import classify_processing_document
 from application.documents.content import DocumentContentProcessor
-from application.documents.dto import PersistDocumentCommand
+from application.documents.dto import PersistDocumentCommand, PreparedDocument
 from application.documents.persistence import persist_document_result
 from application.documents.processing_context import ProcessingContext
 from domain.knowledge.enums import DocumentStatus
 
 
 if TYPE_CHECKING:
-    from application.documents.dto import DocumentProcessingDependencies, ProcessDocumentCommand
+    from collections.abc import Callable
+    from pathlib import Path
+
+    from application.documents.dto import (
+        DocumentProcessingDependencies,
+        PersistGuard,
+        ProcessDocumentCommand,
+    )
     from application.indexing.pack_hooks import DocumentPackHooks, PreparedPackDocument
     from application.ports.file_storage import FileStorage
     from application.uow import UnitOfWorkFactory
     from domain.ingestion.ports import DomainSettingsPort
     from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.ingestion.raw_document import RawDocument
     from domain.knowledge.document import Document
 
 log = logging.getLogger("default")
@@ -134,33 +142,18 @@ class DocumentProcessor:
                 return
 
             ctx.temp_path = await self._file_storage.download_to_temp(command.storage_key)
-            content = await self._content.parse(ctx.temp_path, command.original_filename, document_id)
-
-            full_text = "\n".join(d.page_content for d in content.documents)
-
-            classification = classify_processing_document(
+            prepared = await self.prepare(
+                ctx.temp_path,
+                command.original_filename,
                 document_id,
-                full_text,
                 command.doc_domain,
-                domain_registry=self._domain_registry,
-                domain_settings=self._domain_settings,
-                metrics=self._metrics,
+                on_split=lambda chunks: setattr(ctx, "raw_chunks", chunks),
             )
-            ctx.doc_domain = classification.domain_key
-            ctx.warnings.extend(warning for warning in (content.warning, classification.warning) if warning)
-
-            raw_chunks = await self._content.split(
-                content.documents, command.original_filename, classification.domain_key
-            )
-            ctx.raw_chunks = raw_chunks
-
-            hooks = self._pack_hooks
-            pack_document: PreparedPackDocument | None = (
-                await hooks.prepare(classification.domain_key, full_text) if hooks is not None else None
-            )
-
-            if pack_document is not None and pack_document.warning:
-                ctx.warnings.append(pack_document.warning)
+            ctx.doc_domain = prepared.doc_domain
+            ctx.warnings.extend(prepared.warnings)
+            ctx.raw_chunks = prepared.raw_chunks
+            raw_chunks = prepared.raw_chunks
+            pack_document = prepared.pack_document
 
             if await self.get_document(document_id) is None:
                 log.info("Document %d was deleted during processing — aborting", document_id)
@@ -175,10 +168,10 @@ class DocumentProcessor:
                     visibility=command.visibility,
                     owner_id=command.owner_id,
                     group_id=command.group_id,
-                    doc_domain=classification.domain_key,
+                    doc_domain=prepared.doc_domain,
                     replace_id=command.replace_id,
                     warning_message=ctx.warning_message,
-                    quality=content.quality,
+                    quality=prepared.quality,
                     storage_deletes=ctx.storage_deletes,
                     pack_document=pack_document,
                     abort_on_manual_edits=command.reindex_snapshot is not None,
@@ -200,6 +193,84 @@ class DocumentProcessor:
             # Runs on EVERY exit path (incl. early abort returns): otherwise a
             # replaced object listed in storage_deletes is orphaned in S3.
             await self.cleanup_storage_objects(ctx.storage_deletes)
+
+    async def prepare(
+        self,
+        path: Path,
+        filename: str,
+        document_id: int,
+        doc_domain: str | None,
+        *,
+        on_split: Callable[[list[RawDocument]], None] | None = None,
+    ) -> PreparedDocument:
+        """Parse, classify, split and prepare pack state; no transaction is open meanwhile.
+
+        ``on_split`` sees the chunks before pack preparation, which may still cancel.
+        """
+        content = await self._content.parse(path, filename, document_id)
+        full_text = "\n".join(d.page_content for d in content.documents)
+        classification = classify_processing_document(
+            document_id,
+            full_text,
+            doc_domain,
+            domain_registry=self._domain_registry,
+            domain_settings=self._domain_settings,
+            metrics=self._metrics,
+        )
+        warnings = [warning for warning in (content.warning, classification.warning) if warning]
+        raw_chunks = await self._content.split(content.documents, filename, classification.domain_key)
+
+        if on_split is not None:
+            on_split(raw_chunks)
+
+        hooks = self._pack_hooks
+        pack_document: PreparedPackDocument | None = (
+            await hooks.prepare(classification.domain_key, full_text) if hooks is not None else None
+        )
+
+        if pack_document is not None and pack_document.warning:
+            warnings.append(pack_document.warning)
+
+        return PreparedDocument(
+            raw_chunks=raw_chunks,
+            doc_domain=classification.domain_key,
+            pack_document=pack_document,
+            warnings=tuple(warnings),
+            quality=content.quality,
+        )
+
+    async def persist_prepared(
+        self, document: Document, prepared: PreparedDocument, *, guard: PersistGuard | None = None
+    ) -> bool:
+        """Persist content prepared outside this transaction; ``guard`` runs inside it first.
+
+        Returns ``False`` when the document was deleted meanwhile.
+        """
+        if document.id is None:
+            msg = "Only stored documents can be persisted"
+            raise ValueError(msg)
+
+        persisted = await persist_document_result(
+            self._uow_factory,
+            PersistDocumentCommand(
+                document_id=document.id,
+                original_filename=document.filename,
+                raw_chunks=prepared.raw_chunks,
+                visibility=document.visibility,
+                owner_id=document.owner_id,
+                group_id=document.group_id,
+                doc_domain=prepared.doc_domain,
+                replace_id=None,
+                warning_message="\n".join(prepared.warnings) or None,
+                quality=prepared.quality,
+                storage_deletes=[],
+                pack_document=prepared.pack_document,
+                guard=guard,
+            ),
+            domain_registry=self._domain_registry,
+            pack_hooks=self._pack_hooks,
+        )
+        return persisted is not None
 
     async def cleanup_storage_objects(self, keys: list[str]) -> None:
         for old_key in keys:

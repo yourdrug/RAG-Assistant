@@ -115,6 +115,12 @@ class ChunkCrudRepository(Protocol):
 
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int: ...
 
+    async def set_acl(
+        self, document_id: int, visibility: str, owner_id: int | None, group_id: int | None
+    ) -> None:
+        """Copy the document's ACL to its chunks, staged ones included."""
+        ...
+
 
 @runtime_checkable
 class ChunkCorpusRepository(Protocol):

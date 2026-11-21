@@ -52,6 +52,7 @@ from application.ports.job_enqueuer import JobEnqueuerPort
 from application.ports.rate_limit import RateLimiterPort
 from application.search import SearchService
 from application.spaces import KnowledgeSpaceService
+from application.sync import SyncChannelService, SyncRunRequests
 from application.uow.factory import UnitOfWorkFactory
 from domain.ingestion.ports import DomainSettingsPort
 from domain.ingestion.profiles.registry import DomainProfileRegistry
@@ -111,6 +112,12 @@ class ApplicationServices(Protocol):
 
     @property
     def knowledge_space_service(self) -> KnowledgeSpaceService | None: ...
+
+    @property
+    def sync_channel_service(self) -> SyncChannelService | None: ...
+
+    @property
+    def sync_run_requests(self) -> SyncRunRequests | None: ...
 
     @property
     def search_service(self) -> SearchService | None: ...

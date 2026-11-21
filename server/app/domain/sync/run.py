@@ -66,6 +66,8 @@ class SyncRun:
     generation: int
     trigger: SyncTrigger = SyncTrigger.MANUAL
     id: int | None = None
+    # Webhook delivery that requested the run; a redelivery never starts another run.
+    delivery_id: str | None = None
     status: SyncRunStatus = SyncRunStatus.QUEUED
     # The storage revision read by the run (a commit for GitHub).
     storage_revision: str | None = None

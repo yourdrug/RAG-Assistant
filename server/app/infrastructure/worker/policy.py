@@ -19,7 +19,8 @@ from domain.shared.exceptions import AppClientError
 DEFAULT_MAX_TRIES = 3
 # Ingest resumes per-source checkpoints. Paid benchmarks and user-resumable
 # sweeps still require an explicit restart after failure.
-MAX_TRIES: dict[str, int] = {JobType.BENCHMARK: 1, JobType.SWEEP: 1}
+# A sync run is never retried as such: the next requested or scheduled run converges.
+MAX_TRIES: dict[str, int] = {JobType.BENCHMARK: 1, JobType.SWEEP: 1, JobType.SYNC_RUN: 1}
 # Job types sharing a setting share one cluster-wide limit (enforced at claim).
 GLOBAL_LIMIT_SETTINGS: dict[str, str] = {
     JobType.INGEST: "ingest_max_concurrent",

@@ -29,6 +29,9 @@ const AdminGroupsPage = lazy(() =>
 const AdminSpacesPage = lazy(() =>
   import("@/pages/admin/spaces").then((m) => ({ default: m.AdminSpacesPage })),
 );
+const AdminSyncChannelsPage = lazy(() =>
+  import("@/pages/admin/sync-channels").then((m) => ({ default: m.AdminSyncChannelsPage })),
+);
 const AdminCuratorsPage = lazy(() =>
   import("@/pages/admin/curators").then((m) => ({ default: m.AdminCuratorsPage })),
 );
@@ -156,6 +159,14 @@ export default function App() {
                     element={
                       <Suspense fallback={<AdminFallback />}>
                         <AdminSpacesPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="sync-channels"
+                    element={
+                      <Suspense fallback={<AdminFallback />}>
+                        <AdminSyncChannelsPage />
                       </Suspense>
                     }
                   />

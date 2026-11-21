@@ -24,6 +24,7 @@ SECRET_SETTING_KEYS: frozenset[str] = frozenset(
         "jwt_secret_key",
         "admin_password",
         "metrics_scrape_token",
+        "github_webhook_secret",
     }
 )
 
@@ -96,6 +97,7 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "outbox_max_concurrent",
         "redis_socket_timeout",
         "redis_max_connections",
+        "github_instance",
         "s3_endpoint",
         "s3_bucket",
         "s3_region",

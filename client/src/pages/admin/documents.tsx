@@ -44,6 +44,7 @@ import {
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { ChannelBadge } from "@/shared/ui/channel-badge";
 import { DataTable } from "@/shared/ui/data-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
@@ -139,6 +140,12 @@ export function AdminDocumentsPage() {
               <Badge variant="warning" className="text-xs w-fit">
                 Edited
               </Badge>
+            )}
+            {row.original.sync_channel_id != null && (
+              <ChannelBadge
+                channelId={row.original.sync_channel_id}
+                path={row.original.sync_path}
+              />
             )}
           </div>
         </div>
@@ -290,8 +297,15 @@ export function AdminDocumentsPage() {
       cell: ({ row }) => {
         const doc = row.original;
         const canManageChunks =
+          doc.sync_channel_id == null &&
           (doc.status === "done" || doc.status === "indexing") &&
           ((doc.chunks ?? 0) > 0 || doc.source_type === "manual");
+
+        if (doc.sync_channel_id != null) {
+          // Edited, renamed and deleted only in its storage, through its channel.
+          return <span className="text-xs text-muted-foreground">In repository</span>;
+        }
+
         return (
           <div className="flex gap-1">
             {canManageChunks ? (

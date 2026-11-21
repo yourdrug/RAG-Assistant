@@ -134,7 +134,7 @@ def test_worker_roles_have_disjoint_queues_and_handlers(monkeypatch: pytest.Monk
     document_names = {f.name for f in documents["functions"]}
     batch_names = {f.name for f in batch["functions"]}
     assert document_names == {"process_document", "delete_document"}
-    assert batch_names == {"run_full_ingest", "run_single_ingest", "run_benchmark", "run_sweep"}
+    assert batch_names == {"run_full_ingest", "run_single_ingest", "run_benchmark", "run_sweep", "run_sync"}
     assert all(kwargs["keep_result"] == 0 for kwargs in roles.values())
 
 

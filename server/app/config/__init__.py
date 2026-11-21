@@ -46,6 +46,7 @@ from config.sections import (
     RedisSection,
     RetrievalSection,
     StorageSection,
+    SyncSection,
     VectorStoreSection,
 )
 from config.settings import ConfigurationError, Settings, format_errors, read_version
@@ -196,6 +197,7 @@ __all__ = [
     "RetrievalSection",
     "Settings",
     "StorageSection",
+    "SyncSection",
     "VectorStoreSection",
     "endpoint_settings",
     "get_request_settings",

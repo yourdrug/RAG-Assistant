@@ -160,6 +160,11 @@ class SQLAlchemyChunkRepository:
         await self._nodes.replace_document_nodes(document_id, [])
         return await self._crud.delete_by_document_id(document_id=document_id)
 
+    async def set_acl(
+        self, document_id: int, visibility: str, owner_id: int | None, group_id: int | None
+    ) -> None:
+        await self._crud.set_acl(document_id, visibility, owner_id, group_id)
+
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
         return await self._crud.update_filename_by_document_id(
             document_id=document_id, new_filename=new_filename

@@ -19,6 +19,7 @@ from config.sections.rag import HybridSearchSection, RagFeaturesSection, Ranking
 from config.sections.rate_limit import RateLimitSection
 from config.sections.redis import RedisSection
 from config.sections.storage import StorageSection
+from config.sections.sync import SyncSection
 from config.sections.vector_store import VectorStoreSection
 
 
@@ -44,6 +45,7 @@ ALL_SECTIONS = (
     AuthSection,
     RateLimitSection,
     BenchmarkSection,
+    SyncSection,
 )
 
 __all__ = [
@@ -68,5 +70,6 @@ __all__ = [
     "RedisSection",
     "RetrievalSection",
     "StorageSection",
+    "SyncSection",
     "VectorStoreSection",
 ]

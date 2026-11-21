@@ -16,6 +16,7 @@ from infrastructure.worker.queues import (
     MAINTENANCE_QUEUE,
 )
 from infrastructure.worker.sweep import run_sweep_task
+from infrastructure.worker.sync_run import run_sync
 from infrastructure.worker.tasks import process_document, run_benchmark, run_full_ingest, run_single_ingest
 
 
@@ -82,6 +83,10 @@ class SweepPayload(Payload):
     sweep_id: PositiveInt
 
 
+class SyncRunPayload(Payload):
+    run_id: PositiveInt
+
+
 @dataclass(frozen=True)
 class TaskDefinition:
     name: str
@@ -112,6 +117,7 @@ TASKS = {
     ),
     JobType.BENCHMARK: TaskDefinition("run_benchmark", run_benchmark, BenchmarkPayload, 3600, BATCH_QUEUE),
     JobType.SWEEP: TaskDefinition("run_sweep", run_sweep_task, SweepPayload, 21600, BATCH_QUEUE),
+    JobType.SYNC_RUN: TaskDefinition("run_sync", run_sync, SyncRunPayload, 7200, BATCH_QUEUE),
 }
 
 

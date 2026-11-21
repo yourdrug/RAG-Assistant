@@ -34,7 +34,11 @@ from application.ingestion.space_router import SpaceIngestionService
 from application.rag.service import RagService as ApplicationRagService
 from application.rag.space_router import SpaceRagRouter
 from application.spaces import SpacePackHooks
+from application.spaces.ports import DomainPackNotLoadedError
 from application.spaces.resolution import default_space_ref
+from application.sync.ports import StorageSources
+from application.sync.runs import SyncRunService
+from application.sync.sources import SyncSourceLinks
 from composition.utils import require
 from config import BenchmarkSection, ChunkingSection, process_section
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
@@ -72,11 +76,14 @@ if TYPE_CHECKING:
     from application.documents import DocumentAccessPort
     from application.indexing.pack_hooks import DocumentPackHooks
     from application.ports.ml_clients import MLClientPort
+    from application.rag.ports import StorageSourceLinks
+    from application.sync.ports import StorageSnapshotSource
     from application.uow.factory import UnitOfWorkFactory
     from composition.infrastructure import InfrastructureContainer
     from composition.pack_catalog import LoadedPackCatalog
     from domain.ingestion.profiles.registry import DomainProfileRegistry
     from domain.rag.ports import ChunkRetrievalRepository
+    from domain.sync.channel import StorageKind
     from infrastructure.ml.evidence_profiles.profiles import EvidenceProfile
 
 log = logging.getLogger("default")
@@ -312,6 +319,30 @@ def create_pack_document_processor(
     )
 
 
+def create_sync_run_service(infra: InfrastructureContainer) -> SyncRunService:
+    """Runs read storage through the registered handlers (none until a handler is configured)."""
+    uow = require(infra.db.uow_factory, "uow_factory")
+    processors = {
+        key: create_pack_document_processor(infra, uow, key) for key in pack_catalog(infra).pack_keys()
+    }
+
+    def processor(pack_key: str) -> DocumentProcessor:
+        if pack_key not in processors:
+            raise DomainPackNotLoadedError(pack_key)
+
+        return processors[pack_key]
+
+    return SyncRunService(
+        uow, StorageSources(storage_sources(infra)), processor, create_space_pack_hooks(infra)
+    )
+
+
+def storage_sources(infra: InfrastructureContainer) -> dict[StorageKind, StorageSnapshotSource]:
+    """Storage handlers by kind; the GitHub App handler is added by stage 4 of the plan."""
+    del infra
+    return {}
+
+
 def create_reindex_service(infra: InfrastructureContainer) -> DocumentReindexService:
     uow = require(infra.db.uow_factory, "uow_factory")
     return DocumentReindexService(uow, create_document_processor(infra, uow))
@@ -321,7 +352,7 @@ def create_reindex_service(infra: InfrastructureContainer) -> DocumentReindexSer
 create_ingest_app_service = create_ingestion_service
 
 
-def create_rag_service(
+def create_rag_service(  # noqa: PLR0913 - one pack's RAG stages and their optional ports
     ml_clients: MLClientPort,
     chunk_search: ChunkRetrievalRepository | None = None,
     domain_keys: tuple[str, ...] | None = None,
@@ -330,6 +361,7 @@ def create_rag_service(
     document_access: DocumentAccessPort,
     domain_registry: DomainProfileRegistry | None = None,
     evidence_profile: EvidenceProfile | None = None,
+    storage_sources: StorageSourceLinks | None = None,
 ) -> ApplicationRagService:
     operations = RagOperations(
         ml_clients,
@@ -350,6 +382,7 @@ def create_rag_service(
         generation=operations,
         finalization=operations,
         corpus=operations.corpus,
+        storage_sources=storage_sources,
     )
 
 
@@ -363,6 +396,7 @@ def create_space_rag_router(
     """One RAG service per loaded pack: its profiles, evidence rules and answer policies."""
     catalog = pack_catalog(infra)
     services = {}
+    storage_sources = SyncSourceLinks(require(infra.db.uow_factory, "uow_factory"))
 
     for key in catalog.pack_keys():
         registry = catalog.domain_registry(key)
@@ -374,6 +408,7 @@ def create_space_rag_router(
             document_access=document_access,
             domain_registry=registry,
             evidence_profile=catalog.pack(key).evidence_profile,
+            storage_sources=storage_sources,
         )
 
     return SpaceRagRouter(services)

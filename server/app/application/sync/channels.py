@@ -7,10 +7,12 @@ two concurrent changes can never create overlapping channels.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 import logging
 from typing import TYPE_CHECKING
 
 from application.documents.delete import delete_document_in_uow
+from application.sync.audience import apply_audience
 from application.sync.rights import channel_rights_problem
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
 from domain.sync.channel import ChannelDeletionMode, SyncChannel
@@ -19,21 +21,33 @@ from domain.sync.ownership import ensure_no_overlap
 
 if TYPE_CHECKING:
     from application.indexing.pack_hooks import DocumentHooksResolver
+    from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.identity.user_context import UserContext
     from domain.knowledge.space import KnowledgeSpace
     from domain.sync.channel import ChannelSettings
+    from domain.sync.run import SyncRun
 
 
 log = logging.getLogger("default")
 
 
+@dataclass(frozen=True)
+class ChannelView:
+    channel: SyncChannel
+    last_run: SyncRun | None
+
+
 class SyncChannelService:
     def __init__(
-        self, uow_factory: UnitOfWorkFactory, pack_hooks: DocumentHooksResolver | None = None
+        self,
+        uow_factory: UnitOfWorkFactory,
+        pack_hooks: DocumentHooksResolver | None = None,
+        cache_invalidator: CacheInvalidatorPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._pack_hooks = pack_hooks
+        self._cache_invalidator = cache_invalidator
 
     async def create(self, space_id: int, settings: ChannelSettings, actor: UserContext) -> SyncChannel:
         if not actor.is_admin:
@@ -58,11 +72,36 @@ class SyncChannelService:
             previous = channel.settings
             channel.change_settings(settings, user_id=actor.user_id, is_admin=actor.is_admin)
 
+            changed_acl: list[int] = []
+
             if channel.settings != previous:
                 await self.validate(uow, space, channel)
                 await uow.sync_channels.update(channel)
 
+                if channel.settings.audience != previous.audience:
+                    changed_acl = await self.apply_audience(uow, channel)
+
+        if changed_acl and self._cache_invalidator is not None:
+            # Answers cached for the previous audience must not be served anymore.
+            await self._cache_invalidator.invalidate_by_document_ids(changed_acl, raise_on_error=True)
+
         return channel
+
+    @staticmethod
+    async def apply_audience(uow: UnitOfWork, channel: SyncChannel) -> list[int]:
+        """Narrowed access applies at once; the next run rewrites the vectors."""
+        changed = []
+
+        for document in await uow.documents.list_channel_documents(channel.id or 0):
+            if await apply_audience(uow, channel, document) and document.id is not None and document.sync:
+                changed.append(document.id)
+                # Forget the published version: the next run re-indexes the file, so the
+                # vector payloads carry the new audience too (unchanged vectors are reused).
+                await uow.documents.set_sync_binding(
+                    document.id, replace(document.sync, storage_version=None)
+                )
+
+        return changed
 
     async def delete(self, channel_id: int, mode: ChannelDeletionMode, actor: UserContext) -> int:
         """Delete the channel with its documents, or unlink them into manual documents.
@@ -100,6 +139,35 @@ class SyncChannelService:
 
         log.info("Sync channel %d deleted (%s, %d documents)", channel_id, mode.value, affected)
         return affected
+
+    async def list_visible(self, actor: UserContext, space_id: int | None = None) -> list[ChannelView]:
+        """Administrators see every channel; other users the channels they are responsible for."""
+        async with self._uow_factory.create() as uow:
+            channels = (
+                await uow.sync_channels.list_by_space(space_id)
+                if space_id is not None
+                else await uow.sync_channels.list_all()
+            )
+            views = []
+
+            for channel in channels:
+                if channel.id is None or not channel.can_manage(actor.user_id, is_admin=actor.is_admin):
+                    continue
+
+                runs = await uow.sync_runs.list_for_channel(channel.id, limit=1)
+                views.append(ChannelView(channel, runs[0] if runs else None))
+
+        return views
+
+    async def runs(self, channel_id: int, actor: UserContext, limit: int = 20) -> list[SyncRun]:
+        async with self._uow_factory.create() as uow:
+            channel = await existing_channel(uow, channel_id)
+
+            if not channel.can_manage(actor.user_id, is_admin=actor.is_admin):
+                msg = "Only an administrator or the channel's responsible user can see its runs"
+                raise BusinessRuleViolationError(msg)
+
+            return await uow.sync_runs.list_for_channel(channel_id, limit=limit)
 
     @staticmethod
     async def validate(uow: UnitOfWork, space: KnowledgeSpace, channel: SyncChannel) -> None:

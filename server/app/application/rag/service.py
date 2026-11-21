@@ -6,7 +6,15 @@ from dataclasses import fields, replace
 import time
 from typing import Any
 
-from application.rag.dto import PreparedQuery, RagRequest, RetrievalResult, SanitizedAnswer, TerminalResponse
+from application.rag.dto import (
+    CompletedAnswer,
+    PreparedQuery,
+    RagRequest,
+    RetrievalResult,
+    SanitizedAnswer,
+    SourceMetadata,
+    TerminalResponse,
+)
 from application.rag.ports import (
     AnswerCache,
     ContextPreparation,
@@ -17,6 +25,7 @@ from application.rag.ports import (
     InputSafety,
     RequestPreparation,
     Retrieval,
+    StorageSourceLinks,
 )
 from application.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, StreamEvent, TextChunk
 from domain.knowledge.enums import DocDomain, DomainKey
@@ -40,6 +49,7 @@ class RagService:
         generation: Generation,
         finalization: Finalization,
         corpus: CorpusLease,
+        storage_sources: StorageSourceLinks | None = None,
     ) -> None:
         self.preparation = preparation
         self.safety = safety
@@ -50,6 +60,7 @@ class RagService:
         self.generation = generation
         self.finalization = finalization
         self.corpus = corpus
+        self.storage_sources = storage_sources
 
     async def stream(
         self, question: str, history: Sequence[object], ctx: RagContext
@@ -123,7 +134,7 @@ class RagService:
             message = "Generation finished without an answer"
             raise RuntimeError(message)
 
-        completed = self.finalization.finalize(answer)
+        completed = await self.link_storage_sources(self.finalization.finalize(answer))
         await self.cache.store(completed)
         yield SourcesEvent(
             sources=[dict(source) for source in completed.sources],
@@ -144,6 +155,45 @@ class RagService:
             aux_tokens=auxiliary_tokens(request),
             aux_usage=auxiliary_usage(request),
         )
+
+    async def link_storage_sources(self, completed: CompletedAnswer) -> CompletedAnswer:
+        """Add the cited storage file to sources of channel documents.
+
+        Sources come only from documents already authorized for this user, so the link
+        never reveals a document the user may not read. It names the cited revision.
+        """
+        if self.storage_sources is None or not completed.sources:
+            return completed
+
+        ids = [
+            source["document_id"]
+            for source in completed.sources
+            if isinstance(source.get("document_id"), int)
+        ]
+        located = await self.storage_sources.describe(ids)
+
+        if not located:
+            return completed
+
+        sources = []
+
+        for source in completed.sources:
+            info = located.get(source.get("document_id", 0))
+            linked = SourceMetadata(**source)
+
+            if info is not None:
+                linked.update(
+                    {
+                        "storage_branch": info.branch,
+                        "storage_path": info.path,
+                        "storage_revision": info.revision,
+                        "storage_url": info.url,
+                    }
+                )
+
+            sources.append(linked)
+
+        return replace(completed, sources=tuple(sources))
 
     async def prepare(self, request: RagRequest) -> PreparedQuery | TerminalResponse:
         query = await self.preparation.condense(request)

@@ -664,14 +664,18 @@ name = "Sync: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.sync"]
 allow_indirect_imports = true
-# Allowed features: documents (deleting channel documents), identity, indexing, uow.
+# Allowed features: documents (deleting channel documents), identity, indexing, rag (source links), uow.
 forbidden_modules = [
     "application.spaces",
     "application.admin", "application.benchmark",
     "application.domain_packs", "application.chat", "application.search",
     "application.chunks", "application.ingestion", "application.health",
     "application.jobs", "application.ports",
-    "application.rag", "application.runtime",
+    "application.runtime",
+]
+# Only these shared ports are part of this feature boundary.
+ignore_imports = [
+    "application.sync.channels -> application.ports.cache_invalidator",
 ]
 
 [[tool.importlinter.contracts]]

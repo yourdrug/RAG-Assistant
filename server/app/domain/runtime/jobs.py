@@ -29,6 +29,7 @@ class JobType(StrEnum):
     INGEST_FILE = "ingest_file"
     BENCHMARK = "benchmark"
     SWEEP = "sweep"
+    SYNC_RUN = "sync_run"
 
 
 @dataclass(frozen=True)

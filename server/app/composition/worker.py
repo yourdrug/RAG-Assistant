@@ -9,12 +9,14 @@ from application.benchmark import BenchmarkExportService, BenchmarkResultService
 from application.benchmark.jobs import BenchmarkJobService
 from application.benchmark.sweep_jobs import SweepJobService
 from application.documents.delete_job import DocumentDeletionJob
+from application.sync import SyncRunRequests
 from composition.service_providers import (
     create_document_processor,
     create_ingestion_service,
     create_llm_replay_scope,
     create_llm_replay_store,
     create_sweep_engine,
+    create_sync_run_service,
 )
 from infrastructure.benchmark.corpus import benchmark_scope
 from infrastructure.worker.sweep import publish_sweep_event
@@ -64,6 +66,8 @@ def worker_dependencies(infra: InfrastructureContainer, application: Application
         "document_processor": create_document_processor(infra),
         "ingestion_service": create_ingestion_service(infra),
         "sweep_engine": create_sweep_engine(infra),
+        "sync_runs": create_sync_run_service(infra),
+        "sync_requests": SyncRunRequests(infra.db.uow),
         "sweep_jobs": SweepJobService(infra.db.uow, publish_sweep_event, exports),
         "benchmark_results": results,
         "benchmark_exports": exports,

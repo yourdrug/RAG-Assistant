@@ -568,6 +568,15 @@ class FakeChunkRepository:
         ]
         return items, total
 
+    async def set_acl(
+        self, document_id: int, visibility: str, owner_id: int | None, group_id: int | None
+    ) -> None:
+        rows = [*self._chunks, *self._staged.get(document_id, {}).get("rows", [])]
+
+        for c in rows:
+            if c["document_id"] == document_id:
+                c.update(visibility=visibility, owner_id=owner_id, group_id=group_id)
+
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
         count = 0
 
@@ -1882,6 +1891,13 @@ class FakeSyncChannelRepository:
     async def list_by_space(self, space_id: int) -> list[SyncChannel]:
         return [deepcopy(c) for c in self.channels.values() if c.space_id == space_id]
 
+    async def list_all(self) -> list[SyncChannel]:
+        return [deepcopy(c) for _, c in sorted(self.channels.items())]
+
+    async def find_by_location(self, instance: str, repository_id: int, branch: str) -> list[SyncChannel]:
+        key = ("github", instance.lower(), repository_id, branch)
+        return [deepcopy(c) for c in self.channels.values() if c.settings.location.key == key]
+
     async def add(self, channel: SyncChannel) -> SyncChannel:
         channel.id = self._next_id
         self._next_id += 1
@@ -1914,6 +1930,19 @@ class FakeSyncRunRepository:
     async def get_by_id(self, run_id: int) -> SyncRun | None:
         run = self.runs.get(run_id)
         return deepcopy(run) if run is not None else None
+
+    async def list_unfinished(self, channel_id: int) -> list[SyncRun]:
+        return [deepcopy(r) for r in self.runs.values() if r.channel_id == channel_id and not r.is_finished]
+
+    async def find_by_delivery(self, channel_id: int, delivery_id: str) -> SyncRun | None:
+        return next(
+            (
+                deepcopy(r)
+                for r in self.runs.values()
+                if r.channel_id == channel_id and r.delivery_id == delivery_id
+            ),
+            None,
+        )
 
     async def list_for_channel(self, channel_id: int, limit: int = 20) -> list[SyncRun]:
         runs = sorted(

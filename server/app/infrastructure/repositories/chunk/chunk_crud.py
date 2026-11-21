@@ -215,6 +215,18 @@ class SQLAlchemyChunkCrudRepository:
     async def delete_by_document_id(self, document_id: int) -> None:
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
 
+    async def set_acl(
+        self, document_id: int, visibility: str, owner_id: int | None, group_id: int | None
+    ) -> None:
+        values = {"visibility": visibility, "owner_id": owner_id, "group_id": group_id}
+
+        for model in (ChunkModel, StagedChunkModel):
+            await self._session.execute(
+                update(model).where(model.document_id == document_id).values(**values)
+            )
+
+        await self._session.flush()
+
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
         stmt = update(ChunkModel).where(ChunkModel.document_id == document_id).values(filename=new_filename)
         result = await self._session.execute(stmt)

@@ -134,6 +134,21 @@ class SourceMetadata(TypedDict, total=False):
     effective_from: str
     effective_to: str
     citation_id: int
+    # A document mirrored from a storage: the file in the revision that was cited.
+    storage_branch: str
+    storage_path: str
+    storage_revision: str
+    storage_url: str
+
+
+@dataclass(frozen=True)
+class StorageSource:
+    """Where a channel document's cited version lives in its storage."""
+
+    branch: str
+    path: str
+    revision: str
+    url: str
 
 
 @dataclass(frozen=True)

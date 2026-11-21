@@ -70,6 +70,7 @@ from presentation.api.routes.health import router as health_router
 from presentation.api.routes.ingest import router as ingest_router
 from presentation.api.routes.search import router as search_router
 from presentation.api.routes.spaces import router as spaces_router
+from presentation.api.routes.sync import router as sync_router
 
 
 logger = logging.getLogger("default")
@@ -234,6 +235,7 @@ class Application:
             chunks_router,
             groups_router,
             spaces_router,
+            sync_router,
             health_router,
             benchmark_router,
             benchmark_admin_router,

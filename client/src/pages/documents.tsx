@@ -31,6 +31,7 @@ import {
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { ChannelBadge } from "@/shared/ui/channel-badge";
 import { DataTable } from "@/shared/ui/data-table";
 import {
   Dialog,
@@ -218,13 +219,23 @@ export function DocumentsPage() {
       cell: ({ row }) => (
         <div className="flex items-start gap-2">
           <FileText className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
-          <Link
-            to={`/documents/${row.original.id}`}
-            className="font-medium break-words text-primary hover:underline"
-          >
-            {row.original.filename}
-            {deleteMut.isDeleting(row.original.id) && <Badge variant="secondary">Deleting…</Badge>}
-          </Link>
+          <div className="flex flex-col gap-1">
+            <Link
+              to={`/documents/${row.original.id}`}
+              className="font-medium break-words text-primary hover:underline"
+            >
+              {row.original.filename}
+              {deleteMut.isDeleting(row.original.id) && (
+                <Badge variant="secondary">Deleting…</Badge>
+              )}
+            </Link>
+            {row.original.sync_channel_id != null && (
+              <ChannelBadge
+                channelId={row.original.sync_channel_id}
+                path={row.original.sync_path}
+              />
+            )}
+          </div>
         </div>
       ),
     },
@@ -330,31 +341,35 @@ export function DocumentsPage() {
       header: "",
       size: 100,
       minSize: 80,
-      cell: ({ row }) => (
-        <div className="flex gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => {
-              setRenameId(row.original.id);
-              setRenameValue(row.original.filename);
-            }}
-          >
-            <Pencil className="h-4 w-4 text-muted-foreground" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            disabled={deleteMut.isDeleting(row.original.id)}
-            title={deleteMut.isDeleting(row.original.id) ? "Deleting…" : "Delete"}
-            onClick={() => setDeleteId(row.original.id)}
-          >
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
-        </div>
-      ),
+      cell: ({ row }) =>
+        row.original.sync_channel_id != null ? (
+          // Renamed and deleted only in its storage, through its channel.
+          <span className="text-xs text-muted-foreground">In repository</span>
+        ) : (
+          <div className="flex gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => {
+                setRenameId(row.original.id);
+                setRenameValue(row.original.filename);
+              }}
+            >
+              <Pencil className="h-4 w-4 text-muted-foreground" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              disabled={deleteMut.isDeleting(row.original.id)}
+              title={deleteMut.isDeleting(row.original.id) ? "Deleting…" : "Delete"}
+              onClick={() => setDeleteId(row.original.id)}
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
+        ),
     },
   ];
 
