@@ -92,6 +92,13 @@ class StorageSnapshotSource(Protocol):
         """
         ...
 
+    async def preserve(self, channel: SyncChannel, path: str, version: str, key: str) -> bool:
+        """Copy that version of the file to the managed storage key ``key``.
+
+        ``False`` when the version cannot be copied (it changed, or the kind keeps no copies).
+        """
+        ...
+
     def source_link(self, channel: SyncChannel, revision: str, path: str) -> str | None: ...
 
 

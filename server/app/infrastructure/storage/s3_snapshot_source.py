@@ -44,6 +44,8 @@ class ObjectListing(Protocol):
 
     async def read_object(self, bucket: str, key: str, max_bytes: int, *, etag: str) -> bytes: ...
 
+    async def copy_object_in(self, source_bucket: str, source_key: str, key: str, *, etag: str) -> None: ...
+
 
 def prefix_of(channel: SyncChannel) -> str:
     folder = channel.settings.folder
@@ -141,6 +143,15 @@ class S3SnapshotSource:
             raise EntryChangedError(message)
 
         return content
+
+    async def preserve(self, channel: SyncChannel, path: str, version: str, key: str) -> bool:
+        """Copy the version ``version`` of ``path`` to the managed storage key ``key``."""
+        try:
+            await self._storage.copy_object_in(bucket_of(channel), path, key, etag=version)
+        except ObjectChangedError:
+            return False
+
+        return True
 
     def source_link(self, channel: SyncChannel, revision: str, path: str) -> str | None:
         del channel, revision, path

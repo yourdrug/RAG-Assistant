@@ -21,18 +21,13 @@ from application.documents.delete import delete_document_in_uow
 from application.sync.audience import apply_audience, audience_matches
 from application.sync.ports import StorageReadError
 from application.sync.rights import channel_rights_problem
+from application.sync.snapshot import select_snapshot
 from domain.knowledge.document import Document, SyncBinding
 from domain.knowledge.enums import DocumentStatus
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.knowledge.revision import SourceVersion
 from domain.shared.exceptions import AppError, BusinessRuleViolationError
-from domain.sync.ignore import (
-    MAX_RAGIGNORE_BYTES,
-    RAGIGNORE,
-    IgnoreRules,
-    InvalidIgnoreRulesError,
-    relative_to,
-)
+from domain.sync.ignore import InvalidIgnoreRulesError
 from domain.sync.reconcile import PublishedFile, reconcile
 from domain.sync.run import FileOutcome, FileOutcomeKind, SyncRunStatus
 
@@ -51,8 +46,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("default")
 
-# Document names are stored in a 255-character column.
-MAX_PATH_CHARS = 255
 MAX_DETAIL_CHARS = 300
 STOPPED_RUN_ERROR = "the worker stopped during the run"
 
@@ -219,15 +212,17 @@ class SyncRunService:
     async def reconcile_channel(self, state: RunState) -> None:
         channel = state.channel
         source = self._sources.for_channel(channel)
-        snapshot = await source.list_entries(channel, await source.resolve_revision(channel))
-        # The revision actually read (for S3, a hash of the listing rather than the request).
-        revision = snapshot.revision
+        selection = await select_snapshot(source, channel)
+        revision = selection.revision
         state.run.storage_revision = revision
-        rules = IgnoreRules(
-            channel.settings.exclusions,
-            await self.read_ragignore(source, channel, revision, snapshot.entries),
-        )
-        desired, keep = select_files(state, source, rules, snapshot.entries)
+        desired, keep = selection.desired, set(selection.unreadable)
+
+        for path in selection.excluded:
+            state.record(path, FileOutcomeKind.EXCLUDED)
+
+        for path in selection.unreadable:
+            state.record(path, FileOutcomeKind.FAILED, "file is too large or its path too long")
+
         documents, pending = await self.channel_documents(channel)
         await self.upgrade_legacy_versions(state, documents, desired, revision)
         published = {
@@ -254,38 +249,6 @@ class SyncRunService:
 
         for path, document_id in plan.deleted.items():
             await self.apply_delete(state, path, document_id)
-
-    async def read_ragignore(
-        self,
-        source: StorageSnapshotSource,
-        channel: SyncChannel,
-        revision: str,
-        entries: tuple[StorageEntry, ...],
-    ) -> dict[str, str]:
-        """Every ``.ragignore`` under the channel folder, keyed by its folder relative to the channel.
-
-        Any unreadable file fails the run: publishing without it would expose what it hides.
-        """
-        files: dict[str, str] = {}
-
-        for entry in entries:
-            relative = relative_to(entry.path, channel.settings.folder)
-
-            if not relative or relative.rsplit("/", 1)[-1] != RAGIGNORE:
-                continue
-
-            if entry.size > MAX_RAGIGNORE_BYTES:
-                raise InvalidIgnoreRulesError(entry.path, f"larger than {MAX_RAGIGNORE_BYTES} bytes")
-
-            try:
-                # The limit applies to the bytes actually read, not only to the listed size.
-                content = await source.read(channel, revision, entry, MAX_RAGIGNORE_BYTES)
-            except ValueError as exc:
-                raise InvalidIgnoreRulesError(entry.path, f"larger than {MAX_RAGIGNORE_BYTES} bytes") from exc
-
-            files[relative.rpartition("/")[0]] = content.decode("utf-8")
-
-        return files
 
     async def channel_documents(
         self, channel: SyncChannel
@@ -491,31 +454,6 @@ class SyncRunService:
             await delete_document_in_uow(uow, document_id, hooks)
 
         state.record(path, FileOutcomeKind.DELETED)
-
-
-def select_files(
-    state: RunState, source: StorageSnapshotSource, rules: IgnoreRules, entries: tuple[StorageEntry, ...]
-) -> tuple[dict[str, StorageEntry], set[str]]:
-    """Files the snapshot publishes, and published paths kept although they cannot be read now."""
-    desired: dict[str, StorageEntry] = {}
-    keep: set[str] = set()
-
-    for entry in entries:
-        relative = relative_to(entry.path, state.channel.settings.folder)
-
-        if not relative or not source.is_document(entry.path):
-            continue
-
-        if rules.is_excluded(relative):
-            state.record(entry.path, FileOutcomeKind.EXCLUDED)
-        elif entry.size > source.max_file_bytes or len(entry.path) > MAX_PATH_CHARS:
-            # A published version stays until the file fits again.
-            keep.add(entry.path)
-            state.record(entry.path, FileOutcomeKind.FAILED, "file is too large or its path too long")
-        else:
-            desired[entry.path] = entry
-
-    return desired, keep
 
 
 async def with_temp_file[T](content: bytes, path: str, use: Callable[[Path], Awaitable[T]]) -> T:

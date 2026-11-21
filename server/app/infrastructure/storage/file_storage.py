@@ -302,6 +302,24 @@ class S3Storage:
 
         return b"".join(blocks)
 
+    async def copy_object_in(self, source_bucket: str, source_key: str, key: str, *, etag: str) -> None:
+        """Copy exactly the listed version of an object of ``source_bucket`` to ``key``."""
+        async with self.operation() as client:
+            try:
+                await client.copy_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                    CopySource={"Bucket": source_bucket, "Key": source_key},
+                    CopySourceIfMatch=f'"{etag}"',
+                )
+            except ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+
+                if code in {"PreconditionFailed", "412", "NoSuchKey"}:
+                    raise ObjectChangedError(source_key) from exc
+
+                raise
+
     async def get_file_info(self, key: str) -> FileItem | None:
         async with self.operation() as client:
             try:
@@ -478,6 +496,9 @@ class LazyStorage:
 
     async def read_object(self, bucket: str, key: str, max_bytes: int, *, etag: str) -> bytes:
         return await self.ensure().read_object(bucket, key, max_bytes, etag=etag)
+
+    async def copy_object_in(self, source_bucket: str, source_key: str, key: str, *, etag: str) -> None:
+        await self.ensure().copy_object_in(source_bucket, source_key, key, etag=etag)
 
     async def download_to_temp(self, key: str) -> Path:
         return await self.ensure().download_to_temp(key)

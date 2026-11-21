@@ -471,15 +471,19 @@ class SQLAlchemyDocumentRepository:
         )
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    async def unlink_channel_documents(self, channel_id: int) -> int:
-        result = await self._db.execute(
+    async def unlink_document(self, document_id: int, source_path: str | None) -> None:
+        await self._db.execute(
             update(DocumentModel)
-            .where(DocumentModel.sync_channel_id == channel_id)
-            .values(**sync_columns(None))
+            .where(DocumentModel.id == document_id)
+            .values(
+                **sync_columns(None),
+                ingestion_key=None,
+                source_type=SourceType.FILE.value,
+                source_path=source_path or "",
+            )
             .execution_options(synchronize_session=False)
         )
         await self._db.flush()
-        return result.rowcount or 0
 
     async def mark_done_if_indexing(self, document_id: int) -> bool:
         """Mark document as DONE if it is currently INDEXING. Returns True if updated."""

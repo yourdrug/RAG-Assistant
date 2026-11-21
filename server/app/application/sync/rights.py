@@ -19,7 +19,9 @@ if TYPE_CHECKING:
     from domain.sync.channel import ChannelSettings
 
 
-CLIENT_VISIBILITIES = frozenset({DocumentVisibility.CLIENT_PRIVATE, DocumentVisibility.CLIENT_PUBLIC})
+# Owned by a client user. A ``client_public`` document is owned, like an uploaded one,
+# by the internal user who publishes it: every client reads it, whoever owns it.
+CLIENT_OWNED_VISIBILITIES = frozenset({DocumentVisibility.CLIENT_PRIVATE})
 
 
 async def channel_rights_problem(
@@ -68,7 +70,7 @@ async def owner_problem(uow: UnitOfWork, settings: ChannelSettings) -> str | Non
         return None
 
     owner = await uow.users.get_by_id(audience.owner_id)
-    expected = UserKind.CLIENT if audience.visibility in CLIENT_VISIBILITIES else UserKind.INTERNAL
+    expected = UserKind.CLIENT if audience.visibility in CLIENT_OWNED_VISIBILITIES else UserKind.INTERNAL
 
     if owner is None or not owner.is_active or owner.kind != expected:
         return f"the document owner is not an active {expected.value} user"

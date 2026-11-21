@@ -97,7 +97,8 @@ class DocumentRenameCommand:
         user_kind: str,
         copied_paths: list[str],
     ) -> tuple[DocumentDTO, str | None]:
-        doc = await uow.documents.get_by_id(document_id)
+        # Locked: a channel adopting the document meanwhile must not be overtaken.
+        doc = await uow.documents.get_by_id(document_id, for_update=True)
 
         if doc is None:
             msg = "Document"

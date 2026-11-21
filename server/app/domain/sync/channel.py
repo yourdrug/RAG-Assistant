@@ -143,11 +143,7 @@ class ChannelSettings:
 
         if relative_to(new.folder, self.folder) is None:
             reasons.append("folder")
-
-        added = set(new.exclusions) - set(self.exclusions)
-
-        if set(self.exclusions) - set(new.exclusions) or any(line.startswith("!") for line in added):
-            # A removed exclusion or a new re-inclusion lets more files in.
+        elif not self.exclusions_kept_by(new):
             reasons.append("exclusions")
 
         if new.audience != self.audience:
@@ -157,6 +153,35 @@ class ChannelSettings:
             reasons.append("responsible user")
 
         return reasons
+
+    def exclusions_kept_by(self, new: ChannelSettings) -> bool:
+        """``new`` provably excludes every file ``self`` excludes (``new.folder`` lies in ``self.folder``).
+
+        Rules are ordered (the last match wins), so only appended lines without ``!`` can
+        be proven to narrow. A deeper folder re-anchors the rules: it is accepted only
+        when the old rules mean the same from there, i.e. none is anchored to a path and
+        none excludes the new folder or a directory above it.
+        """
+        kept = len(self.exclusions)
+
+        if new.exclusions[:kept] != self.exclusions or any(
+            line.startswith("!") for line in new.exclusions[kept:]
+        ):
+            return False
+
+        if new.folder == self.folder:
+            return True
+
+        relative = relative_to(new.folder, self.folder) or ""
+        return not self.rules().excludes_directory(relative) and all(
+            matches_at_any_depth(line) for line in self.exclusions
+        )
+
+
+def matches_at_any_depth(line: str) -> bool:
+    """A ``.gitignore`` line whose meaning does not depend on the folder it is applied from."""
+    body = line.removeprefix("!").removesuffix("/").removeprefix("**/")
+    return bool(body) and "/" not in body
 
 
 @dataclass

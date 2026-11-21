@@ -97,6 +97,10 @@ class FakeStorage:
 
         return content
 
+    async def preserve(self, channel: SyncChannel, path: str, version: str, key: str) -> bool:
+        del channel, path, version, key
+        return False
+
     def source_link(self, channel: SyncChannel, revision: str, path: str) -> str | None:
         return channel.settings.location.file_url(revision, path)
 
@@ -469,6 +473,25 @@ async def test_narrowed_audience_applies_to_documents_at_once() -> None:
     # The next run re-indexes it so the vector payloads carry the new audience too.
     assert await world.sync() == SyncRunStatus.SUCCEEDED
     assert (await world.last_outcomes()) == {"docs/a.md": FileOutcomeKind.UPDATED}
+
+
+@pytest.mark.asyncio
+async def test_widened_audience_never_reaches_documents_outside_the_new_scope() -> None:
+    world = World({"docs/a.md": "Альфа", "docs/sub/b.md": "Бета"})
+    group = ChannelAudience(DocumentVisibility.INTERNAL_GROUP, group_id=world.uow.fake_groups.member_of[0])
+    channel = await world.channels.create(DEFAULT_SPACE_ID, world.settings(audience=group), ADMIN)
+    world.channel_id = channel.id or 0
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+
+    public = ChannelAudience(DocumentVisibility.INTERNAL_PUBLIC)
+    await world.channels.change(world.channel_id, world.settings(folder="docs/sub", audience=public), ADMIN)
+    documents = await world.documents()
+    # Outside the new folder: keeps the audience it was approved for until a run deletes it.
+    assert documents["docs/a.md"].visibility == DocumentVisibility.INTERNAL_GROUP
+    assert documents["docs/sub/b.md"].visibility == DocumentVisibility.INTERNAL_PUBLIC
+
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    assert sorted(await world.documents()) == ["docs/sub/b.md"]
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,11 @@ from application.ingestion import DocumentSyncService
 from application.ingestion.registry import s3_file_hash
 from application.ports.file_storage import FileItem
 from application.sync import SyncChannelService, SyncRunRequests
+from application.sync.channels import (
+    SKIP_MANUAL_EDITS,
+    SKIP_NOT_PUBLISHED,
+    UNLINKED_WITHOUT_SOURCE_WARNING,
+)
 from application.sync.ports import (
     EntryChangedError,
     SnapshotIncompleteError,
@@ -19,11 +24,19 @@ from application.sync.ports import (
     StorageSources,
 )
 from application.sync.runs import SyncRunService
+from domain.ingestion.raw_document import RawDocument
 from domain.ingestion.repositories import IngestionRegistryEntry
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
-from domain.sync.channel import ChannelAudience, ChannelSettings, S3Location, StorageKind, SyncChannel
+from domain.sync.channel import (
+    ChannelAudience,
+    ChannelDeletionMode,
+    ChannelSettings,
+    S3Location,
+    StorageKind,
+    SyncChannel,
+)
 from domain.sync.run import FileOutcomeKind, SyncRunStatus, SyncTrigger
 from infrastructure.storage.file_storage import ObjectChangedError, StoredObject
 from infrastructure.storage.s3_snapshot_source import S3SnapshotSource
@@ -72,6 +85,14 @@ class Bucket:
             raise self.error
 
         return [self.stored(key) for key in sorted(self.objects) if key.startswith(prefix)]
+
+    async def copy_object_in(self, source_bucket: str, source_key: str, key: str, *, etag: str) -> None:
+        self.buckets_read.append(source_bucket)
+
+        if source_key not in self.objects or etag_of(self.objects[source_key][0]) != etag:
+            raise ObjectChangedError(source_key)
+
+        self.objects[key] = self.objects[source_key]
 
     async def read_object(self, bucket: str, key: str, max_bytes: int, *, etag: str) -> bytes:
         self.buckets_read.append(bucket)
@@ -189,7 +210,9 @@ class S3World:
             self.uow.fake_users.add_user(user.user_id)
 
         self.bucket = Bucket(files)
-        self.channels = SyncChannelService(self.factory)
+        self.channels = SyncChannelService(
+            self.factory, sources=StorageSources({StorageKind.S3: s3_source(self.bucket)})
+        )
         self.requests = SyncRunRequests(self.factory)
         self.runs = SyncRunService(
             self.factory,
@@ -401,3 +424,108 @@ async def test_object_changed_after_listing_fails_the_file_and_is_retried() -> N
     # A .ragignore read is limited by its own size limit, whatever the listing said.
     with pytest.raises(ValueError, match="larger"):
         await source.read(channel, snapshot.revision, snapshot.entries[0], max_bytes=3)
+
+
+@pytest.mark.asyncio
+async def test_adoption_uses_the_runs_selection_and_never_hands_over_what_a_run_deletes() -> None:
+    world = S3World(
+        {
+            "docs/a.md": "Альфа",
+            "docs/drafts/x.md": "Черновик",
+            "docs/.ragignore": "drafts/\n",
+            "docs/b.md": "Б",
+        }
+    )
+    kept = await world.ingested("docs/drafts/x.md")
+    edited = await world.ingested("docs/b.md")
+    await world.uow.documents.set_has_manual_edits(edited.id or 0, value=True)
+    await world.ingested("docs/a.md")
+    await world.create()
+
+    report = await world.channels.adopt_ingested(world.channel_id, ADMIN)
+    assert report.adopted == ["docs/a.md"]
+    assert {item.path: item.reason for item in report.skipped} == {
+        "docs/drafts/x.md": SKIP_NOT_PUBLISHED,
+        "docs/b.md": SKIP_MANUAL_EDITS,
+    }
+
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    # The excluded document stayed manual and still exists.
+    document = await world.uow.documents.get_by_id(kept.id or 0)
+    assert document is not None
+    assert document.sync is None
+
+
+@pytest.mark.asyncio
+async def test_adoption_moves_nothing_when_the_prefix_cannot_be_read() -> None:
+    world = S3World({"docs/a.md": "Альфа"})
+    document = await world.ingested("docs/a.md")
+    await world.create()
+    world.bucket.error = OSError("connection reset")
+
+    with pytest.raises(SnapshotIncompleteError):
+        await world.channels.adopt_ingested(world.channel_id, ADMIN)
+
+    assert (await world.uow.documents.get_by_id(document.id or 0)).sync is None  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_unlinked_documents_keep_their_source_a_free_name_and_leave_cli_management() -> None:
+    world = S3World({"docs/a.md": "Альфа", "docs/b.md": "Бета"})
+    adopted = await world.ingested("docs/b.md")
+    await world.create()
+    await world.channels.adopt_ingested(world.channel_id, ADMIN)
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    documents = await world.documents()
+    # A manual document took the channel document's name and audience meanwhile.
+    manual = await world.uow.documents.save(
+        Document(filename="docs/a.md", space_id=DEFAULT_SPACE_ID, status=DocumentStatus.DONE)
+    )
+
+    assert await world.channels.delete(world.channel_id, ChannelDeletionMode.UNLINK, ADMIN) == 2
+    unlinked = await world.uow.documents.get_by_id(documents["docs/a.md"].id or 0)
+    assert unlinked is not None
+    assert (unlinked.sync, unlinked.filename) == (None, "docs/a(1).md")
+    assert unlinked.source_path.startswith("uploads/public/")
+    assert world.bucket.objects[unlinked.source_path][0] == "Альфа".encode()
+    assert (await world.uow.documents.get_by_id(manual.id or 0)).filename == "docs/a.md"  # type: ignore[union-attr]
+
+    # The adopted CLI document is no longer CLI-managed: its ingestion key is gone.
+    cli = await world.uow.documents.get_by_id(adopted.id or 0)
+    assert cli is not None
+    assert (cli.sync, cli.ingestion_key) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_unlinked_document_without_a_kept_source_says_it_cannot_be_reindexed() -> None:
+    world = S3World({"docs/a.md": "Альфа"})
+    await world.create()
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    [document] = (await world.documents()).values()
+    world.bucket.put("docs/a.md", "Изменено")
+
+    await world.channels.delete(world.channel_id, ChannelDeletionMode.UNLINK, ADMIN)
+    unlinked = await world.uow.documents.get_by_id(document.id or 0)
+    assert unlinked is not None
+    assert (unlinked.source_path, unlinked.warning_message) == ("", UNLINKED_WITHOUT_SOURCE_WARNING)
+
+
+@pytest.mark.asyncio
+async def test_cli_indexing_refuses_a_document_adopted_after_its_rows_were_resolved() -> None:
+    world = S3World({"docs/a.md": "Альфа"})
+    document = await world.ingested("docs/a.md")
+    sync = DocumentSyncService(world.factory)
+    await world.create()
+    await world.channels.adopt_ingested(world.channel_id, ADMIN)
+
+    with pytest.raises(BusinessRuleViolationError, match="sync channel"):
+        await sync.sync_one_document(
+            "a.md",
+            document.id or 0,
+            "s3://b/docs/a.md",
+            [RawDocument("CLI", {})],
+            pack_document=None,
+            visibility=DocumentVisibility.INTERNAL_PUBLIC,
+            owner_id=None,
+            group_id=None,
+        )

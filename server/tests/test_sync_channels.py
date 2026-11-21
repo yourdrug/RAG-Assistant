@@ -159,6 +159,34 @@ def test_removing_an_exclusion_is_widening() -> None:
         target.change_settings(settings(), user_id=RESPONSIBLE.user_id, is_admin=False)
 
 
+@pytest.mark.parametrize(
+    "before,folder,after",
+    [
+        # Reordering the same lines lets "!drafts/keep.md" win over "drafts/".
+        (("drafts/", "!drafts/keep.md"), "docs", ("!drafts/keep.md", "drafts/")),
+        # Anchored to the old folder: from "docs/api" it would no longer match.
+        (("api/internal/",), "docs/api", ("api/internal/",)),
+        # The old rules exclude the new folder itself.
+        (("api/",), "docs/api", ("api/",)),
+    ],
+    ids=["reordered", "anchored-rule", "excluded-folder"],
+)
+def test_responsible_user_cannot_widen_through_rule_order_or_a_deeper_folder(
+    before: tuple[str, ...], folder: str, after: tuple[str, ...]
+) -> None:
+    target = channel(1, exclusions=before)
+
+    with pytest.raises(BusinessRuleViolationError, match="exclusions"):
+        target.change_settings(settings(folder, after), user_id=RESPONSIBLE.user_id, is_admin=False)
+
+
+def test_deeper_folder_with_rules_meaning_the_same_there_is_narrowing() -> None:
+    target = channel(1, exclusions=("*.tmp", "drafts/"))
+    narrowed = settings("docs/api", ("*.tmp", "drafts/", "old/"))
+    target.change_settings(narrowed, user_id=RESPONSIBLE.user_id, is_admin=False)
+    assert target.settings == narrowed
+
+
 def test_other_users_cannot_change_a_channel_and_no_op_keeps_generation() -> None:
     target = channel(1)
 
@@ -296,6 +324,14 @@ async def test_channel_rights_are_checked_on_save() -> None:
     internal_owner = ChannelAudience(DocumentVisibility.CLIENT_PRIVATE, owner_id=RESPONSIBLE.user_id)
     with pytest.raises(BusinessRuleViolationError, match="owner"):
         await service.create(DEFAULT_SPACE_ID, settings("guides", audience=internal_owner), ADMIN)
+
+    # A client_public channel is owned like an uploaded client_public document: by an
+    # internal publisher, never by one (deactivatable) client.
+    published = ChannelAudience(DocumentVisibility.CLIENT_PUBLIC, owner_id=RESPONSIBLE.user_id)
+    await service.create(DEFAULT_SPACE_ID, settings("public", audience=published), ADMIN)
+    client_owned = ChannelAudience(DocumentVisibility.CLIENT_PUBLIC, owner_id=20)
+    with pytest.raises(BusinessRuleViolationError, match="owner"):
+        await service.create(DEFAULT_SPACE_ID, settings("public2", audience=client_owned), ADMIN)
 
     group = ChannelAudience(DocumentVisibility.INTERNAL_GROUP, group_id=UPLOADERS_GROUP_ID + 1)
     with pytest.raises(BusinessRuleViolationError, match="group"):

@@ -56,7 +56,8 @@ class DocumentDeleteCommand:
         self, document_id: int, user_id: int, user_role: str, user_kind: str = UserKind.INTERNAL
     ) -> None:
         async with self._uow_factory.create(master=True) as uow:
-            doc = await uow.documents.get_by_id(document_id)
+            # Locked: a channel adopting the document meanwhile must not be overtaken.
+            doc = await uow.documents.get_by_id(document_id, for_update=True)
 
             if doc is None:
                 msg = "Document"

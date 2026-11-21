@@ -112,8 +112,12 @@ class DocumentCrudRepository(Protocol):
         ...
 
     async def list_channel_documents(self, channel_id: int) -> list[Document]: ...
-    async def unlink_channel_documents(self, channel_id: int) -> int:
-        """Make the channel's documents manual, keeping their ids and access; returns the count."""
+    async def unlink_document(self, document_id: int, source_path: str | None) -> None:
+        """Make a channel document manual, keeping its id and access.
+
+        Neither a channel nor CLI ingestion manages it afterwards; ``source_path`` is
+        its preserved source file, if any.
+        """
         ...
 
 

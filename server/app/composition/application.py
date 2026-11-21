@@ -45,6 +45,7 @@ from application.jobs.service import JobService
 from application.search import SearchService
 from application.spaces import KnowledgeSpaceService
 from application.sync import SyncChannelService, SyncRunRequests
+from application.sync.ports import StorageSources
 from composition.service_providers import (
     build_config_inspector,
     create_ingestion_service,
@@ -187,8 +188,13 @@ class ApplicationContainer:
         pack_hooks = create_space_pack_hooks(infra)
         catalog = pack_catalog(infra)
         self.knowledge_space_service = KnowledgeSpaceService(uow, catalog, user_ctx_factory)
+        sync_sources = storage_sources(infra)
         self.sync_channel_service = SyncChannelService(
-            uow, pack_hooks, infra.services.cache_invalidator, frozenset(storage_sources(infra))
+            uow,
+            pack_hooks,
+            infra.services.cache_invalidator,
+            frozenset(sync_sources),
+            StorageSources(sync_sources),
         )
         self.sync_run_requests = SyncRunRequests(uow)
         password_hasher = BCryptPasswordHasher()

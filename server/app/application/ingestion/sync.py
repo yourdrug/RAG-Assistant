@@ -246,6 +246,8 @@ class DocumentSyncService:
                 entity_name = "Document"
                 raise EntityNotFoundError(entity_name, doc_id)
 
+            # Checked again under the lock: a channel may have adopted it since the rows were resolved.
+            document.ensure_manually_managed("ingest")
             visibility, owner_id, group_id = document.visibility, document.owner_id, document.group_id
             # Copy per target: one source can have several different ACL assignments.
             raw_chunks = [

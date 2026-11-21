@@ -14,9 +14,12 @@ import pytest
 import pytest_asyncio
 
 from application.sync import SyncChannelService, SyncRunRequests
+from application.sync.ports import StorageSources
 from config import StorageSection, SyncSection
 from domain.sync.channel import StorageKind
 from domain.sync.run import SyncRunStatus, SyncTrigger
+from infrastructure.storage.file_storage import ObjectChangedError
+from infrastructure.storage.s3_snapshot_source import S3SnapshotSource
 from main import app
 from presentation.api import dependencies as deps
 from presentation.api.auth_dependencies import get_current_user
@@ -28,6 +31,7 @@ from tests.fakes import DEFAULT_SPACE_ID, FakeUnitOfWorkFactory, admit_all_users
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from infrastructure.storage.file_storage import StoredObject
     from tests.fakes import FakeUnitOfWork
 
 
@@ -68,6 +72,20 @@ def channel_body(**changes: object) -> dict[str, object]:
     }
 
 
+class EmptyBucket:
+    async def list_objects(self, bucket: str, prefix: str) -> list[StoredObject]:
+        del bucket, prefix
+        return []
+
+    async def read_object(self, bucket: str, key: str, max_bytes: int, *, etag: str) -> bytes:
+        del bucket, max_bytes, etag
+        raise ObjectChangedError(key)
+
+    async def copy_object_in(self, source_bucket: str, source_key: str, key: str, *, etag: str) -> None:
+        del source_bucket, key, etag
+        raise ObjectChangedError(source_key)
+
+
 def mock_dependency() -> MagicMock:
     """Zero-argument override: FastAPI would read a mock's parameters as query fields."""
     return MagicMock()
@@ -88,7 +106,9 @@ async def api(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Api]:
     for user_id in (ADMIN_ID, RESPONSIBLE_ID, OTHER_ID):
         factory._uow.fake_users.add_user(user_id)
 
-    channels = SyncChannelService(factory)
+    channels = SyncChannelService(
+        factory, sources=StorageSources({StorageKind.S3: S3SnapshotSource(EmptyBucket(), (".md",), 1000)})
+    )
     requests = SyncRunRequests(factory)
     old_overrides = dict(app.dependency_overrides)
     app.dependency_overrides[deps.create_rate_limiter] = lambda: None

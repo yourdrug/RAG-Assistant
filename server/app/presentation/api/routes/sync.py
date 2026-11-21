@@ -39,6 +39,7 @@ from presentation.api.schemas.sync import (
     CreateChannelRequest,
     DeleteChannelResponse,
     FileOutcomeResponse,
+    SkippedPathResponse,
     StorageKindsResponse,
     SyncChannelResponse,
     SyncRunResponse,
@@ -221,7 +222,9 @@ async def adopt_ingested(
     """Move documents ingested from an S3 channel's prefix into the channel (administrators only)."""
     report = await service.adopt_ingested(channel_id, actor(current_user))
     return AdoptionResponse(
-        adopted=report.adopted, different_access=report.different_access, skipped=report.skipped
+        adopted=report.adopted,
+        different_access=report.different_access,
+        skipped=[SkippedPathResponse(path=item.path, reason=item.reason) for item in report.skipped],
     )
 
 

@@ -94,10 +94,16 @@ class DeleteChannelResponse(BaseModel):
     documents: int
 
 
+class SkippedPathResponse(BaseModel):
+    path: str
+    reason: str
+
+
 class AdoptionResponse(BaseModel):
     adopted: list[str]
     different_access: list[str]
-    skipped: list[str]
+    # Documents left manual, with the reason.
+    skipped: list[SkippedPathResponse]
 
 
 class WebhookResponse(BaseModel):

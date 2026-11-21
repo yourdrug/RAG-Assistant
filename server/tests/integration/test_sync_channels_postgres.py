@@ -152,7 +152,7 @@ async def test_channel_with_bound_documents_cannot_be_dropped_until_unlinked(pg_
             await SQLAlchemySyncChannelRepository(session).delete(channel.id)
 
     async with sessions.begin() as session:
-        assert await SQLAlchemyDocumentRepository(session).unlink_channel_documents(channel.id) == 1
+        await SQLAlchemyDocumentRepository(session).unlink_document(saved.id or 0, None)
         await SQLAlchemySyncChannelRepository(session).delete(channel.id)
 
     async with sessions.begin() as session:

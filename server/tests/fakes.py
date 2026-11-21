@@ -49,7 +49,7 @@ from domain.knowledge.chunk import (
     extract_chunk_context,
 )
 from domain.knowledge.document import DocumentProcessingUpdate
-from domain.knowledge.enums import DocumentStatus, DocumentVisibility, DomainKey, SearchMode
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility, DomainKey, SearchMode, SourceType
 from domain.knowledge.index_sync import OutboxStatus
 from domain.knowledge.repositories.chunk import (
     DEFAULT_CHUNK_INSERT_OPTIONS,
@@ -1034,13 +1034,12 @@ class FakeDocumentRepository:
     async def list_channel_documents(self, channel_id: int) -> list[Document]:
         return [d for d in self._documents.values() if d.sync is not None and d.sync.channel_id == channel_id]
 
-    async def unlink_channel_documents(self, channel_id: int) -> int:
-        documents = await self.list_channel_documents(channel_id)
-
-        for document in documents:
-            document.sync = None
-
-        return len(documents)
+    async def unlink_document(self, document_id: int, source_path: str | None) -> None:
+        document = self._documents[document_id]
+        document.sync = None
+        document.ingestion_key = None
+        document.source_type = SourceType.FILE.value
+        document.source_path = source_path or ""
 
     async def delete_internal_documents(self) -> int:
         ids = [
