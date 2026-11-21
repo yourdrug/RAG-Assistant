@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 import logging
 from pathlib import Path
 import tempfile
@@ -33,6 +34,24 @@ log = logging.getLogger("default")
 S3_MISSING_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
 
 S3_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    """One object of a listing; ``etag`` identifies its content version."""
+
+    key: str
+    size: int
+    last_modified: str
+    etag: str
+
+
+class ObjectChangedError(Exception):
+    """The object changed or disappeared after it was listed."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__(f"Object {key} changed after it was listed")
+        self.key = key
 
 
 class S3ClientKwargs(TypedDict):
@@ -228,32 +247,47 @@ class S3Storage:
                         )
         return sorted(items, key=lambda item: item.key)
 
-    async def list_all_files(self, prefix: str) -> list[FileItem]:
-        """Every object under ``prefix`` (any extension); a failed page raises instead of truncating."""
-        items: list[FileItem] = []
+    async def list_objects(self, bucket: str, prefix: str) -> list[StoredObject]:
+        """Every object under ``prefix`` of ``bucket``; a failed page raises instead of truncating.
+
+        The bucket is explicit: a channel keeps reading the bucket it was bound to even
+        when the configured default bucket changes.
+        """
+        objects: list[StoredObject] = []
         async with self.operation() as client:
             paginator = client.get_paginator("list_objects_v2")
 
-            async for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            async for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
 
                     if not key.endswith("/"):  # Folder placeholder objects hold no file.
-                        items.append(
-                            FileItem(
+                        objects.append(
+                            StoredObject(
                                 key,
-                                Path(key).name,
                                 obj["Size"],
                                 obj["LastModified"].isoformat(),
-                                Path(key).suffix.lower(),
+                                str(obj.get("ETag", "")).strip('"'),
                             )
                         )
-        return sorted(items, key=lambda item: item.key)
+        return sorted(objects, key=lambda item: item.key)
 
-    async def read_file(self, key: str, max_bytes: int) -> bytes:
-        """The whole object in memory; larger objects are refused, not truncated."""
+    async def read_object(self, bucket: str, key: str, max_bytes: int, *, etag: str) -> bytes:
+        """The object exactly as listed: refused when it changed since (``IfMatch``) or is too large."""
         async with self.operation() as client:
-            response = await client.get_object(Bucket=self.bucket, Key=key)
+            try:
+                response = await client.get_object(Bucket=bucket, Key=key, IfMatch=f'"{etag}"')
+            except ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+
+                if code in {"PreconditionFailed", "412", "NoSuchKey"}:
+                    raise ObjectChangedError(key) from exc
+
+                raise
+
+            if str(response.get("ETag", "")).strip('"') != etag:
+                raise ObjectChangedError(key)
+
             blocks: list[bytes] = []
             size = 0
             async with response["Body"] as body:
@@ -439,11 +473,11 @@ class LazyStorage:
     async def get_file_info(self, key: str) -> FileItem | None:
         return await self.ensure().get_file_info(key)
 
-    async def list_all_files(self, prefix: str) -> list[FileItem]:
-        return await self.ensure().list_all_files(prefix)
+    async def list_objects(self, bucket: str, prefix: str) -> list[StoredObject]:
+        return await self.ensure().list_objects(bucket, prefix)
 
-    async def read_file(self, key: str, max_bytes: int) -> bytes:
-        return await self.ensure().read_file(key, max_bytes)
+    async def read_object(self, bucket: str, key: str, max_bytes: int, *, etag: str) -> bytes:
+        return await self.ensure().read_object(bucket, key, max_bytes, etag=etag)
 
     async def download_to_temp(self, key: str) -> Path:
         return await self.ensure().download_to_temp(key)

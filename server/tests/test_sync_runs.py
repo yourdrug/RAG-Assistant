@@ -80,14 +80,22 @@ class FakeStorage:
             ),
         )
 
-    async def read(self, channel: SyncChannel, revision: str, entry: StorageEntry) -> bytes:
+    async def read(
+        self, channel: SyncChannel, revision: str, entry: StorageEntry, max_bytes: int | None = None
+    ) -> bytes:
         del channel, revision
         self.reads.append(entry.path)
 
         if self.on_read is not None:
             await self.on_read(entry)
 
-        return self.files[entry.path]
+        content = self.files[entry.path]
+
+        if len(content) > (self.max_file_bytes if max_bytes is None else max_bytes):
+            message = "too large"
+            raise ValueError(message)
+
+        return content
 
     def source_link(self, channel: SyncChannel, revision: str, path: str) -> str | None:
         return channel.settings.location.file_url(revision, path)

@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("default")
 
+# Temporary copies of overwritten objects during an upload batch.
+UPLOAD_BACKUPS_PREFIX = ".upload-backups/"
+
 
 class S3IngestionTargets:
     """Validates object keys before storage operations use them."""
@@ -59,7 +62,7 @@ class S3UploadService:
 
                 if await self._file_storage.get_file_info(key) is not None:
                     # Extensionless backups stay outside document ingestion prefixes.
-                    backup = f".upload-backups/{uuid4().hex}"
+                    backup = f"{UPLOAD_BACKUPS_PREFIX}{uuid4().hex}"
                     backups[key] = backup
                     await self._file_storage.copy_file(key, backup)
 

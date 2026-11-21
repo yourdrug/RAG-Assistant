@@ -18,17 +18,21 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# Storage keys of uploaded documents; their access is the document's, never a channel's.
+UPLOADS_PREFIX = "uploads/"
+
+
 def generate_storage_key(owner_id: int | None, group_id: int | None, document_id: int, filename: str) -> str:
     """Build the storage key path for a document."""
     safe_name = Path(filename).name
 
     if owner_id is not None:
-        return f"uploads/users/{owner_id}/{document_id}_{safe_name}"
+        return f"{UPLOADS_PREFIX}users/{owner_id}/{document_id}_{safe_name}"
 
     if group_id is not None:
-        return f"uploads/groups/{group_id}/{document_id}_{safe_name}"
+        return f"{UPLOADS_PREFIX}groups/{group_id}/{document_id}_{safe_name}"
 
-    return f"uploads/public/{document_id}_{safe_name}"
+    return f"{UPLOADS_PREFIX}public/{document_id}_{safe_name}"
 
 
 async def resolve_unique_filename(

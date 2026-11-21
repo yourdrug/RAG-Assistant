@@ -39,6 +39,7 @@ from presentation.api.schemas.sync import (
     CreateChannelRequest,
     DeleteChannelResponse,
     FileOutcomeResponse,
+    StorageKindsResponse,
     SyncChannelResponse,
     SyncRunResponse,
     WebhookResponse,
@@ -131,6 +132,17 @@ def channel_response(channel: SyncChannel, last_run: SyncRun | None = None) -> S
 
 def view_response(view: ChannelView) -> SyncChannelResponse:
     return channel_response(view.channel, view.last_run)
+
+
+@router.get("/storage-kinds", response_model=StorageKindsResponse)
+async def storage_kinds(
+    *,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[SyncChannelService, Depends(create_sync_channel_service)],
+) -> StorageKindsResponse:
+    """Kinds with a configured storage handler; a channel of another kind is refused."""
+    del current_user
+    return StorageKindsResponse(kinds=sorted(service.storage_kinds))
 
 
 @router.get("/channels", response_model=list[SyncChannelResponse])
@@ -253,6 +265,27 @@ def signature_valid(secret: str, body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature.removeprefix(SIGNATURE_PREFIX))
 
 
+async def read_limited_body(request: Request, limit: int) -> bytes:
+    """The body, refused with 413 as soon as it exceeds ``limit`` (never buffered beyond it)."""
+    declared = request.headers.get("content-length", "")
+
+    if declared.isdigit() and int(declared) > limit:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Body too large")
+
+    parts: list[bytes] = []
+    size = 0
+
+    async for part in request.stream():
+        size += len(part)
+
+        if size > limit:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Body too large")
+
+        parts.append(part)
+
+    return b"".join(parts)
+
+
 def pushed_branch(payload: object) -> tuple[int, str] | None:
     """Repository id and branch of a push; ``None`` for tags or malformed bodies."""
     if not isinstance(payload, dict):
@@ -283,9 +316,9 @@ async def github_webhook(
     if not secret:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook is not configured")
 
-    body = await request.body()
+    body = await read_limited_body(request, MAX_WEBHOOK_BYTES)
 
-    if len(body) > MAX_WEBHOOK_BYTES or not signature_valid(secret, body, x_hub_signature_256):
+    if not signature_valid(secret, body, x_hub_signature_256):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
 
     if x_github_event != "push" or not x_github_delivery:

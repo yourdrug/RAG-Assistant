@@ -126,6 +126,11 @@ class ChannelSettings:
         # Parse now: a channel never stores patterns it cannot apply.
         self.rules()
 
+        if isinstance(self.location, S3Location) and not self.folder:
+            # The bucket also holds the application's own objects (uploads, previews).
+            msg = "An S3 channel needs a folder: it never reads the whole bucket"
+            raise ValidationError(msg, field="folder")
+
     def rules(self, ragignore: dict[str, str] | None = None) -> IgnoreRules:
         return IgnoreRules(self.exclusions, ragignore)
 

@@ -51,6 +51,7 @@ from composition.service_providers import (
     create_space_pack_hooks,
     create_space_rag_router,
     pack_catalog,
+    storage_sources,
 )
 from composition.utils import missing_fields, require
 from config import AuthSection, process_section
@@ -186,7 +187,9 @@ class ApplicationContainer:
         pack_hooks = create_space_pack_hooks(infra)
         catalog = pack_catalog(infra)
         self.knowledge_space_service = KnowledgeSpaceService(uow, catalog, user_ctx_factory)
-        self.sync_channel_service = SyncChannelService(uow, pack_hooks, infra.services.cache_invalidator)
+        self.sync_channel_service = SyncChannelService(
+            uow, pack_hooks, infra.services.cache_invalidator, frozenset(storage_sources(infra))
+        )
         self.sync_run_requests = SyncRunRequests(uow)
         password_hasher = BCryptPasswordHasher()
         self.auth_service = AuthService(

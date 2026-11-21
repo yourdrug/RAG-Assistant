@@ -102,3 +102,9 @@ class AdoptionResponse(BaseModel):
 
 class WebhookResponse(BaseModel):
     queued: int
+
+
+class StorageKindsResponse(BaseModel):
+    """Storage kinds this deployment can synchronize; others cannot be created."""
+
+    kinds: list[StorageKind]

@@ -7,17 +7,18 @@ two concurrent changes can never create overlapping channels.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 from typing import TYPE_CHECKING
 
 from application.documents.delete import delete_document_in_uow
 from application.sync.audience import apply_audience, audience_matches
 from application.sync.rights import channel_rights_problem
+from application.sync.scope import ensure_channel_scope
 from domain.knowledge.document import SyncBinding
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
-from domain.sync.channel import ChannelDeletionMode, S3Location, SyncChannel
+from domain.sync.channel import ChannelDeletionMode, S3Location, StorageKind, SyncChannel
 from domain.sync.ownership import ensure_no_overlap
 
 
@@ -55,19 +56,33 @@ class SyncChannelService:
         uow_factory: UnitOfWorkFactory,
         pack_hooks: DocumentHooksResolver | None = None,
         cache_invalidator: CacheInvalidatorPort | None = None,
+        storage_kinds: frozenset[StorageKind] = frozenset(StorageKind),
     ) -> None:
         self._uow_factory = uow_factory
         self._pack_hooks = pack_hooks
         self._cache_invalidator = cache_invalidator
+        # Kinds with a configured storage handler: a channel of another kind could never run.
+        self._storage_kinds = storage_kinds
+
+    @property
+    def storage_kinds(self) -> frozenset[StorageKind]:
+        return self._storage_kinds
+
+    def ensure_runnable(self, channel: SyncChannel) -> None:
+        if channel.storage_kind not in self._storage_kinds:
+            msg = f"{channel.storage_kind.value} channels are not available in this deployment"
+            raise BusinessRuleViolationError(msg)
 
     async def create(self, space_id: int, settings: ChannelSettings, actor: UserContext) -> SyncChannel:
         if not actor.is_admin:
             msg = "Only an administrator can create a sync channel"
             raise BusinessRuleViolationError(msg)
 
+        channel = SyncChannel(space_id=space_id, settings=settings)
+        self.ensure_runnable(channel)
+
         async with self._uow_factory.create(master=True) as uow:
             space = await lock_space(uow, space_id)
-            channel = SyncChannel(space_id=space_id, settings=settings)
             await self.validate(uow, space, channel)
             channel = await uow.sync_channels.add(channel)
 
@@ -81,7 +96,13 @@ class SyncChannelService:
             space = await lock_space(uow, channel.space_id)
             channel = await existing_channel(uow, channel_id, for_update=True)
             previous = channel.settings
+
+            if isinstance(previous.location, S3Location) and isinstance(settings.location, S3Location):
+                # A channel stays bound to its bucket, whatever bucket is configured now.
+                settings = replace(settings, location=previous.location)
+
             channel.change_settings(settings, user_id=actor.user_id, is_admin=actor.is_admin)
+            self.ensure_runnable(channel)
 
             changed_acl: list[int] = []
 
@@ -229,6 +250,7 @@ class SyncChannelService:
 
     @staticmethod
     async def validate(uow: UnitOfWork, space: KnowledgeSpace, channel: SyncChannel) -> None:
+        ensure_channel_scope(channel.settings)
         problem = await channel_rights_problem(uow, space, channel.settings)
 
         if problem is not None:

@@ -15,6 +15,7 @@ import pytest_asyncio
 
 from application.sync import SyncChannelService, SyncRunRequests
 from config import StorageSection, SyncSection
+from domain.sync.channel import StorageKind
 from domain.sync.run import SyncRunStatus, SyncTrigger
 from main import app
 from presentation.api import dependencies as deps
@@ -253,3 +254,26 @@ async def test_s3_channel_uses_the_deployment_bucket_and_takes_no_repository_fie
     api.sign_in(ADMIN_ID, "admin")
     adopted = await api.client.post(f"/sync/channels/{channel_id}/adopt")
     assert adopted.json() == {"adopted": [], "different_access": [], "skipped": []}
+
+
+@pytest.mark.asyncio
+async def test_only_storage_kinds_with_a_handler_can_be_created(api: Api) -> None:
+    s3_only = SyncChannelService(api.factory, storage_kinds=frozenset({StorageKind.S3}))
+    app.dependency_overrides[deps.create_sync_channel_service] = lambda: s3_only
+    api.sign_in(ADMIN_ID, "admin")
+    assert (await api.client.get("/sync/storage-kinds")).json() == {"kinds": ["s3"]}
+    refused = await api.client.post("/sync/channels", json=channel_body())
+    assert refused.status_code == 409, refused.text
+    assert "not available" in refused.text
+    assert (await api.client.post("/sync/channels", json=S3_CHANNEL)).status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_oversized_webhook_is_refused_before_it_is_buffered(
+    api: Api, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await api.create_channel()
+    monkeypatch.setattr(sync_routes, "MAX_WEBHOOK_BYTES", 16)
+    response = await deliver(api, PUSH)
+    assert response.status_code == 413
+    assert api.uow.fake_sync_runs.runs == {}

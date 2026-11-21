@@ -40,14 +40,23 @@ class StorageHandlerMissingError(StorageReadError):
     """No handler is configured for the channel's storage kind."""
 
 
+class EntryChangedError(StorageReadError):
+    """A file changed after the listing was read; its listed version cannot be read anymore."""
+
+
 @dataclass(frozen=True)
 class StorageEntry:
     """One file of a revision; ``path`` is relative to the storage root."""
 
     path: str
-    # Identifies the content: equal versions mean equal bytes (a blob sha for GitHub).
+    # Identifies the content: equal versions mean equal bytes (a blob sha for GitHub,
+    # the ETag for S3). Never a weak signature such as size and modification time.
     version: str
     size: int
+    # The version in an earlier, weaker format (S3: size and LastModified, as CLI
+    # ingestion records it). A document published under it is moved to ``version``
+    # once instead of being re-indexed; it never makes two paths the same content.
+    legacy_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,7 +83,14 @@ class StorageSnapshotSource(Protocol):
         """All files under the channel folder; raises instead of returning a partial listing."""
         ...
 
-    async def read(self, channel: SyncChannel, revision: str, entry: StorageEntry) -> bytes: ...
+    async def read(
+        self, channel: SyncChannel, revision: str, entry: StorageEntry, max_bytes: int | None = None
+    ) -> bytes:
+        """Exactly the listed version of the file, at most ``max_bytes`` (default: ``max_file_bytes``).
+
+        Raises ``EntryChangedError`` when that version cannot be read anymore.
+        """
+        ...
 
     def source_link(self, channel: SyncChannel, revision: str, path: str) -> str | None: ...
 

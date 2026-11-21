@@ -11,7 +11,7 @@ happens only after the whole snapshot was read; a cut-short listing changes noth
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 from pathlib import Path
 import tempfile
@@ -229,6 +229,7 @@ class SyncRunService:
         )
         desired, keep = select_files(state, source, rules, snapshot.entries)
         documents, pending = await self.channel_documents(channel)
+        await self.upgrade_legacy_versions(state, documents, desired, revision)
         published = {
             path: PublishedFile(
                 doc.id or 0,
@@ -276,7 +277,12 @@ class SyncRunService:
             if entry.size > MAX_RAGIGNORE_BYTES:
                 raise InvalidIgnoreRulesError(entry.path, f"larger than {MAX_RAGIGNORE_BYTES} bytes")
 
-            content = await source.read(channel, revision, entry)
+            try:
+                # The limit applies to the bytes actually read, not only to the listed size.
+                content = await source.read(channel, revision, entry, MAX_RAGIGNORE_BYTES)
+            except ValueError as exc:
+                raise InvalidIgnoreRulesError(entry.path, f"larger than {MAX_RAGIGNORE_BYTES} bytes") from exc
+
             files[relative.rpartition("/")[0]] = content.decode("utf-8")
 
         return files
@@ -293,6 +299,37 @@ class SyncRunService:
             pending = await uow.chunks.staged_source_versions([doc.id for doc in documents if doc.id])
 
         return {doc.sync.path: doc for doc in documents if doc.sync is not None}, pending
+
+    async def upgrade_legacy_versions(
+        self,
+        state: RunState,
+        documents: dict[str, Document],
+        desired: dict[str, StorageEntry],
+        revision: str,
+    ) -> None:
+        """Move documents published under a file's legacy version to its current version.
+
+        A one-time transition (documents adopted from CLI ingestion) that spares
+        re-indexing unchanged files; ``documents`` is updated in place.
+        """
+        for path, document in documents.items():
+            entry = desired.get(path)
+            binding = document.sync
+
+            if (
+                entry is None
+                or binding is None
+                or entry.legacy_version is None
+                or binding.storage_version != entry.legacy_version
+                or document.id is None
+            ):
+                continue
+
+            async with self._uow_factory.create(master=True) as uow:
+                await self.fence(uow, state)
+                await uow.documents.set_storage_version(document.id, entry.version, revision)
+
+            document.sync = replace(binding, storage_version=entry.version, storage_revision=revision)
 
     # --- fenced writes --------------------------------------------------------------------
 

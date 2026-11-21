@@ -1,8 +1,11 @@
 """S3 prefix as the storage of a sync channel (the S3 implementation of the snapshot port).
 
-A file's version is ``<size>_<LastModified>``, the identity CLI ingestion already
-records, so documents adopted from a prefix keep their indexing. The revision is a
-hash of the sorted listing. Objects have no external link.
+A file's version is its ETag: it changes with the content, and two different objects
+do not share one, so a rename is never inferred from coincidental size and timestamp.
+CLI ingestion recorded ``<size>_<LastModified>``; that legacy version is reported
+next to it so adopted documents keep their indexing. Reads are pinned to the listed
+ETag and to the bucket the channel was bound to. The revision is a hash of the sorted
+listing. Objects have no external link.
 """
 
 from __future__ import annotations
@@ -12,18 +15,21 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from application.ingestion.registry import s3_file_hash
 from application.sync.ports import (
+    EntryChangedError,
     SnapshotIncompleteError,
     StorageAccessLostError,
     StorageEntry,
     StorageSnapshot,
 )
+from application.sync.scope import reserved_overlap
+from domain.sync.channel import S3Location
+from infrastructure.storage.file_storage import ObjectChangedError
 
 
 if TYPE_CHECKING:
-    from application.ports.file_storage import FileItem
     from domain.sync.channel import SyncChannel
+    from infrastructure.storage.file_storage import StoredObject
 
 LATEST = "latest"
 # Access problems: the run keeps every document instead of treating the prefix as empty.
@@ -34,14 +40,29 @@ ACCESS_ERROR_CODES = frozenset(
 
 @runtime_checkable
 class ObjectListing(Protocol):
-    async def list_all_files(self, prefix: str) -> list[FileItem]: ...
+    async def list_objects(self, bucket: str, prefix: str) -> list[StoredObject]: ...
 
-    async def read_file(self, key: str, max_bytes: int) -> bytes: ...
+    async def read_object(self, bucket: str, key: str, max_bytes: int, *, etag: str) -> bytes: ...
 
 
 def prefix_of(channel: SyncChannel) -> str:
     folder = channel.settings.folder
     return f"{folder}/" if folder else ""
+
+
+def legacy_version(item: StoredObject) -> str:
+    """The version CLI ingestion records (``s3_file_hash``)."""
+    return f"{item.size}_{item.last_modified}"
+
+
+def bucket_of(channel: SyncChannel) -> str:
+    location = channel.settings.location
+
+    if not isinstance(location, S3Location):
+        message = "Not an S3 channel"
+        raise StorageAccessLostError(message)
+
+    return location.bucket
 
 
 class S3SnapshotSource:
@@ -65,8 +86,15 @@ class S3SnapshotSource:
 
     async def list_entries(self, channel: SyncChannel, revision: str) -> StorageSnapshot:
         del revision
+        reserved = reserved_overlap(channel.settings.folder)
+
+        if reserved is not None:
+            # Saved before the rule existed: read nothing rather than the application's objects.
+            message = f"The channel folder includes the application's storage area '{reserved}'"
+            raise StorageAccessLostError(message)
+
         try:
-            items = await self._storage.list_all_files(prefix_of(channel))
+            items = await self._storage.list_objects(bucket_of(channel), prefix_of(channel))
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
 
@@ -80,13 +108,39 @@ class S3SnapshotSource:
             message = f"Listing was cut short ({type(exc).__name__})"
             raise SnapshotIncompleteError(message) from exc
 
-        entries = tuple(StorageEntry(item.key, s3_file_hash(item), item.size_bytes) for item in items)
+        if any(not item.etag for item in items):
+            message = "Listing has objects without an ETag"
+            raise SnapshotIncompleteError(message)
+
+        entries = tuple(
+            StorageEntry(item.key, item.etag, item.size, legacy_version=legacy_version(item))
+            for item in items
+        )
         digest = hashlib.sha256("\n".join(f"{e.path}\0{e.version}" for e in entries).encode()).hexdigest()
         return StorageSnapshot(digest[:40], entries)
 
-    async def read(self, channel: SyncChannel, revision: str, entry: StorageEntry) -> bytes:
-        del channel, revision
-        return await self._storage.read_file(entry.path, self._max_file_bytes)
+    async def read(
+        self, channel: SyncChannel, revision: str, entry: StorageEntry, max_bytes: int | None = None
+    ) -> bytes:
+        del revision
+        limit = self._max_file_bytes if max_bytes is None else max_bytes
+
+        if entry.size > limit:
+            message = f"Object {entry.path} is larger than {limit} bytes"
+            raise ValueError(message)
+
+        try:
+            content = await self._storage.read_object(
+                bucket_of(channel), entry.path, limit, etag=entry.version
+            )
+        except ObjectChangedError as exc:
+            raise EntryChangedError(str(exc)) from exc
+
+        if len(content) != entry.size:
+            message = f"Object {entry.path} changed after it was listed"
+            raise EntryChangedError(message)
+
+        return content
 
     def source_link(self, channel: SyncChannel, revision: str, path: str) -> str | None:
         del channel, revision, path

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING, Any
 
 from botocore.exceptions import ClientError
@@ -12,6 +13,7 @@ from application.ingestion.registry import s3_file_hash
 from application.ports.file_storage import FileItem
 from application.sync import SyncChannelService, SyncRunRequests
 from application.sync.ports import (
+    EntryChangedError,
     SnapshotIncompleteError,
     StorageAccessLostError,
     StorageSources,
@@ -20,9 +22,10 @@ from application.sync.runs import SyncRunService
 from domain.ingestion.repositories import IngestionRegistryEntry
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
-from domain.shared.exceptions import BusinessRuleViolationError
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 from domain.sync.channel import ChannelAudience, ChannelSettings, S3Location, StorageKind, SyncChannel
 from domain.sync.run import FileOutcomeKind, SyncRunStatus, SyncTrigger
+from infrastructure.storage.file_storage import ObjectChangedError, StoredObject
 from infrastructure.storage.s3_snapshot_source import S3SnapshotSource
 from tests.fakes import DEFAULT_SPACE_ID, FakeUnitOfWorkFactory, admit_all_users
 from tests.test_sync_runs import ADMIN, RESPONSIBLE, FakeStorage, TextProcessor
@@ -34,6 +37,10 @@ if TYPE_CHECKING:
     from tests.fakes import FakeUnitOfWork
 
 
+def etag_of(content: bytes) -> str:
+    return hashlib.md5(content).hexdigest()  # noqa: S324 - S3 ETags of single-part uploads
+
+
 class Bucket:
     """In-memory objects of a bucket; a modification bumps LastModified."""
 
@@ -41,6 +48,7 @@ class Bucket:
         self.objects: dict[str, tuple[bytes, str]] = {}
         self.clock = 0
         self.error: Exception | None = None
+        self.buckets_read: list[str] = []
 
         for key, text in files.items():
             self.put(key, text)
@@ -53,13 +61,24 @@ class Bucket:
         content, modified = self.objects[key]
         return FileItem(key, key.rsplit("/", 1)[-1], len(content), modified, "")
 
-    async def list_all_files(self, prefix: str) -> list[FileItem]:
+    def stored(self, key: str) -> StoredObject:
+        content, modified = self.objects[key]
+        return StoredObject(key, len(content), modified, etag_of(content))
+
+    async def list_objects(self, bucket: str, prefix: str) -> list[StoredObject]:
+        self.buckets_read.append(bucket)
+
         if self.error is not None:
             raise self.error
 
-        return [self.item(key) for key in sorted(self.objects) if key.startswith(prefix)]
+        return [self.stored(key) for key in sorted(self.objects) if key.startswith(prefix)]
 
-    async def read_file(self, key: str, max_bytes: int) -> bytes:
+    async def read_object(self, bucket: str, key: str, max_bytes: int, *, etag: str) -> bytes:
+        self.buckets_read.append(bucket)
+
+        if key not in self.objects or etag_of(self.objects[key][0]) != etag:
+            raise ObjectChangedError(key)
+
         content = self.objects[key][0]
 
         if len(content) > max_bytes:
@@ -118,9 +137,10 @@ async def test_s3_versions_and_revision_follow_object_changes() -> None:
     first = await source.list_entries(channel, "latest")
     # .ragignore and non-document files are listed: the run decides what they mean.
     assert {e.path for e in first.entries} == {"docs/a.md", "docs/.ragignore", "docs/img.png"}
-    assert next(e for e in first.entries if e.path == "docs/a.md").version == s3_file_hash(
-        bucket.item("docs/a.md")
-    )
+    entry = next(e for e in first.entries if e.path == "docs/a.md")
+    assert entry.version == etag_of("Альфа".encode())
+    # The version CLI ingestion recorded travels along for adopted documents.
+    assert entry.legacy_version == s3_file_hash(bucket.item("docs/a.md"))
     assert (
         source.is_document("docs/a.md"),
         source.is_document("docs/img.png"),
@@ -312,3 +332,72 @@ async def test_github_and_s3_channels_never_overlap_each_other() -> None:
         await world.channels.create(DEFAULT_SPACE_ID, s3_settings("docs/api"), ADMIN)
 
     await world.channels.create(DEFAULT_SPACE_ID, s3_settings("guides"), ADMIN)
+
+
+# --- scope, bucket and version pinning ------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_s3_channel_never_reads_the_application_storage_area() -> None:
+    world = S3World({"uploads/users/7/1_secret.md": "Секрет", "docs/a.md": "Альфа"})
+
+    with pytest.raises(ValidationError):
+        await world.create(folder="")
+
+    for folder in ("uploads", "uploads/users", "previews/x"):
+        with pytest.raises(BusinessRuleViolationError, match="storage area"):
+            await world.create(folder=folder)
+
+    await world.create(folder="docs")
+
+    with pytest.raises(BusinessRuleViolationError, match="storage area"):
+        await world.channels.change(world.channel_id, s3_settings("uploads"), ADMIN)
+
+    # A channel saved before the rule existed reads nothing at all.
+    legacy = SyncChannel(DEFAULT_SPACE_ID, s3_settings("uploads/users"), id=9)
+
+    with pytest.raises(StorageAccessLostError):
+        await s3_source(world.bucket).list_entries(legacy, "latest")
+
+
+@pytest.mark.asyncio
+async def test_s3_channel_reads_the_bucket_it_was_bound_to() -> None:
+    world = S3World({"docs/a.md": "Альфа"})
+    await world.create(location=S3Location("archive-bucket"))
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    assert set(world.bucket.buckets_read) == {"archive-bucket"}
+
+
+@pytest.mark.asyncio
+async def test_different_objects_with_equal_size_and_timestamp_are_not_a_rename() -> None:
+    world = S3World({"docs/a.md": "Альфа"})
+    await world.create()
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    old = (await world.documents())["docs/a.md"]
+    _, modified = world.bucket.objects.pop("docs/a.md")
+    # Same size and LastModified, other content.
+    world.bucket.objects["docs/b.md"] = ("Бетаа".encode()[: len("Альфа".encode())], modified)
+
+    assert await world.sync() == SyncRunStatus.SUCCEEDED
+    assert await world.last_outcomes() == {
+        "docs/b.md": FileOutcomeKind.ADDED,
+        "docs/a.md": FileOutcomeKind.DELETED,
+    }
+    assert (await world.documents())["docs/b.md"].id != old.id
+
+
+@pytest.mark.asyncio
+async def test_object_changed_after_listing_fails_the_file_and_is_retried() -> None:
+    world = S3World({"docs/a.md": "Альфа"})
+    await world.create()
+    source = s3_source(world.bucket)
+    channel = SyncChannel(DEFAULT_SPACE_ID, s3_settings(), id=world.channel_id)
+    snapshot = await source.list_entries(channel, "latest")
+    world.bucket.put("docs/a.md", "Альфа v2")
+
+    with pytest.raises(EntryChangedError):
+        await source.read(channel, snapshot.revision, snapshot.entries[0])
+
+    # A .ragignore read is limited by its own size limit, whatever the listing said.
+    with pytest.raises(ValueError, match="larger"):
+        await source.read(channel, snapshot.revision, snapshot.entries[0], max_bytes=3)
