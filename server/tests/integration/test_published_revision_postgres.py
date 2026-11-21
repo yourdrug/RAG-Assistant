@@ -9,12 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from tests.fakes import DEFAULT_SPACE_ID
 
-from domain.knowledge.revision import SourceVersion
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document_nodes import DocumentNode
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.knowledge.repositories.chunk import ChunkInsertOptions
+from domain.knowledge.revision import SourceVersion
 from infrastructure.database.models import ChunkModel, DocumentModel, DocumentNodeModel, StagedChunkModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
