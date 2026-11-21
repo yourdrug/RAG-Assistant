@@ -345,6 +345,8 @@ async def write_published_chunks(
     )
     # Parent scopes are replaced with the chunks: their ranges are these chunk indexes.
     await uow.chunks.replace_document_nodes(document_id, document_nodes(chunks))
+    # A staged revision changes the domain only when published (see the dispatcher).
+    await uow.documents.set_domain(document_id, options.doc_domain)
 
     if source_version is not None:
         await uow.documents.set_storage_version(document_id, source_version.version, source_version.revision)

@@ -82,8 +82,6 @@ async def persist_document_result(
 
         applied = await apply_pack_document(pack_hooks, uow, document_id, command.pack_document)
 
-        await uow.documents.set_domain(document_id, command.doc_domain)
-
         enrich_chunks_metadata(
             command.raw_chunks,
             document_id,

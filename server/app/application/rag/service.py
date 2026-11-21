@@ -13,6 +13,7 @@ from application.rag.dto import (
     RetrievalResult,
     SanitizedAnswer,
     SourceMetadata,
+    StorageSource,
     TerminalResponse,
 )
 from application.rag.ports import (
@@ -117,6 +118,9 @@ class RagService:
         self, request: RagRequest, result: RetrievalResult, meta: PipelineMetaEvent
     ) -> AsyncGenerator[StreamEvent]:
         context = self.context.build(result)
+        # Located now, with the retrieved evidence: a file changed or renamed while the
+        # answer is generated must not redirect its link to another revision.
+        located = await self.locate_storage_sources(result)
         answer: SanitizedAnswer | None = None
         ttft_sec: float | None = None
 
@@ -134,7 +138,7 @@ class RagService:
             message = "Generation finished without an answer"
             raise RuntimeError(message)
 
-        completed = await self.link_storage_sources(self.finalization.finalize(answer))
+        completed = link_storage_sources(self.finalization.finalize(answer), located)
         await self.cache.store(completed)
         yield SourcesEvent(
             sources=[dict(source) for source in completed.sources],
@@ -156,44 +160,19 @@ class RagService:
             aux_usage=auxiliary_usage(request),
         )
 
-    async def link_storage_sources(self, completed: CompletedAnswer) -> CompletedAnswer:
-        """Add the cited storage file to sources of channel documents.
+    async def locate_storage_sources(self, result: RetrievalResult) -> dict[int, StorageSource]:
+        """Storage files of the retrieved channel documents (already authorized for this user)."""
+        if self.storage_sources is None:
+            return {}
 
-        Sources come only from documents already authorized for this user, so the link
-        never reveals a document the user may not read. It names the cited revision.
-        """
-        if self.storage_sources is None or not completed.sources:
-            return completed
-
-        ids = [
-            source["document_id"]
-            for source in completed.sources
-            if isinstance(source.get("document_id"), int)
-        ]
-        located = await self.storage_sources.describe(ids)
-
-        if not located:
-            return completed
-
-        sources = []
-
-        for source in completed.sources:
-            info = located.get(source.get("document_id", 0))
-            linked = SourceMetadata(**source)
-
-            if info is not None:
-                linked.update(
-                    {
-                        "storage_branch": info.branch,
-                        "storage_path": info.path,
-                        "storage_revision": info.revision,
-                        "storage_url": info.url,
-                    }
-                )
-
-            sources.append(linked)
-
-        return replace(completed, sources=tuple(sources))
+        ids = sorted(
+            {
+                document_id
+                for scored in result.documents
+                if isinstance(document_id := scored.chunk.metadata.get("document_id"), int)
+            }
+        )
+        return await self.storage_sources.describe(ids) if ids else {}
 
     async def prepare(self, request: RagRequest) -> PreparedQuery | TerminalResponse:
         query = await self.preparation.condense(request)
@@ -354,3 +333,33 @@ def terminal_events(
     yield replace(
         meta, outcome=outcome, aux_tokens=auxiliary_tokens(request), aux_usage=auxiliary_usage(request)
     )
+
+
+def link_storage_sources(completed: CompletedAnswer, located: dict[int, StorageSource]) -> CompletedAnswer:
+    """Add the cited storage file, as located at retrieval, to sources of channel documents.
+
+    Sources come only from documents already authorized for this user, so the link
+    never reveals a document the user may not read. It names the cited revision.
+    """
+    if not located or not completed.sources:
+        return completed
+
+    sources = []
+
+    for source in completed.sources:
+        info = located.get(source.get("document_id", 0))
+        linked = SourceMetadata(**source)
+
+        if info is not None:
+            linked.update(
+                {
+                    "storage_branch": info.branch,
+                    "storage_path": info.path,
+                    "storage_revision": info.revision,
+                    "storage_url": info.url,
+                }
+            )
+
+        sources.append(linked)
+
+    return replace(completed, sources=tuple(sources))

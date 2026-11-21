@@ -231,6 +231,13 @@ class SQLAlchemyChunkRevisionRepository:
         if revision is None or revision.token != token:
             return None
 
+        doc_domain = (
+            await self._session.execute(
+                select(StagedChunkModel.doc_domain)
+                .where(StagedChunkModel.document_id == document_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
         replaced = await self._session.execute(
             select(ChunkModel.id).where(ChunkModel.document_id == document_id)
         )
@@ -255,5 +262,8 @@ class SQLAlchemyChunkRevisionRepository:
         await self._session.delete(revision)
         await self._session.flush()
         return RevisionSwitch(
-            published_ids=published_ids, replaced_ids=replaced_ids, source_version=source_version
+            published_ids=published_ids,
+            replaced_ids=replaced_ids,
+            source_version=source_version,
+            doc_domain=doc_domain,
         )

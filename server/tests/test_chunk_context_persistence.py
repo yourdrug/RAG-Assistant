@@ -75,7 +75,9 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts() -> No
         chunks=repository,
         vector_outbox=SimpleNamespace(enqueue=AsyncMock()),
         documents=SimpleNamespace(
-            update_status=AsyncMock(), get_by_id=AsyncMock(return_value=SimpleNamespace(space_id=3))
+            update_status=AsyncMock(),
+            set_domain=AsyncMock(),
+            get_by_id=AsyncMock(return_value=SimpleNamespace(space_id=3)),
         ),
     )
     context = make_context()

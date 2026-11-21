@@ -83,3 +83,5 @@ class RevisionSwitch:
     replaced_ids: tuple[int, ...]
     # The source version the published revision was made from, if any.
     source_version: SourceVersion | None = None
+    # The document domain the revision was classified into; the document takes it now.
+    doc_domain: str | None = None

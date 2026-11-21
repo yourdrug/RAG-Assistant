@@ -238,6 +238,7 @@ async def test_pipeline_replaces_nodes_with_chunks_and_drops_transient_path() ->
     uow.chunks.replace_document_nodes = AsyncMock()
     uow.vector_outbox.enqueue = AsyncMock()
     uow.documents.update_status = AsyncMock()
+    uow.documents.set_domain = AsyncMock()
     uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(space_id=3))
 
     await indexing.process_chunks_in_uow(

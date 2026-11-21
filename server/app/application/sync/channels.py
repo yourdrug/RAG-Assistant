@@ -246,16 +246,14 @@ class SyncChannelService:
                 if space_id is not None
                 else await uow.sync_channels.list_all()
             )
-            views = []
+            visible = [
+                channel
+                for channel in channels
+                if channel.id is not None and channel.can_manage(actor.user_id, is_admin=actor.is_admin)
+            ]
+            latest = await uow.sync_runs.latest_for_channels([channel.id or 0 for channel in visible])
 
-            for channel in channels:
-                if channel.id is None or not channel.can_manage(actor.user_id, is_admin=actor.is_admin):
-                    continue
-
-                runs = await uow.sync_runs.list_for_channel(channel.id, limit=1)
-                views.append(ChannelView(channel, runs[0] if runs else None))
-
-        return views
+        return [ChannelView(channel, latest.get(channel.id or 0)) for channel in visible]
 
     async def adopt_ingested(self, channel_id: int, actor: UserContext) -> AdoptionReport:
         """Bind documents CLI ingestion made from an S3 channel's prefix to the channel.

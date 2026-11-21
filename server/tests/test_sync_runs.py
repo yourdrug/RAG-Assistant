@@ -12,7 +12,7 @@ import pytest
 from application.documents.dto import PersistDocumentCommand, PreparedDocument
 from application.documents.persistence import persist_document_result
 from application.rag.dto import CompletedAnswer, SourceMetadata, StorageSource
-from application.rag.service import RagService
+from application.rag.service import RagService, link_storage_sources
 from application.sync import SyncChannelService, SyncRunRequests
 from application.sync.ports import SnapshotIncompleteError, StorageEntry, StorageSnapshot, StorageSources
 from application.sync.requests import ORPHANED_RUN_ERROR
@@ -225,6 +225,10 @@ class World:
         [run, *_] = await self.uow.sync_runs.list_for_channel(self.channel_id)
         return {outcome.path: outcome.kind for outcome in run.outcomes}
 
+    async def last_counts(self) -> dict[str, int]:
+        [run, *_] = await self.uow.sync_runs.list_for_channel(self.channel_id)
+        return run.counts()
+
 
 async def synced_world(files: dict[str, str], exclusions: tuple[str, ...] = ()) -> World:
     world = World(files, exclusions)
@@ -273,7 +277,9 @@ async def test_first_run_publishes_documents_of_the_folder_only() -> None:
     world.storage.reads.clear()
     assert await world.sync() == SyncRunStatus.SUCCEEDED
     assert world.storage.reads == []
-    assert set((await world.last_outcomes()).values()) == {FileOutcomeKind.UNCHANGED}
+    # Unchanged files are counted, not stored path by path on every run.
+    assert await world.last_outcomes() == {}
+    assert await world.last_counts() == {"unchanged": 2}
 
 
 @pytest.mark.asyncio
@@ -347,7 +353,7 @@ async def test_version_is_published_only_with_its_text_and_failed_indexing_is_re
     world.storage.reads.clear()
     assert await world.sync() == SyncRunStatus.SUCCEEDED
     assert world.storage.reads == []
-    assert await world.last_outcomes() == {"docs/a.md": FileOutcomeKind.UNCHANGED}
+    assert (await world.last_outcomes(), await world.last_counts()) == ({}, {"unchanged": 1})
 
     # Indexing gives up: the staged revision is abandoned, the old text stays published.
     staged = await world.uow.chunks.get_staged_revision(document.id or 0)
@@ -609,7 +615,7 @@ async def test_source_links_open_the_cited_revision_even_after_a_rename() -> Non
 
 
 @pytest.mark.asyncio
-async def test_answer_sources_get_links_only_for_the_documents_they_already_cite() -> None:
+async def test_answer_sources_link_the_storage_file_located_at_retrieval() -> None:
     describe = AsyncMock(return_value={7: StorageSource("main", "docs/a.md", "c1", "https://github.com/x")})
     service = RagService(
         **dict.fromkeys(
@@ -628,6 +634,16 @@ async def test_answer_sources_get_links_only_for_the_documents_they_already_cite
         ),
         storage_sources=MagicMock(describe=describe),
     )
+    retrieved = MagicMock(
+        documents=[
+            MagicMock(chunk=MagicMock(metadata={"document_id": 8})),
+            MagicMock(chunk=MagicMock(metadata={"document_id": 7})),
+        ]
+    )
+    located = await service.locate_storage_sources(retrieved)
+    describe.assert_awaited_once_with([7, 8])
+    # Whatever happens to the file during generation, the answer keeps this location.
+    describe.return_value = {7: StorageSource("main", "docs/b.md", "c2", "https://github.com/y")}
     completed = CompletedAnswer(
         answer=MagicMock(),
         sources=(
@@ -636,7 +652,6 @@ async def test_answer_sources_get_links_only_for_the_documents_they_already_cite
         ),
         confidence=0.9,
     )
-    linked = await service.link_storage_sources(completed)
-    describe.assert_awaited_once_with([7, 8])
+    linked = link_storage_sources(completed, located)
     assert linked.sources[0]["storage_url"] == "https://github.com/x"
     assert "storage_url" not in linked.sources[1]

@@ -321,7 +321,9 @@ async def test_adoption_keeps_ids_access_and_indexing_and_is_idempotent() -> Non
     # The private assignment stays manual, so the channel publishes its own document for b.md.
     assert await world.sync() == SyncRunStatus.SUCCEEDED
     outcomes = await world.last_outcomes()
-    assert outcomes["docs/a.md"] == FileOutcomeKind.UNCHANGED
+    assert "docs/a.md" not in outcomes  # unchanged: counted only
+    [run, *_] = await world.uow.sync_runs.list_for_channel(world.channel_id)
+    assert run.counts()["unchanged"] == 1
     assert outcomes["docs/stale.md"] == FileOutcomeKind.UPDATED
     assert (await world.documents())["docs/stale.md"].id == stale.id
 

@@ -289,7 +289,6 @@ class DocumentSyncService:
             await uow.documents.set_source_path(
                 doc_id, src.split("/", 3)[3] if src.startswith("s3://") else src
             )
-            await uow.documents.set_domain(doc_id, chunk_domain)
             await process_chunks(
                 uow_factory=self._uow_factory,
                 document_id=doc_id,

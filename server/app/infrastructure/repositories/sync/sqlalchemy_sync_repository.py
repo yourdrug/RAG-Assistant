@@ -157,6 +157,7 @@ def to_run(orm: SyncRunModel) -> SyncRun:
             FileOutcome(item["path"], FileOutcomeKind(item["kind"]), item.get("detail"))
             for item in orm.outcomes
         ),
+        tallies=dict(orm.tallies or {}),
         creation_date=orm.creation_date,
         started_at=orm.started_at,
         finished_at=orm.finished_at,
@@ -176,6 +177,7 @@ def run_columns(run: SyncRun) -> dict[str, Any]:
             {"path": item.path, "kind": item.kind.value, **({"detail": item.detail} if item.detail else {})}
             for item in run.outcomes
         ],
+        "tallies": dict(run.tallies),
         "started_at": run.started_at,
         "finished_at": run.finished_at,
     }
@@ -226,6 +228,18 @@ class SQLAlchemySyncRunRepository:
         )
         orm = result.scalar_one_or_none()
         return to_run(orm) if orm is not None else None
+
+    async def latest_for_channels(self, channel_ids: list[int]) -> dict[int, SyncRun]:
+        if not channel_ids:
+            return {}
+
+        result = await self._db.execute(
+            select(SyncRunModel)
+            .where(SyncRunModel.channel_id.in_(channel_ids))
+            .distinct(SyncRunModel.channel_id)
+            .order_by(SyncRunModel.channel_id, SyncRunModel.id.desc())
+        )
+        return {orm.channel_id: to_run(orm) for orm in result.scalars().all()}
 
     async def list_for_channel(self, channel_id: int, limit: int = 20) -> list[SyncRun]:
         result = await self._db.execute(

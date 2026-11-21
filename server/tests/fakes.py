@@ -314,6 +314,9 @@ async def publish_revision(uow: FakeUnitOfWork, document_id: int, token: str) ->
     """Publish a staged revision and record its source version, as the dispatcher does."""
     switch = await uow.chunks.publish_staged_revision(document_id, token)
 
+    if switch is not None and switch.doc_domain is not None:
+        await uow.documents.set_domain(document_id, switch.doc_domain)
+
     if switch is not None and switch.source_version is not None:
         await uow.documents.set_storage_version(
             document_id, switch.source_version.version, switch.source_version.revision
@@ -445,7 +448,10 @@ class FakeChunkRepository:
         self._chunks = [c for c in self._chunks if c["document_id"] != document_id] + staged["rows"]
         self.document_nodes[document_id] = staged["nodes"]
         return RevisionSwitch(
-            tuple(row["id"] for row in staged["rows"]), replaced, staged.get("source_version")
+            tuple(row["id"] for row in staged["rows"]),
+            replaced,
+            staged.get("source_version"),
+            staged["rows"][0]["doc_domain"] if staged["rows"] else None,
         )
 
     async def replace_document_nodes(self, document_id: int, nodes: list[DocumentNode]) -> None:
@@ -1989,6 +1995,15 @@ class FakeSyncRunRepository:
             ),
             None,
         )
+
+    async def latest_for_channels(self, channel_ids: list[int]) -> dict[int, SyncRun]:
+        latest: dict[int, SyncRun] = {}
+
+        for run in sorted(self.runs.values(), key=lambda r: r.id or 0):
+            if run.channel_id in channel_ids:
+                latest[run.channel_id] = deepcopy(run)
+
+        return latest
 
     async def list_for_channel(self, channel_id: int, limit: int = 20) -> list[SyncRun]:
         runs = sorted(

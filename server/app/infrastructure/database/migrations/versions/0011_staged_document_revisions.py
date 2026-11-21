@@ -104,6 +104,26 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Refuse while a revision switch is unfinished: dropping it would split SQL and Qdrant.
+
+    A staged revision is still being indexed, or a publish/rename entry has yet to reach
+    Qdrant (hidden new points, visible old ones, stale names). Let the dispatcher finish
+    (or discard the revisions) first; only completed entries are removed.
+    """
+    bind = op.get_bind()
+    staged = bind.exec_driver_sql("SELECT count(*) FROM document_staged_revisions").scalar()
+    unfinished = bind.exec_driver_sql(
+        "SELECT count(*) FROM vector_store_outbox "
+        "WHERE operation IN ('rename_document', 'publish_revision') AND status <> 'done'"
+    ).scalar()
+
+    if staged or unfinished:
+        msg = (
+            f"{staged} staged revisions and {unfinished} unfinished publish/rename outbox entries exist; "
+            "let the outbox dispatcher finish them before downgrading"
+        )
+        raise RuntimeError(msg)
+
     op.execute("DELETE FROM vector_store_outbox WHERE operation IN ('rename_document', 'publish_revision')")
     replace_operation_check(OLD_OPERATIONS)
     op.drop_table("chunk_staging")

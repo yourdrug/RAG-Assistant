@@ -347,6 +347,7 @@ class SyncRunModel(BaseModel):
         ),
         CheckConstraint("trigger IN ('manual', 'webhook', 'schedule')", name="sync_runs_trigger_check"),
         CheckConstraint("jsonb_typeof(outcomes) = 'array'", name="sync_runs_outcomes_array"),
+        CheckConstraint("jsonb_typeof(tallies) = 'object'", name="sync_runs_tallies_object"),
         Index("idx_sync_runs_channel", "channel_id", "id"),
         Index(
             "ux_sync_runs_delivery",
@@ -368,6 +369,10 @@ class SyncRunModel(BaseModel):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     outcomes: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    # Counts of outcome kinds not stored per path (unchanged, excluded).
+    tallies: Mapped[dict[str, int]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

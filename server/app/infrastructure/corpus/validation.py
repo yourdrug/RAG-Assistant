@@ -81,6 +81,11 @@ def validate_corpus_point(
         message = "Selected corpus contains unknown or duplicate chunk IDs"
         raise ValidationError(message)
 
+    if metadata.get(STAGED_KEY) is True:
+        # Search filters hidden points out: a published chunk must be visible.
+        message = "Selected corpus hides a published PostgreSQL chunk"
+        raise ValidationError(message)
+
     if any(key not in metadata or metadata[key] != row[key] for key in ACL_FIELDS):
         message = "Selected corpus ACL/content metadata differs from PostgreSQL"
         raise ValidationError(message)

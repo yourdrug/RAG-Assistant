@@ -433,6 +433,10 @@ class OutboxDispatcher:
                 log.info("Staged revision of document %d was superseded; not published", document_id)
                 return
 
+            if switch.doc_domain is not None:
+                # The document's domain follows the text search serves, not a pending one.
+                await uow.documents.set_domain(document_id, switch.doc_domain)
+
             if switch.source_version is not None:
                 # Only now does the document serve the text of this source version.
                 await uow.documents.set_storage_version(
@@ -457,6 +461,16 @@ class OutboxDispatcher:
             len(switch.published_ids),
             len(switch.replaced_ids),
         )
+        # Switch the points at once, still under the document lock: search and SQL serve
+        # different revisions only for these two calls, not until the next dispatch cycle.
+        # The committed PUBLISH_REVISION entry repeats them (idempotently) if they fail.
+        try:
+            await self._vector_store.reveal_points(list(switch.published_ids))
+            await self._vector_store.delete_by_ids(list(switch.replaced_ids))
+        except Exception as exc:  # noqa: BLE001 - The durable entry retries; logged.
+            log.warning(
+                "Document %d: immediate point switch failed, the outbox retries: %s", document_id, exc
+            )
 
     async def current_slice_chunks(
         self, points: list[dict[str, Any]], document_id: int, token: str | None = None

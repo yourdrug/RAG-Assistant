@@ -76,6 +76,7 @@ def contract_uow(events: list[str], published: list[ChunkRecord]) -> Mock:
     uow.chunks.replace_document_nodes = AsyncMock(side_effect=replace_nodes)
     uow.vector_outbox.enqueue = AsyncMock(side_effect=enqueue)
     uow.documents.update_status = AsyncMock(side_effect=update)
+    uow.documents.set_domain = AsyncMock()
     uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(space_id=3))
     return uow
 

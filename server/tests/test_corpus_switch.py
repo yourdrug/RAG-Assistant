@@ -166,6 +166,17 @@ def test_candidate_ignores_hidden_points_of_unpublished_revisions() -> None:
         client.close()
 
 
+def test_candidate_rejects_a_published_chunk_whose_point_is_hidden() -> None:
+    client, identity, row = fixture_corpus()
+    try:
+        client.set_payload("docs_v1", {STAGED_KEY: True}, points=[row["id"]], key="metadata")
+
+        with pytest.raises(ValidationError, match="hides"):
+            validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, rows=[row])
+    finally:
+        client.close()
+
+
 @pytest.mark.asyncio
 async def test_request_keeps_old_client_and_cache_namespace_until_finished() -> None:
     registry = MLClientRegistry()

@@ -11,6 +11,7 @@ happens only after the whole snapshot was read; a cut-short listing changes noth
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from dataclasses import dataclass, field, replace
 import logging
 from pathlib import Path
@@ -29,7 +30,7 @@ from domain.knowledge.revision import SourceVersion
 from domain.shared.exceptions import AppError, BusinessRuleViolationError
 from domain.sync.ignore import InvalidIgnoreRulesError
 from domain.sync.reconcile import PublishedFile, reconcile
-from domain.sync.run import FileOutcome, FileOutcomeKind, SyncRunStatus
+from domain.sync.run import TALLIED_KINDS, FileOutcome, FileOutcomeKind, SyncRunStatus
 
 
 if TYPE_CHECKING:
@@ -90,8 +91,13 @@ class RunState:
     channel: SyncChannel
     pack_key: str
     outcomes: list[FileOutcome] = field(default_factory=list)
+    tallies: Counter[str] = field(default_factory=Counter)
 
     def record(self, path: str, kind: FileOutcomeKind, detail: str | None = None) -> None:
+        if kind in TALLIED_KINDS:
+            self.tallies[kind.value] += 1
+            return
+
         self.outcomes.append(FileOutcome(path, kind, detail[:MAX_DETAIL_CHARS] if detail else None))
 
 
@@ -193,6 +199,7 @@ class SyncRunService:
                 return run.status if run is not None else SyncRunStatus.CANCELLED
 
             run.storage_revision = state.run.storage_revision
+            run.tallies = dict(state.tallies)
 
             if status == SyncRunStatus.CANCELLED:
                 run.outcomes = tuple(state.outcomes)
@@ -333,8 +340,14 @@ class SyncRunService:
     ) -> None:
         """Index one file as a whole; until it is indexed, search keeps its previous version."""
         channel = state.channel
+        # Only a document this run created may be marked failed; never a published one.
+        created: Document | None = None
         try:
-            document = existing or await self.create_document(state, entry.path)
+            document = existing
+
+            if document is None:
+                document = created = await self.create_document(state, entry.path)
+
             content = await source.read(channel, revision, entry)
             processor = self._processors(state.pack_key)
             prepared = await with_temp_file(
@@ -371,7 +384,7 @@ class SyncRunService:
         except (RunSupersededError, RunRejectedError):
             raise
         except Exception as exc:  # noqa: BLE001 - One file's failure never cancels the others; recorded, logged.
-            await self.mark_failed(state, existing, entry.path, exc)
+            await self.mark_failed(state, created, entry.path, exc)
             return
 
         state.record(entry.path, FileOutcomeKind.UPDATED if existing else FileOutcomeKind.ADDED)
@@ -394,25 +407,22 @@ class SyncRunService:
                 )
             )
 
-    async def mark_failed(
-        self, state: RunState, existing: Document | None, path: str, exc: Exception
-    ) -> None:
+    async def mark_failed(self, state: RunState, created: Document | None, path: str, exc: Exception) -> None:
+        """Record the failure; a document this run created shows it too.
+
+        A published version keeps serving search: only the failure is recorded for it.
+        """
         log.warning("Sync run %s: file failed (%s)", state.run.id, type(exc).__name__)
         state.record(path, FileOutcomeKind.FAILED, describe(exc))
 
-        if existing is not None:
-            # A published version keeps serving search; only the failure is shown.
+        if created is None or created.id is None:
             return
 
         async with self._uow_factory.create(master=True) as uow:
             await self.fence(uow, state)
-            documents = await uow.documents.list_channel_documents(state.channel.id or 0)
-            created = next((d for d in documents if d.sync is not None and d.sync.path == path), None)
-
-            if created is not None and created.id is not None:
-                await uow.documents.update_status(
-                    created.id, status=DocumentStatus.FAILED.value, error=describe(exc)
-                )
+            await uow.documents.update_status(
+                created.id, status=DocumentStatus.FAILED.value, error=describe(exc)
+            )
 
     async def apply_rename(self, state: RunState, rename: Rename, entry: StorageEntry, revision: str) -> None:
         """Same content under a new path: keep the document, its id and its vectors."""

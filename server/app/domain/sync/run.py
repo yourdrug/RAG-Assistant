@@ -52,6 +52,10 @@ class FileOutcomeKind(StrEnum):
     FAILED = "failed"
 
 
+# Kinds repeated for most files on every run: stored as counts, not per path.
+TALLIED_KINDS = frozenset({FileOutcomeKind.UNCHANGED, FileOutcomeKind.EXCLUDED})
+
+
 @dataclass(frozen=True)
 class FileOutcome:
     path: str
@@ -72,7 +76,9 @@ class SyncRun:
     # The storage revision read by the run (a commit for GitHub).
     storage_revision: str | None = None
     error: str | None = None
+    # Changes and problems by path; tallied kinds only as counts in ``tallies``.
     outcomes: tuple[FileOutcome, ...] = ()
+    tallies: dict[str, int] = field(default_factory=dict)
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -82,7 +88,9 @@ class SyncRun:
         return self.status in TERMINAL_RUN_STATUSES
 
     def counts(self) -> dict[str, int]:
-        return dict(Counter(outcome.kind.value for outcome in self.outcomes))
+        counts = Counter(outcome.kind.value for outcome in self.outcomes)
+        counts.update(self.tallies)
+        return dict(counts)
 
     def start(self, storage_revision: str | None = None) -> None:
         self.require(SyncRunStatus.QUEUED)

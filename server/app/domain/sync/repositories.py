@@ -48,3 +48,7 @@ class SyncRunRepository(Protocol):
     async def list_for_channel(self, channel_id: int, limit: int = 20) -> list[SyncRun]:
         """Newest first."""
         ...
+
+    async def latest_for_channels(self, channel_ids: list[int]) -> dict[int, SyncRun]:
+        """The newest run of each of these channels, in one query."""
+        ...

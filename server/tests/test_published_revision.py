@@ -150,13 +150,13 @@ async def test_document_stays_searchable_until_staged_revision_is_published() ->
     ]
 
     assert await dispatch_pending(factory, dispatcher) == [OutboxOperation.UPSERT_CHUNKS.value]
-    # Every staged point is indexed and the revision is published in SQL; its points
-    # are still hidden and the old ones still searchable until the publish entry runs.
+    # Every staged point is indexed, the revision is published in SQL and its points
+    # are switched right after: SQL and search serve the same revision again.
     assert await published_texts(factory) == ["Статья 1. Новая.", "Статья 2. Без изменений."]
-    assert vector.searchable() == {1: "Статья 1. Старая.", 2: "Статья 2. Без изменений."}
-    assert {pid for pid, point in vector.points.items() if point[STAGED_KEY]} == {3, 4}
+    assert vector.searchable() == {3: "Статья 1. Новая.", 4: "Статья 2. Без изменений."}
     assert (await document_state(factory)).status == DocumentStatus.INDEXING
 
+    # The durable publish entry repeats the switch idempotently.
     assert await dispatch_pending(factory, dispatcher) == [OutboxOperation.PUBLISH_REVISION.value]
     assert vector.searchable() == {3: "Статья 1. Новая.", 4: "Статья 2. Без изменений."}
     assert (await document_state(factory)).status == DocumentStatus.DONE
@@ -461,3 +461,29 @@ async def test_abandoning_a_stale_token_keeps_the_newer_staged_revision() -> Non
 
     assert await factory._uow.chunks.get_staged_revision(1) == second
     assert (await document_state(factory)).warning_message != STAGED_UPDATE_FAILED_WARNING
+
+
+@pytest.mark.asyncio
+async def test_document_domain_follows_the_published_revision_only() -> None:
+    vector = RecordingIndex(fail_uploads=False)
+    factory, dispatcher = await indexed_document(vector)
+    await factory._uow.documents.set_domain(1, DocDomain.GENERAL.value)
+    await process_chunks(
+        factory,
+        1,
+        "report.txt",
+        [RawDocument(page_content="Новый текст.", metadata={"document_id": 1})],
+        DocumentVisibility.INTERNAL_PUBLIC.value,
+        owner_id=None,
+        group_id=None,
+        doc_domain="legal",
+    )
+    assert (await document_state(factory)).doc_domain == DocDomain.GENERAL.value
+
+    vector.fail_uploads = True
+
+    for _ in range(8):
+        await dispatch_pending(factory, dispatcher)
+
+    # The rejected update leaves the domain of the text search still serves.
+    assert (await document_state(factory)).doc_domain == DocDomain.GENERAL.value
